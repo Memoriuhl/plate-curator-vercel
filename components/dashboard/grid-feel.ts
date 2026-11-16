@@ -1,5 +1,5 @@
 export function familyColumns(width: number) {
-  return width < 640 ? 1 : width < 900 ? 2 : width < 1150 ? 3 : width < 1400 ? 4 : 5
+  return width < 560 ? 1 : width < 820 ? 2 : width < 1060 ? 3 : width < 1400 ? 4 : 5
 }
 
 export function entranceDelay(row: number, column: number) {

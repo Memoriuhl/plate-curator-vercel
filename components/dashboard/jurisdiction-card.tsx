@@ -29,12 +29,23 @@ export function JurisdictionCard({ jurisdiction }: { jurisdiction: JurisdictionS
   const ref = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
     const card = ref.current
-    const strip = card?.closest('.jurisdiction-strip')
+    const strip = card?.closest<HTMLElement>('.jurisdiction-strip')
     if (!selected || !card || !strip) return
-    const bounds = card.getBoundingClientRect()
-    const viewport = strip.getBoundingClientRect()
-    if (bounds.left < viewport.left || bounds.right > viewport.right)
-      card.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const reveal = () => {
+      const bounds = card.getBoundingClientRect()
+      const viewport = strip.getBoundingClientRect()
+      const vertical = getComputedStyle(strip).flexDirection === 'column'
+      const start = vertical ? bounds.top : bounds.left
+      const end = vertical ? bounds.bottom : bounds.right
+      const viewportStart = vertical ? viewport.top + strip.clientTop : viewport.left + strip.clientLeft
+      const viewportEnd = viewportStart + (vertical ? strip.clientHeight : strip.clientWidth)
+      const delta = start < viewportStart ? start - viewportStart : end > viewportEnd ? end - viewportEnd : 0
+      if (delta) strip.scrollBy(vertical ? { top: delta } : { left: delta })
+    }
+    reveal()
+    const observer = new ResizeObserver(reveal)
+    observer.observe(strip)
+    return () => observer.disconnect()
   }, [selected])
   const percent = jurisdiction.plateCount
     ? (jurisdiction.completeCount / jurisdiction.plateCount) * 100

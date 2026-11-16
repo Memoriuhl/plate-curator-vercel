@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { DROP_DURATION, SPRING_SAMPLES, entranceDelay, familyColumns, hoverPosition } from '../components/dashboard/grid-feel'
 
-test.each([[639, 1], [899, 2], [1149, 3], [1399, 4], [1440, 5], [640, 2], [900, 3], [1150, 4], [1400, 5]])('columns at %i pixels', (width, columns) => {
+test.each([[559, 1], [560, 2], [819, 2], [820, 3], [1059, 3], [1060, 4], [1399, 4], [1400, 5], [1440, 5]])('columns at %i pixels of container width', (width, columns) => {
   expect(familyColumns(width)).toBe(columns)
 })
 

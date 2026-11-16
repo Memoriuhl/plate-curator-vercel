@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { notFound } from 'next/navigation'
 import { loadDashboard, loadJurisdiction } from '@/lib/catalog/dashboard'
-import { JurisdictionCard } from './jurisdiction-card'
+import { JurisdictionNav } from './jurisdiction-nav'
 import { StateHeader } from './state-header'
 import { FilterBar } from './filter-bar'
 import { FamilyGrid } from './family-grid'
@@ -11,20 +11,7 @@ import { filterCounts, projectFamilyPlate } from './family-data'
 export async function JurisdictionStrip() {
   await connection()
   const { jurisdictions } = await loadDashboard()
-  return (
-    <nav className="jurisdiction-strip" aria-label="Jurisdictions">
-      {jurisdictions.length ? (
-        jurisdictions.map((jurisdiction) => (
-          <JurisdictionCard
-            key={jurisdiction.code}
-            jurisdiction={jurisdiction}
-          />
-        ))
-      ) : (
-        <p>No jurisdictions available.</p>
-      )}
-    </nav>
-  )
+  return <JurisdictionNav jurisdictions={jurisdictions} />
 }
 
 export async function StateContent({ code }: { code: string }) {
