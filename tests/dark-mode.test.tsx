@@ -34,12 +34,20 @@ test('the head script restores only valid stored themes and tolerates blocked st
   const layout = readFileSync('app/layout.tsx', 'utf8')
   const script = layout.match(/__html: `([^`]+)`/)![1]
   expect(layout.indexOf('<head>')).toBeLessThan(layout.indexOf('<body'))
+  expect(layout).toContain('<html lang="en" suppressHydrationWarning>')
   for (const theme of ['light', 'dark', 'system', 'invalid', null]) {
     const document = testDocument()
+    document.documentElement.dataset.theme = 'dark'
+    document.documentElement.style.colorScheme = 'dark'
     runInContext(script, createContext({ document, localStorage: { getItem: () => theme } }))
     expect(document.documentElement.dataset.theme).toBe(theme === 'light' || theme === 'dark' ? theme : undefined)
   }
-  expect(() => runInContext(script, createContext({ localStorage: { getItem() { throw new Error('blocked') } } }))).not.toThrow()
+  const document = testDocument()
+  document.documentElement.dataset.theme = 'dark'
+  document.documentElement.style.colorScheme = 'dark'
+  expect(() => runInContext(script, createContext({ document, localStorage: { getItem() { throw new Error('blocked') } } }))).not.toThrow()
+  expect(document.documentElement.dataset.theme).toBeUndefined()
+  expect(document.documentElement.style.colorScheme).toBe('')
 })
 
 function luminance(hex: string) {
