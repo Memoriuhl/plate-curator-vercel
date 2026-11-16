@@ -1,0 +1,95 @@
+/* Plate Curator Interstate — generated from tokens.json */
+:root {
+  --ground: #EDEFEC;
+  --card: #FFFFFF;
+  --elevated: #FFFFFF;
+  --fill: #EDEFEC;
+  --hairline: #DCE0DC;
+  --ink: #15201B;
+  --ink-2: #4A5650;
+  --ink-3: #5F6A64;
+  --primary: #202826;
+  --on-primary: #FFFFFF;
+  --success: #0E6B45;
+  --success-tint: #E3F1EA;
+  --warning: #A86F00;
+  --warning-ink: #6B4A00;
+  --warning-tint: #FBF0D6;
+  --danger: #C2362B;
+  --danger-tint: #FBE4E1;
+  --info: #1F4FA3;
+  --info-tint: #E1E8FA;
+  --player-you: #6D4AA8;
+  --player-friend: #0E7C86;
+  --player-third: #A8541A;
+  --player-fourth: #4D6B1F;
+  --rarity-1: #6A7570;
+  --rarity-2: #2F72B8;
+  --rarity-3: #3560D0;
+  --rarity-4: #7A45D8;
+  --rarity-5: #B02FA6;
+  --rarity-6: #946A0B;
+  --scrim: rgba(21, 32, 27, 0.55);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+  --icon-chrome: 16px;
+  --icon-status: 20px;
+  --icon-stroke: 1.5;
+  --shadow-pop: 0 12px 40px rgba(21, 32, 27, 0.22);
+  --font-sans: Overpass, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dark, [data-theme="dark"] {
+  --ground: #121715;
+  --card: #1B2220;
+  --elevated: #202826;
+  --fill: #29322E;
+  --hairline: #2C3531;
+  --ink: #E2E7E4;
+  --ink-2: #A2ACA7;
+  --ink-3: #97A19C;
+  --primary: #E2E7E4;
+  --on-primary: #121715;
+  --success: #1E7D55;
+  --success-tint: #1C3329;
+  --warning: #E0A812;
+  --warning-ink: #EBC067;
+  --warning-tint: #33291A;
+  --danger: #C84A3C;
+  --danger-tint: #3A2220;
+  --info: #3A68B8;
+  --info-tint: #1E2640;
+  --player-you: #7A5CB8;
+  --player-friend: #0E7C86;
+  --player-third: #A8541A;
+  --player-fourth: #4D6B1F;
+  --rarity-1: #6A7570;
+  --rarity-2: #2F72B8;
+  --rarity-3: #3560D0;
+  --rarity-4: #7A45D8;
+  --rarity-5: #B02FA6;
+  --rarity-6: #946A0B;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+.page-title { font-family: var(--font-sans); font-size: 34px; line-height: 38px; font-weight: 900; font-style: italic; }
+.dialog-title { font-family: var(--font-sans); font-size: 28px; line-height: 32px; font-weight: 900; font-style: italic; }
+.section { font-family: var(--font-sans); font-size: 20px; line-height: 24px; font-weight: 800; letter-spacing: -0.2px; }
+.plate-name { font-family: var(--font-sans); font-size: 17px; line-height: 21px; font-weight: 800; }
+.body { font-family: var(--font-sans); font-size: 15px; line-height: 21px; font-weight: 600; }
+.label { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 800; }
+.caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 600; }
+.button { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 800; }
+.button-sm { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 800; }
+.id { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 400; }
+.count { font-family: var(--font-mono); font-size: 13px; line-height: 18px; font-weight: 500; }

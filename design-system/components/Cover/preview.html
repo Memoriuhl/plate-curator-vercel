@@ -1,0 +1,38 @@
+<!-- @dsCard height=320 -->
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:ital,wght@0,600;0,900;1,900&display=swap">
+<style>
+html,body{margin:0;background:var(--ground)}
+.cover{position:relative;width:960px;height:320px;overflow:hidden;background:var(--ground)}
+.cover svg{position:absolute;left:0;top:0}
+.b-primary{fill:var(--primary)}
+.b-success{fill:var(--success)}
+.b-info{fill:var(--info)}
+.b-rare{fill:var(--rarity-6)}
+.b-tint{fill:var(--fill)}
+.bolt{fill:var(--ground)}
+.plate{rx:var(--radius-lg);ry:var(--radius-lg)}
+.name{position:absolute;left:48px;top:150px;max-width:880px;margin:0;font-family:var(--font-sans);font-weight:900;font-style:italic;font-size:64px;line-height:.95;color:var(--ink)}
+.tag{position:absolute;left:48px;top:282px;margin:0;font-family:var(--font-sans);font-weight:600;font-size:14px;color:var(--ink-2)}
+</style>
+<div class="cover">
+  <!--
+    blocks: primary 200x100, success 200x100, info 200x100, rarity-6 140x100, fill 160x100 (radius-lg corners)
+    arrangement: a top band of plate-proportioned slabs (2:1, like a licence plate), bleeding off the right edge
+    pattern: bolt holes, a literal motif: every plate has four mounting holes, cut out of each slab in the ground colour
+    steps and radii: band 104 tall at y=16, gaps space-4 (16), holes r=5 inset space-4, corners radius-lg (20)
+  -->
+  <svg width="960" height="140" viewBox="0 0 960 140" aria-hidden="true">
+    <rect class="b-primary plate" x="48" y="16" width="200" height="104"></rect>
+    <rect class="b-success plate" x="264" y="16" width="200" height="104"></rect>
+    <rect class="b-tint plate" x="480" y="16" width="160" height="104"></rect>
+    <rect class="b-info plate" x="656" y="16" width="200" height="104"></rect>
+    <rect class="b-rare plate" x="872" y="16" width="140" height="104"></rect>
+    <circle class="bolt" cx="68" cy="36" r="5"></circle><circle class="bolt" cx="228" cy="36" r="5"></circle><circle class="bolt" cx="68" cy="100" r="5"></circle><circle class="bolt" cx="228" cy="100" r="5"></circle>
+    <circle class="bolt" cx="284" cy="36" r="5"></circle><circle class="bolt" cx="444" cy="36" r="5"></circle><circle class="bolt" cx="284" cy="100" r="5"></circle><circle class="bolt" cx="444" cy="100" r="5"></circle>
+    <circle class="bolt" cx="676" cy="36" r="5"></circle><circle class="bolt" cx="836" cy="36" r="5"></circle><circle class="bolt" cx="676" cy="100" r="5"></circle><circle class="bolt" cx="836" cy="100" r="5"></circle>
+    <circle class="bolt" cx="892" cy="36" r="5"></circle><circle class="bolt" cx="892" cy="100" r="5"></circle>
+  </svg>
+  <h1 class="name">Plate Curator Interstate</h1>
+  <p class="tag">The State Spotter look, tuned for curating the catalog.</p>
+</div>

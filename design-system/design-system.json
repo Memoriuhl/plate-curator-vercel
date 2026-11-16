@@ -1,0 +1,78 @@
+{
+  "v": 3,
+  "layout": "files",
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-16T05:20:00Z"
+  },
+  "title": "Plate Curator Interstate",
+  "namespace": "Interstate",
+  "libraries": [],
+  "sections": {},
+  "groups": [
+    "Logos",
+    "Plates"
+  ],
+  "assetGroups": {
+    "Logos": {
+      "name": "Logos",
+      "tile": "s",
+      "order": [
+        "state-spotter-icon.png"
+      ],
+      "files": {
+        "state-spotter-icon.png": {
+          "name": "state-spotter-icon.png",
+          "blob": "a19c63e4da2b67b397254dcd23e2e53c",
+          "size": 17358,
+          "type": "image/png"
+        }
+      }
+    },
+    "Plates": {
+      "name": "Plates",
+      "tile": "m",
+      "order": [
+        "ak-army.webp",
+        "ak-air-force.webp",
+        "ak-navy.webp",
+        "ak-standard-gold.webp"
+      ],
+      "files": {
+        "ak-army.webp": {
+          "name": "ak-army.webp",
+          "blob": "a09ba0b044f73de303e8b0e9c8f9d579",
+          "size": 5298,
+          "type": "image/webp"
+        },
+        "ak-air-force.webp": {
+          "name": "ak-air-force.webp",
+          "blob": "59cf2f8e5310466b7ca535e4c41e5b14",
+          "size": 4862,
+          "type": "image/webp"
+        },
+        "ak-navy.webp": {
+          "name": "ak-navy.webp",
+          "blob": "0fc9ec6a3096f913c89dfc38c7166b94",
+          "size": 5130,
+          "type": "image/webp"
+        },
+        "ak-standard-gold.webp": {
+          "name": "ak-standard-gold.webp",
+          "blob": "479e9723c3a9caeac17eec0bad2e67e9",
+          "size": 4220,
+          "type": "image/webp"
+        }
+      }
+    }
+  },
+  "blobs": {},
+  "docs": {
+    "sections": []
+  },
+  "lastChange": {
+    "by": "Jonathan",
+    "at": "2026-11-16T05:20:00Z",
+    "note": "First version: tokens from the game's Interstate theme, ten components mapped to code, principles and screens."
+  }
+}
