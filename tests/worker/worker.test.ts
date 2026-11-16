@@ -71,3 +71,9 @@ test('401 on claim stops before reading an image', async () => {
   await runLoop(deps, { idleMs: 5 })
   expect(deps.readImage).not.toHaveBeenCalled()
 })
+test('a failed iteration logs its cause and keeps going', async () => {
+  const { deps, fetch } = setup()
+  fetch.mockReset().mockRejectedValueOnce(new Error('connect ECONNREFUSED')).mockResolvedValue(new Response(null, { status: 401 }))
+  await runLoop(deps, { idleMs: 5 })
+  expect(deps.log).toHaveBeenCalledWith('Worker iteration failed: connect ECONNREFUSED')
+})
