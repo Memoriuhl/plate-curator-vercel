@@ -60,12 +60,12 @@ export function FamilyCard({
   }
   function preview(plate: PlateCardData, element: HTMLElement, immediate: boolean) {
     if (drag?.active || drag?.saving) return
-    const card = element.closest('article')
-    if (card?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)) return
+    if (entranceRunning(element)) return
     onPreview?.(plate, element, immediate)
   }
   function entranceRunning(element: HTMLElement) {
-    return element.closest('article')?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)
+    const plate = element.closest('[data-drag-variant]') ?? element.closest('article')
+    return plate?.querySelector('[data-plate-image]')?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)
   }
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id

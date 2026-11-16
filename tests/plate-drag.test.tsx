@@ -192,10 +192,11 @@ test('card handles respect entrance animations and global keyboard survives sour
   render(<Cards />)
   const article = screen.getByRole('article')
   const handle = screen.getByRole('button', { name: 'Move Army family' })
-  article.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
+  const image = article.querySelector('[data-plate-image]')!
+  image.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
   fireEvent.keyDown(handle, { key: ' ' })
   expect(screen.queryByText(/Lifted/)).toBeNull()
-  article.getAnimations = () => []
+  image.getAnimations = () => []
   fireEvent.keyDown(handle, { key: ' ' })
   expect(screen.getByText(/Lifted Army/)).toBeTruthy()
   handle.remove()
