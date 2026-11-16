@@ -100,14 +100,15 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) => [family.template, ...family.variants].some(matches))
   useLayoutEffect(() => {
-    const resize = () =>
+    const resize = () => {
+      const bounds = container.current?.getBoundingClientRect()
+      if (!bounds) return
       setLayout({
-        columns: familyColumns(window.innerWidth),
+        columns: familyColumns(bounds.width),
         ready: true,
-        margin:
-          (container.current?.getBoundingClientRect().top ?? 0) +
-          window.scrollY,
+        margin: bounds.top + window.scrollY,
       })
+    }
     resize()
     const observer = new ResizeObserver(resize)
     if (container.current) observer.observe(container.current)
