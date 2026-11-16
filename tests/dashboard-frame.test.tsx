@@ -1,3 +1,4 @@
+import { filterCounts } from '../components/dashboard/family-data'
 import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, test, vi } from 'vitest'
@@ -67,7 +68,10 @@ test('jurisdiction card exposes selected border, destination, counts and proport
 
 test('filter bar renders fixture check counts and preserves query when selecting a filter', () => {
   const html = renderToStaticMarkup(
-    <FilterBarControls plates={alaskaFixture.plates} changedCount={3} />,
+    <FilterBarControls
+      counts={filterCounts(alaskaFixture.plates)}
+      changedCount={3}
+    />,
   )
   expect(html).toContain('All plates<span>44</span>')
   expect(html).toContain('Changed in a batch<span>3</span>')
@@ -84,7 +88,7 @@ test('filter bar renders fixture check counts and preserves query when selecting
 test('URL selects one chip and empty plates have zero counts', () => {
   navigation.query = 'show=generic'
   const html = renderToStaticMarkup(
-    <FilterBarControls plates={[]} changedCount={0} />,
+    <FilterBarControls counts={filterCounts([])} changedCount={0} />,
   )
   expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
   expect(html).toContain('Generic description<span>0</span>')
@@ -104,7 +108,7 @@ test('needs-work counts include weak and missing metadata', () => {
   plates[2].checks.description.status = 'good'
   plates[0].checks.funFacts.status = 'good'
   const html = renderToStaticMarkup(
-    <FilterBarControls plates={plates} changedCount={0} />,
+    <FilterBarControls counts={filterCounts(plates)} changedCount={0} />,
   )
   expect(html).toContain('Under-tagged<span>2</span>')
   expect(html).toContain('Generic description<span>2</span>')

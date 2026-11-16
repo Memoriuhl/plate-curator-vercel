@@ -2,7 +2,6 @@ import { Suspense } from 'react'
 import {
   JurisdictionStrip,
   StateContent,
-  FamilyGridSlot,
 } from '@/components/dashboard/dashboard-data'
 import { DashboardSearch } from '@/components/dashboard/search'
 import { ReviewStrip } from '@/components/dashboard/review-strip'
@@ -45,7 +44,6 @@ export default function Dashboard({
       <Suspense fallback={<DashboardSkeleton kind="state" />}>
         <State params={params} />
       </Suspense>
-      <FamilyGridSlot />
     </main>
   )
 }
