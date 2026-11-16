@@ -4,11 +4,19 @@ import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
 import type { Plate } from '../catalog/types'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
+import { gcpAuthClient } from '../gcp/credentials'
+import { firestoreJobsStore } from '../jobs/firestore-store'
+import { verifyWorkerToken } from '../jobs/tokens'
+import type { Environment, JobsDeps } from '../jobs/types'
+import { firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
+import { gcsSnapshots } from '../publish/gcs-snapshots'
+import type { PublishDeps } from '../publish/types'
 import { requireEnv } from '../env'
 import { stagingFirestore } from '../gcp/firestore'
 import { loadSnapshot } from '../gcp/storage'
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { ReviewDeps } from '../review/types'
+import { json } from './respond'
 
 const platesByVersion = new Map<number, Map<string, Plate>>()
 
@@ -43,4 +51,36 @@ export function reviewDeps(): ReviewDeps {
     },
     now: () => new Date().toISOString(),
   }
+}
+
+export function jobsDeps(): JobsDeps {
+  return {
+    store: firestoreJobsStore(stagingFirestore(), reviewEnv() as Environment),
+    baseline: reviewDeps().baseline,
+    now: () => Date.now(),
+    id: () => crypto.randomUUID(),
+    leaseMs: 5 * 60_000,
+  }
+}
+
+export function publishDeps(): PublishDeps {
+  const db = stagingFirestore()
+  const env = reviewEnv()
+  return {
+    ...reviewDeps(),
+    pointer: firestorePublishPointer(db, env),
+    records: firestorePublishRecords(db, env),
+    lock: firestorePublishLock(db, env),
+    snapshots: gcsSnapshots(requireEnv('FIREBASE_STORAGE_BUCKET'), async () => (await gcpAuthClient().getAccessToken()).token ?? ''),
+  }
+}
+
+export function publishAllowed(): boolean {
+  return process.env.VERCEL_ENV === 'production' || process.env.ALLOW_PUBLISH === 'true'
+}
+
+export async function currentWorker(request: Request): Promise<{ ok: true; workerId: string } | { ok: false; response: Response }> {
+  const match = /^Bearer ([^\s]+)$/i.exec(request.headers.get('Authorization') ?? '')
+  const workerId = match ? await verifyWorkerToken(jobsDeps(), match[1]) : null
+  return workerId ? { ok: true, workerId } : { ok: false, response: json({ error: 'unauthenticated' }, 401) }
 }

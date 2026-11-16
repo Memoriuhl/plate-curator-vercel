@@ -1,6 +1,8 @@
+import { start } from 'workflow/api'
 import { submitBatch } from '../../../../../lib/review/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../lib/server/respond'
+import { approvalRun } from '../../../../../workflows/approval'
 
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/submit'>) {
   const auth = await currentActor(request)
@@ -10,5 +12,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (typeof body?.revision !== 'number') return badRequest()
 
   const { id } = await ctx.params
-  return respond(await submitBatch(reviewDeps(), auth.actor, id, body.revision))
+  const outcome = await submitBatch(reviewDeps(), auth.actor, id, body.revision)
+  if (outcome.ok) await start(approvalRun, [id, outcome.value.revision])
+  return respond(outcome)
 }
