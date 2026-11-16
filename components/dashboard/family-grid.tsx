@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -22,8 +23,12 @@ import {
   type FamilyPlate,
 } from './family-data'
 
-import { ReadyPlatePreview } from '@/components/plate/ready-plate-preview'
 import type { PlateCheckKey } from '@/lib/catalog/dashboard-types'
+
+const ReadyPlatePreview = dynamic(
+  () => import('@/components/plate/ready-plate-preview').then(module => module.ReadyPlatePreview),
+  { loading: () => null },
+)
 
 export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
   const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])

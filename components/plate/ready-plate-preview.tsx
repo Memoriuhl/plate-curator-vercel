@@ -44,13 +44,20 @@ function PendingPreview(props: ReadyPreviewProps) {
   return <PlateHoverContent {...props} plate={overlaid ?? props.plate} state={data ? undefined : 'loading'} />
 }
 
+function shortenValue(value: string) {
+  return value.length > 64 ? value.slice(0, 36) + '\u2026' + value.slice(-24) : value
+}
+
 export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; checkKey: PlateCheckKey; parent?: string }) {
   const value = plate.checks[checkKey].value
   if (checkKey === 'tags') return plate.tags.length ? <div className="flex flex-wrap gap-1">{plate.tags.map(tag => <span className="rounded-full bg-[var(--fill)] px-2 py-0.5" key={tag}>{tag}</span>)}</div> : <>None</>
   if (checkKey === 'family') return <>{plate.templateFamily ? `${plate.templateFamily}${plate.templateRole ? ` · ${plate.templateRole === 'variant' && parent ? `variant of ${parent}` : plate.templateRole}` : ''}` : 'Missing'}</>
-  if (checkKey === 'image') return <>{plate.imageUrl ? `${plate.imageSize.width} px` : 'Missing'}</>
+  if (checkKey === 'image') {
+    const filename = plate.imageUrl?.split(/[?#]/, 1)[0].split('/').at(-1)
+    return <>{filename ? shortenValue(filename) : 'Missing'}</>
+  }
   if (!value) return <>Missing</>
-  if (checkKey === 'link') return <>{value.length > 64 ? `${value.slice(0, 36)}…${value.slice(-24)}` : value}</>
+  if (checkKey === 'link') return <>{shortenValue(value)}</>
   if (checkKey === 'funFacts') {
     const facts = value.split('\n').filter(Boolean)
     return <><p>{facts.length} {facts.length === 1 ? 'fact' : 'facts'}</p><p className="line-clamp-2">{facts[0]}</p></>

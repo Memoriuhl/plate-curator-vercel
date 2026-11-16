@@ -131,7 +131,6 @@ export function FamilyCard({
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
-          aria-describedby="plate-breakdown-preview"
           prefetch={false}
           href={'/plates/' + plate.id}
           className={cn('flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}

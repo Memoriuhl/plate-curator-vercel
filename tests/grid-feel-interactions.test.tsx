@@ -208,7 +208,7 @@ test('slow tooltip freezes Loading until the pointer leaves', () => {
 test.each(['description', 'funFacts', 'link', 'tags', 'family', 'image', 'rarity'] as const)('formats %s and missing values', checkKey => {
   const base = { ...plateCards[0], tags: ['Military'], templateFamily: 'Army', templateRole: 'variant' as const, imageUrl: '/plate.png', checks: { ...plateCards[0].checks, [checkKey]: { status: 'good' as const, value: checkKey === 'funFacts' ? 'First fact\nSecond fact' : 'Full value' } } }
   const html = renderToStaticMarkup(<CheckValue plate={base} checkKey={checkKey} parent="Army" />)
-  expect(html).toContain(checkKey === 'tags' ? 'Military' : checkKey === 'family' ? 'Army · variant of Army' : checkKey === 'image' ? `${base.imageSize.width} px` : checkKey === 'funFacts' ? '2' : 'Full value')
+  expect(html).toContain(checkKey === 'tags' ? 'Military' : checkKey === 'family' ? 'Army · variant of Army' : checkKey === 'image' ? 'plate.png' : checkKey === 'funFacts' ? '2' : 'Full value')
   const empty = { ...base, tags: [], templateFamily: null, imageUrl: null, checks: { ...base.checks, [checkKey]: { status: 'missing' as const, value: null } } }
   expect(renderToStaticMarkup(<CheckValue plate={empty} checkKey={checkKey} />)).toContain(checkKey === 'tags' ? 'None' : 'Missing')
 })
@@ -286,4 +286,14 @@ test('marker name uses the shared tooltip, without a detail fetch or breakdown',
   expect(document.querySelector('[data-check-tooltip]')?.textContent).toBe('Priya, edited in your batch')
   expect(document.querySelector('#plate-breakdown-preview')).toBeNull()
   tooltip.unmount()
+})
+
+test('image tooltip shows the file name, strips URL suffixes and shortens long names', () => {
+  const imageUrl = '/plates/AK/standard.webp?version=2#preview'
+  expect(renderToStaticMarkup(<CheckValue plate={{ ...plateCards[0], imageUrl }} checkKey="image" />)).toBe('standard.webp')
+  const filename = 'a'.repeat(70) + 'plate.webp'
+  const html = renderToStaticMarkup(<CheckValue plate={{ ...plateCards[0], imageUrl: '/plates/' + filename }} checkKey="image" />)
+  expect(html).toContain(filename.slice(0, 36) + '\u2026' + filename.slice(-24))
+  expect(html).not.toContain('320 px')
+  expect(renderToStaticMarkup(<CheckValue plate={{ ...plateCards[0], imageUrl: null }} checkKey="image" />)).toBe('Missing')
 })
