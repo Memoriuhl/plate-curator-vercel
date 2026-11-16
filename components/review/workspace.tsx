@@ -457,6 +457,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             </header>
             <DiffTable
               before={entry.baseline}
+              beforeImageUrl={plateImage(entry.baseline.id)}
               after={entry.proposed}
               version={entry.batch.baselineVersion}
               revision={entry.batch.revision}
