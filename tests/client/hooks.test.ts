@@ -7,6 +7,8 @@ import type { Plate } from '../../lib/catalog/types'
 import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import type { ReviewBatch } from '../../lib/review/types'
 import { useBatchRun, useReviewActions, batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
+import { projectFamilyPlate, expandFamilyPlate } from '../../components/dashboard/family-data'
+import { usePlateDrag } from '../../components/dashboard/use-plate-drag'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -62,6 +64,52 @@ beforeEach(() => {
   session.api.send.mockReset()
 })
 afterEach(cleanup)
+
+test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the server revision', async action => {
+  const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', templateRole: action === 'merge' ? 'template' : 'variant' }))
+  const parent = { ...card, id: 'AK.parent', templateRole: 'template' as const }
+  const families = action === 'merge'
+    ? [{ template: parent, variants: [] }, { template: plate, variants: [] }]
+    : [{ template: parent, variants: [plate] }]
+  session.api.send.mockResolvedValue({ batch, plate: proposed })
+  const reorder = vi.fn().mockResolvedValue({ ok: true })
+  const { result } = renderHook(() => usePlateDrag({
+    families, canEdit: true, show: 'all', query: '', edits: useEditPlate(),
+    ordering: { reorder, pending: false }, closePreview: vi.fn(), reload: vi.fn(),
+    targets: () => [{ target: action === 'merge' ? { kind: 'merge', familyId: parent.id } : { kind: 'family-slot', index: 1 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }],
+  }), harness())
+  const handle = document.createElement('button')
+  document.body.append(handle)
+  try {
+    act(() => result.current.onPointerDown({ kind: action === 'merge' ? 'family' : 'variant', plate }, {
+      button: 0, clientX: 100, clientY: 100, pointerId: 1, pointerType: 'mouse', currentTarget: handle,
+    } as unknown as import('react').PointerEvent<HTMLElement>))
+    for (const type of ['pointermove', 'pointerup']) {
+      const event = new MouseEvent(type, { bubbles: true, clientX: 110, clientY: 100, button: 0 })
+      Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+      act(() => { window.dispatchEvent(event) })
+    }
+    await waitFor(() => expect(result.current.announcement).toBe('Dropped'))
+    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.outside', {
+      baseRevision: 'server-revision',
+      fields: action === 'merge'
+        ? { templateRole: 'variant', variantOfPlateId: parent.id, templateFamily: parent.id }
+        : { templateRole: 'template', variantOfPlateId: null, templateFamily: 'ak_outside' },
+    })
+  } finally { handle.remove() }
+})
+
+test.each(['card', 'batch'])('empty %s revision rejects without sending a PATCH', async source => {
+  session.api.get.mockImplementation(async (key: string) => key === ownKey ? [batch] : source === 'batch'
+    ? { ...detail(), plates: [{ ...detail().plates[0], revision: '' }] }
+    : { batch, plates: [] })
+  const { result } = renderHook(() => useEditPlate(), harness())
+  await act(async () => {
+    await expect(result.current.edit({ ...card, revision: source === 'card' ? '' : card.revision }, { tags: [] })).rejects.toThrow('Cannot save a plate without a revision')
+  })
+  expect(session.api.send).not.toHaveBeenCalled()
+  expect(result.current.pending).toBe(false)
+})
 
 test('draft overlay merges proposed fields and checks without changing card display data', async () => {
   const edit = { plateId: card.id, baseRevision: 'base', fields: { tags: proposed.tags }, authorId: 'jon', updatedAt: '2026-11-16', resultRevision: 'draft-revision' }

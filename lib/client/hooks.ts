@@ -210,6 +210,7 @@ export function useEditPlate() {
       const key = `/api/batches/${id}`
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
       const baseRevision = detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision
+      if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${key}/plates/${plate.id}`, { baseRevision, fields })
       await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(`${batchesKey()}?`)))
