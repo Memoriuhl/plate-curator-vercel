@@ -8,7 +8,7 @@ import { db } from './setup'
 
 const env = 'preview-test'
 const store = firestoreReviewStore(db, env)
-const batch: ReviewBatch = { id: 'batch', name: 'Review plates', createdBy: 'editor', createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 4, baselineVersion: 1, plateIds: ['one', 'two'], approval: null }
+const batch: ReviewBatch = { id: 'batch', name: 'Review plates', createdBy: 'editor', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 4, baselineVersion: 1, plateIds: ['one', 'two'], approval: null }
 const edit: ProposedEdit = { plateId: 'one', baseRevision: 'before', fields: { tags: ['changed'] }, authorId: 'editor', updatedAt: '2026-11-15T12:00:00Z', resultRevision: 'after' }
 
 beforeEach(async () => {
@@ -92,4 +92,14 @@ test("list never returns another env's batches", async () => {
   expect(await otherStore.list({})).toEqual([otherBatch])
   expect(await store.create(otherBatch)).toBe('exists')
   expect(await otherStore.getBatch('other')).toEqual(otherBatch)
+})
+
+
+test('legacy batches read back with a null creator name without migration', async () => {
+  const legacy = { ...batch, env }
+  Reflect.deleteProperty(legacy, 'createdByName')
+  await db.doc('reviewBatches/batch').set(legacy)
+  expect(await store.getBatch('batch')).toEqual({ ...batch, createdByName: null })
+  expect(await store.list({})).toEqual([{ ...batch, createdByName: null }])
+  expect((await db.doc('reviewBatches/batch').get()).data()).not.toHaveProperty('createdByName')
 })

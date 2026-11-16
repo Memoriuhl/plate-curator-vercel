@@ -5,8 +5,8 @@ import { batchDetail, createBatch, listBatches } from '../../lib/review/queries'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
 
-const editor = { uid: 'editor-one', role: 'editor' } as const
-const owner = { uid: 'owner-one', role: 'owner' } as const
+const editor = { uid: 'editor-one', name: 'Jane Smith', role: 'editor' } as const
+const owner = { uid: 'owner-one', name: null, role: 'owner' } as const
 const createdAt = '2026-11-15T12:00:00Z'
 const baseline: Plate[] = [
   { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png' },
@@ -27,7 +27,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
 
   test.each([editor, owner])('creates an open batch at revision 0: $role', async actor => {
     const { deps, store } = await setup()
-    const expected: ReviewBatch = { ...input, state: 'open', revision: 0, approval: null, createdBy: actor.uid, createdAt }
+    const expected: ReviewBatch = { ...input, state: 'open', revision: 0, approval: null, createdBy: actor.uid, createdByName: actor.name, createdAt }
     expect(await createBatch(deps, actor, input)).toEqual({ ok: true, value: expected })
     expect(await store.getBatch(input.id)).toEqual(expected)
   })
@@ -69,9 +69,9 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
   test('lists only the requested states, newest first', async () => {
     const { deps, store } = await setup()
     const batches: ReviewBatch[] = [
-      { ...input, id: 'old', state: 'submitted', revision: 1, approval: null, createdBy: editor.uid, createdAt: '2026-11-13T12:00:00Z' },
-      { ...input, id: 'approved', state: 'approved', revision: 2, approval: { revision: 1, by: owner.uid, at: createdAt }, createdBy: editor.uid, createdAt },
-      { ...input, id: 'new', state: 'open', revision: 0, approval: null, createdBy: editor.uid, createdAt: '2026-11-14T12:00:00Z' },
+      { ...input, id: 'old', state: 'submitted', revision: 1, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-13T12:00:00Z' },
+      { ...input, id: 'approved', state: 'approved', revision: 2, approval: { revision: 1, by: owner.uid, at: createdAt }, createdBy: editor.uid, createdByName: editor.name, createdAt },
+      { ...input, id: 'new', state: 'open', revision: 0, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-14T12:00:00Z' },
     ]
     for (const batch of batches) expect(await store.create(batch)).toBe('ok')
     expect(await listBatches(deps, { states: ['open', 'submitted'] })).toEqual([batches[2], batches[0]])

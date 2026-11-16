@@ -9,7 +9,7 @@ import type { ReviewStore } from '../../lib/review/types'
 export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: ReviewStore; other: JobsStore }>) {
   async function setup() {
     const stores = await make()
-    await stores.review.create({ id: 'batch', name: 'Batch', createdBy: 'owner', createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
+    await stores.review.create({ id: 'batch', name: 'Batch', createdBy: 'owner', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
     let time = 1000
     let sequence = 0
     const plate: Plate = { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
@@ -27,11 +27,11 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
   test('job requester persists and only the requester or an owner can retrieve it', async () => {
     const s = await setup()
     await s.create()
-    const requester = { uid: 'requester', role: 'editor' } as const
+    const requester = { uid: 'requester', name: null, role: 'editor' } as const
     expect(await getJob(s.deps, 'job')).toMatchObject({ requestedBy: requester.uid })
     expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({ ok: true, value: { requestedBy: requester.uid } })
-    expect(await getJobForActor(s.deps, { uid: 'owner', role: 'owner' }, 'job')).toMatchObject({ ok: true })
-    expect(await getJobForActor(s.deps, { uid: 'owner', role: 'editor' }, 'job')).toEqual({ ok: false, error: 'not_found' })
+    expect(await getJobForActor(s.deps, { uid: 'owner', name: null, role: 'owner' }, 'job')).toMatchObject({ ok: true })
+    expect(await getJobForActor(s.deps, { uid: 'owner', name: null, role: 'editor' }, 'job')).toEqual({ ok: false, error: 'not_found' })
     expect(await getJobForActor(s.deps, requester, 'missing')).toEqual({ ok: false, error: 'not_found' })
     const c = await s.claim()
     await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
@@ -148,21 +148,21 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
   })
   test('worker token verifies, and a revoked token does not', async () => {
     const s = await setup()
-    const owner = { uid: 'owner', role: 'owner' } as const
+    const owner = { uid: 'owner', name: null, role: 'owner' } as const
     const issued = await issueWorkerToken(s.deps, owner, 'worker')
     if (!issued.ok) throw new Error('Expected token')
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBe('worker')
     const stored = await s.store.getToken(issued.value.hash)
     expect(stored).toMatchObject({ hash: issued.value.hash, workerId: 'worker', env: 'development', revokedAt: null })
     expect(JSON.stringify(stored)).not.toContain(issued.value.token)
-    expect(await revokeWorkerToken(s.deps, { uid: 'editor', role: 'editor' }, issued.value.hash)).toEqual({ ok: false, error: 'forbidden' })
+    expect(await revokeWorkerToken(s.deps, { uid: 'editor', name: null, role: 'editor' }, issued.value.hash)).toEqual({ ok: false, error: 'forbidden' })
     await revokeWorkerToken({ ...s.deps, store: s.other }, owner, issued.value.hash)
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBe('worker')
     expect(await verifyWorkerToken({ ...s.deps, store: s.other }, issued.value.token)).toBeNull()
     expect(await verifyWorkerToken(s.deps, 'invalid')).toBeNull()
     expect(await revokeWorkerToken(s.deps, owner, issued.value.hash)).toEqual({ ok: true, value: null })
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBeNull()
-    expect(await issueWorkerToken(s.deps, { uid: 'editor', role: 'editor' }, 'worker')).toEqual({ ok: false, error: 'forbidden' })
+    expect(await issueWorkerToken(s.deps, { uid: 'editor', name: null, role: 'editor' }, 'worker')).toEqual({ ok: false, error: 'forbidden' })
   })
   test('jobs from another environment are invisible to claims', async () => {
     const s = await setup()

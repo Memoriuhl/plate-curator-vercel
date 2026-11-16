@@ -87,7 +87,7 @@ test('an allowlisted uid is owner and anyone else is editor', async () => {
   for (const uid of ['owner-one', 'user-one']) {
     const verify = vi.fn(async () => ({ uid }))
     expect(await authenticate(new Request('https://example.com', { headers: { Authorization: 'Bearer signed-token' } }), { verify, ownerUids: ['owner-one'] }))
-      .toEqual({ ok: true, actor: { uid, role: uid === 'owner-one' ? 'owner' : 'editor' } })
+      .toEqual({ ok: true, actor: { uid, name: null, role: uid === 'owner-one' ? 'owner' : 'editor' } })
     expect(verify).toHaveBeenCalledWith('signed-token')
   }
 })
@@ -95,4 +95,28 @@ test('an allowlisted uid is owner and anyone else is editor', async () => {
 test('parseOwnerUids trims and ignores blanks', () => {
   expect(parseOwnerUids(' one, ,two, ')).toEqual(['one', 'two'])
   expect(parseOwnerUids(undefined)).toEqual([])
+})
+
+
+test.each([
+  [{ name: '  Jane Smith  ' }, 'Jane Smith'],
+  [{ name: 'Jane', email: 'other@example.com' }, 'Jane'],
+  [{ name: '   ', email: '  jane.doe@example.com' }, 'jane.doe'],
+  [{ name: '', email: 'user@example.com' }, 'user'],
+  [{ name: 123, email: 'user@example.com' }, 'user'],
+  [{ email: '  jane  @example.com' }, 'jane'],
+  [{ name: '  ' + 'n'.repeat(61) + '  ' }, 'n'.repeat(60)],
+  [{ email: '  ' + 'e'.repeat(61) + '@example.com' }, 'e'.repeat(60)],
+  [{ name: undefined, email: undefined }, null],
+  [{ name: null, email: 123 }, null],
+  [{ name: '   ', email: '  ' }, null],
+  [{ email: '@example.com' }, null],
+])('authenticates with a normalized display name from claims %j', async (claims, name) => {
+  const result = await authenticate(new Request('https://example.com', {
+    headers: { Authorization: `Bearer ${await token(claims)}` },
+  }), {
+    verify: value => verifyIdToken(value, { projectId, jwks, now: () => now * 1000 }),
+    ownerUids: [],
+  })
+  expect(result).toEqual({ ok: true, actor: { uid: 'user-one', role: 'editor', name } })
 })

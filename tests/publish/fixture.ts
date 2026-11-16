@@ -4,9 +4,9 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewBatch } from '../../lib/review/types'
 import type { CatalogPointer, PublishDeps, PublishLease, PublishRecord } from '../../lib/publish/types'
 
-export const owner = { uid: 'owner', role: 'owner' } as const
+export const owner = { uid: 'owner', name: null, role: 'owner' } as const
 export const batch: ReviewBatch = {
-  id: 'batch', name: 'Release', createdBy: 'editor', createdAt: '2026-11-15T12:00:00Z',
+  id: 'batch', name: 'Release', createdBy: 'editor', createdByName: null, createdAt: '2026-11-15T12:00:00Z',
   state: 'approved', revision: 2, baselineVersion: 1, plateIds: ['one'],
   approval: { revision: 1, by: owner.uid, at: '2026-11-15T12:00:00Z' },
 }

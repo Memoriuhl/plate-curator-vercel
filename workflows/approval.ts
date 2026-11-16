@@ -29,7 +29,7 @@ async function readBatch(batchId: string) {
 
 async function runPublish(batchId: string, revision: number, ownerUid: string) {
   'use step'
-  const outcome = await publishBatch(publishDeps(), { uid: ownerUid, role: 'owner' }, { batchId, revision })
+  const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision })
   if (!outcome.ok && (outcome.error === 'locked' || outcome.error === 'unavailable')) {
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })
   }
