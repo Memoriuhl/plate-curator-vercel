@@ -232,6 +232,238 @@ body {
   width: calc(100% - var(--space-8));
 }
 
+.dashboard {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.review-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  overflow-x: auto;
+  min-height: 44px;
+}
+.review-label,
+.review-chip,
+.batch-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.review-label {
+  font-size: 14px;
+}
+.review-chip {
+  background: var(--card);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1);
+  padding-left: var(--space-2);
+  font-size: 12px;
+}
+.review-status {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-weight: 800;
+}
+.review-submitted {
+  color: var(--info);
+  background: var(--info-tint);
+}
+.review-approved {
+  color: var(--success);
+  background: var(--success-tint);
+}
+.review-loading {
+  min-height: 44px;
+  color: var(--ink-2);
+}
+.dashboard-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: min(100%, 672px);
+  height: 44px;
+  padding: 0 var(--space-4);
+  background: var(--card);
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+}
+.dashboard-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline-offset: 0;
+}
+.dashboard-search kbd {
+  background: var(--fill);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.jurisdiction-strip {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  min-height: 100px;
+}
+.jurisdiction-card {
+  display: flex;
+  flex: 0 0 132px;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--ink);
+  text-decoration: none;
+}
+.jurisdiction-selected {
+  border-color: var(--primary);
+}
+.jurisdiction-card strong {
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 900;
+}
+.jurisdiction-card .caption {
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.jurisdiction-card .id {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.jurisdiction-progress {
+  display: block;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  overflow: hidden;
+}
+.jurisdiction-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+.state-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+}
+.state-header h1 {
+  margin: 0 0 var(--space-2);
+}
+.state-header p {
+  margin: 0;
+  color: var(--ink-2);
+}
+.batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.batch-summary {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.batch-actions [role='status'],
+.batch-actions [role='alert'] {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 60px;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.needs-work {
+  margin-left: var(--space-1);
+  color: var(--ink-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.filter-item svg {
+  color: var(--warning-ink);
+}
+.filter-item [data-state='on'] svg {
+  color: inherit;
+}
+.status-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.dashboard-skeleton {
+  background: var(--fill);
+  border-radius: var(--radius-lg);
+}
+.skeleton-jurisdictions {
+  height: 100px;
+  background: var(--card);
+}
+.skeleton-state {
+  min-height: 148px;
+}
+.filter-loading {
+  min-height: 60px;
+}
+.skeleton-families {
+  min-height: 240px;
+  border: 2px dashed var(--hairline);
+}
+@media (max-width: 900px) {
+  .batch-actions {
+    justify-content: flex-start;
+  }
+  .skeleton-state {
+    min-height: 240px;
+  }
+}
+@media (max-width: 420px) {
+  .dashboard-search {
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+  .dashboard-search input {
+    font-size: 12px;
+  }
+  .filter-item {
+    flex-wrap: wrap;
+  }
+  .skeleton-state {
+    min-height: 328px;
+  }
+}
+
 .parked-tab {
   display: inline-flex;
   height: 34px;

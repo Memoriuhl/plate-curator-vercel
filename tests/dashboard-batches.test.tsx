@@ -1,0 +1,122 @@
+import type { ComponentProps } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { beforeEach, expect, test, vi } from 'vitest'
+import { BatchActions } from '../components/dashboard/batch-actions'
+import { ReviewStrip } from '../components/dashboard/review-strip'
+import { FilterBar } from '../components/dashboard/filter-bar'
+import { alaskaFixture } from '../fixtures/dashboard-frame'
+import type { BatchDetail } from '../lib/client/hooks'
+import type { ReviewBatch } from '../lib/review/types'
+
+const state = vi.hoisted(() => ({
+  role: 'owner',
+  open: [] as ReviewBatch[],
+  review: [] as ReviewBatch[],
+  detail: undefined as BatchDetail | undefined,
+  submit: vi.fn(),
+  buttons: new Map<
+    string,
+    { disabled?: boolean; onClick?: () => Promise<void> }
+  >(),
+}))
+
+vi.mock('../lib/client/hooks', () => ({
+  useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
+  useBatches: (states: string[]) => ({
+    data: states.includes('open') ? state.open : state.review,
+  }),
+  useBatch: () => ({ data: state.detail }),
+  useReviewActions: () => ({ submit: state.submit }),
+}))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => '/states/AK',
+  useSearchParams: () => new URLSearchParams(),
+}))
+vi.mock('../components/ui/button', () => ({
+  Button: (props: ComponentProps<'button'>) => {
+    const label = Array.isArray(props.children)
+      ? props.children.filter((child) => typeof child === 'string').join('')
+      : String(props.children)
+    state.buttons.set(
+      label,
+      props as { disabled?: boolean; onClick?: () => Promise<void> },
+    )
+    return <button disabled={props.disabled}>{props.children}</button>
+  },
+}))
+
+const batch: ReviewBatch = {
+  id: 'batch-one',
+  name: 'Alaska updates',
+  createdBy: 'Jonathan',
+  state: 'open',
+  revision: 7,
+  createdAt: '2026-11-16',
+  baselineVersion: 11,
+  approval: null,
+  plateIds: ['AK.standard_gold', 'AK.amateur_radio_call_sign', 'AZ.standard'],
+}
+
+beforeEach(() => {
+  state.role = 'owner'
+  state.open = [batch]
+  state.review = []
+  state.detail = {
+    batch,
+    plates: [
+      {
+        baseline: { id: 'AK.standard_gold', state: 'AK' },
+        edit: { plateId: 'AK.standard_gold' },
+      },
+    ],
+  } as BatchDetail
+  state.buttons.clear()
+  state.submit.mockReset()
+})
+
+test('submit sends the loaded batch revision and counts edits', async () => {
+  const html = renderToStaticMarkup(<BatchActions />)
+  expect(html).toContain('1 changes, saved')
+  const submit = state.buttons.get('Submit for review')!
+  expect(submit.disabled).toBe(false)
+  await submit.onClick!()
+  expect(state.submit).toHaveBeenCalledWith('batch-one', 7)
+})
+
+test('editors cannot see Publish and pipeline stays disabled', () => {
+  state.role = 'editor'
+  const html = renderToStaticMarkup(<BatchActions />)
+  expect(html).not.toContain('Publish')
+  expect(state.buttons.get('Run pipeline')?.disabled).toBe(true)
+})
+
+test('owner Publish is disabled and empty batches cannot submit', () => {
+  state.detail!.plates[0].edit = null
+  renderToStaticMarkup(<BatchActions />)
+  expect(state.buttons.get('Publish')?.disabled).toBe(true)
+  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
+})
+
+test('no open batch hides the batch summary and disables submit', () => {
+  state.open = []
+  state.detail = undefined
+  const html = renderToStaticMarkup(<BatchActions />)
+  expect(html).not.toContain('Your batch:')
+  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
+})
+
+test('review strip hides when empty and approved batches retain Review with disabled Publish', () => {
+  expect(renderToStaticMarkup(<ReviewStrip />)).toBe('')
+  state.review = [{ ...batch, state: 'approved' }]
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  expect(html).toContain('href="/review?batch=batch-one"')
+  expect(html).toContain('Approved')
+  expect(html).toContain('rev 7')
+  expect(state.buttons.get('Publish')?.disabled).toBe(true)
+})
+
+test('changed filter counts current-jurisdiction batch membership including unedited plates', () => {
+  const html = renderToStaticMarkup(<FilterBar plates={alaskaFixture.plates} />)
+  expect(html).toMatch(/Changed in a batch<span class="count">2<\/span>/)
+})
