@@ -35,6 +35,7 @@ function PlateThumbnail({ plate, width, height, className }: PlateThumbnailProps
           width={width}
           height={height}
           className='size-full object-contain'
+            unoptimized
         />
       ) : (
         <span className='caption text-center'>No image</span>
