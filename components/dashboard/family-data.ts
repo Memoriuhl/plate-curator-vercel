@@ -1,4 +1,10 @@
-import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import {
+  PLATE_CHECK_KEYS,
+  COMPLETENESS_CHECK_KEYS,
+  type CheckStatus,
+  type PlateCheckKey,
+  type PlateCardData,
+} from '@/lib/catalog/dashboard-types'
 
 export function groupFamilies(plates: PlateCardData[]) {
   const ordered = [...plates].sort(
@@ -62,5 +68,88 @@ export function matchesPlate(
       return plate.checks.description.status !== 'good'
     default:
       return true
+  }
+}
+
+export type FamilyPlate = Pick<
+  PlateCardData,
+  | 'id'
+  | 'displayName'
+  | 'imageUrl'
+  | 'templateRole'
+  | 'templateFamily'
+  | 'variantOfPlateId'
+  | 'isStandard'
+  | 'sortOrder'
+  | 'tags'
+> & { checks: Record<PlateCheckKey, CheckStatus> }
+
+export type FilterCounts = {
+  all: number
+  nofunfacts: number
+  undertagged: number
+  generic: number
+}
+
+export function filterCounts(plates: PlateCardData[]): FilterCounts {
+  return plates.reduce(
+    (counts, plate) => ({
+      all: counts.all + 1,
+      nofunfacts:
+        counts.nofunfacts + Number(plate.checks.funFacts.status === 'missing'),
+      undertagged:
+        counts.undertagged + Number(plate.checks.tags.status !== 'good'),
+      generic:
+        counts.generic + Number(plate.checks.description.status !== 'good'),
+    }),
+    { all: 0, nofunfacts: 0, undertagged: 0, generic: 0 },
+  )
+}
+
+export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
+  const {
+    id,
+    displayName,
+    imageUrl,
+    templateRole,
+    templateFamily,
+    variantOfPlateId,
+    isStandard,
+    sortOrder,
+    tags,
+  } = plate
+  return {
+    id,
+    displayName,
+    imageUrl,
+    templateRole,
+    templateFamily,
+    variantOfPlateId,
+    isStandard,
+    sortOrder,
+    tags,
+    checks: Object.fromEntries(
+      PLATE_CHECK_KEYS.map((key) => [key, plate.checks[key].status]),
+    ) as FamilyPlate['checks'],
+  }
+}
+
+export function expandFamilyPlate(plate: FamilyPlate): PlateCardData {
+  const [state, ...slug] = plate.id.split('.')
+  return {
+    ...plate,
+    state,
+    slug: slug.join('.'),
+    imageSize: { width: 320, height: 160 },
+    revision: '',
+    complete: COMPLETENESS_CHECK_KEYS.every(
+      (key) => plate.checks[key] === 'good',
+    ),
+    checks: Object.fromEntries(
+      PLATE_CHECK_KEYS.map((key) => [
+        key,
+        { status: plate.checks[key], value: null },
+      ]),
+    ) as PlateCardData['checks'],
   }
 }

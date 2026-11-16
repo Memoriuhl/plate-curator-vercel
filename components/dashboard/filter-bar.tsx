@@ -6,56 +6,54 @@ import {
   IoPricetagOutline,
   IoHappyOutline,
 } from 'react-icons/io5'
-import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import type { FilterCounts } from './family-data'
 import { useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
 import { StatusIcon } from '@/components/plate/status-icon'
 
-export function FilterBar({ plates }: { plates: PlateCardData[] }) {
+export function FilterBar({
+  counts,
+  code,
+}: {
+  counts: FilterCounts
+  code: string
+}) {
   const batches = useBatches(['open'], { mine: true })
-  const changed = new Set(batches.data?.[0]?.plateIds ?? [])
-  return (
-    <FilterBarControls
-      plates={plates}
-      changedCount={plates.filter((plate) => changed.has(plate.id)).length}
-    />
-  )
+  const changedCount = new Set(
+    batches.data?.[0]?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
+  ).size
+  return <FilterBarControls counts={counts} changedCount={changedCount} />
 }
 
 export function FilterBarControls({
-  plates,
+  counts,
   changedCount,
 }: {
-  plates: PlateCardData[]
+  counts: FilterCounts
   changedCount: number
 }) {
   const params = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
   const filters = [
-    { key: 'all', label: 'All plates', count: plates.length },
+    { key: 'all', label: 'All plates', count: counts.all },
     { key: 'changed', label: 'Changed in a batch', count: changedCount },
     {
       key: 'nofunfacts',
       label: 'No fun facts',
-      count: plates.filter(
-        (plate) => plate.checks.funFacts.status === 'missing',
-      ).length,
+      count: counts.nofunfacts,
       icon: IoBulbOutline,
     },
     {
       key: 'undertagged',
       label: 'Under-tagged',
-      count: plates.filter((plate) => plate.checks.tags.status !== 'good')
-        .length,
+      count: counts.undertagged,
       icon: IoPricetagOutline,
     },
     {
       key: 'generic',
       label: 'Generic description',
-      count: plates.filter(
-        (plate) => plate.checks.description.status !== 'good',
-      ).length,
+      count: counts.generic,
       icon: IoHappyOutline,
     },
   ]
@@ -85,10 +83,17 @@ export function FilterBarControls({
           </span>
         ))}
       </div>
-      <div className="status-legend" role="group" aria-label="Check status legend">
+      <div
+        className="status-legend"
+        role="group"
+        aria-label="Check status legend"
+      >
         {(['good', 'weak', 'missing'] as const).map((status) => (
           <span key={status} className="inline-flex items-center">
-            <StatusIcon checkKey="description" check={{ status, value: status }} />
+            <StatusIcon
+              checkKey="description"
+              check={{ status, value: status }}
+            />
             {status}
           </span>
         ))}

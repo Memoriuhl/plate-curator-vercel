@@ -6,37 +6,41 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useBatch, useBatches } from '@/lib/client/hooks'
+import { useDraftOverlay } from '@/lib/client/hooks'
 import { FamilyCard } from '@/components/plate/family-card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { groupFamilies, matchesPlate } from './family-data'
+import {
+  groupFamilies,
+  matchesPlate,
+  expandFamilyPlate,
+  type FamilyPlate,
+} from './family-data'
 
 const PlateHoverCard = dynamic(
   () => import('@/components/plate/plate-hover-card'),
 )
 
-export function useFamilyBatchOverlay() {
-  const batches = useBatches(['open'], { mine: true })
-  const detail = useBatch(batches.data?.[0]?.id ?? null)
-  return useMemo(
-    () =>
-      new Map(
-        detail.data?.plates
-          .filter((item) => item.edit)
-          .map((item) => [item.proposed.id, item.edit!.authorId]) ?? [],
-      ),
-    [detail.data],
-  )
+export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
+  const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])
+  return useDraftOverlay(baselines)
 }
 
-export function FamilyGrid({ plates }: { plates: PlateCardData[] }) {
+export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   const params = useSearchParams()
   const pathname = usePathname()
-  const changed = useFamilyBatchOverlay()
-  const changedIds = useMemo(() => new Set(changed.keys()), [changed])
+  const overlaid = useFamilyBatchOverlay(plates)
+  const changedIds = useMemo(
+    () =>
+      new Set(
+        overlaid
+          .filter((plate) => plate.changedInBatch)
+          .map((plate) => plate.id),
+      ),
+    [overlaid],
+  )
   const show = params.get('show') ?? 'all'
   const query = params.get('q') ?? ''
-  const families = useMemo(() => groupFamilies(plates), [plates])
+  const families = useMemo(() => groupFamilies(overlaid), [overlaid])
   const matches = (plate: PlateCardData) =>
     matchesPlate(plate, show, query, changedIds)
   const visible = families
@@ -144,7 +148,7 @@ export function FamilyGrid({ plates }: { plates: PlateCardData[] }) {
     const top = Math.max(8, Math.min(rect.top, window.innerHeight - 720))
     const reveal = () => setPreview({ plate, left, top })
     if (immediate) reveal()
-    else timer.current = setTimeout(reveal, 180)
+    else timer.current = setTimeout(reveal, 150)
   }
   const parent = preview
     ? families.find((family) =>
@@ -187,15 +191,13 @@ export function FamilyGrid({ plates }: { plates: PlateCardData[] }) {
                       timer.current = setTimeout(close, 150)
                     }}
                     badge={(plate) =>
-                      changed.has(plate.id) ? (
+                      changedIds.has(plate.id) ? (
                         <Avatar
                           size="sm"
                           activity="changed"
                           aria-label="Changed in your batch"
                         >
-                          <AvatarFallback>
-                            {changed.get(plate.id)?.slice(0, 1).toUpperCase()}
-                          </AvatarFallback>
+                          <AvatarFallback>Y</AvatarFallback>
                         </Avatar>
                       ) : null
                     }

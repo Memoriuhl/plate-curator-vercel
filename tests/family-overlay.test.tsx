@@ -1,34 +1,24 @@
+import type { PlateCardData } from '../lib/catalog/dashboard-types'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ batches: vi.fn(), batch: vi.fn() }))
-vi.mock('../lib/client/hooks', () => ({
-  useBatches: mocks.batches,
-  useBatch: mocks.batch,
-}))
+import { plateCards } from '../fixtures/plate-cards'
+import { projectFamilyPlate } from '../components/dashboard/family-data'
+const overlay = vi.hoisted(() => vi.fn())
+vi.mock('../lib/client/hooks', () => ({ useDraftOverlay: overlay }))
 import { useFamilyBatchOverlay } from '../components/dashboard/family-grid'
 function Probe() {
-  return <p>{JSON.stringify([...useFamilyBatchOverlay()])}</p>
+  const plates = useFamilyBatchOverlay([projectFamilyPlate(plateCards[0])])
+  return <p>{String(plates[0]?.changedInBatch)}</p>
 }
-test('overlay uses the current open batch and only edited plates with their authors', () => {
-  mocks.batches.mockReturnValue({ data: [{ id: 'mine' }] })
-  mocks.batch.mockReturnValue({
-    data: {
-      plates: [
-        { proposed: { id: 'changed' }, edit: { authorId: 'curator' } },
-        { proposed: { id: 'unchanged' }, edit: null },
-      ],
-    },
-  })
-  const html = renderToStaticMarkup(<Probe />)
-  expect(mocks.batches).toHaveBeenCalledWith(['open'], { mine: true })
-  expect(mocks.batch).toHaveBeenCalledWith('mine')
-  expect(html).toContain('changed')
-  expect(html).toContain('curator')
-  expect(html).not.toContain('unchanged')
-})
-test('overlay tolerates a signed out user or a pending batch', () => {
-  mocks.batches.mockReturnValue({})
-  mocks.batch.mockReturnValue({})
-  expect(renderToStaticMarkup(<Probe />)).toContain('[]')
-  expect(mocks.batch).toHaveBeenLastCalledWith(null)
+test('grid delegates to the shared overlay with client-only null check values', () => {
+  overlay.mockImplementation((plates: PlateCardData[]) =>
+    plates.map((plate) => ({ ...plate, changedInBatch: true })),
+  )
+  expect(renderToStaticMarkup(<Probe />)).toContain('true')
+  const input = overlay.mock.calls[0][0][0]
+  expect(input.id).toBe(plateCards[0].id)
+  expect(input.checks.description.value).toBeNull()
+  expect(input.checks.description.status).toBe(
+    plateCards[0].checks.description.status,
+  )
 })

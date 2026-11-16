@@ -1,3 +1,4 @@
+import { filterCounts } from '../components/dashboard/family-data'
 import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, test, vi } from 'vitest'
@@ -49,7 +50,8 @@ vi.mock('../components/ui/button', () => ({
 const batch: ReviewBatch = {
   id: 'batch-one',
   name: 'Alaska updates',
-  createdBy: 'Jonathan', createdByName: null,
+  createdBy: 'Jonathan',
+  createdByName: null,
   state: 'open',
   revision: 7,
   createdAt: '2026-11-16',
@@ -117,6 +119,8 @@ test('review strip hides when empty and approved batches retain Review with disa
 })
 
 test('changed filter counts current-jurisdiction batch membership including unedited plates', () => {
-  const html = renderToStaticMarkup(<FilterBar plates={alaskaFixture.plates} />)
+  const html = renderToStaticMarkup(
+    <FilterBar counts={filterCounts(alaskaFixture.plates)} code="AK" />,
+  )
   expect(html).toMatch(/Changed in a batch<span class="count">2<\/span>/)
 })

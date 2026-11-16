@@ -1,3 +1,8 @@
+import {
+  projectFamilyPlate,
+  expandFamilyPlate,
+  filterCounts,
+} from '../components/dashboard/family-data'
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { plateCards } from '../fixtures/plate-cards'
@@ -6,7 +11,7 @@ import {
   matchesPlate,
 } from '../components/dashboard/family-data'
 import { FamilyCard } from '../components/plate/family-card'
-import PlateHoverCard from '../components/plate/plate-hover-card'
+import { PlateHoverContent } from '../components/plate/plate-hover-card'
 
 const base = plateCards[0]
 const head = {
@@ -93,7 +98,7 @@ test('one link per plate with nonfocusable status glyphs and touch previews', ()
 test('hover preview contains identity, description, all checks, chips and overflow', () => {
   const plate = { ...base, tags: ['one', 'two', 'three', 'four'] }
   const html = renderToStaticMarkup(
-    <PlateHoverCard plate={plate} parent="Parent" left={8} top={8} />,
+    <PlateHoverContent plate={plate} parent="Parent" left={8} top={8} />,
   )
   for (const value of [
     plate.displayName,
@@ -118,4 +123,39 @@ test('explicit parent references support legacy templates without a role', () =>
   const families = groupFamilies([{ ...head, templateRole: null }, variant])
   expect(families).toHaveLength(1)
   expect(families[0].variants).toEqual([variant])
+})
+
+test('server projection contains only grid fields and check statuses, never full values', () => {
+  const slim = projectFamilyPlate(base)
+  expect(Object.keys(slim).sort()).toEqual(
+    [
+      'id',
+      'displayName',
+      'imageUrl',
+      'templateRole',
+      'templateFamily',
+      'variantOfPlateId',
+      'isStandard',
+      'sortOrder',
+      'tags',
+      'checks',
+    ].sort(),
+  )
+  expect(slim.checks.description).toBe(base.checks.description.status)
+  expect(JSON.stringify(slim)).not.toContain('value')
+  const expanded = expandFamilyPlate(slim)
+  expect(expanded.checks.description).toEqual({
+    status: base.checks.description.status,
+    value: null,
+  })
+  expect(expanded.state).toBe(base.id.split('.')[0])
+})
+
+test('server counts preserve every filter definition', () => {
+  expect(filterCounts([base])).toEqual({
+    all: 1,
+    nofunfacts: Number(base.checks.funFacts.status === 'missing'),
+    undertagged: Number(base.checks.tags.status !== 'good'),
+    generic: Number(base.checks.description.status !== 'good'),
+  })
 })
