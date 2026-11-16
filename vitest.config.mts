@@ -8,7 +8,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'client',
-          include: ['tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx'],
+          include: ['tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx', 'tests/plate-drag.test.tsx'],
           environment: 'jsdom',
         },
       },
@@ -21,6 +21,7 @@ export default defineConfig({
             'tests/client/hooks.test.ts',
             'tests/plate-page.test.tsx',
             'tests/grid-feel-interactions.test.tsx',
+            'tests/plate-drag.test.tsx',
             ...(process.env.FIRESTORE_EMULATOR_HOST
               ? []
               : ['tests-emulator/**']),
@@ -31,3 +32,4 @@ export default defineConfig({
   },
   resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
 })
+
