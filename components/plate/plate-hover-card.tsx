@@ -1,6 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { hoverPosition } from '@/components/dashboard/grid-feel'
 import { usePlateDetail, useDraftOverlay } from '@/lib/client/hooks'
 import Image from 'next/image'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
@@ -10,8 +12,9 @@ import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 type HoverCardProps = {
   plate: PlateCardData
   parent?: string
-  left: number
-  top: number
+  left?: number
+  top?: number
+  anchor?: HTMLElement
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }
@@ -32,21 +35,44 @@ export default function PlateHoverCard(props: HoverCardProps) {
 export function PlateHoverContent({
   plate,
   parent,
-  left,
-  top,
+  left = 8,
+  top = 8,
+  anchor,
   onMouseEnter,
   onMouseLeave,
   state,
 }: HoverCardProps & { state?: 'loading' | 'error' }) {
-  return (
+  const card = useRef<HTMLElement>(null)
+  const [position, setPosition] = useState({ left, top })
+  useLayoutEffect(() => {
+    if (!anchor || !card.current) return
+    const element = card.current
+    const reposition = () => {
+      const bounds = element.getBoundingClientRect()
+      const next = hoverPosition(anchor.getBoundingClientRect(), bounds.width, bounds.height, window.innerWidth, window.innerHeight)
+      setPosition(current => current.left === next.left && current.top === next.top ? current : next)
+    }
+    reposition()
+    const observer = new ResizeObserver(reposition)
+    observer.observe(element)
+    window.addEventListener('scroll', reposition, { passive: true, capture: true })
+    window.addEventListener('resize', reposition)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+    }
+  }, [anchor])
+  const content = (
     <aside
+      ref={card}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       role="tooltip"
       tabIndex={-1}
       aria-label={plate.displayName + ' preview'}
       className="fixed z-50 max-h-[calc(100dvh-16px)] w-[min(372px,calc(100vw-16px))] overflow-auto rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)] shadow-xl"
-      style={{ left: 0, top: 0, transform: `translate(${left}px, ${top}px)` }}
+      style={{ left: 0, top: 0, transform: `translate(${position.left}px, ${position.top}px)` }}
     >
       {plate.imageUrl ? (
         <Image
@@ -112,4 +138,5 @@ export function PlateHoverContent({
       <p className="caption">Click to open</p>
     </aside>
   )
+  return anchor ? createPortal(content, document.body) : content
 }

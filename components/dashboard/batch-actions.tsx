@@ -53,19 +53,21 @@ export function BatchActions({
   return (
     <>
       <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
-        {batch ? (
-          <span className="batch-summary">
-            <Avatar size="sm">
-              <AvatarFallback>
-                {(me.data?.uid ?? batch.createdBy).slice(0, 1).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span>
-              Your batch:{' '}
-              {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
-            </span>
-          </span>
-        ) : null}
+        <span className="batch-summary min-h-6 min-w-60" aria-hidden={!batch}>
+          {batch ? (
+            <>
+              <Avatar size="sm">
+                <AvatarFallback>
+                  {(me.data?.uid ?? batch.createdBy).slice(0, 1).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span>
+                Your batch:{' '}
+                {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
+              </span>
+            </>
+          ) : null}
+        </span>
         <Button
           variant="outline"
           disabled={

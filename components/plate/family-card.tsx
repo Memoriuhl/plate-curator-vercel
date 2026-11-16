@@ -3,7 +3,8 @@
 import Image from 'next/image'
 import { preconnect } from 'react-dom'
 import Link from 'next/link'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   IoReorderThreeOutline,
   IoStar,
@@ -27,6 +28,7 @@ export type FamilyCardProps = {
     immediate: boolean,
   ) => void
   onClosePreview?: () => void
+  prefetchedIds?: Set<string>
 }
 
 export function FamilyCard({
@@ -38,7 +40,21 @@ export function FamilyCard({
   badge,
   onPreview,
   onClosePreview,
+  prefetchedIds,
 }: FamilyCardProps) {
+  const router = useRouter()
+  const prefetched = useRef(new Set<string>())
+  function prefetch(id: string) {
+    const ids = prefetchedIds ?? prefetched.current
+    if (ids.has(id)) return
+    ids.add(id)
+    router.prefetch('/plates/' + id)
+  }
+  function preview(plate: PlateCardData, element: HTMLElement, immediate: boolean) {
+    const card = element.closest('article')
+    if (card?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)) return
+    onPreview?.(plate, element, immediate)
+  }
   if (number === 1 && template.imageUrl?.startsWith('https:'))
     preconnect(new URL(template.imageUrl).origin)
   function plateContent(plate: PlateCardData, small: boolean) {
@@ -55,15 +71,20 @@ export function FamilyCard({
         <Link
           prefetch={false}
           href={'/plates/' + plate.id}
-          className="flex min-w-0 flex-1 flex-wrap items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+          className={cn('flex min-w-0 flex-1 items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
+          onPointerEnter={() => prefetch(plate.id)}
           onMouseEnter={(event) =>
-            onPreview?.(plate, event.currentTarget, false)
+            preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, false)
           }
           onMouseLeave={onClosePreview}
-          onFocus={(event) => onPreview?.(plate, event.currentTarget, true)}
+          onFocus={(event) => {
+            prefetch(plate.id)
+            preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true)
+          }}
           onBlur={onClosePreview}
         >
           <div
+            data-plate-image
             style={{ width, height }}
             className="flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
@@ -82,9 +103,9 @@ export function FamilyCard({
               <span className="caption">No image</span>
             )}
           </div>
-          <div className="flex min-w-0 flex-1 basis-36 flex-col gap-1">
+          <div className="flex w-full min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="plate-name whitespace-normal break-words">
+              <h3 className="plate-name min-w-0 whitespace-normal [overflow-wrap:anywhere]">
                 {plate.displayName}
               </h3>
               {plate.isStandard ? (
@@ -109,7 +130,11 @@ export function FamilyCard({
             type="button"
             tabIndex={-1}
             aria-label={'Preview ' + plate.displayName}
-            onClick={(event) => onPreview(plate, event.currentTarget, true)}
+            onClick={(event) => preview(plate, event.currentTarget, true)}
+            onMouseEnter={(event) => preview(plate, event.currentTarget, false)}
+            onMouseLeave={onClosePreview}
+            onFocus={(event) => preview(plate, event.currentTarget, true)}
+            onBlur={onClosePreview}
             className="absolute right-0 bottom-0 text-[var(--ink-2)]"
           >
             <IoInformationCircleOutline />
@@ -121,7 +146,7 @@ export function FamilyCard({
   return (
     <article
       aria-label={template.displayName + ' family'}
-      className="flex flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]"
+      className="@container flex origin-top min-w-0 flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]"
     >
       <div className="flex items-start gap-3">
         <span

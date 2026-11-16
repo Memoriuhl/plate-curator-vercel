@@ -3,7 +3,9 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { familyColumns } from './grid-feel'
+import { useGridEntrance } from './use-grid-entrance'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useDraftOverlay } from '@/lib/client/hooks'
@@ -47,23 +49,25 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) => [family.template, ...family.variants].some(matches))
   const container = useRef<HTMLDivElement>(null)
-  const [layout, setLayout] = useState({ columns: 3, margin: 420 })
+  const [layout, setLayout] = useState({ columns: 5, margin: 420, ready: false })
   const [preview, setPreview] = useState<{
     plate: PlateCardData
-    left: number
-    top: number
+    anchor: HTMLElement
   } | null>(null)
+  useGridEntrance(container, layout.ready, pathname)
   const anchor = useRef<HTMLElement | null>(null)
+  const [prefetchedIds] = useState(() => new Set<string>())
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const close = () => {
     if (timer.current) clearTimeout(timer.current)
     anchor.current = null
     setPreview(null)
   }
-  useEffect(() => {
+  useLayoutEffect(() => {
     const resize = () =>
       setLayout({
-        columns: window.innerWidth < 640 ? 1 : window.innerWidth < 1100 ? 2 : 3,
+        columns: familyColumns(window.innerWidth),
+        ready: true,
         margin:
           (container.current?.getBoundingClientRect().top ?? 0) +
           window.scrollY,
@@ -95,19 +99,6 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
         setPreview(null)
         return
       }
-      const rect = element.getBoundingClientRect()
-      setPreview((current) =>
-        current
-          ? {
-              ...current,
-              left: Math.max(
-                8,
-                Math.min(rect.right + 12, window.innerWidth - 388),
-              ),
-              top: Math.max(8, Math.min(rect.top, window.innerHeight - 720)),
-            }
-          : null,
-      )
     }
     window.addEventListener('scroll', reposition, { passive: true })
     window.addEventListener('pointerdown', dismissPointer)
@@ -129,9 +120,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     estimateSize: (index) =>
       Math.max(
         ...rows[index].map((family) =>
-          family.variants.length > 12
-            ? 144 + family.variants.length * 96
-            : 110 + family.variants.length * 82,
+          210 + family.variants.length * 104,
         ),
       ) + 16,
     overscan: 1,
@@ -147,11 +136,8 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   ) {
     if (timer.current) clearTimeout(timer.current)
     anchor.current = element
-    const rect = element.getBoundingClientRect()
-    const left = Math.max(8, Math.min(rect.right + 12, window.innerWidth - 388))
-    const top = Math.max(8, Math.min(rect.top, window.innerHeight - 720))
     const reveal = () => {
-      if (element.isConnected) setPreview({ plate, left, top })
+      if (element.isConnected) setPreview({ plate, anchor: element })
     }
     if (immediate) reveal()
     else timer.current = setTimeout(reveal, 150)
@@ -191,6 +177,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
                     key={family.template.id}
                     {...family}
                     matches={matches}
+                    prefetchedIds={prefetchedIds}
                     onPreview={open}
                     onClosePreview={() => {
                       if (timer.current) clearTimeout(timer.current)
@@ -226,7 +213,9 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
             onMouseEnter={() => {
               if (timer.current) clearTimeout(timer.current)
             }}
-            onMouseLeave={close}
+            onMouseLeave={() => {
+              timer.current = setTimeout(close, 150)
+            }}
           />
         ) : null}
       </Suspense>
