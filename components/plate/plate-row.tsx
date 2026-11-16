@@ -29,6 +29,7 @@ export function PlateRow({ plate }: PlateRowProps) {
             width={THUMBNAIL.width}
             height={THUMBNAIL.height}
             className='size-full object-contain'
+            unoptimized
           />
         ) : (
           <span className='caption text-center'>No image</span>

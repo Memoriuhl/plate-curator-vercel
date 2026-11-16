@@ -95,3 +95,11 @@ test('preview returns not found in production', () => {
     vi.unstubAllEnvs()
   }
 })
+
+test('plate images skip the optimizer because the source files are already pre-sized', () => {
+  const plate = { ...plateCards[0], imageUrl: 'https://example.com/AK/standard_gold.webp' }
+  for (const html of [renderToStaticMarkup(<PlateRow plate={plate} />), renderToStaticMarkup(<FamilyCard template={plate} variants={[]} />)]) {
+    expect(html).toContain('src="https://example.com/AK/standard_gold.webp"')
+    expect(html).toContain('loading="lazy"')
+  }
+})
