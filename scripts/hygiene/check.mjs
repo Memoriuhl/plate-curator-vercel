@@ -122,7 +122,11 @@ const SCISSORS = /^# -+ >8 -+$/m;
 const COMMENT_LINE = /^#.*$/gm;
 
 function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    throw new Error('git operation failed; verify repository and commit references');
+  }
 }
 
 function emailFromIdent(ident) {
@@ -161,16 +165,34 @@ function checkMessage(denylist, messageFile) {
   return findViolations({ text, denylist }).map((v) => ({ ...v, detail: `commit message ${v.detail}` }));
 }
 
-function runCli([mode, messageFile]) {
-  if (mode !== 'pre-commit' && !(mode === 'commit-msg' && messageFile)) {
-    console.error('usage: check.mjs pre-commit | commit-msg <message-file>');
+function checkRange(denylist, base, head) {
+  const resolve = (ref) => git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
+  const end = resolve(head);
+  const range = /^0{40}$/.test(base) ? end : `${resolve(base)}..${end}`;
+  const commits = git(['rev-list', '--reverse', range, '--']).trim().split('\n').filter(Boolean);
+  return commits.flatMap((commit) => {
+    const [author, committer, ...message] = git(['show', '-s', '--format=%ae%n%ce%n%B', commit]).split('\n');
+    const metadata = findViolations({ authorEmails: [author, committer], text: message.join('\n'), denylist })
+      .map((v) => ({ ...v, detail: `commit message ${v.detail}` }));
+    const text = git(['-c', 'core.quotePath=false', 'show', '--format=', '--root', '--diff-merges=first-parent',
+      '--no-renames', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', commit, '--']);
+    return [...metadata, ...findViolations({ text, denylist, format: 'diff' })]
+      .map((v) => ({ ...v, detail: `${commit.slice(0, 12)} ${v.detail}` }));
+  });
+}
+
+function runCli([mode, messageFile, head, ...extra]) {
+  if (extra.length || !((mode === 'pre-commit' && !messageFile) ||
+      (mode === 'commit-msg' && messageFile && !head) || (mode === 'range' && messageFile && head))) {
+    console.error('usage: check.mjs pre-commit | commit-msg <message-file> | range <base> <head>');
     return 2;
   }
   let violations;
   try {
     const { denylist, warning } = loadDenylist();
     if (warning) console.error(`hygiene: warning: ${warning}`);
-    violations = mode === 'pre-commit' ? checkStaged(denylist) : checkMessage(denylist, messageFile);
+    violations = mode === 'range' ? checkRange(denylist, messageFile, head)
+      : mode === 'pre-commit' ? checkStaged(denylist) : checkMessage(denylist, messageFile);
   } catch (error) {
     console.error(`hygiene: ${error.message}`);
     return 1;

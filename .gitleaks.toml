@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Firebase web API keys are public project identifiers"
+targetRules = ["gcp-api-key"]
+regexTarget = "secret"
+regexes = ['''^AIza[\w-]{35}$''']
