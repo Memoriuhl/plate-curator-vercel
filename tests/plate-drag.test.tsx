@@ -4,6 +4,9 @@ import { plateCards } from '../fixtures/plate-cards'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
 import { FamilyCard } from '../components/plate/family-card'
 import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
+import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-reflow'
+import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
+import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
 
 const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
 const v = { ...a, id: 'AK.v', templateRole: 'variant' as const }
@@ -41,7 +44,7 @@ function setup({ show = 'all', query = '', canEdit = true, error = false, merge 
       targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
     const item = { kind: variant ? 'variant' as const : 'family' as const, plate: singleton ? b : variant ? v : a }
-    return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span></>
+    return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
   }
   render(<Harness />)
   return { edit, reorder, reload, closePreview, handle: screen.getByRole('button') }
@@ -204,4 +207,97 @@ test('card handles respect entrance animations and global keyboard survives sour
   fireEvent.keyDown(window, { key: ' ' })
   await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
   expect(screen.getByText('Dropped')).toBeTruthy()
+})
+
+test('preview families move forward, backward and across row boundaries without leaving a hole', () => {
+  const extra = Array.from({ length: 7 }, (_, index) => ({ template: { ...b, id: `AK.extra${index}` }, variants: [] }))
+  const grid = [...families, ...extra]
+  const forward = reflowForDrop(grid, { kind: 'family', plate: a }, { kind: 'family-slot', index: 6 })!
+  expect(forward.families.map(family => family.template.id)).toEqual([b.id, ...extra.slice(0, 4).map(family => family.template.id), a.id, ...extra.slice(4).map(family => family.template.id)])
+  expect(forward.placeholder).toEqual({ kind: 'family', id: a.id })
+  expect(familyOrder(forward.families)).toEqual(forward.order)
+  const backward = reflowForDrop(grid, { kind: 'family', plate: extra[6].template }, { kind: 'family-slot', index: 0 })!
+  expect(backward.families[0].template.id).toBe(extra[6].template.id)
+  expect(familyOrder(backward.families)).toEqual(backward.order)
+  expect(grid[0].template).toBe(a)
+})
+
+test('variant previews shift within a family and promotion opens a family gap; merges do not reflow', () => {
+  const forward = reflowForDrop(families, { kind: 'variant', plate: v }, { kind: 'variant-slot', familyId: a.id, index: 2 })!
+  expect(forward.families[0].variants.map(plate => plate.id)).toEqual([w.id, v.id])
+  expect(forward.placeholder).toEqual({ kind: 'variant', id: v.id })
+  const backward = reflowForDrop(families, { kind: 'variant', plate: w }, { kind: 'variant-slot', familyId: a.id, index: 0 })!
+  expect(backward.families[0].variants.map(plate => plate.id)).toEqual([w.id, v.id])
+  const promoted = reflowForDrop(families, { kind: 'variant', plate: v }, { kind: 'family-slot', index: 2 })!
+  expect(promoted.families[0].variants.map(plate => plate.id)).toEqual([w.id])
+  expect(promoted.families[2]).toEqual({ template: v, variants: [] })
+  expect(familyOrder(promoted.families)).toEqual(promoted.order)
+  expect(reflowForDrop(families, { kind: 'variant', plate: v }, { kind: 'merge', familyId: b.id })).toBeNull()
+})
+
+test('keyboard arrows update the gap, cancel restores it, and drop commits exactly the preview', async () => {
+  const { handle, reorder } = setup()
+  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: 'ArrowRight' })
+  const preview = screen.getByTestId('gap').textContent!.split(',')
+  expect(preview).toEqual([b.id, a.id, v.id, w.id])
+  fireEvent.keyDown(handle, { key: 'Escape' })
+  expect(screen.getByTestId('gap').textContent).toBe('')
+  expect(reorder).not.toHaveBeenCalled()
+  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: 'ArrowRight' })
+  fireEvent.keyDown(handle, { key: ' ' })
+  await waitFor(() => expect(reorder).toHaveBeenCalledExactlyOnceWith(a.state, preview))
+})
+
+test('pointer movement within the same slot retains the memoized preview', () => {
+  const previews: unknown[] = []
+  function Harness() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), targets: () => [{ target: { kind: 'family-slot', index: 2 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }] })
+    if (drag.active) previews.push(drag.reflow)
+    return <button onPointerDown={event => drag.onPointerDown({ kind: 'family', plate: a }, event)}>Move</button>
+  }
+  render(<Harness />)
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointermove', 120], ['pointermove', 130]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? screen.getByRole('button') : window).dispatchEvent(event) })
+  }
+  expect(previews.length).toBeGreaterThanOrEqual(3)
+  expect(previews.every(preview => preview === previews[0])).toBe(true)
+  expect(sameDropTarget({ kind: 'family-slot', index: 2 }, { kind: 'family-slot', index: 2 })).toBe(true)
+  expect(sameDropTarget({ kind: 'merge', familyId: a.id }, { kind: 'merge', familyId: b.id })).toBe(false)
+})
+
+test('FLIP animates only moved cards diagonally and skips reduced motion', () => {
+  const root = document.createElement('div')
+  const first = document.createElement('div')
+  const second = document.createElement('div')
+  first.dataset.reflowKey = a.id
+  second.dataset.reflowKey = b.id
+  root.append(first, second)
+  let left = 0
+  let top = 0
+  first.getBoundingClientRect = () => ({ left, top }) as DOMRect
+  second.getBoundingClientRect = () => ({ left: 200, top: 0 }) as DOMRect
+  const cancel = vi.fn()
+  first.animate = vi.fn().mockReturnValue({ cancel })
+  second.animate = vi.fn()
+  const before = measureDragPositions(root)
+  left = 220
+  top = 300
+  playDragFlip(root, before, false)
+  expect(first.animate).toHaveBeenCalledExactlyOnceWith([{ transform: 'translate(-220px, -300px)' }, { transform: 'translate(0px, 0px)' }], { duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' })
+  expect(second.animate).not.toHaveBeenCalled()
+  vi.mocked(first.animate).mockClear()
+  playDragFlip(root, before, true)
+  expect(first.animate).not.toHaveBeenCalled()
+})
+
+test('placeholder preserves height and lifted copy preserves the grab point', () => {
+  render(<><DragPlaceholder height={312} /><DragPreview item={{ kind: 'family', plate: a }} x={400} y={300} geometry={{ width: 220, height: 312, offsetX: 30, offsetY: 20, imageWidth: 140, imageHeight: 70 }} /></>)
+  expect(document.querySelector<HTMLElement>('[data-drag-placeholder]')!.style.height).toBe('312px')
+  const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
+  expect(lifted.style.transform).toBe('translate3d(370px, 280px, 0) scale(1.03)')
+  expect(lifted.textContent).toContain(a.displayName)
 })

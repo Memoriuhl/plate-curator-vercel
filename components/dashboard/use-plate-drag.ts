@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import type { EditResult, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
 import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
+import { reflowForDrop, sameDropTarget } from './drag-reflow'
+import { dragElement, measureDragGeometry, type DragGeometry } from './drag-geometry'
 
 type Options = {
   families: DragFamily[]
@@ -16,7 +18,7 @@ type Options = {
   closePreview(): void
   reload(): Promise<unknown>
 }
-type Active = { item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean }
+type Active = { item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean; geometry: DragGeometry }
 const errors = {
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
@@ -33,12 +35,13 @@ export function usePlateDrag(options: Options) {
   const [saving, setSaving] = useState(false)
   const latest = useRef(options)
   const current = useRef(active)
-  const pressed = useRef<{ item: DragItem; x: number; y: number; pointerId: number; timer: ReturnType<typeof setTimeout> | null } | null>(null)
+  const pressed = useRef<{ item: DragItem; x: number; y: number; geometry: DragGeometry; pointerId: number; timer: ReturnType<typeof setTimeout> | null } | null>(null)
   const suppress = useRef(false)
   useEffect(() => { latest.current = options })
   const enabled = options.canEdit && options.show === 'all' && !options.query && !options.edits.pending && !options.ordering.pending && !saving
 
   function update(value: Active | null) {
+    if (value && current.current && sameDropTarget(value.target, current.current.target)) value.target = current.current.target
     current.current = value
     setActive(value)
   }
@@ -53,7 +56,10 @@ export function usePlateDrag(options: Options) {
     const index = families.findIndex(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const source = families[index]
     const variantIndex = source?.variants.findIndex(plate => plate.id === item.plate.id) ?? 0
-    update({ item, x, y, keyboard, target: keyboard && item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
+    const rect = keyboard ? dragElement(item)?.getBoundingClientRect() : undefined
+    if (rect) { x = rect.left + rect.width / 2; y = rect.top + 24 }
+    const geometry = pressed.current?.geometry ?? measureDragGeometry(item, x, y)
+    update({ item, x, y, geometry, keyboard, target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
     document.body.classList.add('plate-dragging')
     announce(`Lifted ${item.plate.displayName} ${item.kind}, position ${index + 1} of ${families.length}`)
   }
@@ -81,7 +87,7 @@ export function usePlateDrag(options: Options) {
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
     if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { announce('Cancelled'); return }
     setSaving(true)
-    const order = orderForDrop(families, item, target)
+    const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
     try {
       let result: EditResult
@@ -174,7 +180,7 @@ export function usePlateDrag(options: Options) {
         if (speed) {
           window.scrollBy(0, speed)
           const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
-          if (JSON.stringify(target) !== JSON.stringify(drag.target)) actions.current.update({ ...drag, target })
+          if (!sameDropTarget(target, drag.target)) actions.current.update({ ...drag, target })
         }
       }
       frame = requestAnimationFrame(scroll)
@@ -188,7 +194,7 @@ export function usePlateDrag(options: Options) {
     if (!enabled || event.button !== 0) return
     suppress.current = false
     clearPress()
-    pressed.current = { item, x: event.clientX, y: event.clientY, pointerId: event.pointerId, timer: null }
+    pressed.current = { item, x: event.clientX, y: event.clientY, geometry: measureDragGeometry(item, event.clientX, event.clientY, event.currentTarget), pointerId: event.pointerId, timer: null }
     if (event.pointerType === 'touch') pressed.current.timer = setTimeout(() => lift(item, event.clientX, event.clientY, false), 400)
   }
   function onKeyDown(item: DragItem, event: { key: string; preventDefault(): void }) {
@@ -215,7 +221,10 @@ export function usePlateDrag(options: Options) {
     }
   }
   const canMerge = active?.item.kind === 'variant' || options.families.find(family => family.template.id === active?.item.plate.id)?.variants.length === 0
-  return { active, announcement, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
+  const item = active?.item
+  const target = active?.target
+  const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])
+  return { active, reflow, announcement, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
     handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Space to reorder',
   }
