@@ -1,0 +1,221 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { ComponentProps } from 'react'
+import { beforeEach, expect, test, vi } from 'vitest'
+import { changeSummary, DiffTable } from '../components/review/diff'
+import {
+  ReviewFooter,
+  ReviewWorkspace,
+  reviewError,
+  reviewHref,
+} from '../components/review/workspace'
+import type { BatchDetail } from '../lib/client/hooks'
+import type { Plate } from '../lib/catalog/types'
+
+const state = vi.hoisted(() => ({
+  role: 'owner',
+  query: '',
+  detail: undefined as BatchDetail | undefined,
+  approve: vi.fn(),
+  submit: vi.fn(),
+  mutate: vi.fn(),
+  buttons: new Map<string, ComponentProps<'button'>>(),
+}))
+vi.mock('../lib/client/hooks', () => ({
+  useMe: () => ({ data: { uid: 'author', role: state.role } }),
+  useBatches: () => ({ data: [] }),
+  useBatch: () => ({ data: state.detail, mutate: state.mutate }),
+  useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
+}))
+vi.mock('../lib/client/session', () => ({
+  useSession: () => ({ user: { displayName: 'Author' } }),
+}))
+vi.mock('../components/ui/button', () => ({
+  Button: (props: ComponentProps<'button'>) => {
+    const label = Array.isArray(props.children)
+      ? props.children.filter((child) => typeof child === 'string').join('')
+      : String(props.children)
+    state.buttons.set(label, props)
+    return <button disabled={props.disabled}>{props.children}</button>
+  },
+}))
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(state.query),
+  useRouter: () => ({ replace: vi.fn() }),
+}))
+const before: Plate = {
+  id: 'AK.army',
+  state: 'AK',
+  slug: 'army',
+  image: 'AK/army.webp',
+  displayName: 'Army',
+  description: 'Old description',
+  tags: ['soldier', 'veteran'],
+  templateFamily: 'army',
+  templateRole: 'template',
+  sortOrder: 0,
+}
+const after: Plate = {
+  ...before,
+  image: 'AK/new.webp',
+  displayName: 'New Army',
+  description: 'New description',
+  tags: ['veteran', 'service'],
+  templateFamily: 'veterans',
+  templateRole: 'variant',
+  sortOrder: 1,
+  isStandard: true,
+  sourceUrl: 'reference',
+}
+const detail: BatchDetail = {
+  batch: {
+    id: 'one',
+    name: 'Updates',
+    createdBy: 'author',
+    createdAt: '',
+    state: 'submitted',
+    revision: 4,
+    baselineVersion: 41,
+    plateIds: [before.id],
+    approval: null,
+  },
+  plates: [{ baseline: before, proposed: after, edit: null, revision: 'r' }],
+}
+beforeEach(() => {
+  state.role = 'owner'
+  state.query = ''
+  state.detail = undefined
+  state.buttons.clear()
+  state.approve.mockReset()
+  state.submit.mockReset()
+  state.mutate.mockReset().mockResolvedValue(detail)
+})
+test('approval sends the selected batch revision and refreshes after a superseded revision', async () => {
+  renderToStaticMarkup(<ReviewFooter detail={detail} stateName="Alaska" />)
+  const approve = state.buttons.get('Approve revision 4')!
+    .onClick as () => Promise<void>
+  await approve()
+  expect(state.approve).toHaveBeenCalledWith('one', 4)
+  state.approve.mockRejectedValueOnce({ code: 'superseded_revision' })
+  await approve()
+  expect(state.mutate).toHaveBeenCalledOnce()
+})
+test('summaries describe fields, family and standard changes', () => {
+  expect(changeSummary(before, after)).toBe(
+    'image, name, description, tags, moved to veterans, role, order, now Standard, links',
+  )
+  expect(changeSummary(before, before)).toBe('No changes')
+})
+test('table renders every field kind, tags diff and unchanged values in order', () => {
+  const html = renderToStaticMarkup(
+    <DiffTable
+      before={before}
+      after={after}
+      version={41}
+      revision={4}
+      order={[before.id, 'AK.other']}
+    />,
+  )
+  for (const value of [
+    'Image',
+    'Name',
+    'Description',
+    'Tags',
+    'Family',
+    'Role',
+    'Order',
+    'Standard',
+    'Rarity',
+    'Fun facts',
+    'Links',
+    'removed: soldier',
+    'added: service',
+    '1 of 2',
+    '2 of 2',
+    'not available',
+    'none',
+    'unchanged',
+    'line-through',
+    'success-tint',
+  ])
+    expect(html).toContain(value)
+  expect(html).toContain('Before · live v41')
+  expect(html).toContain('After · rev 4')
+})
+test('owner can approve and editor cannot', () => {
+  expect(
+    renderToStaticMarkup(<ReviewFooter detail={detail} stateName="Alaska" />),
+  ).toContain('Approve revision 4')
+  state.role = 'editor'
+  const html = renderToStaticMarkup(
+    <ReviewFooter detail={detail} stateName="Alaska" />,
+  )
+  expect(html).not.toContain('Approve revision')
+  expect(html).toContain('Waiting for an Owner to approve')
+})
+test('own open batch offers submit and approved batch has no actions', () => {
+  state.role = 'editor'
+  expect(
+    renderToStaticMarkup(
+      <ReviewFooter
+        detail={{ ...detail, batch: { ...detail.batch, state: 'open' } }}
+        stateName="Alaska"
+      />,
+    ),
+  ).toContain('Submit for review')
+  const html = renderToStaticMarkup(
+    <ReviewFooter
+      detail={{
+        ...detail,
+        batch: {
+          ...detail.batch,
+          state: 'approved',
+          approval: { by: 'owner', at: 'today', revision: 4 },
+        },
+      }}
+      stateName="Alaska"
+    />,
+  )
+  expect(html).toContain('Approved by owner at today')
+  expect(html).not.toContain('Request changes')
+})
+test('superseded and invalid state errors explain recovery', () => {
+  expect(reviewError({ code: 'superseded_revision' }, 5)).toBe(
+    'This batch changed while you were reviewing. Look again at revision 5.',
+  )
+  expect(reviewError({ code: 'invalid_state' }, 4)).toContain('Refresh')
+})
+test('empty state links to dashboard and selection links preserve URL state', () => {
+  const html = renderToStaticMarkup(
+    <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />,
+  )
+  expect(html).toContain('Nothing waiting for review')
+  expect(html).toContain('href="/"')
+  expect(html).toContain('href="/review?state=AK"')
+  expect(reviewHref('AK', 'AK.army', 'batch id')).toBe(
+    '/review?state=AK&plate=AK.army&batch=batch+id',
+  )
+})
+test('URL state, plate and batch select the requested comparison', () => {
+  state.query = 'state=AK&plate=AK.army&batch=one'
+  state.detail = detail
+  const html = renderToStaticMarkup(
+    <ReviewWorkspace
+      states={[
+        {
+          code: 'AK',
+          name: 'Alaska',
+          plates: [
+            { id: before.id, displayName: before.displayName, imageUrl: null },
+          ],
+        },
+      ]}
+    />,
+  )
+  expect(html).toContain('New Army')
+  expect(html).toContain('After · rev 4')
+  expect(html).toContain('Approve revision 4')
+  expect(html).toContain(
+    'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"',
+  )
+  expect(html).not.toContain('Nothing waiting for review')
+})
