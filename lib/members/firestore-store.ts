@@ -1,5 +1,5 @@
 import type { Firestore } from '@google-cloud/firestore'
-import { activationResult, normalizeEmail, pendingMember } from './member'
+import { activationResult, isActiveOwner, normalizeEmail, pendingMember } from './member'
 import type { GuardedMemberResult, Member, MemberResult, MembersStore } from './types'
 
 export function firestoreMembersStore(db: Firestore, now: () => string = () => new Date().toISOString()): MembersStore {
@@ -22,9 +22,9 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
       const snapshot = await transaction.get(document)
       if (!snapshot.exists) return 'not_found'
       const member = snapshot.data() as Member
-      if (member.role === 'owner' && role !== 'owner') {
+      if (isActiveOwner(member) && role !== 'owner') {
         const owners = await transaction.get(members.where('role', '==', 'owner'))
-        if (owners.size <= 1) return 'last_owner'
+        if (owners.docs.filter(doc => isActiveOwner(doc.data() as Member)).length <= 1) return 'last_owner'
       }
       if (role) transaction.update(document, { role })
       else transaction.delete(document)

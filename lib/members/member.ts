@@ -18,3 +18,7 @@ export function activationResult(member: Member, now: string, tokenHash?: string
   if (tokenHash !== undefined && member.invite?.tokenHash !== tokenHash) return 'hash_mismatch'
   return 'ok'
 }
+
+export function isActiveOwner(member: Member): boolean {
+  return member.role === 'owner' && member.status === 'active' && member.uid !== null
+}
