@@ -19,6 +19,8 @@ test('batch cache keys distinguish mine and compose it with states', () => {
 })
 
 const session = vi.hoisted(() => ({ user: { uid: 'jon' }, api: { get: vi.fn(), send: vi.fn() } }))
+const navigation = vi.hoisted(() => ({ refresh: vi.fn() }))
+vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => navigation }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
 const ownKey = batchesKey(['open'], { mine: true })
@@ -60,6 +62,7 @@ function harness(fallback: Record<string, unknown> = {}) {
   }
 }
 beforeEach(() => {
+  navigation.refresh.mockClear()
   session.api.get.mockReset().mockImplementation(async (key: string) => key === ownKey ? [batch] : detail())
   session.api.send.mockReset()
 })
@@ -572,7 +575,7 @@ test('Editor never requests run status', async () => {
   expect(session.api.get).not.toHaveBeenCalledWith('/api/batches/restricted/run')
 })
 
-test.each(['published', 'failed'])('Publish polls through delayed start and stops at %s', async terminal => {
+test.each(['published', 'failed', 'superseded'])('Publish polls through delayed start and stops at %s', async terminal => {
   let phase = 'waiting-for-publish'
   const id = `poll-${terminal}`
   const key = `/api/batches/${id}/run`
@@ -589,10 +592,29 @@ test.each(['published', 'failed'])('Publish polls through delayed start and stop
     phase = terminal
     await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
     expect(result.current.run.data?.phase).toBe(terminal)
+    expect(navigation.refresh).toHaveBeenCalledTimes(terminal === 'published' ? 1 : 0)
+    await act(async () => { await result.current.run.mutate() })
+    expect(navigation.refresh).toHaveBeenCalledTimes(terminal === 'published' ? 1 : 0)
     const count = session.api.get.mock.calls.filter(([path]) => path === key).length
     await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
     expect(session.api.get.mock.calls.filter(([path]) => path === key)).toHaveLength(count)
   } finally { vi.useRealTimers() }
+})
+
+test('mounting an already-published batch does not refresh cached pages', async () => {
+  session.api.get.mockImplementation(async (key: string) => key === '/api/me' ? { role: 'owner' } : { phase: 'published', runId: 'done', outcome: { version: 12 }, updatedAt: null })
+  const { result } = renderHook(() => useBatchRun('done'), harness())
+  await waitFor(() => expect(result.current.data?.phase).toBe('published'))
+  expect(navigation.refresh).not.toHaveBeenCalled()
+})
+
+test('switching from an active batch to an already-published batch does not refresh', async () => {
+  session.api.get.mockImplementation(async (key: string) => key === '/api/me' ? { role: 'owner' } : { phase: key.includes('/done/') ? 'published' : 'publishing', runId: key, outcome: null, updatedAt: null })
+  const { result, rerender } = renderHook(({ id }) => useBatchRun(id), { ...harness(), initialProps: { id: 'active' } })
+  await waitFor(() => expect(result.current.data?.phase).toBe('publishing'))
+  rerender({ id: 'done' })
+  await waitFor(() => expect(result.current.data?.phase).toBe('published'))
+  expect(navigation.refresh).not.toHaveBeenCalled()
 })
 
 test('Publish confirmation shows the approved revision, sends the current batch revision and retains its result when lists refresh', async () => {
