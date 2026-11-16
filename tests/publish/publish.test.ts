@@ -243,3 +243,103 @@ test.each(['Published description', null])('publishes description edits through 
   expect(await publishBatch(f.deps, owner, { batchId: batch.id, revision: 3 })).toMatchObject({ ok: true })
   expect(JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates[0]).toMatchObject({ description })
 })
+
+test('publishes field edits, state order and an absent cleared variant link together', async () => {
+  const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  f.blobs.set(1, Buffer.from(JSON.stringify({ ...snapshot, plates: [{ ...snapshot.plates[0], variantOfPlateId: 'two' }, snapshot.plates[1]] })))
+  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'], variantOfPlateId: null }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+  expect(written).toEqual({ version: 2, plates: [{ ...snapshot.plates[0], tags: ['changed'], sortOrder: 1 }, { ...snapshot.plates[1], sortOrder: 0 }] })
+  expect(written.plates[0]).not.toHaveProperty('variantOfPlateId')
+  expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
+})
+
+test.each([
+  ['missing', ['one']],
+  ['extra', ['one', 'two', 'other']],
+  ['duplicate', ['one', 'one']],
+  ['wrong jurisdiction', ['one', 'other']],
+] as const)('rejects a %s plate in a state order before any writes', async (_reason, order) => {
+  const f = fixture({ ...batch, stateOrders: { CA: [...order] } })
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: false, error: 'invalid_snapshot', reasons: [expect.stringContaining('CA')] })
+  expect([...f.blobs.keys()]).toEqual([1])
+  expect(f.pointer().version).toBe(1)
+  expect(f.stateOrder).toEqual({ NY: ['existing'] })
+})
+
+test('curator order is written after the pointer commit and before batch finalization', async () => {
+  const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  const write = f.deps.curator.writeStateOrders
+  f.deps.curator.writeStateOrders = async (...args) => {
+    expect(f.pointer().version).toBe(2)
+    expect(f.records.get('batch@2')?.committedAt).toBeTruthy()
+    expect(await f.deps.store.getBatch(batch.id)).toMatchObject({ state: 'approved' })
+    return write(...args)
+  }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  expect(f.stateOrder.CA).toEqual(['two', 'one'])
+})
+
+test.each(['invalid_snapshot', 'version_taken', 'pointer_moved', 'unavailable', 'lock_lost'] as const)('does not write curator order when publication fails with %s before commit', async error => {
+  const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  if (error === 'invalid_snapshot') f.deps.snapshots.read = async () => ({ ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, isStandard: true })) })
+  if (error === 'version_taken') f.blobs.set(2, Buffer.from('another release'))
+  if (error === 'pointer_moved') f.deps.pointer.advance = async () => 'pointer_moved'
+  if (error === 'unavailable') f.deps.pointer.advance = async () => { throw new Error('unavailable') }
+  if (error === 'lock_lost') f.deps.lock.renew = async () => false
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: false, error })
+  expect(f.stateOrder).toEqual({ NY: ['existing'] })
+})
+
+test('lease lost before the curator write leaves the order untouched and can be retried', async () => {
+  const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  const write = f.deps.curator.writeStateOrders
+  f.deps.curator.writeStateOrders = async (...args) => {
+    f.setTime('2026-11-15T12:02:00Z')
+    return write(args[0], args[1], f.deps.now())
+  }
+  expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'lock_lost' })
+  expect(f.pointer().version).toBe(2)
+  expect(f.stateOrder).toEqual({ NY: ['existing'] })
+  f.deps.curator.writeStateOrders = write
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  expect(f.stateOrder.CA).toEqual(['two', 'one'])
+  expect([...f.blobs.keys()]).toEqual([1, 2])
+})
+
+test.each(['started', 'upload', 'uploaded', 'pointer', 'before curator', 'curator', 'done', 'batch', 'release'] as const)('retry after a crash following %s converges on one snapshot and curator order', async step => {
+  const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  let crashed = false
+  const crash = () => { crashed = true; throw new Error('response lost') }
+  const save = f.deps.records.save
+  f.deps.records.save = async (...args) => {
+    const result = await save(...args)
+    if (!crashed && args[0].state === step) crash()
+    return result
+  }
+  const upload = f.deps.snapshots.createOnly
+  f.deps.snapshots.createOnly = async (...args) => { const result = await upload(...args); if (!crashed && step === 'upload') crash(); return result }
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (...args) => { const result = await advance(...args); if (!crashed && step === 'pointer') crash(); return result }
+  const write = f.deps.curator.writeStateOrders
+  f.deps.curator.writeStateOrders = async (...args) => {
+    if (!crashed && step === 'before curator') crash()
+    const result = await write(...args)
+    if (!crashed && step === 'curator') crash()
+    return result
+  }
+  const commit = f.deps.store.commit
+  f.deps.store.commit = async (...args) => { const result = await commit(...args); if (!crashed && step === 'batch') crash(); return result }
+  const release = f.deps.lock.release
+  f.deps.lock.release = async (...args) => { if (!crashed && step === 'release') crash(); return release(...args) }
+  expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'unavailable' })
+  const result = await publishBatch(f.deps, owner, command)
+  expect(result).toMatchObject({ ok: true, value: { toVersion: 2, state: 'done' } })
+  expect(await publishBatch(f.deps, owner, command)).toEqual(result)
+  expect([...f.blobs.keys()]).toEqual([1, 2])
+  expect(f.records.size).toBe(1)
+  expect(f.pointer().version).toBe(2)
+  expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
+  expect(await f.deps.store.getBatch(batch.id)).toMatchObject({ state: 'published', revision: 3 })
+})

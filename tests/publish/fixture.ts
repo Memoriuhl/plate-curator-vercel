@@ -21,6 +21,7 @@ export function fixture(seed: ReviewBatch = batch) {
   const store = createMemoryStore([seed])
   const blobs = new Map<number, Uint8Array>([[1, Buffer.from(JSON.stringify(snapshot))]])
   const records = new Map<string, PublishRecord>()
+  const stateOrder: Record<string, string[]> = { NY: ['existing'] }
   let pointer: CatalogPointer = { version: 1 }
   let lease: PublishLease | null = null
   let reservation: string | null = null
@@ -37,6 +38,13 @@ export function fixture(seed: ReviewBatch = batch) {
     stateBaseline: async (_version, state) => snapshot.plates.filter(plate => plate.state === state),
     store, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
     now: () => time, leaseMs: 60000,
+    curator: {
+      writeStateOrders: async (orders, claim, now) => {
+        if (!active(claim.token, now) || lease?.batchId !== claim.batchId || lease.revision !== claim.revision) return 'lock_lost'
+        Object.assign(stateOrder, structuredClone(orders))
+        return 'ok'
+      },
+    },
     pointer: {
       read: async () => structuredClone(pointer),
       advance: async (record, claim, now) => {
@@ -91,5 +99,5 @@ export function fixture(seed: ReviewBatch = batch) {
       },
     },
   }
-  return { deps, blobs, records, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  return { deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }
