@@ -23,8 +23,8 @@ export async function createBatch(
   return result === 'ok' ? { ok: true, value: batch } : { ok: false, error: 'invalid_state' }
 }
 
-export async function listBatches(d: ReviewDeps, filter: { states?: BatchState[] }): Promise<ReviewBatch[]> {
-  return (await d.store.list(filter)).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+export async function listBatches(d: ReviewDeps, filter: { states?: BatchState[]; createdBy?: string }): Promise<ReviewBatch[]> {
+  return (await d.store.list(filter)).filter(batch => filter.createdBy === undefined || batch.createdBy === filter.createdBy).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
 export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outcome<BatchDetail>> {

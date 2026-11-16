@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
 import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
 
@@ -26,6 +27,71 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     const input = { batchId: 'batch', plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
     return { deps, store, input }
   }
+
+  test('other editors cannot edit or submit a batch', async () => {
+    const { deps, store, input } = await setup()
+    const other = { ...editor, uid: 'other' }
+    expect(await proposeEdit(deps, other, input)).toEqual({ ok: false, error: 'forbidden' })
+    expect(await submitBatch(deps, other, 'batch', 4)).toEqual({ ok: false, error: 'forbidden' })
+    expect(await store.getBatch('batch')).toMatchObject({ revision: 4 })
+  })
+
+  test('editing a catalog plate adds membership in the same revision', async () => {
+    const { deps, store, input } = await setup({ plateIds: ['two'] })
+    expect(await proposeEdit(deps, editor, input)).toMatchObject({ ok: true, value: { batch: { plateIds: ['two', 'one'], revision: 5 } } })
+    expect(await store.getBatch('batch')).toMatchObject({ plateIds: ['two', 'one'], revision: 5 })
+    expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: input.fields })
+  })
+
+  test('membership additions respect the limit and failed proposals leave membership intact', async () => {
+    const ids = Array.from({ length: 50 }, (_, i) => `plate-${i}`)
+    const { deps, store, input } = await setup({ plateIds: ids })
+    expect(await proposeEdit(deps, editor, input)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await proposeEdit(deps, editor, { ...input, plateId: 'missing' })).toEqual({ ok: false, error: 'not_found' })
+    expect(await store.getBatch('batch')).toMatchObject({ plateIds: ids, revision: 4 })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+  })
+
+  test('the fiftieth member is accepted and existing members remain editable at the limit', async () => {
+    const { deps, input } = await setup({ plateIds: Array.from({ length: 49 }, (_, i) => `plate-${i}`) })
+    const first = await proposeEdit(deps, editor, input)
+    expect(first).toMatchObject({ ok: true, value: { batch: { revision: 5 } } })
+    if (!first.ok) throw new Error('expected proposal')
+    expect(first.value.batch.plateIds).toHaveLength(50)
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(first.value.plate), fields: { tags: [] } })).toMatchObject({ ok: true })
+  })
+
+  test('description edits persist, affect revisions and can be cleared', async () => {
+    const { deps, store, input } = await setup()
+    const first = await proposeEdit(deps, editor, { ...input, fields: { description: 'A new description' } })
+    expect(first).toMatchObject({ ok: true, value: { plate: { description: 'A new description' } } })
+    if (!first.ok) throw new Error('expected proposal')
+    expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: { description: 'A new description' } })
+    expect(plateRevision(first.value.plate)).not.toBe(input.baseRevision)
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(first.value.plate), fields: { description: null } })).toMatchObject({ ok: true, value: { plate: { description: null } } })
+    expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: { description: null } })
+  })
+
+  test.each([editor, owner])('tagging permits the creator or an owner without batch membership: $role', async actor => {
+    const { deps, store } = await setup({ plateIds: ['two'] })
+    expect(await validateTagging(deps, actor, 'batch', 'one')).toEqual({ ok: true, value: null })
+    expect(await store.getBatch('batch')).toMatchObject({ plateIds: ['two'], revision: 4 })
+  })
+
+  test('tagging checks existence, rights, state and catalog baseline in order', async () => {
+    const { deps } = await setup({ state: 'submitted' })
+    const other = { ...editor, uid: 'other' }
+    expect(await validateTagging(deps, other, 'missing', 'missing')).toEqual({ ok: false, error: 'not_found' })
+    expect(await validateTagging(deps, other, 'batch', 'missing')).toEqual({ ok: false, error: 'forbidden' })
+    expect(await validateTagging(deps, editor, 'batch', 'missing')).toEqual({ ok: false, error: 'invalid_state' })
+    const open = await setup()
+    expect(await validateTagging(open.deps, editor, 'batch', 'missing')).toEqual({ ok: false, error: 'not_found' })
+  })
+
+  test.each(['submitted', 'approved', 'published', 'conflict'] as const)('tagging refuses a %s batch', async state => {
+    const { deps } = await setup({ state })
+    expect(await validateTagging(deps, editor, 'batch', 'one')).toEqual({ ok: false, error: 'invalid_state' })
+  })
 
   test('accepts an edit made from the current plate revision', async () => {
     const { deps, store, input } = await setup()
@@ -78,7 +144,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     } }
     const results = await Promise.all([
       proposeEdit(deps, editor, input),
-      proposeEdit(deps, { ...editor, uid: 'editor-two' }, { ...input, plateId: 'two', baseRevision: plateRevision(baseline[1]) }),
+      proposeEdit(deps, owner, { ...input, plateId: 'two', baseRevision: plateRevision(baseline[1]) }),
     ])
     expect(results.every(result => result.ok)).toBe(true)
     expect(await store.getBatch('batch')).toMatchObject({ revision: 6 })

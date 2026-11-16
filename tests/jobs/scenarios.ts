@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { createJob, claimNext, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
+import { createJob, claimNext, expireJob, getJob, getJobForActor, reportResult } from '../../lib/jobs/jobs'
 import { issueWorkerToken, verifyWorkerToken, revokeWorkerToken } from '../../lib/jobs/tokens'
 import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
 import { plateRevision } from '../../lib/review/revision'
@@ -13,8 +13,8 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     let time = 1000
     let sequence = 0
     const plate: Plate = { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
-    const deps: JobsDeps = { store: stores.store, baseline: async id => ({ ...plate, id }), now: () => time, id: () => `id-${++sequence}`, leaseMs: 100 }
-    async function create(id = 'job') { return createJob(deps, { id, batchId: 'batch', plateId: 'one' }) }
+    const deps: JobsDeps = { store: stores.store, baseline: async id => id === 'missing' ? null : ({ ...plate, id }), now: () => time, id: () => `id-${++sequence}`, leaseMs: 100 }
+    async function create(id = 'job') { return createJob(deps, { id, batchId: 'batch', plateId: 'one', requestedBy: 'requester' }) }
     async function claim() {
       const claimed = await claimNext(deps, 'worker')
       if (!claimed) throw new Error('Expected claim')
@@ -23,6 +23,28 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     const result = { suggestions: [' Blue ', 'blue', ''], backend: 'local', model: 'model', promptVersion: 'v1', durationMs: 10, usage: { tokens: 4 } }
     return { ...stores, deps, plate, create, claim, result, advance: (value: number) => { time += value } }
   }
+
+  test('job requester persists and only the requester or an owner can retrieve it', async () => {
+    const s = await setup()
+    await s.create()
+    const requester = { uid: 'requester', role: 'editor' } as const
+    expect(await getJob(s.deps, 'job')).toMatchObject({ requestedBy: requester.uid })
+    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({ ok: true, value: { requestedBy: requester.uid } })
+    expect(await getJobForActor(s.deps, { uid: 'owner', role: 'owner' }, 'job')).toMatchObject({ ok: true })
+    expect(await getJobForActor(s.deps, { uid: 'owner', role: 'editor' }, 'job')).toEqual({ ok: false, error: 'not_found' })
+    expect(await getJobForActor(s.deps, requester, 'missing')).toEqual({ ok: false, error: 'not_found' })
+    const c = await s.claim()
+    await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({ ok: true, value: { requestedBy: requester.uid, state: 'completed' } })
+  })
+
+  test('tagging a catalog plate outside the batch completes without adding membership', async () => {
+    const s = await setup()
+    expect(await createJob(s.deps, { id: 'job', batchId: 'batch', plateId: 'three', requestedBy: 'requester' })).toMatchObject({ ok: true, value: { inputHash: plateRevision({ ...s.plate, id: 'three' }) } })
+    const c = await s.claim()
+    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toMatchObject({ ok: true })
+    expect(await s.review.getBatch('batch')).toMatchObject({ plateIds: ['one', 'two'], revision: 0 })
+  })
 
   test('claims the oldest queued job with a lease', async () => {
     const s = await setup()
@@ -147,7 +169,7 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     await s.create()
     expect(await claimNext({ ...s.deps, store: s.other }, 'worker')).toBeNull()
     expect(await getJob({ ...s.deps, store: s.other }, 'job')).toBeNull()
-    expect(await createJob({ ...s.deps, store: s.other }, { id: 'other-job', batchId: 'batch', plateId: 'one' })).toEqual({ ok: false, error: 'not_found' })
+    expect(await createJob({ ...s.deps, store: s.other }, { id: 'other-job', batchId: 'batch', plateId: 'one', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
   })
   test('two concurrent claims never return the same job', async () => {
     const s = await setup()
@@ -165,8 +187,8 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
   })
   test('missing batches and plates cannot create jobs', async () => {
     const s = await setup()
-    expect(await createJob(s.deps, { id: 'missing', batchId: 'missing', plateId: 'one' })).toEqual({ ok: false, error: 'not_found' })
-    expect(await createJob(s.deps, { id: 'missing', batchId: 'batch', plateId: 'missing' })).toEqual({ ok: false, error: 'not_found' })
+    expect(await createJob(s.deps, { id: 'missing', batchId: 'missing', plateId: 'one', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
+    expect(await createJob(s.deps, { id: 'missing', batchId: 'batch', plateId: 'missing', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
     expect(await s.create()).toMatchObject({ ok: true })
     expect(await s.create()).toEqual({ ok: false, error: 'already_exists' })
   })

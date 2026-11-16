@@ -10,10 +10,11 @@ export async function GET(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
 
-  const requested = new URL(request.url).searchParams.get('state')?.split(',') ?? undefined
+  const params = new URL(request.url).searchParams
+  const requested = params.get('state')?.split(',') ?? undefined
   if (requested?.some((state) => !states.includes(state as BatchState))) return badRequest()
 
-  return json(await listBatches(reviewDeps(), { states: requested as BatchState[] | undefined }))
+  return json(await listBatches(reviewDeps(), { states: requested as BatchState[] | undefined, createdBy: params.get('mine') === '1' ? auth.actor.uid : undefined }))
 }
 
 export async function POST(request: Request) {

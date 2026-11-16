@@ -1,3 +1,4 @@
+import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { plateRevision } from '../review/revision'
 import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob } from './types'
 
@@ -7,7 +8,7 @@ async function currentRevision(d: JobsDeps, tx: JobsTransaction, batchId: string
   return review && baseline ? plateRevision({ ...baseline, ...review.fields }) : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string }): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
     const inputHash = await currentRevision(d, tx, input.batchId, input.plateId)
@@ -68,6 +69,12 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
 
 export function getJob(d: JobsDeps, id: string) {
   return d.store.transaction(tx => tx.get(id))
+}
+
+export async function getJobForActor(d: JobsDeps, actor: Actor, id: string): Promise<ReviewOutcome<TaggingJob>> {
+  const job = await getJob(d, id)
+  if (!job || (job.requestedBy !== actor.uid && actor.role !== 'owner')) return { ok: false, error: 'not_found' }
+  return { ok: true, value: job }
 }
 
 export async function expireJob(d: JobsDeps, id: string): Promise<Outcome<TaggingJob>> {
