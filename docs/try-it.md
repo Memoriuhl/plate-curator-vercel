@@ -20,7 +20,7 @@ NODE_OPTIONS=--conditions=react-server npx tsx scripts/seed-demo.ts --uid "$DEMO
 
 In PowerShell, set `$env:NODE_OPTIONS='--conditions=react-server'` before running the same `npx tsx` command with your input variables. The alternatives to flags are `DEMO_EDITOR_UID`, `DEMO_EDITOR_NAME` and `REVIEW_ENV`.
 
-The script requires the staging project, reads the current Catalog version, and resets this Editor's demo Batch in the selected review environment. Published Batches cannot be reset. Verification uses `development` only.
+The script requires the staging project, reads the current Catalog version, and resets this Editor's demo Batch in the selected review environment. Published Batches cannot be reset. After a demo Batch is published, the next seed uses the first unpublished or unused numbered generation. The steps use the Editor's most recent open Batch. Verification uses `development` only.
 
 ## Repeat the tagging evaluation
 

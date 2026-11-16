@@ -22,7 +22,7 @@ describe('demo seed', () => {
     const d = setup()
     const first = await seedDemo(d, input)
     const edits = await d.store.listEdits(first.id)
-    expect(first).toMatchObject({ state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
+    expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
     expect(edits.find(edit => edit.plateId === 'gold')?.fields).toMatchObject({ tags: ['gold', 'alaska', 'passenger'], isStandard: false })
     expect({ ...plates[2], ...edits.find(edit => edit.plateId === 'bear-variant')?.fields }).toMatchObject({ templateFamily: 'gold', variantOfPlateId: 'gold', templateRole: 'variant' })
     for (const edit of edits) {
@@ -50,15 +50,64 @@ describe('demo seed', () => {
     expect(await d.store.listEdits(first.id)).toEqual(seededEdits)
   })
 
-  it('leaves a published batch and its edits untouched', async () => {
+  it('seeds generation 2 when the base batch is published and leaves it untouched', async () => {
     const d = setup()
     const first = await seedDemo(d, input)
     const published = { ...first, state: 'published' as const, revision: first.revision + 1 }
     await d.store.commit(first.id, first.revision, { batch: published })
     const edits = await d.store.listEdits(first.id)
-    await expect(seedDemo(d, input)).rejects.toThrow('Published')
+    const fresh = await seedDemo(d, input)
+    expect(fresh).toEqual({ ...first, id: `${first.id}-2` })
+    expect(await d.store.listEdits(fresh.id)).toEqual(edits)
     expect(await d.store.getBatch(first.id)).toEqual(published)
     expect(await d.store.listEdits(first.id)).toEqual(edits)
+  })
+
+  it('seeds generation 3 when the base and generation 2 batches are published', async () => {
+    const d = setup()
+    const first = await seedDemo(d, input)
+    const published = { ...first, state: 'published' as const, revision: first.revision + 1 }
+    await d.store.commit(first.id, first.revision, { batch: published })
+    const fresh = await seedDemo(d, input)
+    const freshPublished = { ...fresh, state: 'published' as const, revision: fresh.revision + 1 }
+    await d.store.commit(fresh.id, fresh.revision, { batch: freshPublished })
+    const edits = await d.store.listEdits(fresh.id)
+    const third = await seedDemo(d, input)
+    expect(third).toEqual({ ...first, id: `${first.id}-3` })
+    expect(await d.store.listEdits(third.id)).toEqual(edits)
+    expect(await d.store.getBatch(first.id)).toEqual(published)
+    expect(await d.store.getBatch(fresh.id)).toEqual(freshPublished)
+    expect(await d.store.listEdits(fresh.id)).toEqual(edits)
+  })
+
+  it('resets an unpublished generation 2 batch when the base batch is published', async () => {
+    const d = setup()
+    const first = await seedDemo(d, input)
+    const published = { ...first, state: 'published' as const, revision: first.revision + 1 }
+    await d.store.commit(first.id, first.revision, { batch: published })
+    const fresh = await seedDemo(d, input)
+    const edits = await d.store.listEdits(fresh.id)
+    await proposeEdit(d, editor, { batchId: fresh.id, plateId: 'bear', baseRevision: plateRevision(plates[1]), fields: { tags: ['changed'] } })
+    const reset = await seedDemo(d, input)
+    expect(reset.id).toBe(`${first.id}-2`)
+    expect({ ...reset, revision: fresh.revision }).toEqual(fresh)
+    expect(await d.store.listEdits(reset.id)).toEqual(edits)
+    expect(await d.store.getBatch(first.id)).toEqual(published)
+  })
+
+  it.each([1, 2])('rejects an owner mismatch in generation %s', async generation => {
+    const d = setup()
+    let batch = await seedDemo(d, input)
+    if (generation === 2) {
+      await d.store.commit(batch.id, batch.revision, { batch: { ...batch, state: 'published', revision: batch.revision + 1 } })
+      batch = await seedDemo(d, input)
+    }
+    const otherOwner = { ...batch, createdBy: 'another-editor', revision: batch.revision + 1 }
+    await d.store.commit(batch.id, batch.revision, { batch: otherOwner })
+    const edits = await d.store.listEdits(batch.id)
+    await expect(seedDemo(d, input)).rejects.toThrow('Demo batch owner mismatch')
+    expect(await d.store.getBatch(batch.id)).toEqual(otherOwner)
+    expect(await d.store.listEdits(batch.id)).toEqual(edits)
   })
 
   it.each(['other-project', '', 'license-plate-game-staging-copy'])('refuses project %s before touching dependencies', async projectId => {
