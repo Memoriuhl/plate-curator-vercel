@@ -2,7 +2,7 @@ import 'server-only'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
-import type { Plate } from '../catalog/types'
+import type { Plate, Snapshot } from '../catalog/types'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
 import { gcpAuthClient } from '../gcp/credentials'
 import { firestoreJobsStore } from '../jobs/firestore-store'
@@ -33,8 +33,8 @@ export function currentActor(request: Request) {
   })
 }
 
-export function catalog() {
-  return firestoreCatalogSource(stagingFirestore(), loadSnapshot)
+export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {
+  return firestoreCatalogSource(stagingFirestore(), snapshotLoader)
 }
 
 export function reviewDeps(): ReviewDeps {
