@@ -31,7 +31,7 @@ export interface ReviewStore {
   listEdits(batchId: string): Promise<ProposedEdit[]>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
-  commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string }): Promise<'ok' | 'revision_mismatch'>
+  commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
 export type ReviewDeps = {
   store: ReviewStore

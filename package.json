@@ -13,7 +13,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run tests --exclude \"tests-emulator/**\" && node --test scripts/hygiene/*.test.mjs",
     "verify": "npm run typecheck && npm run lint && npm run test",
-    "test:emulator": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-plate-curator \"vitest run tests-emulator\""
+    "test:emulator": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-plate-curator \"vitest run tests-emulator --no-file-parallelism\""
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",
