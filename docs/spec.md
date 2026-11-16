@@ -187,7 +187,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 - The dashboard is a redesign of Plate Curator's Home (the states overview) and state page, built directly in Next.js. There is no 1:1 port of the old screens. All other curator views stay in the private app: inbox, pipeline console, rarity, strip art, users, image crop/upload/replace.
 - The new dashboard runs **alongside** the existing curator, which stays the production path and the rollback. Contributors move to the new review flow first. Production publishing moves over only after the new flow has shadowed one release.
 - The work runs in phases. Each one starts with a conversation, then the work, then the founder's approval: agree the plan, design conversation, design the screens, build them in Next.js on demo data, hook-up conversation, connect to staging, review flow, local-model suggestions, Publish, demo and checks, write-up.
-- The riskiest boundary is proved early, in parallel with design: Vercel reaching staging Firebase with no stored key, and a Workflow wait that survives a redeploy.
+- The riskiest boundary is proved early, in parallel with design: Vercel reaching staging Firebase with no stored key, and a Workflow wait that survives a redeploy. That work also lands the bare Next.js app the screens are later built into, so the build phase starts from it instead of scaffolding again.
 - The design captures today's two screens as "before" screenshots and a checklist of the workflows they support: state progress, the plate queue, State order, Template families, tags, the Standard plate. The new design must give each one a home.
 - Designs are annotated with the architecture: what renders on the server, what streams, what refreshes after a Publish, and what waits durably.
 
@@ -204,7 +204,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 **Repository hygiene**
 - Every commit uses the GitHub no-reply identity.
 - A local commit hook rejects other author emails.
-- A GitHub Actions check (within the private-repo allowance; free once public) on every pull request runs a secret scanner, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. Branch protection requires the check to pass.
+- A GitHub Actions check (within the private-repo allowance; free once public) on every pull request runs a secret scanner, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. The check runs on every pull request from the first one. Branch protection that requires it starts when the repository goes public, because GitHub Free can't protect branches on a private repository.
 
 **How work is accepted**
 - Every change arrives as a pull request with a Vercel Preview.
