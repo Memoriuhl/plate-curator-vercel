@@ -1,6 +1,7 @@
 import { plateRevision } from '../review/revision'
-import { COMPLETENESS_CHECK_KEYS, PLATE_IMAGE_SIZE } from './dashboard-types'
-import type { Check, DashboardData, JurisdictionData, PlateCardData, PlateChecks, PlateDetail } from './dashboard-types'
+import { PLATE_IMAGE_SIZE } from './dashboard-types'
+import type { DashboardData, JurisdictionData, PlateCardData, PlateDetail } from './dashboard-types'
+import { isComplete, plateChecks } from './plate-checks'
 import { JURISDICTIONS } from './jurisdictions'
 import { orderedStatePlates } from './order'
 import type { CatalogSource, CuratorState, Plate, Snapshot } from './types'
@@ -8,33 +9,19 @@ import type { CatalogSource, CuratorState, Plate, Snapshot } from './types'
 type ImageUrl = CatalogSource['imageUrl']
 
 const text = (value: unknown): string | null => typeof value === 'string' && value.length > 0 ? value : null
-const check = (value: string | null, weak = false): Check => ({ status: value === null ? 'missing' : weak ? 'weak' : 'good', value })
 
 function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardData {
   const url = imageUrl(plate)
-  const description = text(plate.description)
-  const sourceUrl = text(plate.sourceUrl)
-  const wikiUrl = text(plate.wikiUrl)
   const family = text(plate.templateFamily)
   const role = plate.templateRole ?? null
-  const facts = Array.isArray(plate.funFacts) && plate.funFacts.length > 0 ? plate.funFacts.join('\n') : text(plate.funFacts)
-  const rarity = typeof plate.rarity === 'object' && plate.rarity !== null && 'tier' in plate.rarity ? text(plate.rarity.tier) : text(plate.rarity)
-  const checks: PlateChecks = {
-    description: check(description, (description?.length ?? 0) < 40),
-    funFacts: check(facts),
-    link: check(sourceUrl ?? wikiUrl, sourceUrl === null),
-    tags: check(plate.tags.length > 0 ? plate.tags.join(', ') : null, plate.tags.length < 3),
-    family: check(family ? role ? `${family} · ${role}` : family : null, role === null),
-    image: check(url),
-    rarity: check(rarity),
-  }
+  const checks = plateChecks(plate, url)
   return {
     id: plate.id, state: plate.state, slug: plate.slug, displayName: plate.displayName,
     imageUrl: url, imageSize: PLATE_IMAGE_SIZE, tags: plate.tags,
     templateFamily: family, templateRole: role, variantOfPlateId: plate.variantOfPlateId ?? null,
     isStandard: plate.isStandard ?? false, sortOrder: plate.sortOrder ?? index,
     revision: plateRevision(plate), checks,
-    complete: COMPLETENESS_CHECK_KEYS.every(key => checks[key].status === 'good'),
+    complete: isComplete(checks),
   }
 }
 
