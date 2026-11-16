@@ -8,6 +8,8 @@ import type { MemberSummary } from '../lib/members/summary'
 
 const mocks = vi.hoisted(() => ({ me: { data: { uid: 'owner', role: 'owner' } }, list: vi.fn(), invite: vi.fn(), mutate: vi.fn(), clipboard: vi.fn(), send: vi.fn() }))
 vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), useSWRConfig: () => ({ mutate: mocks.mutate }) }))
+const reissue = vi.hoisted(() => vi.fn())
+vi.mock('../lib/client/invites', () => ({ useReissueInvite: () => reissue }))
 vi.mock('../lib/client/hooks', () => ({ useMe: () => mocks.me, useMembers: mocks.list, useInviteMember: () => mocks.invite }))
 vi.mock('../lib/client/session', () => ({ useSession: () => ({ ready: true, user: { uid: 'owner', email: 'owner@example.com' }, signOut: vi.fn(), api: { send: mocks.send } }) }))
 const members: MemberSummary[] = ['active', 'pending', 'expired'].map(status => ({ email: `${status}@example.com`, role: 'editor', signIn: 'google', status: status as MemberSummary['status'], invitedBy: status === 'pending' ? 'owner' : null, createdAt: '2026-11-16' }))
@@ -19,6 +21,7 @@ beforeEach(() => {
   mocks.me.data = { uid: 'owner', role: 'owner' }
   mocks.list.mockReturnValue({ data: members, mutate: mocks.mutate })
   mocks.invite.mockResolvedValue({ member: { ...members[1], email: 'new@example.com' }, inviteUrl: 'https://example.com/invite/new-token' })
+  reissue.mockResolvedValue({ inviteUrl: 'https://example.com/invite/reissued-token' })
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: mocks.clipboard.mockResolvedValue(undefined) } })
 })
 afterEach(cleanup)
@@ -154,4 +157,21 @@ test.each(['editor', 'owner'])('profile menu shows Members only to Owners: %s', 
   fireEvent.keyDown(screen.getByRole('button', { name: 'Open profile menu' }), { key: 'Enter' })
   await screen.findByRole('menuitem', { name: 'Sign out' })
   expect(!!screen.queryByRole('menuitem', { name: 'Members' })).toBe(role === 'owner')
+})
+
+test('pending and expired Members offer Re-issue and show the new link once', async () => {
+  const view = render(<MembersPage />)
+  const buttons = screen.getAllByRole('button', { name: 'Re-issue invite' })
+  expect(buttons).toHaveLength(2)
+  fireEvent.click(buttons[0])
+  await screen.findByLabelText('Invite link')
+  expect(reissue).toHaveBeenCalledWith('pending@example.com')
+  expect((screen.getByLabelText('Invite link') as HTMLInputElement).value).toBe('https://example.com/invite/reissued-token')
+  fireEvent.click(screen.getByRole('button', { name: 'Copy invite' }))
+  await waitFor(() => expect(mocks.clipboard).toHaveBeenCalledWith("You've been invited to Plate Curator as Editor. Open https://example.com/invite/reissued-token and sign in with Google as pending@example.com. The link works once and expires in 7 days."))
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss link' }))
+  expect(screen.queryByLabelText('Invite link')).toBeNull()
+  view.unmount()
+  render(<MembersPage />)
+  expect(screen.queryByLabelText('Invite link')).toBeNull()
 })

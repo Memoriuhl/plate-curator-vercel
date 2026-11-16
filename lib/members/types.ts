@@ -15,6 +15,7 @@ export type GuardedMemberResult = 'ok' | 'not_found' | 'last_owner'
 export interface MembersStore {
   getByEmail(email: string): Promise<Member | null>
   getByUid(uid: string): Promise<Member | null>
+  getByInviteHash(tokenHash: string): Promise<Member | null>
   list(): Promise<Member[]>
   create(input: PendingMember): Promise<'ok' | 'exists'>
   updateRole(email: string, role: Member['role']): Promise<MemberResult>
