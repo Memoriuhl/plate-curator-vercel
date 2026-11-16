@@ -1,6 +1,5 @@
 'use client'
 
-import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -8,7 +7,7 @@ import { familyColumns } from './grid-feel'
 import { useGridEntrance } from './use-grid-entrance'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useDraftOverlay, useEditPlate, useMe, useReorderState } from '@/lib/client/hooks'
+import { useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
 import { useSWRConfig } from 'swr'
 import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
@@ -22,9 +21,8 @@ import {
   type FamilyPlate,
 } from './family-data'
 
-const PlateHoverCard = dynamic(
-  () => import('@/components/plate/plate-hover-card'),
-)
+import { ReadyPlatePreview } from '@/components/plate/ready-plate-preview'
+import type { PlateCheckKey } from '@/lib/catalog/dashboard-types'
 
 export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
   const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])
@@ -54,8 +52,12 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   const [preview, setPreview] = useState<{
     plate: PlateCardData
     anchor: HTMLElement
+    immediate: boolean
+    checkKey?: PlateCheckKey
   } | null>(null)
   useGridEntrance(container, layout.ready, pathname)
+  const opened = useRef(false)
+  const preload = usePreloadPlateDetail()
   const anchor = useRef<HTMLElement | null>(null)
   const [prefetchedIds] = useState(() => new Set<string>())
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -178,12 +180,10 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   ) {
     if (drag.active || drag.saving) return
     if (timer.current) clearTimeout(timer.current)
+    opened.current = false
     anchor.current = element
-    const reveal = () => {
-      if (element.isConnected) setPreview({ plate, anchor: element })
-    }
-    if (immediate) reveal()
-    else timer.current = setTimeout(reveal, 150)
+    preload(plate.id)
+    if (element.isConnected) setPreview({ plate, anchor: element, immediate })
   }
   const parent = preview
     ? families.find((family) =>
@@ -225,7 +225,17 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
                     matches={matches}
                     prefetchedIds={prefetchedIds}
                     onPreview={open}
+                    onPreload={preload}
+                    onDismissPreview={close}
+                    onLeaveCheck={close}
+                    onCheck={(plate, checkKey, element) => {
+                      if (drag.active || drag.saving) return
+                      opened.current = false
+                      anchor.current = element
+                      setPreview({ plate, anchor: element, immediate: false, checkKey })
+                    }}
                     onClosePreview={() => {
+                      if (!opened.current) { close(); return }
                       if (timer.current) clearTimeout(timer.current)
                       timer.current = setTimeout(close, 150)
                     }}
@@ -252,9 +262,10 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
         </>
       )}
       <Suspense fallback={null}>
-        {preview ? (
-          <PlateHoverCard
+        {preview && !drag.active && !drag.saving ? (
+          <ReadyPlatePreview
             {...preview}
+            onReady={() => { opened.current = true }}
             parent={parent}
             onMouseEnter={() => {
               if (timer.current) clearTimeout(timer.current)

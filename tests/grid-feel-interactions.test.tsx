@@ -104,3 +104,123 @@ test('shared intent registry prevents repeated prefetch after virtualized remoun
   fireEvent.pointerEnter(remounted.getByRole('link'))
   expect(prefetch).toHaveBeenCalledOnce()
 })
+
+const previewDetail = vi.hoisted(() => ({ data: undefined as undefined | { plate: typeof plateCards[number] } }))
+vi.mock('../lib/client/hooks', () => ({
+  usePlateDetail: () => previewDetail,
+  useDraftOverlay: (plates: unknown[]) => plates,
+}))
+import { ReadyPlatePreview, CheckValue } from '../components/plate/ready-plate-preview'
+import { act } from '@testing-library/react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+function pendingPreview(checkKey?: import('../lib/catalog/dashboard-types').PlateCheckKey, immediate = false) {
+  const anchor = document.createElement('span')
+  document.body.append(anchor)
+  const props = { plate: plateCards[0], anchor, checkKey, immediate }
+  return { ...render(<ReadyPlatePreview {...props} />), props, anchor }
+}
+
+beforeEach(() => {
+  previewDetail.data = undefined
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+})
+afterEach(() => { vi.useRealTimers() })
+
+test('breakdown requires both intent and cached detail', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview()
+  act(() => vi.advanceTimersByTime(150))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  expect(document.querySelector('[aria-busy]')).toBeNull()
+  view.anchor.remove()
+})
+
+test('warm breakdown waits 150 ms; focus has no intent delay', () => {
+  vi.useFakeTimers()
+  previewDetail.data = { plate: plateCards[0] }
+  const view = pendingPreview()
+  act(() => vi.advanceTimersByTime(149))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1))
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  view.unmount()
+  const focused = pendingPreview(undefined, true)
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  focused.anchor.remove(); view.anchor.remove()
+})
+
+test('focus waits for detail and slow breakdown replaces its skeleton in one step', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview(undefined, true)
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1499))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1))
+  expect(document.querySelector('[aria-busy=true]')).not.toBeNull()
+  expect(document.body.textContent).not.toContain(plateCards[0].displayName)
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelector('[aria-busy]')).toBeNull()
+  expect(document.body.textContent).toContain(plateCards[0].displayName)
+  view.anchor.remove()
+})
+
+test('leaving early cancels pending preview and its timers', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview()
+  view.unmount()
+  previewDetail.data = { plate: plateCards[0] }
+  act(() => vi.advanceTimersByTime(2000))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  view.anchor.remove()
+})
+
+test('detail tooltip waits for cached data and keeps just one tooltip', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview('description')
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelector('[data-check-tooltip]')).toBeNull()
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelectorAll('[data-check-tooltip]')).toHaveLength(1)
+  expect(document.body.textContent).toContain(plateCards[0].checks.description.value)
+  view.rerender(<ReadyPlatePreview {...view.props} checkKey="tags" />)
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelectorAll('[data-check-tooltip]')).toHaveLength(1)
+  view.anchor.remove()
+})
+
+test('slow tooltip freezes Loading until the pointer leaves', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview('description')
+  act(() => vi.advanceTimersByTime(1500))
+  expect(document.body.textContent).toContain('Loading…')
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.body.textContent).toContain('Loading…')
+  view.anchor.remove()
+})
+
+test.each(['description', 'funFacts', 'link', 'tags', 'family', 'image', 'rarity'] as const)('formats %s and missing values', checkKey => {
+  const base = { ...plateCards[0], tags: ['Military'], templateFamily: 'Army', templateRole: 'variant' as const, imageUrl: '/plate.png', checks: { ...plateCards[0].checks, [checkKey]: { status: 'good' as const, value: checkKey === 'funFacts' ? 'First fact\nSecond fact' : 'Full value' } } }
+  const html = renderToStaticMarkup(<CheckValue plate={base} checkKey={checkKey} parent="Army" />)
+  expect(html).toContain(checkKey === 'tags' ? 'Military' : checkKey === 'family' ? 'Army · variant of Army' : checkKey === 'image' ? `${base.imageSize.width} px` : checkKey === 'funFacts' ? '2' : 'Full value')
+  const empty = { ...base, tags: [], templateFamily: null, imageUrl: null, checks: { ...base.checks, [checkKey]: { status: 'missing' as const, value: null } } }
+  expect(renderToStaticMarkup(<CheckValue plate={empty} checkKey={checkKey} />)).toContain(checkKey === 'tags' ? 'None' : 'Missing')
+})
+
+test('check strip suppresses breakdown while delegating unfocusable icon hover', () => {
+  const preview = vi.fn(); const check = vi.fn(); const dismiss = vi.fn()
+  const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} onCheck={check} onDismissPreview={dismiss} />)
+  const icon = view.container.querySelector<HTMLElement>('[data-check]')!
+  fireEvent.pointerOver(icon)
+  fireEvent.mouseOver(icon)
+  expect(preview).not.toHaveBeenCalled()
+  expect(check).toHaveBeenCalledWith(plateCards[0], 'description', icon)
+  expect(dismiss).toHaveBeenCalledOnce()
+  expect(icon.tabIndex).toBe(-1)
+})

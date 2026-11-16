@@ -30,6 +30,10 @@ export type FamilyCardProps = {
     immediate: boolean,
   ) => void
   onClosePreview?: () => void
+  onPreload?: (id: string) => void
+  onCheck?: (plate: PlateCardData, key: import('@/lib/catalog/dashboard-types').PlateCheckKey, anchor: HTMLElement) => void
+  onLeaveCheck?: () => void
+  onDismissPreview?: () => void
   prefetchedIds?: Set<string>
   drag?: ReturnType<typeof usePlateDrag>
   canEdit?: boolean
@@ -46,6 +50,10 @@ export function FamilyCard({
   onPreview,
   onClosePreview,
   prefetchedIds,
+  onPreload,
+  onCheck,
+  onLeaveCheck,
+  onDismissPreview,
   drag,
   canEdit,
   last,
@@ -80,6 +88,21 @@ export function FamilyCard({
       <div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
+        onPointerEnter={() => onPreload?.(plate.id)}
+        onPointerOver={event => {
+          const icon = (event.target as Element).closest<HTMLElement>('[data-check]')
+          if (!icon || !event.currentTarget.contains(icon)) {
+            if ((event.target as Element).closest('[data-check-strip]')) onDismissPreview?.()
+            return
+          }
+          if (event.relatedTarget instanceof Node && icon.contains(event.relatedTarget)) return
+          onDismissPreview?.()
+          if (!drag?.active && !drag?.saving && !entranceRunning(icon)) onCheck?.(plate, icon.dataset.check as import('@/lib/catalog/dashboard-types').PlateCheckKey, icon)
+        }}
+        onPointerOut={event => {
+          const icon = (event.target as Element).closest('[data-check]')
+          if (icon && !(event.relatedTarget instanceof Node && icon.contains(event.relatedTarget))) onLeaveCheck?.()
+        }}
         onPointerDown={small ? event => {
           event.stopPropagation()
           if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-variant-handle]')) return
@@ -98,13 +121,17 @@ export function FamilyCard({
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
+          aria-describedby="plate-breakdown-preview"
           prefetch={false}
           href={'/plates/' + plate.id}
           className={cn('flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
           onPointerEnter={() => prefetch(plate.id)}
-          onMouseEnter={(event) =>
+          onMouseOver={(event) => {
+            if ((event.target as Element).closest('[data-check-strip]')) return
+            if (event.relatedTarget instanceof Element && event.currentTarget.contains(event.relatedTarget) && !event.relatedTarget.closest('[data-check-strip]')) return
+            onLeaveCheck?.()
             preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, false)
-          }
+          }}
           onMouseLeave={onClosePreview}
           onFocus={(event) => {
             prefetch(plate.id)

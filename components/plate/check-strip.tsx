@@ -2,5 +2,5 @@ import { PLATE_CHECK_KEYS, type PlateChecks } from '@/lib/catalog/dashboard-type
 import { StatusIcon } from './status-icon'
 
 export function CheckStrip({ checks }: { checks: PlateChecks }) {
-  return <div role="group" aria-label="Plate checks" className="inline-flex flex-wrap items-center">{PLATE_CHECK_KEYS.map(checkKey => <StatusIcon key={checkKey} checkKey={checkKey} check={checks[checkKey]} />)}</div>
+  return <div role="group" aria-label="Plate checks" data-check-strip className="inline-flex flex-wrap items-center">{PLATE_CHECK_KEYS.map(checkKey => <StatusIcon key={checkKey} checkKey={checkKey} check={checks[checkKey]} />)}</div>
 }
