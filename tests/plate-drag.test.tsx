@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, test, vi } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
-import { familyOrder, moveBlock, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
+import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
 
 const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
 const v = { ...a, id: 'AK.v', templateRole: 'variant' as const }
@@ -142,7 +142,7 @@ test('dragging a variant out promotes it before saving the full state order', as
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
   await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'template', variantOfPlateId: null, templateFamily: v.id })
+  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'template', variantOfPlateId: null, templateFamily: 'ak_v' })
   expect(reorder).toHaveBeenCalledExactlyOnceWith(v.state, ['AK.a', 'AK.w', 'AK.b', 'AK.v'])
   expect(edit.mock.invocationCallOrder[0]).toBeLessThan(reorder.mock.invocationCallOrder[0])
 })
@@ -158,4 +158,12 @@ test('a failed promotion does not send a reorder', async () => {
   await waitFor(() => expect(screen.getByText("Only the batch's creator or an Owner can edit it.")).toBeTruthy())
   expect(reorder).not.toHaveBeenCalled()
   expect(screen.getByTestId('order').textContent).toBe('')
+})
+
+test('new family slugs use state and plate slug and avoid state collisions', () => {
+  const plate = { ...v, state: 'AK', id: 'AK.air_force' }
+  expect(newFamilySlug(plate, families)).toBe('ak_air_force')
+  const occupied = [{ template: { ...a, state: 'AK', templateFamily: 'ak_air_force' }, variants: [{ ...v, state: 'AK', templateFamily: 'ak_air_force_2' }] }]
+  expect(newFamilySlug(plate, occupied)).toBe('ak_air_force_3')
+  expect(newFamilySlug(plate, [{ template: { ...a, state: 'MD', templateFamily: 'ak_air_force' }, variants: [] }])).toBe('ak_air_force')
 })

@@ -16,6 +16,15 @@ export function familyOrder(families: DragFamily[]) {
   return families.flatMap(({ template, variants }) => [template.id, ...variants.map(plate => plate.id)])
 }
 
+export function newFamilySlug(plate: PlateCardData, families: DragFamily[]) {
+  const base = `${plate.state.toLowerCase()}_${plate.id.slice(plate.id.indexOf('.') + 1)}`
+  const used = new Set(families.flatMap(family => [family.template, ...family.variants]).filter(candidate => candidate.state === plate.state).map(candidate => candidate.templateFamily))
+  let slug = base
+  let suffix = 2
+  while (used.has(slug)) slug = `${base}_${suffix++}`
+  return slug
+}
+
 export function moveBlock(order: string[], block: string[], index: number) {
   const selected = new Set(block)
   const insertion = order.slice(0, index).filter(id => !selected.has(id)).length

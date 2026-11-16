@@ -1,20 +1,17 @@
 'use client'
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import type { EditResult } from '@/lib/client/hooks'
-import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import type { EditResult, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
-import { familyOrder, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
+import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
 
-export type ReorderAdapter = { reorder(state: string, order: string[]): Promise<EditResult>; pending: boolean }
-export type DragEditableFields = Omit<EditableFields, 'variantOfPlateId'> & { variantOfPlateId?: string | null }
 type Options = {
   families: DragFamily[]
   canEdit: boolean
   show: string
   query: string
-  edits: { edit(plate: PlateCardData, fields: DragEditableFields): Promise<EditResult>; pending: boolean }
-  ordering: ReorderAdapter
+  edits: ReturnType<typeof useEditPlate>
+  ordering: ReturnType<typeof useReorderState>
   targets(): TargetRect[]
   closePreview(): void
   reload(): Promise<unknown>
@@ -32,7 +29,7 @@ export function usePlateDrag(options: Options) {
   const [active, setActive] = useState<Active | null>(null)
   const [announcement, announce] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null)
-  const [optimisticEdit, setOptimisticEdit] = useState<{ plateId: string; fields: DragEditableFields } | null>(null)
+  const [optimisticEdit, setOptimisticEdit] = useState<{ plateId: string; fields: EditableFields } | null>(null)
   const [saving, setSaving] = useState(false)
   const latest = useRef(options)
   const current = useRef(active)
@@ -91,7 +88,7 @@ export function usePlateDrag(options: Options) {
         const promote = item.kind === 'variant' && target.kind === 'family-slot'
         if (!order || (!promote && order.every((id, index) => id === familyOrder(families)[index]))) { announce('Dropped'); return }
         if (promote) {
-          const fields: DragEditableFields = { templateRole: 'template', variantOfPlateId: null, templateFamily: item.plate.id }
+          const fields: EditableFields = { templateRole: 'template', variantOfPlateId: null, templateFamily: newFamilySlug(item.plate, families) }
           setOptimisticEdit({ plateId: item.plate.id, fields })
           result = await edits.edit(item.plate, fields)
           if (!result.ok) {
