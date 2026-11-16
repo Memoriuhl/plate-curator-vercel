@@ -24,10 +24,14 @@ async function main() {
   const curator = await source.readCuratorState()
   const batch = await seedDemo({
     store: firestoreReviewStore(stagingFirestore(), env),
-    baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
-    stateBaseline: async (version, state) => {
+    baselineAtVersion: async (version, id) => {
       if (version !== snapshot.version) throw new Error('Baseline catalog version unavailable')
-      return orderedStatePlates(snapshot, state, curator)
+      return snapshot.plates.find(plate => plate.id === id) ?? null
+    },
+    baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
+    stateBaseline: async (version, state, order) => {
+      if (version !== snapshot.version) throw new Error('Baseline catalog version unavailable')
+      return orderedStatePlates(snapshot, state, order === 'snapshot' ? { stateOrder: {}, stateProgress: {} } : curator)
     },
     now: () => new Date().toISOString(),
   }, { projectId: projectId!, env, editor: { uid, name, role: 'editor' }, version: snapshot.version })

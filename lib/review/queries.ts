@@ -32,21 +32,21 @@ export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outco
   if (!batch) return { ok: false, error: 'not_found' }
   const edits = new Map((await d.store.listEdits(batchId)).map(edit => [edit.plateId, edit]))
   const plates: BatchDetail['plates'] = []
-  const orders = new Map<string, { baseline: Plate; before: number; after: number; total: number }>()
+  const orders = new Map<string, { before: number; after: number; total: number }>()
   const ids = new Set(batch.plateIds)
   for (const [state, order] of Object.entries(batch.stateOrders)) {
-    const baseline = await d.stateBaseline(batch.baselineVersion, state)
+    const baseline = batch.baselineOrders?.[state] ?? (await d.stateBaseline(batch.baselineVersion, state, batch.state === 'published' ? 'snapshot' : undefined)).map(plate => plate.id)
     const positions = new Map(order.map((id, index) => [id, index]))
-    baseline.forEach((plate, before) => {
-      const after = positions.get(plate.id)
+    baseline.forEach((plateId, before) => {
+      const after = positions.get(plateId)
       if (after === undefined) return
-      orders.set(plate.id, { baseline: plate, before, after, total: baseline.length })
-      if (before !== after) ids.add(plate.id)
+      orders.set(plateId, { before, after, total: baseline.length })
+      if (before !== after) ids.add(plateId)
     })
   }
   for (const plateId of ids) {
     const order = orders.get(plateId)
-    const baseline = order?.baseline ?? await d.baseline(plateId)
+    const baseline = await d.baselineAtVersion(batch.baselineVersion, plateId)
     if (!baseline) return { ok: false, error: 'not_found' }
     const edit = edits.get(plateId) ?? null
     const proposed = { ...baseline, ...edit?.fields }

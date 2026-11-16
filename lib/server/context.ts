@@ -57,13 +57,19 @@ export function reviewDeps(): ReviewDeps {
       }
       return plates.get(plateId) ?? null
     },
-    async stateBaseline(version, state) {
+    async baselineAtVersion(version, plateId) {
+      const kind = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV })
+      const snapshot = await cachedJurisdiction(version, plateId.split('.')[0], kind)
+      if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
+      return snapshot.plates.find(plate => plate.id === plateId) ?? null
+    },
+    async stateBaseline(version, state, order) {
       const source = catalog()
       const kind = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV })
       const snapshot = await cachedJurisdiction(version, state, kind)
       if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
       if (!snapshot.plates.some(plate => plate.state === state)) return []
-      return orderedStatePlates(snapshot, state, await source.readCuratorState())
+      return orderedStatePlates(snapshot, state, order === 'snapshot' ? { stateOrder: {}, stateProgress: {} } : await source.readCuratorState())
     },
     async supersedeRun(batch) {
       const revision = batch.approvalRun?.revision ?? (batch.state === 'submitted' ? batch.revision : batch.approval?.revision)

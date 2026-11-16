@@ -24,7 +24,7 @@ beforeEach(() => {
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
   mocks.start.mockResolvedValue({ runId: 'run' })
   mocks.resumeHook.mockResolvedValue({ runId: 'run' })
-  mocks.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), baseline: async () => baseline, stateBaseline: async () => [baseline], now: () => '2026-11-16T12:00:00.000Z', supersedeRun: vi.fn(async () => {}) } satisfies ReviewDeps)
+  mocks.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), baselineAtVersion: async () => baseline, baseline: async () => baseline, stateBaseline: async () => [baseline], now: () => '2026-11-16T12:00:00.000Z', supersedeRun: vi.fn(async () => {}) } satisfies ReviewDeps)
 })
 
 test('submit stores the run, approve resumes approval, and Publish only resumes the command', async () => {

@@ -13,6 +13,7 @@ export type ReviewBatch = {
   revision: number
   baselineVersion: number
   stateOrders: Record<string, string[]>
+  baselineOrders?: Record<string, string[]>
   plateIds: string[]
   approvalRun?: { runId: string; revision: number }
   publishRequestedAt?: string | null
@@ -42,7 +43,8 @@ export interface ReviewStore {
 export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
-  stateBaseline(version: number, state: string): Promise<Plate[]>
+  baselineAtVersion(version: number, plateId: string): Promise<Plate | null>
+  stateBaseline(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>
   supersedeRun?(batch: ReviewBatch): Promise<void>
   now(): string
 }

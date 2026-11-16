@@ -23,7 +23,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     const store = await createStore(batch)
     const deps: ReviewDeps = {
       stateBaseline: async (_version, state) => baseline.filter(plate => plate.state === state),
-      store, baseline: async id => baseline.find(plate => plate.id === id) ?? null,
+      store, baselineAtVersion: async (_version, id) => baseline.find(plate => plate.id === id) ?? null, baseline: async id => baseline.find(plate => plate.id === id) ?? null,
       now: () => '2026-11-15T12:00:00Z',
     }
     const input = { batchId: 'batch', plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
