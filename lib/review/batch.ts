@@ -92,6 +92,7 @@ export async function reorderState(
   const next: ReviewBatch = {
     ...batch, state: 'open', approval: null, revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
+    baselineOrders: { ...batch.baselineOrders, [input.state]: batch.baselineOrders?.[input.state] ?? plates.map(plate => plate.id) },
   }
   const result = await d.store.commit(batch.id, batch.revision, { batch: next })
   if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)

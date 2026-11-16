@@ -11,7 +11,7 @@ vi.mock('../../lib/server/context', () => context)
 const batch = { id: 'batch', name: 'Order', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 7, plateIds: ['one'], stateOrders: {}, approval: null }
 beforeEach(() => {
   context.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'editor', name: null, role: 'editor' } })
-  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [] })), baseline: async () => null, now: () => '' } satisfies ReviewDeps)
+  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [] })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '' } satisfies ReviewDeps)
 })
 function put(body: unknown) {
   return PUT(new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
@@ -19,7 +19,7 @@ function put(body: unknown) {
 test('signed-in creator receives the updated batch', async () => {
   const response = await put({ batchRevision: 4, order: ['two', 'one'] })
   expect(response.status).toBe(200)
-  expect(await response.json()).toEqual({ ...batch, revision: 5, stateOrders: { AK: ['two', 'one'] } })
+  expect(await response.json()).toEqual({ ...batch, revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
 })
 test('requires sign-in before parsing input', async () => {
   context.currentActor.mockResolvedValue({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
@@ -44,6 +44,7 @@ test('returns forbidden and missing batch statuses', async () => {
 test('PATCH persists a null variant link and detail exposes the detached template', async () => {
   const baseline = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], templateRole: 'variant' as const, templateFamily: 'family', variantOfPlateId: 'parent' }
   context.reviewDeps().baseline = async () => baseline
+  context.reviewDeps().baselineAtVersion = async () => baseline
   const fields = { templateRole: 'template', variantOfPlateId: null, templateFamily: 'one' }
   const response = await PATCH(new Request('https://example.com/api/batches/batch/plates/one', {
     method: 'PATCH', body: JSON.stringify({ baseRevision: plateRevision(baseline), fields }),

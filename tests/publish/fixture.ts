@@ -36,7 +36,7 @@ export function fixture(seed: ReviewBatch = batch) {
   }
   const deps: PublishDeps = {
     stateBaseline: async (_version, state) => snapshot.plates.filter(plate => plate.state === state),
-    store, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
+    store, baselineAtVersion: async (_version, id) => snapshot.plates.find(plate => plate.id === id) ?? null, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
     now: () => time, leaseMs: 60000,
     curator: {
       writeStateOrders: async (orders, claim, now) => {

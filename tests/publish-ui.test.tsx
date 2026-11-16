@@ -124,3 +124,11 @@ test('Owner sees Publish tab and empty state; Editor sees neither action nor tab
     'Only the Owner can Publish.',
   )
 })
+
+test('an order field counts a selected move even when its numeric position stays the same', () => {
+  const baseline = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
+  const entry = { baseline, proposed: baseline, edit: null, revision: 'r', order: { before: 1, after: 1, total: 3 } }
+  expect(groupChanges([entry]).Reordered).toEqual([entry])
+  expect(changeSummary(baseline, baseline, entry.order)).toContain('reordered: 2 → 2')
+  expect(groupChanges([{ ...entry, order: undefined }]).Reordered).toEqual([])
+})

@@ -62,7 +62,7 @@ export function changeSummary(
         ]
       })
       .concat(
-        order && order.before !== order.after
+        order
           ? [`reordered: ${order.before + 1} → ${order.after + 1}`]
           : [],
       )
@@ -193,9 +193,7 @@ export function groupChanges(plates: BatchDetail['plates']) {
     Edited: plates.filter((entry) => changed(entry, changeFields.Edited)),
     Regrouped: plates.filter((entry) => changed(entry, changeFields.Regrouped)),
     Reordered: plates.filter((entry) =>
-      entry.order
-        ? entry.order.before !== entry.order.after
-        : changed(entry, changeFields.Reordered),
+      entry.order !== undefined || changed(entry, changeFields.Reordered),
     ),
   }
 }

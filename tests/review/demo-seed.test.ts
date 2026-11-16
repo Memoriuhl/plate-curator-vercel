@@ -14,7 +14,7 @@ const plates: Plate[] = [
 ]
 const input = { projectId: 'license-plate-game-staging', env: 'development', editor, version: 11 }
 function setup(): ReviewDeps {
-  return { store: createMemoryStore([]), baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => structuredClone(plates), now: () => '2026-11-16T12:00:00Z' }
+  return { store: createMemoryStore([]), baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => structuredClone(plates), now: () => '2026-11-16T12:00:00Z' }
 }
 
 describe('demo seed', () => {

@@ -20,6 +20,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     const deps: ReviewDeps = {
       stateBaseline: async (_version, state) => baseline.filter(plate => plate.state === state),
       store,
+      baselineAtVersion: async (_version, id) => structuredClone(baseline.find(plate => plate.id === id) ?? null),
       baseline: async id => structuredClone(baseline.find(plate => plate.id === id) ?? null),
       now: () => createdAt,
     }
@@ -144,4 +145,20 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     edits[0].fields.tags?.push('outside')
     expect(await store.getEdit(input.id, 'one')).toMatchObject({ fields: { tags: ['changed'] } })
   })
+
+  test('saved before-orders survive create, commit, get and list without affecting legacy batches', async () => {
+    const { deps, store } = await setup()
+    const created = await createBatch(deps, editor, input)
+    if (!created.ok) throw new Error('expected created batch')
+    expect(await store.getBatch(input.id)).not.toHaveProperty('baselineOrders')
+    const baselineOrders = { CA: ['one', 'two'] }
+    const next = { ...created.value, baselineOrders, stateOrders: { CA: ['two', 'one'] }, revision: 1 }
+    expect(await store.create({ ...next, id: 'saved' })).toBe('ok')
+    expect(await store.commit(input.id, 0, { batch: next })).toBe('ok')
+    baselineOrders.CA.reverse()
+    expect(await store.getBatch(input.id)).toMatchObject({ baselineOrders: { CA: ['one', 'two'] } })
+    expect(await store.getBatch('saved')).toMatchObject({ baselineOrders: { CA: ['one', 'two'] } })
+    expect((await store.list({})).map(batch => batch.baselineOrders)).toEqual([{ CA: ['one', 'two'] }, { CA: ['one', 'two'] }])
+  })
+
 }

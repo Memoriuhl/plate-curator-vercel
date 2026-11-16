@@ -40,3 +40,27 @@ test.each(['submitted', 'approved'] as const)('superseding %s wakes both hooks a
   expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:4', { superseded: true })
   expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:5', { superseded: true })
 })
+
+test.each(['fixture', 'firestore'])('versioned plate baselines use the immutable jurisdiction for %s', async kind => {
+  vi.stubEnv('CATALOG_SOURCE', kind)
+  vi.stubEnv('VERCEL_ENV', 'development')
+  const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', tags: [], image: '' }
+  mocks.cachedJurisdiction.mockResolvedValue({ version: 7, plates: [plate] })
+  expect(await reviewDeps().baselineAtVersion(7, plate.id)).toEqual(plate)
+  expect(mocks.cachedJurisdiction).toHaveBeenCalledExactlyOnceWith(7, 'AK', kind)
+  expect(mocks.readSnapshot).not.toHaveBeenCalled()
+  expect(mocks.readCuratorState).not.toHaveBeenCalled()
+  expect(await reviewDeps().baselineAtVersion(7, 'AK.missing')).toBeNull()
+  mocks.cachedJurisdiction.mockResolvedValue({ version: 8, plates: [plate] })
+  await expect(reviewDeps().baselineAtVersion(7, plate.id)).rejects.toThrow('Baseline catalog version unavailable')
+})
+
+test('snapshot state baselines ignore curator order and sort the pinned plates by sortOrder', async () => {
+  vi.stubEnv('CATALOG_SOURCE', 'fixture')
+  vi.stubEnv('VERCEL_ENV', 'development')
+  const plates = ['AK.three', 'AK.two', 'AK.one'].map((id, index) => ({ id, state: 'AK', sortOrder: 3 - index }))
+  mocks.cachedJurisdiction.mockResolvedValue({ version: 7, plates })
+  expect(await reviewDeps().stateBaseline(7, 'AK', 'snapshot')).toEqual([...plates].reverse())
+  expect(mocks.cachedJurisdiction).toHaveBeenCalledExactlyOnceWith(7, 'AK', 'fixture')
+  expect(mocks.readCuratorState).not.toHaveBeenCalled()
+})
