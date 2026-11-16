@@ -497,9 +497,9 @@ test.each(['published', 'failed'])('Publish polls through delayed start and stop
   } finally { vi.useRealTimers() }
 })
 
-test('Publish confirmation names the Batch, sends the approved revision and retains its result when lists refresh', async () => {
+test('Publish confirmation shows the approved revision, sends the current batch revision and retains its result when lists refresh', async () => {
   let published = false
-  const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 9, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
+  const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 8, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
   const other = { ...approved, id: 'other', name: 'Other release', approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' } }
   session.api.get.mockImplementation(async (key: string) => {
     if (key === '/api/me') return { role: 'owner' }
@@ -520,7 +520,7 @@ test('Publish confirmation names the Batch, sends the approved revision and reta
     expect(dialog.textContent).toContain('edited')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 7 })
+    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8 })
     expect(screen.getByText('v12')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
