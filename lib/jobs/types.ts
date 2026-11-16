@@ -11,12 +11,13 @@ export type TaggingJob = {
   inputHash: string
   env: Environment
   createdAt: number
-  state: 'queued' | 'claimed' | 'completed'
+  state: 'queued' | 'claimed' | 'completed' | 'expired'
   claimId?: string
   workerId?: string
   leaseExpiresAt?: number
   result?: JobResult
   completedAt?: number
+  expiredAt?: number
 }
 export type WorkerToken = { hash: string; workerId: string; env: Environment; createdAt: number; revokedAt: number | null }
 export interface JobsTransaction {

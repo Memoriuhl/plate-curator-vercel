@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { createJob, claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
+import { createJob, claimNext, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
 import { issueWorkerToken, verifyWorkerToken, revokeWorkerToken } from '../../lib/jobs/tokens'
 import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
 import { plateRevision } from '../../lib/review/revision'
@@ -31,6 +31,25 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     await s.create('second')
     expect(await s.claim()).toMatchObject({ job: { id: 'first', inputHash: plateRevision(s.plate), env: 'development', state: 'claimed' }, claimId: 'id-1', leaseExpiresAt: 1101 })
     expect(await s.claim()).toMatchObject({ job: { id: 'second' } })
+  })
+  test('an expired job is never claimed and refuses reports', async () => {
+    const s = await setup()
+    await s.create()
+    const claimed = await s.claim()
+    expect(await expireJob(s.deps, 'job')).toMatchObject({ ok: true, value: { state: 'expired' } })
+    expect(await claimNext(s.deps, 'worker')).toBeNull()
+    expect(await reportResult(s.deps, 'worker', 'job', claimed.claimId, s.result)).toEqual({ ok: false, error: 'claim_expired' })
+  })
+  test('expiring a completed job keeps its result', async () => {
+    const s = await setup()
+    await s.create()
+    const claimed = await s.claim()
+    await reportResult(s.deps, 'worker', 'job', claimed.claimId, s.result)
+    expect(await expireJob(s.deps, 'job')).toMatchObject({ ok: true, value: { state: 'completed', result: { suggestions: ['blue'] } } })
+  })
+  test('expiring an unknown job is not_found', async () => {
+    const s = await setup()
+    expect(await expireJob(s.deps, 'missing')).toEqual({ ok: false, error: 'not_found' })
   })
   test('nothing queued returns null', async () => {
     const s = await setup()

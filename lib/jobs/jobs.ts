@@ -52,6 +52,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     const job = await tx.get(id)
     if (!job) return { ok: false, error: 'not_found' }
     if (!job.claimId || job.claimId !== claimId || job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
+    if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input)
     if (!result) return { ok: false, error: 'invalid_result' }
@@ -67,4 +68,15 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
 
 export function getJob(d: JobsDeps, id: string) {
   return d.store.transaction(tx => tx.get(id))
+}
+
+export async function expireJob(d: JobsDeps, id: string): Promise<Outcome<TaggingJob>> {
+  return d.store.transaction(async tx => {
+    const job = await tx.get(id)
+    if (!job) return { ok: false, error: 'not_found' }
+    if (job.state === 'completed' || job.state === 'expired') return { ok: true, value: job }
+    const expired: TaggingJob = { ...job, state: 'expired', expiredAt: d.now() }
+    tx.set(expired)
+    return { ok: true, value: expired }
+  })
 }
