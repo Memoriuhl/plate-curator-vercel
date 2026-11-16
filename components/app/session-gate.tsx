@@ -17,11 +17,10 @@ export function SessionGate({
   useEffect(() => {
     if (ready && !allowed) router.replace(signedIn ? '/sign-in' : '/')
   }, [ready, allowed, router, signedIn])
-  if (!ready && !signedIn) return children
-  if (!ready || !allowed)
+  if (ready && !allowed)
     return (
       <main className="session-loading" role="status">
-        {ready ? 'Redirecting...' : 'Loading Plate Curator...'}
+        Redirecting...
       </main>
     )
   return children
