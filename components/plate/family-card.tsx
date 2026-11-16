@@ -115,7 +115,7 @@ export function FamilyCard({
           <div
             data-plate-image
             style={{ width, height }}
-            className="flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
+            className="flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
             {plate.imageUrl ? (
               <Image

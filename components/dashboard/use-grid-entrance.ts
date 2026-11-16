@@ -16,7 +16,7 @@ export function useGridEntrance(container: RefObject<HTMLDivElement | null>, rea
       const lines: typeof images[] = []
       for (const entry of images) {
         const line = lines.at(-1)
-        if (line && Math.abs(entry.bounds.top - line[0].bounds.top) <= 12) line.push(entry)
+        if (line && Math.abs(entry.bounds.top - line[0].bounds.top) <= 8) line.push(entry)
         else lines.push([entry])
       }
       lines.forEach((line, row) => {

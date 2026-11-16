@@ -76,13 +76,13 @@ test('reduced motion leaves all cards immediately visible without animation', ()
 
 test('only visible images animate in visual lines while containers stay still', () => {
   const container = grid()
-  container.current.innerHTML = '<div><article><div data-plate-image></div><div data-plate-image></div></article><article><div data-plate-image></div><div data-plate-image></div></article></div>'
+  container.current.innerHTML = '<div><article><div data-plate-image></div><div data-plate-image></div></article><article><div data-plate-image></div><div data-plate-image></div><div data-plate-image></div></article></div>'
   const images = Array.from(container.current.querySelectorAll('[data-plate-image]'))
-  const positions = [{ top: 100, left: 20 }, { top: 200, left: 20 }, { top: 100, left: 220 }, { top: 1200, left: 220 }]
+  const positions = [{ top: 100, left: 20 }, { top: 200, left: 20 }, { top: 108, left: 220 }, { top: 109, left: 420 }, { top: 1200, left: 220 }]
   images.forEach((image, index) => { image.getBoundingClientRect = () => ({ ...positions[index], bottom: positions[index].top + 42 }) as DOMRect })
   renderHook(() => useGridEntrance(container, true, '/states/AK'))
-  expect(animate.mock.contexts).toEqual([images[0], images[0], images[2], images[2], images[1], images[1]])
-  expect(animate.mock.calls.map(call => call[1].delay)).toEqual([0, 0, 30, 30, 55, 55])
+  expect(animate.mock.contexts).toEqual([images[0], images[0], images[2], images[2], images[3], images[3], images[1], images[1]])
+  expect(animate.mock.calls.map(call => call[1].delay)).toEqual([0, 0, 30, 30, 55, 55, 110, 110])
   container.current.remove()
 })
 test('preview stays closed while its plate image is dropping', () => {
