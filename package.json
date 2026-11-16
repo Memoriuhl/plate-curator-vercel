@@ -15,7 +15,10 @@
     "verify": "npm run typecheck && npm run lint && npm run test",
     "test:emulator": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-plate-curator \"vitest run tests-emulator --no-file-parallelism\"",
     "worker": "tsx worker/main.ts",
-    "seed:members": "node --conditions=react-server --import tsx scripts/seed-members.ts"
+    "seed:members": "node --conditions=react-server --import tsx scripts/seed-members.ts",
+    "eval": "tsx worker/eval.ts",
+    "eval:run": "tsx worker/compare.ts",
+    "eval:compare": "tsx worker/compare.ts --compare"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",
