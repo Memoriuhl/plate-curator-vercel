@@ -207,7 +207,8 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 - A GitHub Actions check (within the private-repo allowance; free once public) on every pull request runs a secret scanner, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. The check runs on every pull request from the first one. Branch protection that requires it starts when the repository goes public, because GitHub Free can't protect branches on a private repository.
 
 **How work is accepted**
-- Every change arrives as a pull request into `develop`. Feature branches and `develop` never deploy automatically. UI changes are checked on a worker's local dev server, reached over the private network. A Preview is made on purpose, by building locally and uploading the output (`vercel build` then `vercel deploy --prebuilt`), only when a change needs the cloud: OIDC, Workflow or a reviewer link. Merging `develop` into `main` is a release, and the only push that builds Production.
+- Every change arrives as a pull request into `main`, the trunk. No branch deploys on push except `release`. UI changes are checked on a worker's local dev server, reached over the private network. A Preview is made on purpose, by building locally and uploading the output (`vercel build` then `vercel deploy --prebuilt`), only when a change needs the cloud: OIDC, Workflow or a reviewer link.
+- A release fast-forwards `release` to a reviewed commit on `main` (`git push origin main:release`). Vercel builds that one commit as a staged Production deployment that doesn't take the domain. The founder smoke-tests its URL as the demo Editor and Owner, then promotes it with `vercel promote`, with no rebuild. `vercel rollback` moves the domain back. This follows Vercel's build, test, promote practice while keeping builds to one per release.
 - Each pull request is reviewed against this spec and its acceptance checks, and its tests run, before it merges.
 - The founder approves each stage before it starts and merges.
 
@@ -238,7 +239,7 @@ The Workflow run view is the evidence for each.
 **Workflow coverage:** before the build is approved, every item on the design's workflow checklist is shown working on the Preview against demo data. The check is recorded in the pull request.
 
 **Preview checks:**
-- Every PR gets a Playwright smoke pass on the local dev server against demo data. Each release to `main`, and each deliberate Preview, gets the same pass, once as the demo Editor and once as the demo Owner, against staging.
+- Every PR gets a Playwright smoke pass on the local dev server against demo data. Each staged release, before promotion, and each deliberate Preview gets the same pass, once as the demo Editor and once as the demo Owner, against staging.
 - The pass confirms that the Owner-only controls fail on the server for the Editor.
 
 **AI behaviour:**
