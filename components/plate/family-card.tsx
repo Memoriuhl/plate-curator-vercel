@@ -30,6 +30,11 @@ export type FamilyCardProps = {
     immediate: boolean,
   ) => void
   onClosePreview?: () => void
+  onPreload?: (id: string) => void
+  onCheck?: (plate: PlateCardData, key: import('@/lib/catalog/dashboard-types').PlateCheckKey, anchor: HTMLElement) => void
+  onMarker?: (plate: PlateCardData, anchor: HTMLElement) => void
+  onLeaveCheck?: () => void
+  onDismissPreview?: () => void
   prefetchedIds?: Set<string>
   drag?: ReturnType<typeof usePlateDrag>
   canEdit?: boolean
@@ -46,6 +51,11 @@ export function FamilyCard({
   onPreview,
   onClosePreview,
   prefetchedIds,
+  onPreload,
+  onCheck,
+  onMarker,
+  onLeaveCheck,
+  onDismissPreview,
   drag,
   canEdit,
   last,
@@ -76,10 +86,33 @@ export function FamilyCard({
   function plateContent(plate: PlateCardData, small: boolean) {
     const width = small ? 84 : 140
     const height = small ? 42 : 70
+    const marker = badge?.(plate)
     return (
       <div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
+        onPointerEnter={() => onPreload?.(plate.id)}
+        onPointerOver={event => {
+          const marker = (event.target as Element).closest<HTMLElement>('[data-batch-marker]')
+          if (marker) {
+            if (event.relatedTarget instanceof Node && marker.contains(event.relatedTarget)) return
+            onDismissPreview?.()
+            if (!drag?.active && !drag?.saving && !entranceRunning(marker)) onMarker?.(plate, marker)
+            return
+          }
+          const icon = (event.target as Element).closest<HTMLElement>('[data-check]')
+          if (!icon || !event.currentTarget.contains(icon)) {
+            if ((event.target as Element).closest('[data-check-strip]')) onDismissPreview?.()
+            return
+          }
+          if (event.relatedTarget instanceof Node && icon.contains(event.relatedTarget)) return
+          onDismissPreview?.()
+          if (!drag?.active && !drag?.saving && !entranceRunning(icon)) onCheck?.(plate, icon.dataset.check as import('@/lib/catalog/dashboard-types').PlateCheckKey, icon)
+        }}
+        onPointerOut={event => {
+          const icon = (event.target as Element).closest('[data-check], [data-batch-marker]')
+          if (icon && !(event.relatedTarget instanceof Node && icon.contains(event.relatedTarget))) onLeaveCheck?.()
+        }}
         onPointerDown={small ? event => {
           event.stopPropagation()
           if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-variant-handle]')) return
@@ -102,10 +135,6 @@ export function FamilyCard({
           href={'/plates/' + plate.id}
           className={cn('flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
           onPointerEnter={() => prefetch(plate.id)}
-          onMouseEnter={(event) =>
-            preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, false)
-          }
-          onMouseLeave={onClosePreview}
           onFocus={(event) => {
             prefetch(plate.id)
             preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true)
@@ -114,6 +143,11 @@ export function FamilyCard({
         >
           <div
             data-plate-image
+            onMouseEnter={event => {
+              onLeaveCheck?.()
+              preview(plate, event.currentTarget, false)
+            }}
+            onMouseLeave={onClosePreview}
             style={{ width, height }}
             className="flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
@@ -152,7 +186,7 @@ export function FamilyCard({
             </p>
             <CheckStrip checks={plate.checks} />
           </div>
-          {badge?.(plate)}
+          {marker ? <span data-batch-marker>{marker}</span> : null}
         </Link>
         {onPreview ? (
           <button

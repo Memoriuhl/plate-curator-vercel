@@ -18,7 +18,8 @@ describe('StatusIcon', () => {
     expect(html).not.toContain('<button')
     expect(html.includes('data-status-dot')).toBe(status === 'weak')
     expect(html.includes('data-status-slash')).toBe(status === 'missing')
-    expect(html).toContain('title="Full tag value"')
+    expect(html).toContain('data-check="tags"')
+    expect(html).not.toContain('title=')
   })
 })
 

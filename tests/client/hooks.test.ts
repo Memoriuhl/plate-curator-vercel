@@ -424,3 +424,30 @@ test('detaching a variant sends null and overlays its own template without the o
   expect(session.api.send).toHaveBeenCalledWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'variant-revision', fields })
   expect(result.current.overlay[0]).toMatchObject({ templateRole: 'template', templateFamily: card.id, variantOfPlateId: null })
 })
+
+import { render } from '@testing-library/react'
+import { ReadyPlatePreview } from '../../components/plate/ready-plate-preview'
+
+test('shared preview consumes the preloaded session API response and draft overlay', async () => {
+  let resolveDetail!: (value: unknown) => void
+  const response = new Promise(resolve => { resolveDetail = resolve })
+  const id = 'AK.preview-ready'
+  const previewCard = { ...card, id }
+  const previewProposed = { ...proposed, id }
+  const previewBatch = { ...detail(), plates: [{ ...detail().plates[0], proposed: previewProposed }] }
+  session.api.get.mockImplementation((key: string) => key === '/api/plates/' + id ? response : Promise.resolve(key === ownKey ? [batch] : previewBatch))
+  const scope = harness()
+  const preload = renderHook(() => usePreloadPlateDetail(), scope)
+  act(() => preload.result.current(id))
+  const anchor = document.createElement('span')
+  document.body.append(anchor)
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const view = render(createElement(ReadyPlatePreview, { plate: previewCard, anchor, immediate: false, checkKey: 'description' }), scope)
+  expect(document.querySelector('[data-check-tooltip]')).toBeNull()
+  await act(async () => { resolveDetail({ plate: previewCard, family: [], prevId: null, nextId: null }); await response })
+  await waitFor(() => expect(document.querySelector('[data-check-tooltip]')?.textContent).toContain(proposed.description))
+  expect(session.api.get.mock.calls.filter(([key]) => key === '/api/plates/' + id)).toHaveLength(1)
+  view.unmount()
+  anchor.remove()
+  vi.unstubAllGlobals()
+})

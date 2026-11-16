@@ -65,15 +65,17 @@ export function PlateHoverContent({
   }, [anchor])
   const content = (
     <aside
+      id="plate-breakdown-preview"
       ref={card}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       role="tooltip"
       tabIndex={-1}
       aria-label={plate.displayName + ' preview'}
-      className="fixed z-50 max-h-[calc(100dvh-16px)] w-[min(372px,calc(100vw-16px))] overflow-auto rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)] shadow-xl"
+      className="fixed z-50 h-[492px] max-h-[calc(100dvh-16px)] w-[min(372px,calc(100vw-16px))] overflow-auto rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)] shadow-xl"
       style={{ left: 0, top: 0, transform: `translate(${position.left}px, ${position.top}px)` }}
     >
+      {state === 'loading' ? <div aria-label="Loading plate details" aria-busy="true" className="min-h-[460px] animate-pulse space-y-3"><div className="h-40 rounded bg-[var(--fill)]" /><div className="h-6 w-2/3 rounded bg-[var(--fill)]" /><div className="h-16 rounded bg-[var(--fill)]" /><div className="h-36 rounded bg-[var(--fill)]" /></div> : <>
       {plate.imageUrl ? (
         <Image
           src={plate.imageUrl}
@@ -94,9 +96,7 @@ export function PlateHoverContent({
         {parent ? ' · variant of ' + parent : ''}
       </p>
       <p className="my-3 text-sm">
-        {state === 'loading'
-          ? 'Loading plate details...'
-          : state === 'error'
+        {state === 'error'
             ? 'Unable to load plate details. Click the plate to open it.'
             : (plate.checks.description.value ?? 'No description')}
       </p>
@@ -136,6 +136,7 @@ export function PlateHoverContent({
         </>
       ) : null}
       <p className="caption">Click to open</p>
+      </>}
     </aside>
   )
   return anchor ? createPortal(content, document.body) : content

@@ -18,7 +18,7 @@ export function StatusIcon({ checkKey, check }: { checkKey: PlateCheckKey; check
     <span
       role="img"
       aria-label={`${label}: ${check.status}`}
-      title={check.value ?? `${label}: ${check.status}`}
+      data-check={checkKey}
       className={cn(
         'relative inline-flex size-[26px] shrink-0 items-center justify-center',
         check.status === 'good' && 'text-[var(--success)]',

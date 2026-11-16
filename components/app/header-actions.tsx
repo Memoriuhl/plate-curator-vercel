@@ -8,7 +8,7 @@ import {
   IoLogOutOutline,
 } from 'react-icons/io5'
 import { useSession } from '../../lib/client/session'
-import { Avatar, AvatarFallback } from '../ui/avatar'
+import { UserAvatar } from './user-avatar'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -59,14 +59,7 @@ export function HeaderActions() {
               aria-label="Open profile menu"
               disabled={pending}
             >
-              <Avatar>
-                <AvatarFallback>
-                  {(user.displayName || user.email || 'Curator')
-                    .trim()
-                    .charAt(0)
-                    .toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar user={user} />
               <IoChevronDownOutline
                 className="chrome-icon"
                 aria-hidden="true"
