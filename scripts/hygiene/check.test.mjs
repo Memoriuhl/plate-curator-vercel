@@ -4,6 +4,54 @@ import { findViolations, resolveDenylist } from './check.mjs';
 
 const NOREPLY = '49572768+Memoriuhl@users.noreply.github.com';
 
+test('committer exceptions never apply to authors', () => {
+  assert.deepEqual(findViolations({ authorEmails: [NOREPLY], committerEmails: ['noreply@github.com'] }), []);
+  assert.equal(findViolations({ committerEmails: ['foreign@example.com'] })[0]?.kind, 'email');
+  assert.equal(findViolations({ authorEmails: ['noreply@github.com'] })[0]?.kind, 'email');
+});
+
+const privateAddresses = [
+  [10, 0, 0, 0], [10, 255, 255, 255],
+  [100, 64, 0, 0], [100, 127, 255, 255],
+  [172, 16, 0, 0], [172, 31, 255, 255],
+  [192, 168, 0, 0], [192, 168, 255, 255],
+].map((octets) => octets.join('.'));
+
+test('private and overlay addresses are rejected in messages without disclosure', () => {
+  for (const address of privateAddresses) {
+    const violations = findViolations({ text: `host: https://${address}:8080/path` });
+    assert.deepEqual(violations, [{ kind: 'address', detail: 'line 1' }]);
+    assert.ok(!JSON.stringify(violations).includes(address));
+  }
+});
+
+test('public, loopback, unspecified, invalid and version strings are allowed', () => {
+  const allowed = [[100, 63, 255, 255], [100, 128, 0, 0], [172, 15, 255, 255],
+    [172, 32, 0, 0], [192, 167, 0, 1], [127, 0, 0, 1], [0, 0, 0, 0], [10, 256, 0, 1]];
+  for (const octets of allowed) assert.deepEqual(findViolations({ text: octets.join('.') }), []);
+  assert.deepEqual(findViolations({ text: 'versions 10.2 and 1.10.0' }), []);
+});
+
+test('addresses in added lines and paths are withheld from all diagnostics', () => {
+  for (const address of privateAddresses) {
+    const path = `notes/${address}.txt`;
+    const text = [`diff --git a/${path} b/${path}`, 'new file mode 100644',
+      '--- /dev/null', `+++ b/${path}`, '@@ -0,0 +1 @@', `+${address} private-fixture`].join('\n');
+    const violations = findViolations({ text, format: 'diff', denylist: ['private-fixture'] });
+    assert.deepEqual(violations.map(({ kind }) => kind), ['address', 'denylisted', 'address']);
+    assert.ok(!JSON.stringify(violations).includes(address));
+    assert.match(JSON.stringify(violations), /withheld path/);
+  }
+});
+
+test('removed addresses are allowed while added addresses are rejected by location', () => {
+  const address = privateAddresses[0];
+  const header = ['diff --git a/notes.txt b/notes.txt', '--- a/notes.txt', '+++ b/notes.txt', '@@ -1 +1 @@'];
+  assert.deepEqual(findViolations({ text: [...header, `-${address}`, '+localhost'].join('\n'), format: 'diff' }), []);
+  assert.deepEqual(findViolations({ text: [...header, '-localhost', `+${address}`].join('\n'), format: 'diff' }),
+    [{ kind: 'address', detail: 'notes.txt:1' }]);
+});
+
 test('the no-reply author email is accepted', () => {
   assert.deepEqual(findViolations({ authorEmails: [NOREPLY, NOREPLY] }), []);
 });

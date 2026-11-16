@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ALLOWED_EMAILS = ['49572768+Memoriuhl@users.noreply.github.com'];
+const ALLOWED_COMMITTER_EMAILS = [...ALLOWED_EMAILS, 'noreply@github.com'];
 
 const SECRET_SHAPES = [
   { name: 'private key header', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----/ },
@@ -81,13 +82,28 @@ function parseStagedDiff(diff) {
   return files;
 }
 
-export function findViolations({ authorEmails = [], text = '', denylist = [], format = 'message' } = {}) {
+function hasPrivateAddress(text) {
+  const candidates = text.matchAll(/(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)/g);
+  for (const [candidate] of candidates) {
+    const octets = candidate.split('.').map(Number);
+    if (octets.some((octet) => octet > 255)) continue;
+    const [first, second] = octets;
+    if (first === 10 || (first === 100 && second >= 64 && second <= 127) ||
+        (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)) return true;
+  }
+  return false;
+}
+
+export function findViolations({ authorEmails = [], committerEmails = [], text = '', denylist = [], format = 'message' } = {}) {
   if (format !== 'message' && format !== 'diff') throw new Error(`unknown format: ${format}`);
   const patterns = denylist.map((source) => new RegExp(source, 'i'));
   const isMessage = format === 'message';
-  const emailViolations = authorEmails
-    .filter((email) => !ALLOWED_EMAILS.includes(email))
-    .map(() => ({ kind: 'email', detail: `identity email is not ${ALLOWED_EMAILS.join(' or ')}` }));
+  const emailViolations = [
+    ...authorEmails.filter((email) => !ALLOWED_EMAILS.includes(email))
+      .map(() => ({ kind: 'email', detail: 'author identity is not allowed' })),
+    ...committerEmails.filter((email) => !ALLOWED_COMMITTER_EMAILS.includes(email))
+      .map(() => ({ kind: 'email', detail: 'committer identity is not allowed' })),
+  ];
   const matchesDenylist = (value) => patterns.some((pattern) => pattern.test(value));
   const pathViolations = [];
   let lines;
@@ -96,8 +112,11 @@ export function findViolations({ authorEmails = [], text = '', denylist = [], fo
   } else {
     lines = parseStagedDiff(text).flatMap(({ path, deleted, added }) => {
       if (deleted) return [];
-      const withheld = matchesDenylist(path);
-      if (withheld) pathViolations.push({ kind: 'denylisted', detail: 'staged file path (withheld)' });
+      const denylisted = matchesDenylist(path);
+      const address = hasPrivateAddress(path);
+      const withheld = denylisted || address;
+      if (denylisted) pathViolations.push({ kind: 'denylisted', detail: 'staged file path (withheld)' });
+      if (address) pathViolations.push({ kind: 'address', detail: 'staged file path (withheld)' });
       const shownPath = withheld ? '(withheld path)' : path;
       return added.map(({ line, content }) => ({ where: `${shownPath}:${line}`, content }));
     });
@@ -107,6 +126,7 @@ export function findViolations({ authorEmails = [], text = '', denylist = [], fo
     if (matchesDenylist(content)) {
       found.push({ kind: 'denylisted', detail: where });
     }
+    if (hasPrivateAddress(content)) found.push({ kind: 'address', detail: where });
     if (isMessage && TRAILER.test(content)) {
       found.push({ kind: 'trailer', detail: `Co-Authored-By trailer at ${where}` });
     }
@@ -122,7 +142,11 @@ const SCISSORS = /^# -+ >8 -+$/m;
 const COMMENT_LINE = /^#.*$/gm;
 
 function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    throw new Error('git operation failed; verify repository and commit references');
+  }
 }
 
 function emailFromIdent(ident) {
@@ -151,9 +175,10 @@ function loadDenylist() {
 }
 
 function checkStaged(denylist) {
-  const authorEmails = ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT'].map((name) => emailFromIdent(git(['var', name])));
+  const authorEmails = [emailFromIdent(git(['var', 'GIT_AUTHOR_IDENT']))];
+  const committerEmails = [emailFromIdent(git(['var', 'GIT_COMMITTER_IDENT']))];
   const text = git(['-c', 'core.quotePath=false', 'diff', '--cached', '--no-renames', '--no-color', '--no-ext-diff', '-U0']);
-  return findViolations({ authorEmails, text, denylist, format: 'diff' });
+  return findViolations({ authorEmails, committerEmails, text, denylist, format: 'diff' });
 }
 
 function checkMessage(denylist, messageFile) {
@@ -161,16 +186,40 @@ function checkMessage(denylist, messageFile) {
   return findViolations({ text, denylist }).map((v) => ({ ...v, detail: `commit message ${v.detail}` }));
 }
 
-function runCli([mode, messageFile]) {
-  if (mode !== 'pre-commit' && !(mode === 'commit-msg' && messageFile)) {
-    console.error('usage: check.mjs pre-commit | commit-msg <message-file>');
+function checkRange(denylist, base, head) {
+  const resolve = (ref) => git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
+  const end = resolve(head);
+  const range = /^0{40}$/.test(base) ? end : `${resolve(base)}..${end}`;
+  const commits = git(['rev-list', '--reverse', range, '--']).trim().split('\n').filter(Boolean);
+  return commits.flatMap((commit) => {
+    const [author, committer, ...message] = git(['show', '-s', '--format=%ae%n%ce%n%B', commit]).split('\n');
+    const metadata = findViolations({ authorEmails: [author], committerEmails: [committer], text: message.join('\n'), denylist })
+      .map((v) => ({ ...v, detail: `commit message ${v.detail}` }));
+    const text = git(['-c', 'core.quotePath=false', 'show', '--format=', '--root', '--diff-merges=first-parent',
+      '--no-renames', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', commit, '--']);
+    return [...metadata, ...findViolations({ text, denylist, format: 'diff' })]
+      .map((v) => ({ ...v, detail: `${commit.slice(0, 12)} ${v.detail}` }));
+  });
+}
+
+function checkPullRequest(denylist) {
+  return [['title', process.env.PR_TITLE], ['body', process.env.PR_BODY]].flatMap(([field, text]) =>
+    findViolations({ text: text ?? '', denylist }).map((v) => ({ ...v, detail: `pull request ${field} ${v.detail}` })));
+}
+
+function runCli([mode, messageFile, head, ...extra]) {
+  if (extra.length || !((['pre-commit', 'pull-request'].includes(mode) && !messageFile) ||
+      (mode === 'commit-msg' && messageFile && !head) || (mode === 'range' && messageFile && head))) {
+    console.error('usage: check.mjs pre-commit | commit-msg <message-file> | range <base> <head> | pull-request');
     return 2;
   }
   let violations;
   try {
     const { denylist, warning } = loadDenylist();
     if (warning) console.error(`hygiene: warning: ${warning}`);
-    violations = mode === 'pre-commit' ? checkStaged(denylist) : checkMessage(denylist, messageFile);
+    violations = mode === 'pull-request' ? checkPullRequest(denylist)
+      : mode === 'range' ? checkRange(denylist, messageFile, head)
+      : mode === 'pre-commit' ? checkStaged(denylist) : checkMessage(denylist, messageFile);
   } catch (error) {
     console.error(`hygiene: ${error.message}`);
     return 1;
