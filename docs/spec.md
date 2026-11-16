@@ -57,7 +57,7 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 37. As a player, I want the reload prompt to wait until I'm not in a game or joining one, so that it never interrupts play.
 38. As a reviewer at Vercel, I want a public demo URL with demo Editor and Owner credentials, so that I can exercise both roles.
 39. As a reviewer at Vercel, I want canned example batches and a labelled replay of a completed local-model run, so that I can test while the GPU server is offline.
-40. As a reviewer at Vercel, I want every pull request to get a Preview Deployment wired to staging only, so that changes are reviewed against real data without production risk.
+40. As a reviewer at Vercel, I want changes that need the cloud to get a Preview Deployment wired to staging only, so that they are reviewed against real data without production risk, while everyday UI work is checked on local dev servers so the deployment budget lasts.
 41. As a reviewer at Vercel, I want the public commit history to show the design first and each change validated, so that I can follow how the work evolved.
 42. As the founder, I want nothing private (personal or work emails, private hostnames, internal infrastructure names) to ever reach the public repository, so that the repo is safe to share.
 43. As the founder, I want Preview builds to be technically unable to reach production Firebase, so that a misconfigured Preview can't touch players.
@@ -77,7 +77,7 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
   - The customer's GPU server and Ollama: existing capacity, no per-call fee.
   - The existing private Plate Curator and its Pi deployment: they remain the production release path in this phase.
   - The game: unchanged upstream.
-- The three Vercel primitives: Preview Deployments (staging review of every PR), Functions (authenticated API), Workflow (the AI-stack primitive, for durable model jobs and human approval).
+- The three Vercel primitives: Preview Deployments (staging review of changes that need the cloud, built locally and uploaded), Functions (authenticated API), Workflow (the AI-stack primitive, for durable model jobs and human approval).
 
 **Repositories and environments**
 - The new public repo `plate-curator-vercel` is the only place assessment code lives. Plate Curator stays private and untouched. Only the contract pieces needed are recreated in the new repo: Snapshot shape and validation, the tag taxonomy rules, and the local-model tagging prompt.
@@ -207,7 +207,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 - A GitHub Actions check (within the private-repo allowance; free once public) on every pull request runs a secret scanner, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. The check runs on every pull request from the first one. Branch protection that requires it starts when the repository goes public, because GitHub Free can't protect branches on a private repository.
 
 **How work is accepted**
-- Every change arrives as a pull request with a Vercel Preview.
+- Every change arrives as a pull request into `develop`. Feature branches and `develop` never deploy automatically. UI changes are checked on a worker's local dev server, reached over the private network. A Preview is made on purpose, by building locally and uploading the output (`vercel build` then `vercel deploy --prebuilt`), only when a change needs the cloud: OIDC, Workflow or a reviewer link. Merging `develop` into `main` is a release, and the only push that builds Production.
 - Each pull request is reviewed against this spec and its acceptance checks, and its tests run, before it merges.
 - The founder approves each stage before it starts and merges.
 
@@ -238,7 +238,7 @@ The Workflow run view is the evidence for each.
 **Workflow coverage:** before the build is approved, every item on the design's workflow checklist is shown working on the Preview against demo data. The check is recorded in the pull request.
 
 **Preview checks:**
-- Every PR's Preview gets a Playwright smoke pass, once as the demo Editor and once as the demo Owner, against staging.
+- Every PR gets a Playwright smoke pass on the local dev server against demo data. Each release to `main`, and each deliberate Preview, gets the same pass, once as the demo Editor and once as the demo Owner, against staging.
 - The pass confirms that the Owner-only controls fail on the server for the Editor.
 
 **AI behaviour:**
