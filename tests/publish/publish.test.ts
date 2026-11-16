@@ -37,12 +37,52 @@ test('refuses two standard plates in a state', async () => {
   expect(f.lease()).toBeNull()
 })
 
-test('refuses a family without exactly one template', () => {
-  for (const roles of [['variant', 'variant'], ['template', 'template']] as const) {
-    const next = { version: 2, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: 'family', templateRole: roles[index] })) }
-    expect(validateSnapshot(snapshot, next)).toContain('Family must have exactly one template: family')
+test('untouched families without a template do not block publish', async () => {
+  const f = fixture()
+  const baseline = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'legacy', templateRole: 'variant' as const })) }
+  f.blobs.set(1, Buffer.from(JSON.stringify(baseline)))
+  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'] }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  expect(JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates[0]).toMatchObject({ tags: ['changed'], templateFamily: 'legacy', templateRole: 'variant' })
+})
+
+test('a grouping edit cannot give a family two templates', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: 'family', templateRole: index === 0 ? 'template' as const : 'variant' as const })) }
+  const next = { version: 2, plates: baseline.plates.map(plate => ({ ...plate, templateRole: 'template' as const })) }
+  expect(validateSnapshot(baseline, next)).toContain('Family must have at most one template: family')
+})
+
+test('a grouping edit cannot remove the only template', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: 'old-family', templateRole: index === 0 ? 'template' as const : 'variant' as const })) }
+  for (const fields of [{ templateRole: 'variant' as const }, { templateFamily: 'new-family' }]) {
+    const next = { version: 2, plates: [{ ...baseline.plates[0], ...fields }, baseline.plates[1]] }
+    expect(validateSnapshot(baseline, next)).toContain('Family must retain exactly one template: old-family')
   }
-  expect(validateSnapshot(snapshot, { version: 2, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: 'family', templateRole: index === 0 ? 'template' : 'variant' })) })).toEqual([])
+})
+
+test('a family move validates the destination as well as the old family', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: index === 0 ? 'source' : 'destination', templateRole: 'template' as const })) }
+  const next = { version: 2, plates: [{ ...baseline.plates[0], templateFamily: 'destination' }, baseline.plates[1]] }
+  expect(validateSnapshot(baseline, next)).toContain('Family must have at most one template: destination')
+  expect(validateSnapshot(baseline, next)).toContain('Family must retain exactly one template: source')
+})
+
+test('a variant parent edit touches its family', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'family', templateRole: 'template' as const })) }
+  const next = { version: 2, plates: [{ ...baseline.plates[0], variantOfPlateId: 'two' }, baseline.plates[1]] }
+  expect(validateSnapshot(baseline, next)).toContain('Family must have at most one template: family')
+})
+
+test('grouping edits may leave a family without templates when it had none', () => {
+  const next = { version: 2, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'new-family', templateRole: 'variant' as const })) }
+  expect(validateSnapshot(snapshot, next)).toEqual([])
+  const baseline = { ...next, version: 1 }
+  expect(validateSnapshot(baseline, { version: 2, plates: [{ ...next.plates[0], variantOfPlateId: 'two' }, next.plates[1]] })).toEqual([])
+})
+
+test('reordering plates does not touch their grouping', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'legacy', templateRole: 'variant' as const })) }
+  expect(validateSnapshot(baseline, { version: 2, plates: [...baseline.plates].reverse() })).toEqual([])
 })
 
 test('validates required fields and unique ids', () => {
