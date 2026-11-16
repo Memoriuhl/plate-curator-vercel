@@ -20,6 +20,7 @@ import { loadSnapshot } from '../gcp/storage'
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
+import { cachedJurisdiction } from './snapshot-cache'
 
 const platesByVersion = new Map<number, Map<string, Plate>>()
 
@@ -57,7 +58,8 @@ export function reviewDeps(): ReviewDeps {
     },
     async stateBaseline(version, state) {
       const source = catalog()
-      const snapshot = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }) === 'fixture' ? await source.readSnapshot() : await loadSnapshot(version)
+      const kind = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV })
+      const snapshot = await cachedJurisdiction(version, state, kind)
       if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
       if (!snapshot.plates.some(plate => plate.state === state)) return []
       return orderedStatePlates(snapshot, state, await source.readCuratorState())
