@@ -18,7 +18,7 @@ IAM Credentials  (impersonate dashboard@license-plate-game-staging.iam.gservicea
 Firestore / Cloud Storage in license-plate-game-staging, with the service account's roles
 ```
 
-The code is `lib/gcp/credentials.ts` (the token exchange) and `lib/gcp/firestore.ts` (one client per function instance). `/api/health/firebase` exercises the whole chain and returns `{ "catalogVersion": <n> }`.
+The code is `lib/gcp/credentials.ts` (asks Vercel Connect for the `firebase/plate-curator-vercel` token) and `lib/gcp/firestore.ts` (one client per function instance). `/api/health/firebase` exercises the whole chain and returns `{ "catalogVersion": <n> }`.
 
 ## What the service account may do
 
@@ -36,10 +36,6 @@ Set in Vercel for **Preview** and **Production**. None of them are secrets.
 | Name | Meaning |
 |---|---|
 | `GCP_PROJECT_ID` | the staging project ID |
-| `GCP_PROJECT_NUMBER` | its project number, used in the STS audience |
-| `GCP_SERVICE_ACCOUNT_EMAIL` | the account to impersonate |
-| `GCP_WORKLOAD_IDENTITY_POOL_ID` | `vercel` |
-| `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` | `vercel-oidc` |
 | `FIREBASE_STORAGE_BUCKET` | the staging bucket |
 | `NEXT_PUBLIC_FIREBASE_*` | the browser Firebase config for sign-in |
 

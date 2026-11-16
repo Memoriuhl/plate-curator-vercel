@@ -1,21 +1,27 @@
-import { getVercelOidcToken } from '@vercel/oidc'
-import { ExternalAccountClient } from 'google-auth-library'
-import { requireEnv } from '../env'
+import { getToken } from '@vercel/connect'
+import { AuthClient } from 'google-auth-library'
+
+const CONNECTOR = 'firebase/plate-curator-vercel'
+
+function connectToken(): Promise<string> {
+  return getToken(CONNECTOR, { subject: { type: 'app' } })
+}
+
+class ConnectAuthClient extends AuthClient {
+  async getAccessToken() {
+    return { token: await connectToken() }
+  }
+
+  async getRequestHeaders() {
+    return new Headers({ Authorization: `Bearer ${await connectToken()}` })
+  }
+
+  request: AuthClient['request'] = async (options) => {
+    const headers = await this.getRequestHeaders()
+    return this.transporter.request({ ...options, headers: new Headers([...new Headers(options.headers), ...headers]) })
+  }
+}
 
 export function gcpAuthClient() {
-  const projectNumber = requireEnv('GCP_PROJECT_NUMBER')
-  const poolId = requireEnv('GCP_WORKLOAD_IDENTITY_POOL_ID')
-  const providerId = requireEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID')
-  const serviceAccountEmail = requireEnv('GCP_SERVICE_ACCOUNT_EMAIL')
-
-  const client = ExternalAccountClient.fromJSON({
-    type: 'external_account',
-    audience: `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`,
-    subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
-    token_url: 'https://sts.googleapis.com/v1/token',
-    service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
-    subject_token_supplier: { getSubjectToken: () => getVercelOidcToken() },
-  })
-  if (!client) throw new Error('Could not build the Google credentials client')
-  return client
+  return new ConnectAuthClient()
 }

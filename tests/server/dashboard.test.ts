@@ -17,9 +17,7 @@ vi.mock('@google-cloud/firestore', () => ({
     }
   },
 }))
-vi.mock('google-auth-library', () => ({
-  ExternalAccountClient: { fromJSON: () => ({ getAccessToken: async () => ({ token: 'test-token' }) }) },
-}))
+vi.mock('@vercel/connect', () => ({ getToken: async () => 'test-token' }))
 
 const { loadDashboard, loadJurisdiction, loadPlate } = await import('../../lib/catalog/dashboard')
 
@@ -29,7 +27,7 @@ afterEach(() => {
 })
 
 test('dashboard loaders follow current progress, order and version for summaries, cards and details', async () => {
-  for (const name of ['GCP_PROJECT_ID', 'GCP_PROJECT_NUMBER', 'GCP_WORKLOAD_IDENTITY_POOL_ID', 'GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID', 'GCP_SERVICE_ACCOUNT_EMAIL', 'FIREBASE_STORAGE_BUCKET']) {
+  for (const name of ['GCP_PROJECT_ID', 'FIREBASE_STORAGE_BUCKET']) {
     vi.stubEnv(name, 'test')
   }
   vi.stubEnv('CATALOG_SOURCE', 'firestore')
