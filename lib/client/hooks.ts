@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
@@ -50,6 +51,8 @@ export type BatchRun = {
 const publishWindows = new Map<string, number>()
 
 export function useBatchRun(id: string | null) {
+  const router = useRouter()
+  const previousRun = useRef<{ id: string | null; phase: BatchRun['phase'] | undefined }>({ id: null, phase: undefined })
   const { user, api } = useSession()
   const me = useMe()
   const { mutate } = useSWRConfig()
@@ -64,11 +67,15 @@ export function useBatchRun(id: string | null) {
     refreshInterval: data => data?.phase === 'publishing' || (data?.phase === 'waiting-for-publish' && pendingUntil > Date.now()) ? 2000 : 0,
   })
   useEffect(() => {
+    const phase = run.data?.phase
+    const previous = previousRun.current
+    previousRun.current = { id, phase }
+    if (id && previous.id === id && previous.phase != null && previous.phase !== 'published' && phase === 'published') router.refresh()
     if (id && run.data?.phase && ['published', 'failed', 'superseded', 'timed-out'].includes(run.data.phase)) {
       publishWindows.delete(id)
       void mutate(key => typeof key === 'string' && (key === '/api/batches' || key.startsWith('/api/batches?') || key === `/api/batches/${id}`)).catch(() => undefined)
     }
-  }, [id, run.data?.phase, mutate])
+  }, [id, run.data?.phase, mutate, router])
   return run
 }
 
