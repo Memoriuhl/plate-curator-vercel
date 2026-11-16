@@ -305,11 +305,36 @@ test('FLIP animates only moved cards diagonally and skips reduced motion', () =>
 })
 
 test('placeholder preserves height and lifted copy preserves the grab point', () => {
+  const size = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(134)
   render(<><DragPlaceholder height={312} /><DragPreview item={{ kind: 'family', plate: a }} x={400} y={300} geometry={{ width: 220, height: 312, offsetX: 30, offsetY: 20, imageWidth: 140, imageHeight: 70 }} /></>)
   expect(document.querySelector<HTMLElement>('[data-drag-placeholder]')!.style.height).toBe('312px')
   const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
   expect(lifted.style.transform).toBe('translate3d(370px, 280px, 0) scale(1.03)')
   expect(lifted.textContent).toContain(a.displayName)
+  expect(lifted.style.minHeight).toBe('')
+  size.mockRestore()
+})
+
+test.each([0, 1, 12])('family preview displays %i variants and clamps a low grab point', variantCount => {
+  const size = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(134)
+  render(<DragPreview item={{ kind: 'family', plate: a }} variantCount={variantCount} x={400} y={500} geometry={{ width: 220, height: 900, offsetX: 30, offsetY: 800, imageWidth: 140, imageHeight: 70 }} />)
+  const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
+  expect(lifted.style.minHeight).toBe('')
+  expect(lifted.style.width).toBe('220px')
+  expect(lifted.style.transformOrigin).toBe('30px 134px')
+  expect(lifted.style.transform).toBe('translate3d(370px, 366px, 0) scale(1.03)')
+  if (variantCount) {
+    const pill = screen.getByText(`${variantCount} ${variantCount === 1 ? 'variant' : 'variants'}`)
+    expect(pill.parentElement).toBe(screen.getByText(a.displayName).parentElement)
+  } else expect(lifted.textContent).not.toContain('variant')
+  size.mockRestore()
+})
+
+test('variant preview has no family count or stale full-card height', () => {
+  render(<DragPreview item={{ kind: 'variant', plate: v }} variantCount={12} x={400} y={300} />)
+  const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
+  expect(lifted.textContent).not.toContain('variants')
+  expect(lifted.style.minHeight).toBe('')
 })
 
 test('slot targets remain stable as cards reflow under a stationary pointer and follow scrolling', () => {

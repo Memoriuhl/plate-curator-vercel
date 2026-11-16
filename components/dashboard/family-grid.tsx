@@ -297,7 +297,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       </Suspense>
       <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
       {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
-      {drag.active ? <DragPreview {...drag.active} /> : null}
+      {drag.active ? <DragPreview {...drag.active} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}
     </section>
   )
 }
