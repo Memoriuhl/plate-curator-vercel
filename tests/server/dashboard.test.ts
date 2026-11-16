@@ -3,7 +3,7 @@ import { fixtureSource } from '../../lib/catalog/fixture-source'
 import type { CuratorState } from '../../lib/catalog/types'
 
 vi.mock('server-only', () => ({}))
-vi.mock('next/cache', () => ({ cacheLife: vi.fn() }))
+vi.mock('next/cache', () => ({ cacheLife: vi.fn(), cacheTag: vi.fn() }))
 const state = vi.hoisted(() => ({
   version: 11,
   curator: { stateOrder: {}, stateProgress: {} } as CuratorState,

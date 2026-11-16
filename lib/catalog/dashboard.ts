@@ -1,15 +1,15 @@
 import 'server-only'
 import { cache } from 'react'
 import { catalog } from '../server/context'
+import { cachedCatalogHead } from '../server/catalog-head'
 import { cachedDashboard, cachedJurisdiction } from '../server/snapshot-cache'
 import { buildJurisdiction, buildPlate } from './dashboard-build'
 import { catalogSourceKind } from './source-kind'
 
 const loadInputs = cache(async () => {
-  const source = catalog()
-  const [version, curator] = await Promise.all([source.readVersion(), source.readCuratorState()])
+  const { version, curator } = await cachedCatalogHead()
   return {
-    version, curator, imageUrl: source.imageUrl,
+    version, curator, imageUrl: catalog().imageUrl,
     kind: catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }),
     imageBase: process.env.PLATE_IMAGE_BASE || null,
   }

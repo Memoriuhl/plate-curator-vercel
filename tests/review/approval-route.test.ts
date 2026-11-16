@@ -10,6 +10,8 @@ import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn(), publishAllowed: () => true, start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
+vi.mock('server-only', () => ({}))
+vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', () => mocks)
 vi.mock('workflow/api', () => mocks)
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))

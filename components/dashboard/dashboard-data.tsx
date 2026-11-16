@@ -24,7 +24,6 @@ export async function JurisdictionStrip() {
 }
 
 export async function StateContent({ code }: { code: string }) {
-  await connection()
   const jurisdiction = await loadJurisdiction(code)
   if (!jurisdiction) notFound()
   return (

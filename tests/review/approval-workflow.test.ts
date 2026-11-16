@@ -2,6 +2,8 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { approvalRun } from '../../workflows/approval'
 
 const mocks = vi.hoisted(() => ({ getBatch: vi.fn(), createHook: vi.fn(), publishBatch: vi.fn(), publishDeps: vi.fn(() => ({})) }))
+vi.mock('server-only', () => ({}))
+vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('workflow', () => ({ createHook: mocks.createHook, sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
 vi.mock('../../lib/server/context', () => ({ reviewDeps: () => ({ store: { getBatch: mocks.getBatch } }), publishDeps: mocks.publishDeps }))
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
