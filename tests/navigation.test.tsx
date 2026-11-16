@@ -30,10 +30,13 @@ test('selected jurisdiction follows the route params', () => {
 })
 
 test('the pending link exposes its loading indicator', () => {
-  expect(renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)).not.toContain('data-navigation-pending')
+  const idle = renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)
+  expect(idle).not.toContain('data-navigation-pending')
+  expect(idle).not.toContain('animate-spin')
   route.pending = true
   const html = renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)
   expect(html).toContain('data-navigation-pending')
   expect(html).toContain('role="status"')
   expect(html).toContain('Loading')
+  expect(html).toContain('animate-spin')
 })

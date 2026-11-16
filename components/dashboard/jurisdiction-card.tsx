@@ -15,8 +15,12 @@ function PendingIndicator() {
       data-navigation-pending={pending || undefined}
       className={cn('absolute right-2 top-2 size-3 transition-opacity', pending ? 'opacity-100' : 'opacity-0')}
     >
-      <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
-      <span className="sr-only">{pending ? 'Loading jurisdiction…' : ''}</span>
+      {pending ? (
+        <>
+          <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
+          <span className="sr-only">Loading jurisdiction…</span>
+        </>
+      ) : null}
     </span>
   )
 }
