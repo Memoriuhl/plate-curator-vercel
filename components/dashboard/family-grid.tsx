@@ -7,6 +7,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { familyColumns } from './grid-feel'
 import { useGridEntrance } from './use-grid-entrance'
 import { useDragFlip } from './use-drag-flip'
+import { estimatedFamilyHeight } from './variant-list-layout'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
@@ -157,7 +158,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     estimateSize: (index) =>
       Math.max(
         ...rows[index].map((family) =>
-          210 + family.variants.length * 104,
+          estimatedFamilyHeight(family.variants.length),
         ),
       ) + 16,
     overscan: 1,

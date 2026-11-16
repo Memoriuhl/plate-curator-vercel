@@ -9,7 +9,8 @@ export type FlipSnapshot = Map<string, Position>
 export function measureDragPositions(root: HTMLElement): FlipSnapshot {
   return new Map(Array.from(root.querySelectorAll<HTMLElement>('[data-reflow-key]'), element => {
     const rect = element.getBoundingClientRect()
-    return [element.dataset.reflowKey!, { left: rect.left + window.scrollX, top: rect.top + window.scrollY }]
+    const list = element.closest<HTMLElement>('[data-variant-scroll]')
+    return [element.dataset.reflowKey!, { left: rect.left + window.scrollX + (list?.scrollLeft ?? 0), top: rect.top + window.scrollY + (list?.scrollTop ?? 0) }]
   }))
 }
 

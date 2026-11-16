@@ -8,6 +8,15 @@ import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-refl
 import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
 import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
 import { createStableDragTargets } from '../components/dashboard/drag-target-elements'
+import { variantListCap, estimatedFamilyHeight } from '../components/dashboard/variant-list-layout'
+import { VirtualizedVariants } from '../components/plate/virtualized-variants'
+import { scrollDragList } from '../components/dashboard/drag-list-scroll'
+import { useVirtualizer } from '@tanstack/react-virtual'
+
+vi.mock('@tanstack/react-virtual', async importOriginal => {
+  const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
+  return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) }
+})
 
 const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
 const v = { ...a, id: 'AK.v', templateRole: 'variant' as const }
@@ -313,4 +322,100 @@ test('slot targets remain stable as cards reflow under a stationary pointer and 
     expect(targetAt(350, 200, stable(moved, 0, 0))).toEqual(target)
   }
   expect(targetAt(350, 100, stable([], 0, 100))).toEqual(target)
+})
+
+test('cap uses the rendered sixth row, including unequal row heights and gaps', () => {
+  const sizes = [80, 130, 65, 160, 90, 140]
+  let start = 0
+  const rows = sizes.map(size => { const row = { start, size }; start += size + 12; return row })
+  expect(variantListCap(rows.slice(0, 5))).toBeUndefined()
+  expect(variantListCap(rows)).toBe(655)
+  expect(estimatedFamilyHeight(100)).toBe(estimatedFamilyHeight(6))
+  expect(estimatedFamilyHeight(5)).toBeLessThan(estimatedFamilyHeight(6))
+})
+
+test('five variants stay uncapped; six show five measured rows and half the sixth', () => {
+  const observe = vi.fn()
+  let resized = () => {}
+  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resized = callback } observe = observe; disconnect() {} })
+  const sizes = [80, 130, 65, 160, 90, 140]
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const index = Number(this.dataset.variantIndex ?? -1)
+    return { top: index < 0 ? 0 : sizes.slice(0, index).reduce((sum, size) => sum + size + 12, 0), height: sizes[index] ?? 0, width: 240 } as DOMRect
+  })
+  try {
+    const variants = sizes.map((_, index) => ({ ...v, id: `AK.variant${index}` }))
+    const view = render(<FamilyCard template={a} variants={variants.slice(0, 5)} />)
+    expect(view.container.querySelector('[data-variant-scroll]')).toBeNull()
+    view.rerender(<FamilyCard template={a} variants={variants} />)
+    const list = view.container.querySelector<HTMLElement>('[data-variant-scroll]')!
+    expect(list.style.height).toBe('655px')
+    expect(list.className).toContain('overflow-y-auto')
+    expect(list.className).toContain('[scrollbar-gutter:stable]')
+    expect(list.className).not.toContain('overscroll-contain')
+    expect(observe).toHaveBeenCalledTimes(6)
+    sizes[5] = 200
+    act(() => resized())
+    expect(list.style.height).toBe('685px')
+  } finally { bounds.mockRestore(); vi.unstubAllGlobals() }
+})
+
+test('nested virtualization observes the list scroll element and retains the first six measurement rows', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  try {
+    const plates = Array.from({ length: 30 }, (_, index) => ({ ...v, id: `AK.variant${index}` }))
+    const view = render(<VirtualizedVariants familyId={a.id} plates={plates} renderPlate={plate => <a href={'/plates/' + plate.id}>{plate.id}</a>} />)
+    const options = vi.mocked(useVirtualizer).mock.calls.at(-1)![0]
+    expect(options.enabled).toBe(true)
+    expect(options.getScrollElement()).toBe(view.getByRole('list'))
+    expect(options.rangeExtractor!({ startIndex: 20, endIndex: 24, overscan: 2, count: 30 })).toEqual(expect.arrayContaining([0, 1, 2, 3, 4, 5, 20, 24]))
+  } finally { vi.unstubAllGlobals() }
+})
+
+test('drag auto-scrolls the capped list within its 40 px edges and yields at its ends', () => {
+  const list = document.createElement('div')
+  list.dataset.variantScroll = a.id
+  list.getBoundingClientRect = () => ({ left: 100, right: 300, top: 100, bottom: 600 }) as DOMRect
+  let offset = 100
+  Object.defineProperty(list, 'scrollTop', { get: () => offset, set: value => { offset = Math.max(0, Math.min(400, value)) } })
+  document.body.append(list)
+  try {
+    expect(scrollDragList(150, 590, a.id)).toBe(true)
+    expect(offset).toBe(109)
+    expect(scrollDragList(150, 110, a.id)).toBe(true)
+    expect(offset).toBe(100)
+    expect(scrollDragList(150, 350, a.id)).toBe(false)
+    expect(scrollDragList(350, 590, a.id)).toBe(false)
+    offset = 400
+    expect(scrollDragList(150, 590, a.id)).toBe(false)
+  } finally { list.remove() }
+})
+
+test('nested scroll targets follow list scrolling, clip hidden slots and retain boundary stability', () => {
+  const list = document.createElement('div')
+  list.getBoundingClientRect = () => ({ left: 100, right: 300, top: 100, bottom: 600 }) as DOMRect
+  const stable = createStableDragTargets()
+  const target = { kind: 'variant-slot' as const, familyId: a.id, index: 8 }
+  const targets = [{ target, scrollElement: list, rect: { left: 100, right: 300, top: 800, bottom: 840 } }]
+  expect(targetAt(150, 820, stable(targets, 0, 0))).toBeNull()
+  list.scrollTop = 300
+  expect(targetAt(150, 520, stable([], 0, 0))).toEqual(target)
+  expect(targetAt(150, 520, stable([{ ...targets[0], rect: { left: 100, right: 300, top: 100, bottom: 140 } }], 0, 0))).toEqual(target)
+})
+
+test('scrolling the nested list does not create a false FLIP movement', () => {
+  const root = document.createElement('div')
+  const list = document.createElement('div')
+  list.dataset.variantScroll = a.id
+  const row = document.createElement('div')
+  row.dataset.reflowKey = 'variant:' + v.id
+  row.getBoundingClientRect = () => ({ left: 100, top: 500 - list.scrollTop }) as DOMRect
+  row.animate = vi.fn()
+  list.append(row)
+  root.append(list)
+  const before = measureDragPositions(root)
+  list.scrollTop = 300
+  const after = playDragFlip(root, before, false)
+  expect(after).toEqual(before)
+  expect(row.animate).not.toHaveBeenCalled()
 })
