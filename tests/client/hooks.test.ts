@@ -6,7 +6,7 @@ import { ApiError } from '../../lib/client/api'
 import type { Plate } from '../../lib/catalog/types'
 import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import type { ReviewBatch } from '../../lib/review/types'
-import { batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
+import { batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -224,6 +224,30 @@ test('plate detail fetches the typed plate response and disables fetching for a 
   rerender({ id: card.id })
   await waitFor(() => expect(result.current.data).toEqual(response))
   expect(session.api.get).toHaveBeenCalledExactlyOnceWith('/api/plates/AK.one')
+})
+
+test('plate detail preload fetches once with the shared key and the detail hook reuses it', async () => {
+  const response = { plate: { ...card, description: 'Detail', category: null, sourceUrl: null, wikiUrl: null }, family: [], prevId: null, nextId: null }
+  session.api.get.mockResolvedValue(response)
+  const preloader = renderHook(() => usePreloadPlateDetail(), harness())
+  preloader.result.current('AK.preloaded')
+  preloader.result.current('AK.preloaded')
+  expect(session.api.get).toHaveBeenCalledExactlyOnceWith('/api/plates/AK.preloaded')
+  const { result } = renderHook(() => usePlateDetail('AK.preloaded'), harness())
+  await waitFor(() => expect(result.current.data).toEqual(response))
+  expect(session.api.get).toHaveBeenCalledOnce()
+})
+
+test('plate detail preload does nothing when signed out', () => {
+  const user = session.user
+  Object.assign(session, { user: null })
+  try {
+    const { result } = renderHook(() => usePreloadPlateDetail(), harness())
+    result.current('AK.signed_out')
+    expect(session.api.get).not.toHaveBeenCalled()
+  } finally {
+    Object.assign(session, { user })
+  }
 })
 
 test('ensure batch returns the most recently updated own open batch without creating another', async () => {

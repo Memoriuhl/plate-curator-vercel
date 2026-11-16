@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
-import useSWR, { useSWRConfig } from 'swr'
+import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { ApiError } from './api'
@@ -36,9 +36,18 @@ export function useBatch(id: string | null) {
   return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get)
 }
 
+export const plateDetailKey = (id: string) => `/api/plates/${id}`
+
 export function usePlateDetail(id: string | null) {
   const { user, api } = useSession()
-  return useSWR<PlateDetail>(user && id ? `/api/plates/${id}` : null, api.get)
+  return useSWR<PlateDetail>(user && id ? plateDetailKey(id) : null, api.get)
+}
+
+export function usePreloadPlateDetail() {
+  const { user, api } = useSession()
+  return (id: string) => {
+    if (user) preload(plateDetailKey(id), api.get).catch(() => undefined)
+  }
 }
 
 export function useReviewActions() {
