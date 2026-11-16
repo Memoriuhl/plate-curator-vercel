@@ -88,7 +88,7 @@ export function RunMenu({
           event.preventDefault()
           trigger.current?.focus()
         }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] p-5 text-[var(--ink)] shadow-xl [&>*]:shrink-0 max-[420px]:w-screen max-[420px]:rounded-none"
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:shrink-0 max-[420px]:w-screen max-[420px]:rounded-none"
       >
         <fieldset className="grid gap-2">
           <legend className="label mb-2">Run on</legend>
@@ -174,7 +174,7 @@ export function RunMenu({
             </fieldset>
           ))}
         </section>
-        <footer className="sticky bottom-0 grid gap-3 border-t border-[var(--hairline)] bg-[var(--card)] pt-3">
+        <footer className="sticky bottom-0 grid gap-3 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex gap-2">
             <input type="checkbox" disabled />
             Preview only · Coming soon
