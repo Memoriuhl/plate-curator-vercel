@@ -172,7 +172,7 @@ test('own open batch offers submit and approved batch has no actions', () => {
       }}
     />,
   )
-  expect(html).toContain('Approved by an Owner at today')
+  expect(html).toContain('Approved by an Owner on today')
   expect(html).not.toContain('Request changes')
 })
 test('superseded and invalid state errors explain recovery', () => {

@@ -69,6 +69,11 @@ function BatchLoader({
   return error ? <p role="alert">Could not load batch {batch.name}.</p> : null
 }
 
+function when(at: string) {
+  const date = new Date(at)
+  return Number.isNaN(date.getTime()) ? at : date.toLocaleString()
+}
+
 export function reviewError(error: unknown, revision: number) {
   const code =
     error && typeof error === 'object' && 'code' in error ? error.code : ''
@@ -124,7 +129,8 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
       {batch.state === 'approved' ? (
         <p>
-          Approved by {approvedBy || 'an Owner'} at {batch.approval?.at}
+          Approved by {approvedBy || 'an Owner'}
+          {batch.approval?.at ? ` on ${when(batch.approval.at)}` : ''}
         </p>
       ) : (
         <>
