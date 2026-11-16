@@ -239,10 +239,12 @@ export function FamilyCard({
         <div className="min-w-0 flex-1">{plateContent(template, false)}</div>
       </div>
       {variants.length ? (
-        <div className="flex flex-col gap-3 pl-8">
-          {variants.length > 12 ? (
+        <div className="mt-3 flex flex-col gap-3 pl-8">
+          {variants.length >= 6 ? (
             <VirtualizedVariants
               plates={variants}
+              familyId={template.id}
+              drag={drag}
               renderPlate={(plate) => plateContent(plate, true)}
             />
           ) : (

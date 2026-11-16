@@ -7,6 +7,7 @@ import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelo
 import { reflowForDrop, sameDropTarget } from './drag-reflow'
 import { dragElement, measureDragGeometry, type DragGeometry } from './drag-geometry'
 import { createStableDragTargets } from './drag-target-elements'
+import { scrollDragList } from './drag-list-scroll'
 
 type Options = {
   families: DragFamily[]
@@ -181,9 +182,11 @@ export function usePlateDrag(options: Options) {
     function scroll() {
       const drag = current.current
       if (drag && !drag.keyboard) {
-        const speed = scrollVelocity(drag.y, window.innerHeight)
-        if (speed) {
-          window.scrollBy(0, speed)
+        const source = drag.item.kind === 'variant' && latest.current.families.find(family => family.variants.some(plate => plate.id === drag.item.plate.id))
+        const nested = source && scrollDragList(drag.x, drag.y, source.template.id)
+        const speed = nested ? 0 : scrollVelocity(drag.y, window.innerHeight)
+        if (speed || nested) {
+          if (speed) window.scrollBy(0, speed)
           const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
           if (!sameDropTarget(target, drag.target)) actions.current.update({ ...drag, target })
         }

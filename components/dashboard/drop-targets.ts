@@ -6,7 +6,7 @@ export type DropTarget =
   | { kind: 'family-slot'; index: number }
   | { kind: 'variant-slot'; familyId: string; index: number }
   | { kind: 'merge'; familyId: string }
-export type TargetRect = { target: DropTarget; rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'> }
+export type TargetRect = { target: DropTarget; rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>; scrollElement?: HTMLElement }
 
 export function pastDragThreshold(dx: number, dy: number) {
   return Math.hypot(dx, dy) >= 5

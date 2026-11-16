@@ -4,14 +4,17 @@ export function createStableDragTargets() {
   const rects = new Map<string, TargetRect>()
   return (targets: TargetRect[], scrollX: number, scrollY: number) => {
     const occurrences = new Map<string, number>()
-    for (const { target, rect } of targets) {
+    for (const { target, rect, scrollElement } of targets) {
       const identity = target.kind === 'family-slot' ? `family:${target.index}` : target.kind === 'variant-slot' ? `variant:${target.familyId}:${target.index}` : `merge:${target.familyId}`
       const occurrence = occurrences.get(identity) ?? 0
       occurrences.set(identity, occurrence + 1)
       const key = `${identity}:${occurrence}`
-      if (!rects.has(key)) rects.set(key, { target, rect: { left: rect.left + scrollX, right: rect.right + scrollX, top: rect.top + scrollY, bottom: rect.bottom + scrollY } })
+      if (!rects.has(key) || rects.get(key)?.scrollElement !== scrollElement) rects.set(key, { target, scrollElement, rect: { left: rect.left + scrollX + (scrollElement?.scrollLeft ?? 0), right: rect.right + scrollX + (scrollElement?.scrollLeft ?? 0), top: rect.top + scrollY + (scrollElement?.scrollTop ?? 0), bottom: rect.bottom + scrollY + (scrollElement?.scrollTop ?? 0) } })
     }
-    return Array.from(rects.values(), ({ target, rect }) => ({ target, rect: { left: rect.left - scrollX, right: rect.right - scrollX, top: rect.top - scrollY, bottom: rect.bottom - scrollY } }))
+    return Array.from(rects.values(), ({ target, rect, scrollElement }) => {
+      const clip = scrollElement?.getBoundingClientRect()
+      return { target, rect: { left: Math.max(rect.left - scrollX - (scrollElement?.scrollLeft ?? 0), clip?.left ?? -Infinity), right: Math.min(rect.right - scrollX - (scrollElement?.scrollLeft ?? 0), clip?.right ?? Infinity), top: Math.max(rect.top - scrollY - (scrollElement?.scrollTop ?? 0), clip?.top ?? -Infinity), bottom: Math.min(rect.bottom - scrollY - (scrollElement?.scrollTop ?? 0), clip?.bottom ?? Infinity) } }
+    })
   }
 }
 
@@ -33,9 +36,11 @@ export function collectDragTargets(root: HTMLElement | null, families: DragFamil
       const variantIndex = families[index].variants.findIndex(plate => plate.id === variant.dataset.dragVariant)
       if (variantIndex < 0) continue
       const bounds = variant.getBoundingClientRect()
+      const scrollElement = variant.closest<HTMLElement>('[data-variant-scroll]') ?? undefined
+      const midpoint = (bounds.top + bounds.bottom) / 2
       targets.push(
-        { target: { kind: 'variant-slot', familyId: familyId!, index: variantIndex }, rect: { left: bounds.left, right: bounds.right, top: bounds.top - 6, bottom: bounds.top + 10 } },
-        { target: { kind: 'variant-slot', familyId: familyId!, index: variantIndex + 1 }, rect: { left: bounds.left, right: bounds.right, top: bounds.bottom - 10, bottom: bounds.bottom + 6 } },
+        { target: { kind: 'variant-slot', familyId: familyId!, index: variantIndex }, scrollElement, rect: { left: bounds.left, right: bounds.right, top: bounds.top - 6, bottom: scrollElement ? midpoint : bounds.top + 10 } },
+        { target: { kind: 'variant-slot', familyId: familyId!, index: variantIndex + 1 }, scrollElement, rect: { left: bounds.left, right: bounds.right, top: scrollElement ? midpoint : bounds.bottom - 10, bottom: bounds.bottom + 6 } },
       )
     }
   }
