@@ -7,6 +7,7 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --radius: var(--radius-md);
   color-scheme: light dark;
+  scrollbar-gutter: stable;
 }
 
 @theme inline {

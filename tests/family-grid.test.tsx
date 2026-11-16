@@ -1,9 +1,10 @@
+vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => ({ prefetch: vi.fn() }) }))
 import {
   projectFamilyPlate,
   expandFamilyPlate,
   filterCounts,
 } from '../components/dashboard/family-data'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { plateCards } from '../fixtures/plate-cards'
 import {

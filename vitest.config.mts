@@ -8,7 +8,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'client',
-          include: ['tests/client/hooks.test.ts', 'tests/plate-page.test.tsx'],
+          include: ['tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx'],
           environment: 'jsdom',
         },
       },
@@ -20,6 +20,7 @@ export default defineConfig({
             ...configDefaults.exclude,
             'tests/client/hooks.test.ts',
             'tests/plate-page.test.tsx',
+            'tests/grid-feel-interactions.test.tsx',
             ...(process.env.FIRESTORE_EMULATOR_HOST
               ? []
               : ['tests-emulator/**']),

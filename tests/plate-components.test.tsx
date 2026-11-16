@@ -1,3 +1,4 @@
+vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => ({ prefetch: vi.fn() }) }))
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { StatusIcon } from '../components/plate/status-icon'
