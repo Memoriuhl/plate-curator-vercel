@@ -128,6 +128,15 @@ export function Conflict({
   )
 }
 
+function fileName(url: string) {
+  const name = url.split('/').at(-1)!.split('?')[0]
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
+  }
+}
+
 function format(value: unknown) {
   if (value == null || value === '') return '(empty)'
   return Array.isArray(value) ? value.join(', ') : String(value)
@@ -348,7 +357,15 @@ export function PlatePage(props: PlatePageProps) {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <p role="status" className="caption text-[var(--success)]">
+          <p
+            role="status"
+            className={cn(
+              'caption',
+              status.startsWith('Could not')
+                ? 'text-[var(--danger)]'
+                : 'text-[var(--success)]',
+            )}
+          >
             {pending
               ? 'Saving to your batch…'
               : status || (plate.changedInBatch ? 'Saved to your batch' : '')}
@@ -400,9 +417,7 @@ export function PlatePage(props: PlatePageProps) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="id break-all text-[var(--ink-2)]">
                 {plate.imageUrl
-                  ? decodeURIComponent(
-                      plate.imageUrl.split('/').at(-1)!.split('?')[0],
-                    )
+                  ? fileName(plate.imageUrl)
                   : 'No source file'}{' '}
                 · {props.plate.imageSize.width} px
               </p>
