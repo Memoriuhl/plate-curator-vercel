@@ -6,10 +6,12 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 
 export default function StatesLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="app-main dashboard group/states">
-      <Suspense fallback={<div className="review-loading flex h-11 items-center" role="status">Loading review batches…</div>}>
-        <ReviewStrip />
-      </Suspense>
+    <main className="app-main dashboard states-layout group/states">
+      <div className="states-review">
+        <Suspense fallback={<div className="review-loading flex h-11 items-center" role="status">Loading review batches…</div>}>
+          <ReviewStrip />
+        </Suspense>
+      </div>
       <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>
         <DashboardSearch />
       </Suspense>
@@ -17,7 +19,7 @@ export default function StatesLayout({ children }: { children: React.ReactNode }
         <JurisdictionStrip />
       </Suspense>
       <Suspense fallback={<DashboardSkeleton kind="state" />}>
-        <div className="transition-opacity group-has-[[data-navigation-pending]]/states:opacity-70">
+        <div className="states-content transition-opacity group-has-[[data-navigation-pending]]/states:opacity-70">
           {children}
         </div>
       </Suspense>

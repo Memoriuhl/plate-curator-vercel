@@ -238,6 +238,12 @@ body {
   gap: var(--space-3);
   min-width: 0;
 }
+.states-content {
+  min-width: 0;
+}
+.states-review {
+  min-width: 0;
+}
 .review-strip {
   display: flex;
   align-items: center;
@@ -442,6 +448,60 @@ body {
 .skeleton-jurisdictions {
   height: 100px;
   background: var(--card);
+}
+.jurisdiction-skeleton-card {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .states-layout {
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: var(--space-6);
+    align-items: start;
+  }
+  .states-layout > .states-review {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .states-layout > .dashboard-search {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .states-layout > .states-content,
+  .states-layout > .skeleton-state {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .states-layout > .jurisdiction-strip,
+  .states-layout > .skeleton-jurisdictions {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    position: sticky;
+    top: calc(64px + var(--space-6));
+    height: calc(100dvh - 64px - var(--space-6) * 2);
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding: 0 var(--space-1) var(--space-1) 0;
+    flex-direction: column;
+  }
+  .states-layout .jurisdiction-card {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .states-layout > .skeleton-jurisdictions {
+    display: flex;
+    gap: var(--space-2);
+    background: transparent;
+  }
+  .jurisdiction-skeleton-card {
+    display: block;
+    flex: 0 0 112px;
+    border-radius: var(--radius-lg);
+    background: var(--card);
+  }
 }
 .skeleton-state {
   min-height: 148px;
