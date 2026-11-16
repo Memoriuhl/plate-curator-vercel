@@ -133,3 +133,29 @@ test('a family cannot merge into another family', async () => {
   expect(edit).not.toHaveBeenCalled()
   expect(reorder).not.toHaveBeenCalled()
 })
+
+test('dragging a variant out promotes it before saving the full state order', async () => {
+  const { handle, edit, reorder } = setup({ variant: true })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
+  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'template', variantOfPlateId: null, templateFamily: v.id })
+  expect(reorder).toHaveBeenCalledExactlyOnceWith(v.state, ['AK.a', 'AK.w', 'AK.b', 'AK.v'])
+  expect(edit.mock.invocationCallOrder[0]).toBeLessThan(reorder.mock.invocationCallOrder[0])
+})
+
+test('a failed promotion does not send a reorder', async () => {
+  const { handle, edit, reorder } = setup({ variant: true })
+  edit.mockResolvedValue({ ok: false, error: 'forbidden' })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  await waitFor(() => expect(screen.getByText("Only the batch's creator or an Owner can edit it.")).toBeTruthy())
+  expect(reorder).not.toHaveBeenCalled()
+  expect(screen.getByTestId('order').textContent).toBe('')
+})

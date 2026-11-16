@@ -7,12 +7,13 @@ import type { EditableFields } from '@/lib/review/types'
 import { familyOrder, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
 
 export type ReorderAdapter = { reorder(state: string, order: string[]): Promise<EditResult>; pending: boolean }
+export type DragEditableFields = Omit<EditableFields, 'variantOfPlateId'> & { variantOfPlateId?: string | null }
 type Options = {
   families: DragFamily[]
   canEdit: boolean
   show: string
   query: string
-  edits: { edit(plate: PlateCardData, fields: EditableFields): Promise<EditResult>; pending: boolean }
+  edits: { edit(plate: PlateCardData, fields: DragEditableFields): Promise<EditResult>; pending: boolean }
   ordering: ReorderAdapter
   targets(): TargetRect[]
   closePreview(): void
@@ -31,7 +32,7 @@ export function usePlateDrag(options: Options) {
   const [active, setActive] = useState<Active | null>(null)
   const [announcement, announce] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null)
-  const [optimisticEdit, setOptimisticEdit] = useState<{ plateId: string; fields: EditableFields } | null>(null)
+  const [optimisticEdit, setOptimisticEdit] = useState<{ plateId: string; fields: DragEditableFields } | null>(null)
   const [saving, setSaving] = useState(false)
   const latest = useRef(options)
   const current = useRef(active)
@@ -76,7 +77,7 @@ export function usePlateDrag(options: Options) {
     const { families, edits, ordering, reload } = latest.current
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
-    if (!source || (item.kind === 'variant' && target.kind === 'family-slot') || (target.kind === 'merge' && (item.kind === 'family' || !destination || destination === source))) { announce('Cancelled'); return }
+    if (!source || (target.kind === 'merge' && (item.kind === 'family' || !destination || destination === source))) { announce('Cancelled'); return }
     setSaving(true)
     const order = orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
@@ -87,7 +88,18 @@ export function usePlateDrag(options: Options) {
         setOptimisticEdit({ plateId: item.plate.id, fields })
         result = await edits.edit(item.plate, fields)
       } else {
-        if (!order || order.every((id, index) => id === familyOrder(families)[index])) { announce('Dropped'); return }
+        const promote = item.kind === 'variant' && target.kind === 'family-slot'
+        if (!order || (!promote && order.every((id, index) => id === familyOrder(families)[index]))) { announce('Dropped'); return }
+        if (promote) {
+          const fields: DragEditableFields = { templateRole: 'template', variantOfPlateId: null, templateFamily: item.plate.id }
+          setOptimisticEdit({ plateId: item.plate.id, fields })
+          result = await edits.edit(item.plate, fields)
+          if (!result.ok) {
+            announce(errors[result.error])
+            if (result.error === 'superseded_revision') await reload()
+            return
+          }
+        }
         result = await ordering.reorder(item.plate.state, order)
       }
       if (!result.ok) {
