@@ -1,0 +1,42 @@
+import { beforeEach, expect, test, vi } from 'vitest'
+import { approvalRun } from '../../workflows/approval'
+
+const mocks = vi.hoisted(() => ({ getBatch: vi.fn(), createHook: vi.fn(), publishBatch: vi.fn(), publishDeps: vi.fn(() => ({})) }))
+vi.mock('workflow', () => ({ createHook: mocks.createHook, sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
+vi.mock('../../lib/server/context', () => ({ reviewDeps: () => ({ store: { getBatch: mocks.getBatch } }), publishDeps: mocks.publishDeps }))
+vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
+
+const approved = { state: 'approved', revision: 2, approval: { revision: 1 } }
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.getBatch.mockResolvedValue(approved)
+  mocks.publishBatch.mockResolvedValue({ ok: true, value: { toVersion: 8 } })
+})
+test('a superseded approval exits without Publish', async () => {
+  mocks.getBatch.mockResolvedValueOnce({ state: 'submitted', revision: 1 })
+  mocks.createHook.mockResolvedValue({ superseded: true })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
+  expect(mocks.publishBatch).not.toHaveBeenCalled()
+})
+test('a superseded Publish command exits without Publish', async () => {
+  mocks.createHook.mockResolvedValue({ superseded: true })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
+  expect(mocks.publishBatch).not.toHaveBeenCalled()
+})
+test('an edit during the transition to the Publish wait supersedes the run', async () => {
+  mocks.getBatch.mockResolvedValueOnce(approved).mockResolvedValueOnce(approved).mockResolvedValueOnce({ state: 'open', revision: 3 })
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
+  expect(mocks.publishBatch).not.toHaveBeenCalled()
+})
+test('a stale run cannot Publish after its command arrives', async () => {
+  mocks.getBatch.mockResolvedValueOnce(approved).mockResolvedValueOnce(approved).mockResolvedValueOnce(approved).mockResolvedValueOnce({ state: 'open', revision: 3 })
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
+  expect(mocks.publishBatch).not.toHaveBeenCalled()
+})
+test('an approved command publishes inside the run and returns the version', async () => {
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'published', version: 8 })
+  expect(mocks.publishBatch).toHaveBeenCalledWith({}, { uid: 'owner', name: null, role: 'owner' }, { batchId: 'batch', revision: 2 })
+})

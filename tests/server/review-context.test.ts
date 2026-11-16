@@ -1,11 +1,13 @@
 import { afterEach, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  resumeHook: vi.fn(async () => ({})),
   cachedJurisdiction: vi.fn(),
   loadSnapshot: vi.fn(() => { throw new Error('Full snapshot reads are unavailable') }),
   readSnapshot: vi.fn(() => { throw new Error('Full snapshot reads are unavailable') }),
   readCuratorState: vi.fn(async () => ({ stateOrder: { AK: ['AK.two', 'AK.one'] }, stateProgress: {} })),
 }))
+vi.mock('workflow/api', () => ({ resumeHook: mocks.resumeHook }))
 vi.mock('server-only', () => ({}))
 vi.mock('../../lib/server/snapshot-cache', () => ({ cachedJurisdiction: mocks.cachedJurisdiction }))
 vi.mock('../../lib/gcp/storage', () => ({ loadSnapshot: mocks.loadSnapshot }))
@@ -31,4 +33,10 @@ test.each(['fixture', 'firestore'])('state baseline orders the cached jurisdicti
   expect(mocks.readCuratorState).toHaveBeenCalledOnce()
   expect(mocks.loadSnapshot).not.toHaveBeenCalled()
   expect(mocks.readSnapshot).not.toHaveBeenCalled()
+})
+
+test.each(['submitted', 'approved'] as const)('superseding %s wakes both hooks across an approval transition', async state => {
+  await reviewDeps().supersedeRun?.({ id: 'batch', name: '', createdBy: 'editor', createdByName: null, createdAt: '', state, revision: state === 'submitted' ? 4 : 5, baselineVersion: 7, stateOrders: {}, plateIds: [], approval: null, approvalRun: { runId: 'run', revision: 4 } })
+  expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:4', { superseded: true })
+  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:5', { superseded: true })
 })

@@ -50,6 +50,24 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         return edit.exists ? edit.data() as ProposedEdit : null
       }, { readOnly: true })
     },
+    async recordRun(batchId, revision, runId) {
+      return db.runTransaction(async transaction => {
+        const ref = batches.doc(batchId)
+        const batch = await transaction.get(ref)
+        if (batch.get('env') !== env || !(batch.get('state') === 'submitted' && batch.get('revision') === revision || batch.get('state') === 'approved' && batch.get('approval')?.revision === revision)) return false
+        transaction.update(ref, { approvalRun: { runId, revision } })
+        return true
+      })
+    },
+    async requestPublish(batchId, revision, at) {
+      return db.runTransaction(async transaction => {
+        const ref = batches.doc(batchId)
+        const batch = await transaction.get(ref)
+        if (batch.get('env') !== env || batch.get('state') !== 'approved' || batch.get('revision') !== revision) return false
+        transaction.update(ref, { publishRequestedAt: at })
+        return true
+      })
+    },
     async commit(batchId, expectedRevision, next) {
       return db.runTransaction(async transaction => {
         const batchRef = batches.doc(batchId)
@@ -63,7 +81,12 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
           const record = await transaction.get(db.doc(`publishRecords/${reservation.recordId}`))
           if (!record.get('committedAt') || record.get('state') !== 'done' || record.get('env') !== env || record.get('revision') !== expectedRevision || record.get('batchId') !== batchId) return 'revision_mismatch'
         } else if (next.publishToken !== undefined) return 'revision_mismatch'
-        transaction.set(batchRef, { ...next.batch, env })
+        transaction.set(batchRef, {
+          ...next.batch,
+          ...(batch.get('approvalRun') ? { approvalRun: batch.get('approvalRun') } : {}),
+          ...(batch.get('publishRequestedAt') && ['approved', 'published'].includes(next.batch.state) ? { publishRequestedAt: batch.get('publishRequestedAt') } : {}),
+          env,
+        })
         if (next.deleteEditFor !== undefined) {
           transaction.delete(batchRef.collection('edits').doc(next.deleteEditFor))
         }

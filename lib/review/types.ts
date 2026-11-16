@@ -14,6 +14,8 @@ export type ReviewBatch = {
   baselineVersion: number
   stateOrders: Record<string, string[]>
   plateIds: string[]
+  approvalRun?: { runId: string; revision: number }
+  publishRequestedAt?: string | null
   approval: { revision: number; by: string; at: string } | null
 }
 export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & { variantOfPlateId?: string | null }
@@ -33,11 +35,14 @@ export interface ReviewStore {
   listEdits(batchId: string): Promise<ProposedEdit[]>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
+  recordRun(batchId: string, revision: number, runId: string): Promise<boolean>
+  requestPublish(batchId: string, revision: number, at: string): Promise<boolean>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
 export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
   stateBaseline(version: number, state: string): Promise<Plate[]>
+  supersedeRun?(batch: ReviewBatch): Promise<void>
   now(): string
 }

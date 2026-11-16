@@ -1,4 +1,5 @@
 import 'server-only'
+import { resumeHook } from 'workflow/api'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
@@ -63,6 +64,14 @@ export function reviewDeps(): ReviewDeps {
       if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
       if (!snapshot.plates.some(plate => plate.state === state)) return []
       return orderedStatePlates(snapshot, state, await source.readCuratorState())
+    },
+    async supersedeRun(batch) {
+      const revision = batch.approvalRun?.revision ?? (batch.state === 'submitted' ? batch.revision : batch.approval?.revision)
+      if (revision === undefined) return
+      await Promise.all([
+        resumeHook(`approval:${batch.id}:${revision}`, { superseded: true }).catch(() => undefined),
+        resumeHook(`publish:${batch.id}:${revision + 1}`, { superseded: true }).catch(() => undefined),
+      ])
     },
     now: () => new Date().toISOString(),
   }

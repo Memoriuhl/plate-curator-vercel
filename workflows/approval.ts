@@ -5,19 +5,23 @@ import { publishDeps, reviewDeps } from '../lib/server/context'
 export async function approvalRun(batchId: string, revision: number) {
   'use workflow'
 
-  const decision = createHook<{ by: string }>({ token: `approval:${batchId}:${revision}` })
+  const decision = createHook<{ by: string } | { superseded: true }>({ token: `approval:${batchId}:${revision}` })
   const before = await readBatch(batchId)
   if (before?.state === 'submitted' && before.revision === revision) {
     const decided = await Promise.race([decision, sleep('7d').then(() => 'timeout' as const)])
     if (decided === 'timeout') return { outcome: 'decision_timeout' as const }
+    if ('superseded' in decided) return { outcome: 'superseded' as const }
   }
 
   const approved = await readBatch(batchId)
   if (approved?.state !== 'approved' || approved.approval?.revision !== revision) return { outcome: 'superseded' as const }
 
-  const command = createHook<{ ownerUid: string }>({ token: `publish:${batchId}:${approved.revision}` })
+  const command = createHook<{ ownerUid: string } | { superseded: true }>({ token: `publish:${batchId}:${approved.revision}` })
+  const current = await readBatch(batchId)
+  if (current?.state !== 'approved' || current.revision !== approved.revision) return { outcome: 'superseded' as const }
   const requested = await Promise.race([command, sleep('7d').then(() => 'timeout' as const)])
   if (requested === 'timeout') return { outcome: 'publish_timeout' as const }
+  if ('superseded' in requested) return { outcome: 'superseded' as const }
 
   return runPublish(batchId, approved.revision, requested.ownerUid)
 }
@@ -29,6 +33,8 @@ async function readBatch(batchId: string) {
 
 async function runPublish(batchId: string, revision: number, ownerUid: string) {
   'use step'
+  const batch = await reviewDeps().store.getBatch(batchId)
+  if (!batch || (batch.state !== 'published' && (batch.state !== 'approved' || batch.revision !== revision || batch.approval?.revision !== revision - 1))) return { outcome: 'superseded' as const }
   const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision })
   if (!outcome.ok && (outcome.error === 'locked' || outcome.error === 'unavailable')) {
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })

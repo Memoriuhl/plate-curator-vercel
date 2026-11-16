@@ -42,7 +42,10 @@ export async function proposeEdit(
       batch: nextBatch,
       ...(Object.keys(fields).length === 0 ? { deleteEditFor: i.plateId } : { edit }),
     })
-    if (result === 'ok') return { ok: true, value: { batch: nextBatch, plate } }
+    if (result === 'ok') {
+      if (batch.state !== 'open') await d.supersedeRun?.(batch)
+      return { ok: true, value: { batch: nextBatch, plate } }
+    }
   }
   return { ok: false, error: 'superseded_revision' }
 }
@@ -65,7 +68,7 @@ async function transitionBatch(
   if (batch.revision !== revision) return { ok: false, error: 'superseded_revision' }
   if (batch.state !== (state === 'submitted' ? 'open' : 'submitted')) return { ok: false, error: 'invalid_state' }
   const nextBatch: ReviewBatch = {
-    ...batch, state, revision: revision + 1,
+    ...batch, ...(state === 'submitted' ? { publishRequestedAt: null } : {}), state, revision: revision + 1,
     approval: state === 'approved' ? { revision, by: a.uid, at: d.now() } : null,
   }
   const result = await d.store.commit(batchId, revision, { batch: nextBatch })
@@ -91,5 +94,6 @@ export async function reorderState(
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
   }
   const result = await d.store.commit(batch.id, batch.revision, { batch: next })
+  if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)
   return result === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
 }
