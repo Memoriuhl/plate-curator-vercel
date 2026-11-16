@@ -35,7 +35,7 @@ export default function ReviewPage({ searchParams }: { searchParams: Search }) {
       <Suspense
         fallback={
           <div
-            className="grid min-h-[calc(100dvh-112px)] grid-cols-1 gap-4 md:grid-cols-[200px_290px_1fr]"
+            className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] grid-cols-1 gap-4 md:grid-cols-[200px_290px_1fr]"
             aria-label="Loading review"
           >
             <div className="animate-pulse rounded-3xl bg-card" />

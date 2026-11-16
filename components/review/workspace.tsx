@@ -257,7 +257,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     states.flatMap((state) => state.plates).find((plate) => plate.id === id)
       ?.imageUrl
   return (
-    <div className="grid min-h-[calc(100dvh-112px)] min-w-0 gap-4 md:h-[calc(100dvh-112px)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
+    <div className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] min-w-0 gap-4 md:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
       {batches.map((batch) => (
         <BatchLoader key={batch.id} batch={batch} onLoad={loaded} />
       ))}
