@@ -62,11 +62,11 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 42. As the founder, I want nothing private (personal or work emails, private hostnames, internal infrastructure names) to ever reach the public repository, so that the repo is safe to share.
 43. As the founder, I want Preview builds to be technically unable to reach production Firebase, so that a misconfigured Preview can't touch players.
 44. As the founder, I want to measure valid-output rate, acceptance without edits, correction time and turnaround on a labelled set, so that any future switch to a hosted model is decided on cost per accepted Plate.
-45. As the founder, I want my existing Home and state pages moved onto Next.js unchanged first, so that the migration is proven before anything is redesigned.
-46. As an Editor, I want the ported Home to show the same states and progress as today, so that nothing I rely on disappears in the move.
-47. As an Editor, I want the ported state page to show the same Plates in the same State order with the same Template families, so that I can keep curating the same way.
-48. As a reviewer at Vercel, I want the public history to show the original screens, then the port, then the redesign, so that I can see exactly what moved and what changed.
-49. As the founder, I want to lead a light redesign of the ported screens while backend work continues in parallel, so that the two-day deadline holds.
+45. As the founder, I want to agree the redesign's goals in a conversation before any screen is drawn, so that the design solves the right problems.
+46. As an Editor, I want the redesigned Home to still show every state's progress, so that nothing I rely on disappears.
+47. As an Editor, I want the redesigned state workspace to keep the plate queue, State order, Template families, tags and Standard plate, so that I can curate the same work in a better layout.
+48. As a reviewer at Vercel, I want the history to show the design, then the build on demo data, then the connection to staging, so that I can follow how the work evolved.
+49. As the founder, I want the risky connection to staging and Workflow proved while the screens are being designed, so that an integration problem surfaces on day one, not the night before.
 
 ## Implementation Decisions
 
@@ -183,19 +183,13 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 - SWR is the single client-side query owner for polling, focus and reconnect refresh. It polls only while a job is active, and unsaved field values live in a separate local draft so a refresh never overwrites typing.
 - Browser-only state the original kept in `localStorage` (active state, queue position) moves to the URL or to an effect after hydration.
 
-**Bringing the existing app over (Replace for the frontend)**
-- The dashboard is the existing Plate Curator Home (the states overview) and the state page, ported to Next.js. It isn't a new screen. All other curator views stay behind in the private app: inbox, pipeline console, rarity, strip art, users, image crop/upload/replace.
-- The public history shows the migration honestly, in order:
-  1. this spec
-  2. the original Home and state page source, copied verbatim into a `legacy/` folder with no images, as the "before"
-  3. a crude 1:1 Next.js port, checked against the original
-  4. the redesign
-  5. the Vercel-native review flow
-
-  The `legacy/` folder is deleted once the port is verified.
-- The port keeps behaviour, layout and wording 1:1, with intentional, labelled exceptions: controls outside the demo's editable fields are display-only, image editing and presence are removed, and saving goes to a Review batch. It swaps only the data path. Reads come from the staging Snapshot instead of the game repo's `plates.json` through Express. Saves become Proposed edits in a Review batch instead of direct catalog writes. Images are display-only.
-- Images use Firebase Storage download-token URLs, the same mechanism the game uses for Snapshots. They are unguessable but not per-user, which fits: plate art is already public in the shipped app.
-- The light redesign is founder-led, after the port lands. It runs in parallel with the backend work.
+**A redesigned dashboard, alongside the existing curator**
+- The dashboard is a redesign of Plate Curator's Home (the states overview) and state page, built directly in Next.js. There is no 1:1 port of the old screens. All other curator views stay in the private app: inbox, pipeline console, rarity, strip art, users, image crop/upload/replace.
+- The new dashboard runs **alongside** the existing curator, which stays the production path and the rollback. Contributors move to the new review flow first. Production publishing moves over only after the new flow has shadowed one release.
+- The work runs in phases. Each one starts with a conversation, then the work, then the founder's approval: agree the plan, design conversation, design the screens, build them in Next.js on demo data, hook-up conversation, connect to staging, review flow, local-model suggestions, Publish, demo and checks, write-up.
+- The riskiest boundary is proved early, in parallel with design: Vercel reaching staging Firebase with no stored key, and a Workflow wait that survives a redeploy.
+- The design captures today's two screens as "before" screenshots and a checklist of the workflows they support: state progress, the plate queue, State order, Template families, tags, the Standard plate. The new design must give each one a home.
+- Designs are annotated with the architecture: what renders on the server, what streams, what refreshes after a Publish, and what waits durably.
 
 **Dashboard UI**
 - Three layers with separate jobs: Geist as the reference for typography, colour and hierarchy; shadcn/ui for the components; UI SDK only for the suggested-tag picker's behaviour.
@@ -241,13 +235,7 @@ Tests don't assert internal call order or private state. Unit tests never touch 
 
 The Workflow run view is the evidence for each.
 
-**Port parity:** before the redesign starts, the ported Home and state page are compared side by side with the original on the same staging catalog. The checks:
-- the same states and progress
-- the same Plates in the same State order
-- the same Template families and Variants
-- the same tags and metadata fields
-
-The comparison is recorded in the port PR.
+**Workflow coverage:** before the build is approved, every item on the design's workflow checklist is shown working on the Preview against demo data. The check is recorded in the pull request.
 
 **Preview checks:**
 - Every PR's Preview gets a Playwright smoke pass, once as the demo Editor and once as the demo Owner, against staging.
