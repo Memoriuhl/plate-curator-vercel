@@ -150,7 +150,7 @@ export function DiffTable({
                 <div key={String(label)} className="min-w-0 border-t border-[var(--hairline)] pt-3">
                   <p className="mb-2 text-xs font-semibold">{label}</p>
                   {label === 'Image' ? (
-                    <div className={cn('relative flex aspect-[2/1] items-center justify-center rounded-xl bg-[var(--fill)] p-3', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger-tint)]' : 'ring-2 ring-[var(--success-tint)]'))}>
+                    <div className={cn('relative flex aspect-[2/1] items-center justify-center rounded-xl bg-[var(--fill)] p-3', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger)]' : 'ring-2 ring-[var(--success)]'))}>
                       {imageUrl ? (
                         <Image src={imageUrl} alt={plate.displayName} fill unoptimized className="object-contain p-3" />
                       ) : (

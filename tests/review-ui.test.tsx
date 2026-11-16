@@ -326,8 +326,8 @@ test('cards repeat unchanged values without tint and highlight only changed valu
 
 test('changed image keeps live preview and names proposed file unless a URL is supplied', () => {
   const html = renderToStaticMarkup(<DiffTable before={before} after={after} version={41} revision={4} order={[before.id]} beforeImageUrl="/plate.webp" />)
-  expect(html).toContain('ring-[var(--danger-tint)]')
-  expect(html).toContain('ring-[var(--success-tint)]')
+  expect(html).toContain('ring-[var(--danger)]')
+  expect(html).toContain('ring-[var(--success)]')
   expect(html).toContain('AK/new.webp')
   expect(html.split('src="/plate.webp"')).toHaveLength(2)
 })
