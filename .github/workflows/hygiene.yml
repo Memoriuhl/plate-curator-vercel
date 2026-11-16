@@ -2,6 +2,7 @@ name: Repository hygiene
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, release]
 
@@ -25,7 +26,23 @@ jobs:
         with:
           node-version: 24
       - name: Test hygiene checks
-        run: node --test scripts/hygiene/
+        run: node --test scripts/hygiene/*.test.mjs
+      - name: Check pull request text
+        if: github.event_name == 'pull_request'
+        env:
+          CI: 'true'
+          HYGIENE_DENYLIST: ${{ secrets.HYGIENE_DENYLIST }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          const { pull_request: pr } = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const result = spawnSync(process.execPath, ['scripts/hygiene/check.mjs', 'pull-request'], {
+            stdio: 'inherit',
+            env: { ...process.env, PR_TITLE: pr.title, PR_BODY: pr.body ?? '' },
+          });
+          process.exit(result.status ?? 1);
+          NODE
       - name: Check every commit
         env:
           CI: 'true'

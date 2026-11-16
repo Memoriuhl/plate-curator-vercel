@@ -56,6 +56,16 @@ for (const identity of ['AUTHOR', 'COMMITTER']) {
   });
 }
 
+test('the hosting service identity is accepted only as committer', (t) => {
+  const { commit, check } = repository(t);
+  commit('chore: merge', { GIT_COMMITTER_EMAIL: 'noreply@github.com' });
+  assert.equal(check().status, 0);
+  commit('chore: update', { GIT_AUTHOR_EMAIL: 'noreply@github.com' });
+  const result = check();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /email/);
+});
+
 test('range checks earlier messages and trailers without printing message text', (t) => {
   const { commit, check } = repository(t);
   commit('chore: private-fixture\n\nCo-Authored-By: Fixture <fixture@example.com>');
