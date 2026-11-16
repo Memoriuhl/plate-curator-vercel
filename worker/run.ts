@@ -80,8 +80,8 @@ export async function runLoop(deps: WorkerDeps, { idleMs }: { idleMs: number }):
       const outcome = await runOnce(deps)
       if (outcome === 'stopped') return
       if (outcome === 'idle') await deps.sleep(idleMs)
-    } catch {
-      deps.log('Worker iteration failed')
+    } catch (error) {
+      deps.log(`Worker iteration failed: ${error instanceof Error ? error.message : String(error)}`)
       await deps.sleep(idleMs)
     }
   }
