@@ -1,0 +1,144 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
+import { useBatchRun, useMe } from '@/lib/client/hooks'
+import type { BatchRun } from '@/lib/client/hooks'
+import { cn } from '@/components/utils'
+
+const steps = [
+  'Submitted',
+  'Waiting for approval',
+  'Waiting for Publish',
+  'Publishing',
+  'Published',
+]
+const phases = [
+  'submitted',
+  'waiting-for-approval',
+  'waiting-for-publish',
+  'publishing',
+  'published',
+]
+const failures: Record<string, string> = {
+  invalid_snapshot: 'The Snapshot could not pass validation.',
+  superseded_revision: 'The Batch changed since approval.',
+  version_taken: 'The Snapshot version is already taken.',
+  lock_lost: 'The Publish lock was lost.',
+}
+
+export function RunStatusView({ run }: { run: BatchRun }) {
+  const [now, setNow] = useState<number | null>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    const update = () => setNow(Date.now())
+    update()
+    const timer = setInterval(update, 30000)
+    return () => clearInterval(timer)
+  }, [])
+  if (!run.phase)
+    return <p className="text-sm text-muted-foreground">Not submitted yet.</p>
+  const terminal = ['failed', 'superseded', 'timed-out'].includes(run.phase)
+  const current = terminal
+    ? run.phase === 'failed'
+      ? 3
+      : 1
+    : phases.indexOf(run.phase)
+  const minutes =
+    now && run.updatedAt
+      ? Math.max(0, Math.floor((now - Date.parse(run.updatedAt)) / 60000))
+      : null
+  return (
+    <section
+      aria-label="Approval run"
+      className="space-y-4 rounded-2xl border border-border p-4"
+    >
+      <div aria-live="polite" aria-atomic="true" className="space-y-3">
+        <ol className="flex flex-wrap gap-3 text-xs">
+          {steps.map((step, index) => (
+            <li
+              key={step}
+              aria-current={index === current ? 'step' : undefined}
+              className={cn(
+                'flex items-center gap-2 rounded-full px-3 py-2',
+                index === current
+                  ? 'bg-primary font-bold text-primary-foreground'
+                  : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {index < current ? (
+                <IoCheckmark aria-label="Done" />
+              ) : (
+                <span>{index + 1}</span>
+              )}
+              {step}
+              {terminal && index === current ? ` · ${run.phase}` : ''}
+            </li>
+          ))}
+        </ol>
+        {run.phase === 'published' && (
+          <p className="font-bold">
+            Published as Snapshot{' '}
+            <span className="text-3xl">v{run.outcome?.version ?? '·'}</span>
+          </p>
+        )}
+        {run.phase === 'failed' && (
+          <div role="alert">
+            <p className="font-bold">
+              {failures[run.outcome?.error ?? ''] ??
+                'Publish could not complete.'}
+            </p>
+            <ul className="list-disc pl-5">
+              {run.outcome?.reasons?.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+            <p>Fix the Batch and approve it again.</p>
+          </div>
+        )}
+        {run.phase === 'superseded' && (
+          <p>Edited after submission, so this run was replaced.</p>
+        )}
+        {run.phase === 'timed-out' && <p>No decision before the time limit.</p>}
+      </div>
+      {run.runId && (
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <code className="max-w-48 truncate" title={run.runId}>
+            {run.runId}
+          </code>
+          <button
+            aria-label="Copy run id"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(run.runId!)
+                setCopied(true)
+              } catch {
+                setCopied(false)
+              }
+            }}
+          >
+            <IoCopyOutline />
+          </button>
+          <span role="status">{copied ? 'Copied' : ''}</span>
+          {minutes !== null && (
+            <span>
+              updated {minutes === 0 ? 'just now' : `${minutes} min ago`}
+            </span>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+export function RunStatus({ batchId }: { batchId: string }) {
+  const me = useMe()
+  const run = useBatchRun(batchId)
+  if (me.data?.role !== 'owner') return null
+  if (run.error) return <p role="alert">Could not load the approval run.</p>
+  return run.data ? (
+    <RunStatusView run={run.data} />
+  ) : (
+    <p role="status">Loading approval run…</p>
+  )
+}

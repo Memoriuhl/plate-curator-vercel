@@ -1,10 +1,25 @@
 import type { BatchDetail } from '@/lib/client/hooks'
 import type { Plate } from '@/lib/catalog/types'
 
+const changeFields = {
+  Edited: [
+    'image',
+    'displayName',
+    'description',
+    'tags',
+    'isStandard',
+    'sourceUrl',
+    'wikiUrl',
+  ],
+  Regrouped: ['templateFamily', 'templateRole', 'variantOfPlateId'],
+  Reordered: ['sortOrder'],
+}
+
 export function changeSummary(
   before: Plate,
   after: Plate,
   order?: BatchDetail['plates'][number]['order'],
+  group?: keyof typeof changeFields,
 ) {
   return (
     [
@@ -20,13 +35,18 @@ export function changeSummary(
       'sourceUrl',
       'wikiUrl',
     ]
+      .filter((key) => !group || changeFields[group].includes(key))
       .flatMap((key) => {
         if (JSON.stringify(before[key]) === JSON.stringify(after[key]))
           return []
         if (key === 'templateFamily')
           return [`moved to ${after.templateFamily ?? 'no family'}`]
         if (key === 'variantOfPlateId')
-          return [after.variantOfPlateId == null ? 'variant link cleared' : `variant of ${after.variantOfPlateId}`]
+          return [
+            after.variantOfPlateId == null
+              ? 'variant link cleared'
+              : `variant of ${after.variantOfPlateId}`,
+          ]
         if (key === 'isStandard')
           return [after.isStandard ? 'now Standard' : 'no longer Standard']
         return [
@@ -39,7 +59,11 @@ export function changeSummary(
           }[key] ?? key,
         ]
       })
-      .concat(order && order.before !== order.after ? [`reordered: ${order.before + 1} → ${order.after + 1}`] : [])
+      .concat(
+        order && order.before !== order.after
+          ? [`reordered: ${order.before + 1} → ${order.after + 1}`]
+          : [],
+      )
       .join(', ') || 'No changes'
   )
 }
@@ -68,7 +92,13 @@ export function DiffTable({
     ['Tags', before.tags, after.tags],
     ['Family', before.templateFamily, after.templateFamily],
     ['Role', before.templateRole, after.templateRole],
-    ['Variant of', before.variantOfPlateId, after.variantOfPlateId == null && before.variantOfPlateId ? 'cleared' : after.variantOfPlateId],
+    [
+      'Variant of',
+      before.variantOfPlateId,
+      after.variantOfPlateId == null && before.variantOfPlateId
+        ? 'cleared'
+        : after.variantOfPlateId,
+    ],
     [
       'Order',
       positions
@@ -151,4 +181,22 @@ export function DiffTable({
       </tbody>
     </table>
   )
+}
+
+export function groupChanges(plates: BatchDetail['plates']) {
+  const changed = (entry: BatchDetail['plates'][number], keys: string[]) =>
+    keys.some(
+      (key) =>
+        JSON.stringify(entry.baseline[key]) !==
+        JSON.stringify(entry.proposed[key]),
+    )
+  return {
+    Edited: plates.filter((entry) => changed(entry, changeFields.Edited)),
+    Regrouped: plates.filter((entry) => changed(entry, changeFields.Regrouped)),
+    Reordered: plates.filter((entry) =>
+      entry.order
+        ? entry.order.before !== entry.order.after
+        : changed(entry, changeFields.Reordered),
+    ),
+  }
 }

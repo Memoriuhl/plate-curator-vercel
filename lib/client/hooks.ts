@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
@@ -36,6 +36,38 @@ export function useBatch(id: string | null) {
   return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get)
 }
 
+export type BatchRun = {
+  runId: string | null
+  phase: 'waiting-for-approval' | 'waiting-for-publish' | 'publishing' | 'published' | 'failed' | 'superseded' | 'timed-out' | null
+  outcome: { version?: number; error?: string; reasons?: string[] } | null
+  updatedAt: string | null
+}
+
+const publishWindows = new Map<string, number>()
+
+export function useBatchRun(id: string | null) {
+  const { user, api } = useSession()
+  const me = useMe()
+  const { mutate } = useSWRConfig()
+  const [pendingUntil, setPendingUntil] = useState(0)
+  useEffect(() => {
+    const update = () => setPendingUntil(publishWindows.get(id ?? '') ?? 0)
+    update()
+    window.addEventListener('batch-publish-requested', update)
+    return () => window.removeEventListener('batch-publish-requested', update)
+  }, [id])
+  const run = useSWR<BatchRun>(user && me.data?.role === 'owner' && id ? `/api/batches/${id}/run` : null, api.get, {
+    refreshInterval: data => data?.phase === 'publishing' || (data?.phase === 'waiting-for-publish' && pendingUntil > Date.now()) ? 2000 : 0,
+  })
+  useEffect(() => {
+    if (id && run.data?.phase && ['published', 'failed', 'superseded', 'timed-out'].includes(run.data.phase)) {
+      publishWindows.delete(id)
+      void mutate(key => typeof key === 'string' && (key === '/api/batches' || key.startsWith('/api/batches?') || key === `/api/batches/${id}`)).catch(() => undefined)
+    }
+  }, [id, run.data?.phase, mutate])
+  return run
+}
+
 export const plateDetailKey = (id: string) => `/api/plates/${id}`
 
 export function usePlateDetail(id: string | null) {
@@ -56,6 +88,25 @@ export function useReviewActions() {
   const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || key === `/api/batches/${batchId}`))
 
   return {
+    async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string }> {
+      try {
+        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision })
+        publishWindows.set(batchId, Date.now() + 30000)
+        window.dispatchEvent(new Event('batch-publish-requested'))
+        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`)]).catch(() => undefined)
+        return { ok: true }
+      } catch (error) {
+        const messages: Record<string, string> = {
+          publish_disabled_here: 'Publishing is disabled in this environment.',
+          superseded_revision: 'This Batch changed since approval and must be re-approved.',
+          not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',
+          forbidden: 'Only the Owner can Publish.',
+          not_found: 'This Batch could not be found.',
+        }
+        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`)]).catch(() => undefined)
+        return { ok: false, message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
+      }
+    },
     async create(name: string, plateIds: string[]) {
       const batch = await api.send<ReviewBatch>('POST', '/api/batches', { name, plateIds })
       await refresh()
