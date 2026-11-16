@@ -1,21 +1,40 @@
 'use client'
 
-import Link from 'next/link'
-import { useEffect, useRef } from 'react'
+import Link, { useLinkStatus } from 'next/link'
+import { useParams } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { IoReloadOutline } from 'react-icons/io5'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { cn } from '@/components/utils'
 
-export function JurisdictionCard({
-  jurisdiction,
-  selected,
-}: {
-  jurisdiction: JurisdictionSummary
-  selected: boolean
-}) {
+function PendingIndicator() {
+  const { pending } = useLinkStatus()
+  if (!pending) return null
+  return (
+    <span
+      role="status"
+      data-navigation-pending
+      className="absolute right-2 top-2 size-3"
+    >
+      <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
+      <span className="sr-only">Loading jurisdiction…</span>
+    </span>
+  )
+}
+
+export function JurisdictionCard({ jurisdiction }: { jurisdiction: JurisdictionSummary }) {
+  const params = useParams<{ code: string }>()
+  const selected = params.code === jurisdiction.code
+  const [prefetch, setPrefetch] = useState<false | null>(false)
   const ref = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
-    if (selected)
-      ref.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const card = ref.current
+    const strip = card?.closest('.jurisdiction-strip')
+    if (!selected || !card || !strip) return
+    const bounds = card.getBoundingClientRect()
+    const viewport = strip.getBoundingClientRect()
+    if (bounds.left < viewport.left || bounds.right > viewport.right)
+      card.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [selected])
   const percent = jurisdiction.plateCount
     ? (jurisdiction.completeCount / jurisdiction.plateCount) * 100
@@ -24,10 +43,15 @@ export function JurisdictionCard({
     <Link
       ref={ref}
       href={`/states/${jurisdiction.code}`}
+      prefetch={prefetch}
+      onMouseEnter={() => setPrefetch(null)}
+      onFocus={() => setPrefetch(null)}
+      scroll={false}
       aria-current={selected ? 'page' : undefined}
-      className={cn('jurisdiction-card', selected && 'jurisdiction-selected')}
+      className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected')}
     >
       <strong>{jurisdiction.code}</strong>
+      <PendingIndicator />
       <span className="caption">{jurisdiction.name}</span>
       <span
         className="jurisdiction-progress"

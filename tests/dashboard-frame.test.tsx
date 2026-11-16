@@ -17,6 +17,7 @@ const toggles = vi.hoisted(
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: navigation.replace }),
   usePathname: () => navigation.pathname,
+  useParams: () => ({ code: navigation.pathname.split('/').at(-1) }),
   useSearchParams: () => new URLSearchParams(navigation.query),
 }))
 vi.mock('../components/ui/toggle', () => ({
@@ -43,6 +44,7 @@ vi.mock('../components/ui/toggle', () => ({
 beforeEach(() => {
   navigation.replace.mockClear()
   navigation.query = 'q=gold'
+  navigation.pathname = '/states/AK'
   toggles.clear()
 })
 
@@ -52,15 +54,16 @@ test('jurisdiction card exposes selected border, destination, counts and proport
     completeCount: 11,
   }
   const html = renderToStaticMarkup(
-    <JurisdictionCard jurisdiction={jurisdiction} selected />,
+    <JurisdictionCard jurisdiction={jurisdiction} />,
   )
   expect(html).toContain('jurisdiction-selected')
   expect(html).toContain('aria-current="page"')
   expect(html).toContain('href="/states/AK"')
   expect(html).toContain('11/44 complete')
   expect(html).toContain('width:25%')
+  navigation.pathname = '/states/AL'
   const unselected = renderToStaticMarkup(
-    <JurisdictionCard jurisdiction={jurisdiction} selected={false} />,
+    <JurisdictionCard jurisdiction={jurisdiction} />,
   )
   expect(unselected).not.toContain('aria-current')
   expect(unselected).not.toContain('jurisdiction-selected')

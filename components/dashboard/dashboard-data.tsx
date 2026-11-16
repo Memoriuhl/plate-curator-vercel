@@ -8,7 +8,7 @@ import { FilterBar } from './filter-bar'
 import { FamilyGrid } from './family-grid'
 import { filterCounts, projectFamilyPlate } from './family-data'
 
-export async function JurisdictionStrip({ code }: { code: string }) {
+export async function JurisdictionStrip() {
   await connection()
   const { jurisdictions } = await loadDashboard()
   return (
@@ -18,7 +18,6 @@ export async function JurisdictionStrip({ code }: { code: string }) {
           <JurisdictionCard
             key={jurisdiction.code}
             jurisdiction={jurisdiction}
-            selected={code === jurisdiction.code}
           />
         ))
       ) : (
