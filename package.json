@@ -14,7 +14,8 @@
     "test": "vitest run tests --exclude \"tests-emulator/**\" && node --test scripts/hygiene/*.test.mjs",
     "verify": "npm run typecheck && npm run lint && npm run test",
     "test:emulator": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-plate-curator \"vitest run tests-emulator --no-file-parallelism\"",
-    "worker": "tsx worker/main.ts"
+    "worker": "tsx worker/main.ts",
+    "seed:members": "node --conditions=react-server --import tsx scripts/seed-members.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",
