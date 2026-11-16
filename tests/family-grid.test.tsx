@@ -131,6 +131,7 @@ test('server projection contains only grid fields and check statuses, never full
   expect(Object.keys(slim).sort()).toEqual(
     [
       'id',
+      'revision',
       'displayName',
       'imageUrl',
       'templateRole',
@@ -150,6 +151,11 @@ test('server projection contains only grid fields and check statuses, never full
     value: null,
   })
   expect(expanded.state).toBe(base.id.split('.')[0])
+})
+
+test('family projection round-trip preserves the server revision', () => {
+  const plate = { ...base, revision: 'server-revision' }
+  expect(expandFamilyPlate(projectFamilyPlate(plate)).revision).toBe(plate.revision)
 })
 
 test('server counts preserve every filter definition', () => {

@@ -74,6 +74,7 @@ export function matchesPlate(
 export type FamilyPlate = Pick<
   PlateCardData,
   | 'id'
+  | 'revision'
   | 'displayName'
   | 'imageUrl'
   | 'templateRole'
@@ -109,6 +110,7 @@ export function filterCounts(plates: PlateCardData[]): FilterCounts {
 export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
   const {
     id,
+    revision,
     displayName,
     imageUrl,
     templateRole,
@@ -120,6 +122,7 @@ export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
   } = plate
   return {
     id,
+    revision,
     displayName,
     imageUrl,
     templateRole,
@@ -141,7 +144,6 @@ export function expandFamilyPlate(plate: FamilyPlate): PlateCardData {
     state,
     slug: slug.join('.'),
     imageSize: { width: 320, height: 160 },
-    revision: '',
     complete: COMPLETENESS_CHECK_KEYS.every(
       (key) => plate.checks[key] === 'good',
     ),
