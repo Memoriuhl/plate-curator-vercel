@@ -24,3 +24,8 @@ test('scrolling, sidebar and review share the header height', () => {
     expect(source).not.toContain('100dvh-112px')
   }
 })
+
+test('window virtualizer reads its scroll padding from the header height', () => {
+  const source = readFileSync(new URL('../components/dashboard/family-grid.tsx', import.meta.url), 'utf8')
+  expect(source).toMatch(/scrollPaddingStart:\s*typeof document === 'undefined' \? 0 :\s*Number\.parseFloat\(getComputedStyle\(document\.documentElement\)\.getPropertyValue\('--header-h'\)\)/)
+})

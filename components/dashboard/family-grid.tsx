@@ -163,6 +163,8 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       ) + 16,
     overscan: 1,
     scrollMargin: layout.margin,
+    scrollPaddingStart: typeof document === 'undefined' ? 0 :
+      Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 0,
     getItemKey: (index) => index,
   })
   const virtualRows = virtualizer.getVirtualItems()
