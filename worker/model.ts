@@ -166,7 +166,7 @@ export function flattenStructuredTags(s: StructuredTags, displayName: string): s
   return out;
 }
 
-const SYSTEM_PROMPT = `You are a license-plate analyst. You look at one image of a vehicle license plate and return
+export const SYSTEM_PROMPT = `You are a license-plate analyst. You look at one image of a vehicle license plate and return
 both descriptive tags and a taxonomy judgment, using a strict controlled vocabulary. The same
 rules apply to plates from any country or jurisdiction — never assume a specific country.
 
@@ -276,6 +276,58 @@ export interface ModelAdapter {
   suggest(input: { imageB64: string; plate: { displayName: string; state: string; tags: string[] } }): Promise<{ tags: string[]; usage?: Record<string, number> }>
 }
 
+export type Attempt = { latencyMs: number; model: string; usage?: Record<string, number>; cost: number | null; costSource: 'reported' | 'estimated' | 'unknown'; status?: number }
+export type Pricing = { input: string; output: string; input_cache_read?: string }
+export const HOSTED_MODEL = 'google/gemini-3.5-flash-lite'
+
+export async function gatewayPricing(model: string, request: typeof fetch = fetch): Promise<Pricing> {
+  const response = await request('https://ai-gateway.vercel.sh/v1/models')
+  if (!response.ok) throw new Error(`Pricing request failed: ${response.status}`)
+  const body = await response.json()
+  const entry = body.data.find((entry: { id: string }) => entry.id === model)
+  if (!entry?.tags?.includes('vision') || !entry.pricing || !['input', 'output'].every(key => Number.isFinite(Number(entry.pricing[key])) && Number(entry.pricing[key]) >= 0)) throw new Error('Image model or pricing unavailable')
+  return entry.pricing
+}
+
+export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?: typeof fetch; pricing?: Pricing; beforeRequest?: () => void; onAttempt?: (attempt: Attempt) => void }): ModelAdapter {
+  const model = options.model ?? HOSTED_MODEL
+  const request = options.fetch ?? fetch
+  let pricing: Promise<Pricing> | undefined
+  return { backend: 'hosted', model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), async suggest(input) {
+    if (!options.apiKey) throw new Error('AI_GATEWAY_API_KEY is required')
+    const rates = options.pricing ?? await (pricing ??= gatewayPricing(model, request))
+    options.beforeRequest?.()
+    const start = performance.now()
+    const attempt: Attempt = { model, latencyMs: 0, cost: null, costSource: 'unknown' }
+    try {
+      const bytes = Buffer.from(input.imageB64, 'base64')
+      const mime = bytes[0] === 0x89 ? 'image/png' : bytes[0] === 0xff ? 'image/jpeg' : bytes.toString('ascii', 0, 3) === 'GIF' ? 'image/gif' : 'image/webp'
+      const response = await request('https://ai-gateway.vercel.sh/v1/chat/completions', {
+        method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(180000),
+        body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [{ type: 'text', text: buildUserPrompt(input.plate.displayName, input.plate.state) }, { type: 'image_url', image_url: { url: `data:${mime};base64,${input.imageB64}` } }] }] }),
+      })
+      attempt.status = response.status
+      if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { status: response.status })
+      const body = await response.json()
+      attempt.model = body.model ?? model
+      attempt.usage = Object.fromEntries(Object.entries(body.usage ?? {}).filter(([, value]) => typeof value === 'number')) as Record<string, number>
+      const reported = body.usage?.cost ?? body.cost
+      if (reported != null && Number.isFinite(Number(reported)) && Number(reported) >= 0) {
+        attempt.cost = Number(reported)
+        attempt.costSource = 'reported'
+      } else if (typeof body.usage?.prompt_tokens === 'number' && typeof body.usage?.completion_tokens === 'number') {
+        const cached = body.usage.prompt_tokens_details?.cached_tokens ?? 0
+        attempt.cost = (body.usage.prompt_tokens - cached) * Number(rates.input) + cached * Number(rates.input_cache_read ?? rates.input) + body.usage.completion_tokens * Number(rates.output)
+        attempt.costSource = 'estimated'
+      }
+      return { tags: normalizeCompletion(body.choices?.[0]?.message?.content ?? '', input), usage: attempt.usage }
+    } finally {
+      attempt.latencyMs = performance.now() - start
+      options.onAttempt?.(attempt)
+    }
+  } }
+}
+
 type Input = Parameters<ModelAdapter['suggest']>[0]
 type Options = { url: string; model: string; fetch?: typeof fetch }
 
@@ -297,6 +349,10 @@ async function ollamaChatOnce(options: Options, input: Input) {
 
 export async function callVLM(options: Options, input: Input) {
   const { text, usage } = await ollamaChat(options, input)
+  return { tags: normalizeCompletion(text, input), usage }
+}
+
+export function normalizeCompletion(text: string, input: Input) {
   const parsed = extractJson(text)
   const primaryColor = pickFromVocab([parsed.primaryColor], COLORS)[0] ?? null
   const structured: StructuredTags = {
@@ -313,7 +369,7 @@ export async function callVLM(options: Options, input: Input) {
     contextTags: [],
     taxonomyConfidence: typeof parsed.taxonomyConfidence === 'number' ? Math.max(0, Math.min(1, parsed.taxonomyConfidence)) : 0,
   }
-  return { tags: flattenStructuredTags(structured, input.plate.displayName), usage }
+  return flattenStructuredTags(structured, input.plate.displayName)
 }
 
 export function ollamaAdapter(options: Options): ModelAdapter {

@@ -74,15 +74,20 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   return 'dropped'
 }
 
-export async function runLoop(deps: WorkerDeps, { idleMs }: { idleMs: number }): Promise<void> {
-  for (;;) {
-    try {
-      const outcome = await runOnce(deps)
-      if (outcome === 'stopped') return
-      if (outcome === 'idle') await deps.sleep(idleMs)
-    } catch (error) {
-      deps.log(`Worker iteration failed: ${error instanceof Error ? error.message : String(error)}`)
-      await deps.sleep(idleMs)
+export async function runLoop(deps: WorkerDeps, { idleMs, concurrency = 1 }: { idleMs: number; concurrency?: number }): Promise<void> {
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) throw new Error('Invalid concurrency')
+  let stopped = false
+  async function lane() {
+    while (!stopped) {
+      try {
+        const outcome = await runOnce(deps)
+        if (outcome === 'stopped') { stopped = true; return }
+        if (outcome === 'idle') await deps.sleep(idleMs)
+      } catch (error) {
+        deps.log(`Worker iteration failed: ${error instanceof Error ? error.message : String(error)}`)
+        await deps.sleep(idleMs)
+      }
     }
   }
+  await Promise.all(Array.from({ length: concurrency }, lane))
 }

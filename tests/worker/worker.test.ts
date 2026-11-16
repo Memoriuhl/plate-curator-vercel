@@ -77,3 +77,32 @@ test('a failed iteration logs its cause and keeps going', async () => {
   await runLoop(deps, { idleMs: 5 })
   expect(deps.log).toHaveBeenCalledWith('Worker iteration failed: connect ECONNREFUSED')
 })
+
+test('concurrent lanes claim independently, isolate a failing job and report their own leases', async () => {
+  const { deps } = setup()
+  let claims = 0
+  let active = 0
+  let maximum = 0
+  const reports: { url: string; claimId: string }[] = []
+  deps.fetch = vi.fn(async (url, init) => {
+    if (String(url).endsWith('/claim')) {
+      const id = ++claims
+      if (id > 4) return new Response(null, { status: 401 })
+      return Response.json({ ...claim, job: { id: `job-${id}` }, claimId: `lease-${id}`, plate: { ...claim.plate, displayName: String(id) } })
+    }
+    reports.push({ url: String(url), claimId: JSON.parse(String(init?.body)).claimId })
+    return new Response(null, { status: 200 })
+  })
+  deps.adapter.suggest = async ({ plate }) => {
+    maximum = Math.max(maximum, ++active)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    active--
+    if (plate.displayName === '1') throw new Error('model unavailable')
+    return { tags: ['bear'] }
+  }
+  await runLoop(deps, { idleMs: 1, concurrency: 4 })
+  expect(maximum).toBe(4)
+  expect(reports).toHaveLength(3)
+  for (const report of reports) expect(report.url).toContain(`/jobs/job-${report.claimId.split('-')[1]}/report`)
+  expect(deps.log).toHaveBeenCalledWith('Worker iteration failed: model unavailable')
+})
