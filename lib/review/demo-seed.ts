@@ -11,9 +11,13 @@ export async function seedDemo(d: ReviewDeps, input: { projectId: string; env: s
   assertStagingProject(input.projectId)
   if (!/^(development|production|preview:.+)$/.test(input.env)) throw new Error('Invalid review environment')
   if (input.editor.role !== 'editor' || !input.editor.uid.trim() || !input.editor.name?.trim()) throw new Error('Editor uid and display name required')
-  const id = `demo-${encodeURIComponent(input.env)}-${encodeURIComponent(input.editor.uid)}`
-  const existing = await d.store.getBatch(id)
-  if (existing?.state === 'published') throw new Error('Published demo batches cannot be reset')
+  const baseId = `demo-${encodeURIComponent(input.env)}-${encodeURIComponent(input.editor.uid)}`
+  let id = baseId
+  let existing = await d.store.getBatch(id)
+  for (let generation = 2; existing?.state === 'published'; generation += 1) {
+    id = `${baseId}-${generation}`
+    existing = await d.store.getBatch(id)
+  }
   if (existing && existing.createdBy !== input.editor.uid) throw new Error('Demo batch owner mismatch')
   const plates = await d.stateBaseline(input.version, 'AK')
   const target = plates.find(plate => plate.templateRole === 'template' && plate.templateFamily)
