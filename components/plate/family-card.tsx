@@ -126,13 +126,6 @@ export function FamilyCard({
           href={'/plates/' + plate.id}
           className={cn('flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
           onPointerEnter={() => prefetch(plate.id)}
-          onMouseOver={(event) => {
-            if ((event.target as Element).closest('[data-check-strip]')) return
-            if (event.relatedTarget instanceof Element && event.currentTarget.contains(event.relatedTarget) && !event.relatedTarget.closest('[data-check-strip]')) return
-            onLeaveCheck?.()
-            preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, false)
-          }}
-          onMouseLeave={onClosePreview}
           onFocus={(event) => {
             prefetch(plate.id)
             preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true)
@@ -141,6 +134,11 @@ export function FamilyCard({
         >
           <div
             data-plate-image
+            onMouseEnter={event => {
+              onLeaveCheck?.()
+              preview(plate, event.currentTarget, false)
+            }}
+            onMouseLeave={onClosePreview}
             style={{ width, height }}
             className="flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >

@@ -224,3 +224,21 @@ test('check strip suppresses breakdown while delegating unfocusable icon hover',
   expect(dismiss).toHaveBeenCalledOnce()
   expect(icon.tabIndex).toBe(-1)
 })
+
+test('only image and information hover open breakdown; text, id and container do not', () => {
+  const preview = vi.fn()
+  const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
+  for (const element of [view.getByRole('article'), view.getByRole('link'), view.getByRole('heading'), view.container.querySelector('.id')!]) {
+    fireEvent.mouseOver(element)
+    fireEvent.mouseEnter(element)
+  }
+  expect(preview).not.toHaveBeenCalled()
+  const image = view.container.querySelector<HTMLElement>('[data-plate-image]')!
+  fireEvent.mouseEnter(image)
+  expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, false)
+  fireEvent.focus(view.getByRole('link'))
+  expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, true)
+  const info = view.getByRole('button', { name: 'Preview ' + plateCards[0].displayName })
+  fireEvent.mouseEnter(info)
+  expect(preview).toHaveBeenLastCalledWith(plateCards[0], info, false)
+})
