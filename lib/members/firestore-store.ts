@@ -37,6 +37,10 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
       const snapshot = await members.where('uid', '==', uid).limit(1).get()
       return snapshot.docs[0]?.data() as Member | undefined ?? null
     },
+    async getByInviteHash(tokenHash) {
+      const snapshot = await members.where('invite.tokenHash', '==', tokenHash).limit(1).get()
+      return snapshot.docs[0]?.data() as Member | undefined ?? null
+    },
     async list() { return (await members.get()).docs.map(doc => doc.data() as Member).sort((a, b) => a.email.localeCompare(b.email)) },
     async create(input) {
       return db.runTransaction(async transaction => {

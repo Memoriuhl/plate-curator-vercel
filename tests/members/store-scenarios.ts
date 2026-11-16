@@ -34,6 +34,24 @@ export function membersStoreScenarios(setup: (now: () => string) => Promise<Memb
     expect((await store.list()).filter(member => member.role === 'owner')).toHaveLength(1)
   }, 20000)
 
+  it('looks up invite hashes and forgets them after reissue, activation and removal', async () => {
+    const store = await setup(() => instant)
+    expect(await store.getByInviteHash(invite.tokenHash)).toBeNull()
+    await store.create(pending)
+    expect(await store.getByInviteHash(invite.tokenHash)).toEqual(await store.getByEmail(pending.email))
+    const read = (await store.getByInviteHash(invite.tokenHash))!
+    read.invite!.tokenHash = 'changed'
+    expect(await store.getByInviteHash(invite.tokenHash)).toEqual(await store.getByEmail(pending.email))
+    const next = createInvite('new-token', () => instant)
+    await store.reissue(pending.email, next)
+    expect(await store.getByInviteHash(invite.tokenHash)).toBeNull()
+    expect(await store.getByInviteHash(next.tokenHash)).toEqual(await store.getByEmail(pending.email))
+    await store.activate(pending.email, 'account')
+    expect(await store.getByInviteHash(next.tokenHash)).toBeNull()
+    await store.create({ ...pending, email: 'another@example.com' })
+    await store.remove('another@example.com')
+    expect(await store.getByInviteHash(invite.tokenHash)).toBeNull()
+  })
   it('normalizes keys, refuses duplicates, lists, updates roles and removes', async () => {
     const store = await setup(() => instant)
     expect(await store.getByEmail(pending.email)).toBeNull()

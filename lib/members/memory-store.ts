@@ -6,6 +6,7 @@ export function createMemoryMembersStore(seed: Member[] = [], now: () => string 
   return {
     async getByEmail(email) { return structuredClone(members.get(normalizeEmail(email)) ?? null) },
     async getByUid(uid) { return structuredClone([...members.values()].find(member => member.uid === uid) ?? null) },
+    async getByInviteHash(tokenHash) { return structuredClone([...members.values()].find(member => member.invite?.tokenHash === tokenHash) ?? null) },
     async list() { return structuredClone([...members.values()].sort((a, b) => a.email.localeCompare(b.email))) },
     async create(input) {
       const email = normalizeEmail(input.email)

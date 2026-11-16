@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { IoCheckmarkOutline, IoCopyOutline, IoPeopleOutline, IoPersonAddOutline } from 'react-icons/io5'
+import { IoPeopleOutline, IoPersonAddOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useInviteMember, useMe, useMembers } from '@/lib/client/hooks'
 import { ApiError } from '@/lib/client/api'
+import { InviteResult } from './invite-result'
+import { ReissueInvite } from './reissue-invite'
 import type { MemberInvite, MemberSummary } from '@/lib/members/summary'
 import { MemberRoleActions } from './member-role-actions'
 
@@ -20,7 +22,6 @@ function InviteForm() {
   const [role, setRole] = useState<MemberSummary['role']>('editor')
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberInvite | null>(null)
-  const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -29,20 +30,11 @@ function InviteForm() {
     setError(null)
     try {
       setResult(await invite(email.trim(), role))
-      setCopied(false)
       setEmail('')
       setRole('editor')
     } catch (nextError) {
       setError(nextError instanceof ApiError && nextError.code === 'member_exists' ? 'That email is already a Member.' : 'Could not create the invite. Please try again.')
     } finally { setPending(false) }
-  }
-  async function copy() {
-    if (!result) return
-    setError(null)
-    try {
-      await navigator.clipboard.writeText(`You've been invited to Plate Curator as ${roleName(result.member.role)}. Open ${result.inviteUrl} and sign in with Google as ${result.member.email}. The link works once and expires in 7 days.`)
-      setCopied(true)
-    } catch { setError('Could not copy the invite. Select and copy the link below.') }
   }
   return (
     <section className="rounded-[var(--radius-lg)] bg-card p-6" aria-labelledby="invite-title">
@@ -63,19 +55,8 @@ function InviteForm() {
         </div>
         <Button type="submit" disabled={pending}><IoPersonAddOutline aria-hidden="true" />{pending ? 'Inviting…' : 'Invite'}</Button>
       </form>
-      {result ? (
-        <div className="mt-6 flex flex-col gap-3 rounded-2xl bg-muted p-4" role="region" aria-label="New invite">
-          <p role="status" className="font-extrabold">Invite ready</p>
-          <p className="break-all text-sm">{result.member.email} · {roleName(result.member.role)}</p>
-          <label className="flex flex-col gap-2 text-sm font-bold" htmlFor="invite-link">Invite link
-            <input id="invite-link" readOnly value={result.inviteUrl} className="w-full min-w-0 rounded-xl bg-card p-3 font-mono text-xs" onFocus={event => event.target.select()} />
-          </label>
-          <Button type="button" variant="outline" onClick={() => void copy()}>{copied ? <IoCheckmarkOutline aria-hidden="true" /> : <IoCopyOutline aria-hidden="true" />}{copied ? 'Copied' : 'Copy invite'}</Button>
-          <p className="text-xs text-muted-foreground">Copy it before leaving. This link won&apos;t be shown again. Re-issue makes a new one.</p>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setResult(null)}>Dismiss link</Button>
-        </div>
-      ) : null}
-      <div aria-live="polite">{error ? <p role="alert" className="mt-4 text-sm">{error}</p> : null}{copied && result ? <span className="sr-only">Invite copied</span> : null}</div>
+      {result ? <InviteResult key={result.inviteUrl} result={result} onDismiss={() => setResult(null)} /> : null}
+      <div aria-live="polite">{error ? <p role="alert" className="mt-4 text-sm">{error}</p> : null}</div>
     </section>
   )
 }
@@ -104,6 +85,7 @@ export function MembersPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-bold">{roleName(member.role)}</span><span className={`rounded-full px-2.5 py-1 font-bold ${statusTint[member.status]}`}>{statusName[member.status]}</span><span className="text-muted-foreground">{member.signIn === 'google' ? 'Google' : 'Password'}</span></div>
                     <MemberRoleActions member={member} />
                     <p className="mt-2 break-all text-xs text-muted-foreground">{member.invitedBy ? `Invited by ${member.invitedBy === me.data?.uid ? 'you' : member.invitedBy}` : 'Starting Member'}</p>
+                    <ReissueInvite member={member} />
                   </div>
                 </li>
               ))}
