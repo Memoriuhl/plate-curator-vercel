@@ -130,14 +130,14 @@ test('table renders every field kind, tags diff and unchanged values in order', 
     'Rarity',
     'Fun facts',
     'Links',
-    'removed: soldier',
-    'added: service',
+    'soldier',
+    'service',
     '1 of 2',
     '2 of 2',
     'not available',
     'none',
-    'unchanged',
-    'line-through',
+
+
     'success-tint',
   ])
     expect(html).toContain(value)
@@ -304,4 +304,30 @@ test('published Batch is read-only with its Snapshot version', () => {
   expect(html).not.toContain('Request changes')
   expect(html).not.toContain('Approve revision')
   expect(html).not.toContain('Submit for review')
+})
+
+test('cards repeat unchanged values without tint and highlight only changed values and chips', () => {
+  const html = renderToStaticMarkup(<DiffTable before={before} after={{ ...before, description: 'Updated', tags: ['veteran', 'service'] }} version={41} revision={4} order={[before.id]} beforeImageUrl="/plate.webp" />)
+  const [left, right] = html.split('<section').slice(1)
+  for (const card of [left, right]) {
+    expect(card).toContain('>Army</span>')
+    expect(card).toContain('bg-[var(--fill)]">veteran</span>')
+    expect(card).toContain('src="/plate.webp"')
+    expect(card).not.toContain('unchanged')
+    expect(card).not.toContain('line-through')
+  }
+  expect(left).toContain('bg-[var(--danger-tint)]">Old description</span>')
+  expect(right).toContain('bg-[var(--success-tint)]">Updated</span>')
+  expect(left).toContain('bg-[var(--danger-tint)]">soldier</span>')
+  expect(right).toContain('bg-[var(--success-tint)]">service</span>')
+  expect(left).not.toContain('success-tint')
+  expect(right).not.toContain('danger-tint')
+})
+
+test('changed image keeps live preview and names proposed file unless a URL is supplied', () => {
+  const html = renderToStaticMarkup(<DiffTable before={before} after={after} version={41} revision={4} order={[before.id]} beforeImageUrl="/plate.webp" />)
+  expect(html).toContain('ring-[var(--danger)]')
+  expect(html).toContain('ring-[var(--success)]')
+  expect(html).toContain('AK/new.webp')
+  expect(html.split('src="/plate.webp"')).toHaveLength(2)
 })

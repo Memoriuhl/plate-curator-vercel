@@ -1,3 +1,5 @@
+import Image from 'next/image'
+import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
 import type { Plate } from '@/lib/catalog/types'
 
@@ -75,9 +77,13 @@ export function DiffTable({
   revision,
   order,
   positions,
+  beforeImageUrl,
+  afterImageUrl,
 }: {
   before: Plate
   after: Plate
+  beforeImageUrl?: string | null
+  afterImageUrl?: string | null
   version: number
   revision: number
   positions?: BatchDetail['plates'][number]['order']
@@ -123,63 +129,56 @@ export function DiffTable({
       [after.sourceUrl, after.wikiUrl].filter(Boolean).join(', '),
     ],
   ]
+  const imageChanged = before.image !== after.image
   return (
-    <table className="w-full table-fixed text-left text-xs">
-      <thead>
-        <tr className="text-muted-foreground">
-          <th className="w-[18%] p-2">Field</th>
-          <th className="w-[41%] p-2">Before · live v{version}</th>
-          <th className="p-2">After · rev {revision}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([label, oldValue, newValue]) => {
-          const changed =
-            JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '')
-          const format = (value: unknown, side: 'before' | 'after') => {
-            if (label === 'Tags') {
-              const tags = value as string[]
-              const other = (
-                side === 'before' ? newValue : oldValue
-              ) as string[]
-              const diff = tags.filter((tag) => !other.includes(tag))
-              return `${tags.length}${diff.length ? ` · ${side === 'before' ? 'removed' : 'added'}: ${diff.join(', ')}` : ''}`
-            }
-            return String(value || 'none')
-          }
-          return (
-            <tr
-              key={String(label)}
-              className="border-t border-[var(--hairline)] align-top"
-            >
-              <th className="break-words p-2 py-3">{label}</th>
-              <td className="break-words p-2 py-3">
-                <span
-                  className={
-                    changed
-                      ? 'bg-[var(--danger-tint)] line-through'
-                      : 'text-muted-foreground'
-                  }
-                >
-                  {format(oldValue, 'before')}
-                </span>
-              </td>
-              <td className="break-words p-2 py-3">
-                <span
-                  className={
-                    changed
-                      ? 'bg-[var(--success-tint)]'
-                      : 'text-muted-foreground'
-                  }
-                >
-                  {changed ? format(newValue, 'after') : 'unchanged'}
-                </span>
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+      {(['before', 'after'] as const).map((side, index) => {
+        const plate = side === 'before' ? before : after
+        const imageUrl = side === 'before'
+          ? beforeImageUrl
+          : afterImageUrl ?? (imageChanged ? null : beforeImageUrl)
+        const tint = side === 'before'
+          ? 'bg-[var(--danger-tint)]'
+          : 'bg-[var(--success-tint)]'
+        return (
+          <section key={side} aria-label={side === 'before' ? 'Before' : 'After'} className="grid min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-13 md:grid-rows-subgrid">
+            <h3 className="font-semibold">{side === 'before' ? `Before · live v${version}` : `After · rev ${revision}`}</h3>
+            {rows.map(([label, oldValue, newValue]) => {
+              const value = index === 0 ? oldValue : newValue
+              const changed = JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '')
+              return (
+                <div key={String(label)} className="min-w-0 border-t border-[var(--hairline)] pt-3">
+                  <p className="mb-2 text-xs font-semibold">{label}</p>
+                  {label === 'Image' ? (
+                    <div className={cn('relative flex aspect-[2/1] items-center justify-center rounded-xl bg-[var(--fill)] p-3', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger)]' : 'ring-2 ring-[var(--success)]'))}>
+                      {imageUrl ? (
+                        <Image src={imageUrl} alt={plate.displayName} fill unoptimized className="object-contain p-3" />
+                      ) : (
+                        <span className="break-all text-center text-xs">{String(value || 'none')}</span>
+                      )}
+                    </div>
+                  ) : label === 'Tags' ? (
+                    <div className="flex flex-wrap gap-2">
+                      {(value as string[]).length ? (value as string[]).map((tag) => (
+                        <span key={tag} className={cn(
+                          'label rounded-full px-3 py-1',
+                          !(side === 'before' ? after.tags : before.tags).includes(tag)
+                            ? tint : 'bg-[var(--fill)]',
+                        )}>{tag}</span>
+                      )) : 'none'}
+                    </div>
+                  ) : (
+                    <span className={cn('whitespace-pre-wrap break-words [overflow-wrap:anywhere]', changed && tint)}>
+                      {String(value || 'none')}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </section>
+        )
+      })}
+    </div>
   )
 }
 

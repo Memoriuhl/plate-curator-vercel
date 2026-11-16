@@ -7,6 +7,7 @@ import {
   useBatches,
   useBatchRun,
   useMe,
+  usePlateDetail,
   useReviewActions,
 } from '@/lib/client/hooks'
 import type { ReviewBatch } from '@/lib/review/types'
@@ -18,6 +19,11 @@ import {
   groupChanges,
 } from '@/components/review/diff'
 import { RunStatus } from '@/components/review/run-status'
+
+function PlateDiff(props: React.ComponentProps<typeof DiffTable>) {
+  const detail = usePlateDetail(props.before.id)
+  return <DiffTable {...props} beforeImageUrl={detail.data?.plate?.imageUrl} />
+}
 
 function BatchItem({
   batch,
@@ -168,7 +174,7 @@ function BatchSelection({
                           )}
                     </span>
                   </summary>
-                  <DiffTable
+                  <PlateDiff
                     before={entry.baseline}
                     after={entry.proposed}
                     version={batch.baselineVersion}
