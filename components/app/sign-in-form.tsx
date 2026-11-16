@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import { IoLogoGoogle, IoReloadOutline } from 'react-icons/io5'
 
-import { Brand } from './app/brand'
+import { Brand } from './brand'
 import { Button } from '@/components/ui/button'
 import { useSession } from '@/lib/client/session'
 

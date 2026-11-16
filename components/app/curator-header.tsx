@@ -1,7 +1,7 @@
-import { Brand } from './app/brand'
-import { RegionPill } from './app/region-pill'
-import { WorkspaceTabs } from './app/workspace-tabs'
-import { HeaderActions } from './app/header-actions'
+import { Brand } from './brand'
+import { RegionPill } from './region-pill'
+import { WorkspaceTabs } from './workspace-tabs'
+import { HeaderActions } from './header-actions'
 
 export function CuratorHeader() {
   return (
