@@ -10,16 +10,6 @@ import {
   SelectValue,
 } from '../ui/select'
 
-export function StaticRegionPill() {
-  return (
-    <Select value="US" disabled>
-      <SelectTrigger aria-label="Region">
-        <SelectValue><span aria-hidden="true">🇺🇸</span> US</SelectValue>
-      </SelectTrigger>
-    </Select>
-  )
-}
-
 export function RegionPill({ regions, jurisdictions }: {
   regions: RegionSummary[]
   jurisdictions: JurisdictionRegion[]

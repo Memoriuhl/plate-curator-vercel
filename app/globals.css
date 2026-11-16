@@ -319,6 +319,24 @@ body {
   padding-bottom: var(--space-1);
   min-height: 100px;
 }
+.jurisdiction-region {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: 0 0 132px;
+  width: 132px;
+  align-self: stretch;
+  background: var(--ground);
+  padding-bottom: var(--space-2);
+}
+.jurisdiction-region [data-slot='select-trigger'] {
+  width: 132px;
+}
+.jurisdiction-region-skeleton {
+  height: 34px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+}
 .jurisdiction-card {
   display: flex;
   flex: 0 0 132px;
@@ -446,6 +464,7 @@ body {
   border-radius: var(--radius-lg);
 }
 .skeleton-jurisdictions {
+  display: flex;
   height: 100px;
   background: var(--card);
 }
@@ -454,7 +473,7 @@ body {
 }
 @media (min-width: 1024px) {
   .states-layout {
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: calc(132px + 17px + var(--space-1)) minmax(0, 1fr);
     grid-template-rows: auto auto 1fr;
     column-gap: var(--space-6);
     align-items: start;
@@ -489,7 +508,12 @@ body {
   }
   .states-layout .jurisdiction-card {
     flex: 0 0 auto;
-    width: 100%;
+    width: 132px;
+  }
+  .states-layout .jurisdiction-region {
+    top: 0;
+    left: auto;
+    flex: 0 0 auto;
   }
   .states-layout > .skeleton-jurisdictions {
     display: flex;

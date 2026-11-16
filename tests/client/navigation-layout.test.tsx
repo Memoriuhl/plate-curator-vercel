@@ -79,8 +79,12 @@ test('shared controls stay mounted when the router changes the state parameter',
 })
 
 const { JurisdictionNav } = await import('@/components/dashboard/jurisdiction-nav')
+const { CuratorHeader } = await import('@/components/app/curator-header')
 const { RegionPill } = await import('@/components/app/region-pill')
 const { summarizeRegions } = await import('@/components/app/regions')
+vi.mock('@/components/app/header-actions', () => ({ HeaderActions: () => <div>Actions</div> }))
+vi.mock('@/components/app/workspace-tabs', () => ({ WorkspaceTabs: () => <div>Tabs</div> }))
+
 const jurisdictions = [
   { code: 'AK', name: 'Alaska', region: 'US' },
   { code: 'MD', name: 'Maryland', region: 'US' },
@@ -152,4 +156,17 @@ test.each([
   style.mockRestore()
   width.mockRestore()
   height.mockRestore()
+})
+
+
+test('region switch is first in jurisdiction navigation and absent from the header', () => {
+  const view = render(
+    <JurisdictionNav jurisdictions={jurisdictions}>
+      <RegionPill regions={summarizeRegions(jurisdictions)} jurisdictions={jurisdictions} />
+    </JurisdictionNav>,
+  )
+  expect(screen.getByRole('navigation').firstElementChild?.contains(screen.getByRole('combobox'))).toBe(true)
+  view.unmount()
+  render(<CuratorHeader />)
+  expect(screen.queryByRole('combobox')).toBeNull()
 })
