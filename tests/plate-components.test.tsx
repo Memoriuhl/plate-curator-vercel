@@ -13,11 +13,11 @@ describe('StatusIcon', () => {
   test.each(['good', 'weak', 'missing'] as const)('names and distinguishes %s without color alone', status => {
     const html = renderToStaticMarkup(<StatusIcon checkKey="tags" check={{ status, value: 'Full tag value' }} />)
     expect(html).toContain(`aria-label="Tags: ${status}"`)
-    expect(html).toContain('<button type="button"')
+    expect(html).toContain('role="img"')
+    expect(html).not.toContain('<button')
     expect(html.includes('data-status-dot')).toBe(status === 'weak')
     expect(html.includes('data-status-slash')).toBe(status === 'missing')
-    expect(html).not.toContain('Full tag value')
-    expect(html).not.toContain('role="tooltip"')
+    expect(html).toContain('title="Full tag value"')
   })
 })
 
@@ -52,10 +52,10 @@ describe('PlateRow', () => {
     expect(html).toContain(plate.id)
     expect(html).toContain('font-mono')
     expect(html).not.toMatch(/truncate|line-clamp/)
-    expect(html.match(/<button /g)).toHaveLength(7)
+    expect(html.match(/role="img"/g)).toHaveLength(7)
     expect(html).toContain('No image')
   })
-  test('reserves the contract image dimensions', () => {
+  test('draws a fixed-size thumbnail regardless of the source image size', () => {
     const html = renderToStaticMarkup(<PlateRow plate={plateCards[0]} />)
     expect(html).toContain('width="72" height="36"')
     expect(html).toContain('width:72px;height:36px')
@@ -68,7 +68,7 @@ describe('FamilyCard', () => {
     const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[]} />)
     expect(html).toContain('aria-label="Standard plate"')
     expect(html).toContain('width="140" height="70"')
-    expect(html.match(/<button /g)).toHaveLength(7)
+    expect(html.match(/role="img"/g)).toHaveLength(7)
     expect(html).not.toContain('draggable')
   })
   test('renders all six family members and the grouping note', () => {

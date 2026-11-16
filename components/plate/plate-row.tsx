@@ -5,6 +5,8 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
 import { CheckStrip } from './check-strip'
 
+const THUMBNAIL = { width: 72, height: 36 } as const
+
 export type PlateRowProps = {
   plate: PlateCardData
 }
@@ -18,14 +20,14 @@ export function PlateRow({ plate }: PlateRowProps) {
         className={cn(
           'flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]',
         )}
-        style={{ width: plate.imageSize.width, height: plate.imageSize.height }}
+        style={THUMBNAIL}
       >
         {plate.imageUrl ? (
           <Image
             src={plate.imageUrl}
             alt={`${plate.displayName} plate`}
-            width={plate.imageSize.width}
-            height={plate.imageSize.height}
+            width={THUMBNAIL.width}
+            height={THUMBNAIL.height}
             className='size-full object-contain'
           />
         ) : (
