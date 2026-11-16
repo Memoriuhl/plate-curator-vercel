@@ -1,13 +1,21 @@
 # Try the review demo
 
-Use the demo Editor / Owner account from the submission.
+Plate Curator is invite-only. Only Members can sign in, and an Owner adds Members from the Members page. Reviewers use the two demo accounts from the submission, which are already Members.
 
-1. Sign in with the demo Editor account at `/sign-in` and open AK at `/states/AK`.
+## Sign in
+
+1. Open `/sign-in` and enter the demo account's email, then choose **Continue**.
+2. The demo accounts sign in with a password, so the page asks for the password from the submission. Members invited with a Google account see **Continue with Google** instead.
+3. An email that isn't a Member gets "Plate Curator is invite-only" and no sign-in prompt. The email check is rate-limited.
+
+## Walk through the loop
+
+1. Sign in with the demo Editor account and open AK at `/states/AK`.
 2. Open `/review?state=AK`, find **Demo: Alaska field edits and grouping** in your open Batches, and inspect its changes. It already contains Tags, a description, a Standard change, a Plate regrouped as a variant, and a changed State order.
 3. Return to `/states/AK`, open a Plate, add or remove a Tag, and wait for **Saved to your batch**. Edits use your most recent open Batch, which is the freshly seeded demo Batch.
 4. Return to AK and drag a Plate into another position; the order saves to the same Batch.
 5. Open `/review?state=AK`, select the demo Batch, inspect the changes, and choose **Submit for review**.
-6. Sign in with the demo Owner account. Open `/review`, inspect the submitted Batch, and approve it.
+6. Sign out, then sign in with the demo Owner account. Open `/review`, inspect the submitted Batch, and approve it.
 7. Open `/publish` and inspect the approved Batch and its changes.
 
 ## Reset the example
