@@ -3,15 +3,12 @@
 import Image from 'next/image'
 import { preconnect } from 'react-dom'
 import Link from 'next/link'
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  IoReorderThreeOutline,
-  IoStar,
-  IoInformationCircleOutline,
-} from 'react-icons/io5'
+import { IoReorderThreeOutline, IoStar } from 'react-icons/io5'
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import { ScrollingPlateId } from './scrolling-plate-id'
 import { CheckStrip } from './check-strip'
 import { VirtualizedVariants } from './virtualized-variants'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
@@ -76,6 +73,20 @@ export function FamilyCard({
     const plate = element.closest('[data-drag-variant]') ?? element.closest('article')
     return plate?.querySelector('[data-plate-image]')?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)
   }
+  const pointerDragging = !!drag?.active && !drag.active.keyboard && (drag.active.item.plate.id === template.id || variants.some(plate => plate.id === drag.active?.item.plate.id))
+  useEffect(() => {
+    if (!pointerDragging) return
+    const root = document.documentElement
+    const previous = root.style.cursor
+    root.style.cursor = 'grabbing'
+    const style = document.createElement('style')
+    style.textContent = '* { cursor: grabbing !important; }'
+    document.head.append(style)
+    return () => {
+      root.style.cursor = previous
+      style.remove()
+    }
+  }, [pointerDragging])
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
   const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
@@ -122,17 +133,17 @@ export function FamilyCard({
           if (!entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'variant', plate }, event)
         } : undefined}
         className={cn(
-          'relative flex items-start gap-3',
+          'relative flex items-center gap-3',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && 'touch-none cursor-grab')} onKeyDown={event => {
+        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
           prefetch={false}
           href={'/plates/' + plate.id}
-          className={cn('flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
+          className={cn('group/plate flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
           onPointerEnter={() => prefetch(plate.id)}
           onFocus={(event) => {
             prefetch(plate.id)
@@ -180,28 +191,11 @@ export function FamilyCard({
                 </span>
               ) : null}
             </div>
-            <p className="id break-all font-mono text-[var(--ink-2)]">
-              {plate.id}
-            </p>
+            <ScrollingPlateId id={plate.id} />
             <CheckStrip checks={plate.checks} />
           </div>
           {marker ? <span data-batch-marker>{marker}</span> : null}
         </Link>
-        {onPreview ? (
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={'Preview ' + plate.displayName}
-            onClick={(event) => preview(plate, event.currentTarget, true)}
-            onMouseEnter={(event) => preview(plate, event.currentTarget, false)}
-            onMouseLeave={onClosePreview}
-            onFocus={(event) => preview(plate, event.currentTarget, true)}
-            onBlur={onClosePreview}
-            className="absolute right-0 bottom-0 text-[var(--ink-2)]"
-          >
-            <IoInformationCircleOutline />
-          </button>
-        ) : null}
       </div>
     )
   }
@@ -219,7 +213,7 @@ export function FamilyCard({
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
       className={cn('@container relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         {canEdit ? <button
           type="button"
           data-family-handle
@@ -228,7 +222,7 @@ export function FamilyCard({
           aria-disabled={!drag?.enabled}
           title={drag?.handleTitle}
           onKeyDown={event => { if (!entranceRunning(event.currentTarget)) drag?.onKeyDown(item, event) }}
-          className={cn('flex shrink-0 flex-col items-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && 'touch-none cursor-grab')}
+          className={cn('flex shrink-0 flex-col items-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
         ><IoReorderThreeOutline size={20} aria-hidden="true" />{number}</button> : <span
           aria-hidden="true"
           className="flex shrink-0 flex-col items-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
