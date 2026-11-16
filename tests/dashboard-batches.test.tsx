@@ -22,12 +22,17 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/client/hooks', () => ({
+  useEnsureBatch: () => vi.fn(),
+  useEditPlate: () => ({ edit: vi.fn(), pending: false }),
   useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
   useBatches: (states: string[]) => ({
     data: states.includes('open') ? state.open : state.review,
   }),
   useBatch: () => ({ data: state.detail }),
   useReviewActions: () => ({ submit: state.submit }),
+}))
+vi.mock('../lib/client/session', () => ({
+  useSession: () => ({ api: { get: vi.fn(), send: vi.fn() } }),
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn() }),
@@ -68,8 +73,31 @@ beforeEach(() => {
     batch,
     plates: [
       {
-        baseline: { id: 'AK.standard_gold', state: 'AK' },
-        edit: { plateId: 'AK.standard_gold' },
+        baseline: {
+          id: 'AK.standard_gold',
+          state: 'AK',
+          tags: [],
+          slug: 'standard_gold',
+          displayName: 'Standard',
+          image: '',
+        },
+        proposed: {
+          id: 'AK.standard_gold',
+          state: 'AK',
+          tags: [],
+          slug: 'standard_gold',
+          displayName: 'Standard',
+          image: '',
+        },
+        revision: 'r1',
+        edit: {
+          plateId: 'AK.standard_gold',
+          baseRevision: 'r0',
+          fields: {},
+          authorId: 'Jonathan',
+          updatedAt: '2026-11-16',
+          resultRevision: 'r1',
+        },
       },
     ],
   } as BatchDetail
@@ -78,7 +106,9 @@ beforeEach(() => {
 })
 
 test('submit sends the loaded batch revision and counts edits', async () => {
-  const html = renderToStaticMarkup(<BatchActions />)
+  const html = renderToStaticMarkup(
+    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
+  )
   expect(html).toContain('1 changes, saved')
   const submit = state.buttons.get('Submit for review')!
   expect(submit.disabled).toBe(false)
@@ -86,16 +116,20 @@ test('submit sends the loaded batch revision and counts edits', async () => {
   expect(state.submit).toHaveBeenCalledWith('batch-one', 7)
 })
 
-test('editors cannot see Publish and pipeline stays disabled', () => {
+test('editors cannot see Publish and can open the pipeline menu', () => {
   state.role = 'editor'
-  const html = renderToStaticMarkup(<BatchActions />)
+  const html = renderToStaticMarkup(
+    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
+  )
   expect(html).not.toContain('Publish')
-  expect(state.buttons.get('Run pipeline')?.disabled).toBe(true)
+  expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })
 
 test('owner Publish is disabled and empty batches cannot submit', () => {
   state.detail!.plates[0].edit = null
-  renderToStaticMarkup(<BatchActions />)
+  renderToStaticMarkup(
+    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
+  )
   expect(state.buttons.get('Publish')?.disabled).toBe(true)
   expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
 })
@@ -103,7 +137,9 @@ test('owner Publish is disabled and empty batches cannot submit', () => {
 test('no open batch hides the batch summary and disables submit', () => {
   state.open = []
   state.detail = undefined
-  const html = renderToStaticMarkup(<BatchActions />)
+  const html = renderToStaticMarkup(
+    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
+  )
   expect(html).not.toContain('Your batch:')
   expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
 })
