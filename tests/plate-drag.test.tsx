@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, test, vi } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
+import { FamilyCard } from '../components/plate/family-card'
 import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
 
 const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
@@ -10,6 +11,9 @@ const w = { ...v, id: 'AK.w' }
 const b = { ...a, id: 'AK.b', displayName: 'Navy' }
 const families = [{ template: a, variants: [v, w] }, { template: b, variants: [] }]
 const success = { ok: true, proposed: {} }
+vi.mock('next/navigation', () => ({ useRouter: () => ({ prefetch: vi.fn() }) }))
+vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
+vi.mock('next/image', () => ({ default: () => <span /> }))
 afterEach(cleanup)
 
 test('moves family blocks and variants while retaining the full permutation', () => {
@@ -166,4 +170,26 @@ test('new family slugs use state and plate slug and avoid state collisions', () 
   const occupied = [{ template: { ...a, state: 'AK', templateFamily: 'ak_air_force' }, variants: [{ ...v, state: 'AK', templateFamily: 'ak_air_force_2' }] }]
   expect(newFamilySlug(plate, occupied)).toBe('ak_air_force_3')
   expect(newFamilySlug(plate, [{ template: { ...a, state: 'MD', templateFamily: 'ak_air_force' }, variants: [] }])).toBe('ak_air_force')
+})
+
+test('card handles respect entrance animations and global keyboard survives source unmount', async () => {
+  const reorder = vi.fn().mockResolvedValue(success)
+  function Cards() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    return <><FamilyCard template={a} variants={[v, w]} drag={drag} canEdit number={1} /><output>{drag.announcement}</output></>
+  }
+  render(<Cards />)
+  const article = screen.getByRole('article')
+  const handle = screen.getByRole('button', { name: 'Move Army family' })
+  article.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
+  fireEvent.keyDown(handle, { key: ' ' })
+  expect(screen.queryByText(/Lifted/)).toBeNull()
+  article.getAnimations = () => []
+  fireEvent.keyDown(handle, { key: ' ' })
+  expect(screen.getByText(/Lifted Army/)).toBeTruthy()
+  handle.remove()
+  fireEvent.keyDown(window, { key: 'ArrowDown' })
+  fireEvent.keyDown(window, { key: ' ' })
+  await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
+  expect(screen.getByText('Dropped')).toBeTruthy()
 })

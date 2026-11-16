@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { EditResult, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
 import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
@@ -66,6 +66,11 @@ export function usePlateDrag(options: Options) {
     finish()
     announce('Cancelled')
   }
+  function pointerTarget(item: DragItem, x: number, y: number) {
+    const { families, targets } = latest.current
+    const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
+    return targetAt(x, y, targets().filter(({ target }) => target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id)))
+  }
   async function drop() {
     const drag = current.current
     finish()
@@ -112,8 +117,8 @@ export function usePlateDrag(options: Options) {
       setSaving(false)
     }
   }
-  const actions = useRef({ lift, drop, cancel, update, clearPress })
-  useEffect(() => { actions.current = { lift, drop, cancel, update, clearPress } })
+  const actions = useRef({ lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget })
+  useEffect(() => { actions.current = { lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget } })
   useEffect(() => {
     function move(event: globalThis.PointerEvent) {
       const press = pressed.current
@@ -125,19 +130,27 @@ export function usePlateDrag(options: Options) {
       const drag = current.current
       if (!drag || drag.keyboard) return
       event.preventDefault()
-      actions.current.update({ ...drag, x: event.clientX, y: event.clientY, target: targetAt(event.clientX, event.clientY, latest.current.targets()) })
+      actions.current.update({ ...drag, x: event.clientX, y: event.clientY, target: actions.current.pointerTarget(drag.item, event.clientX, event.clientY) })
     }
-    function up() {
+    function up(event: globalThis.PointerEvent) {
+      if (pressed.current && pressed.current.pointerId !== event.pointerId) return
       actions.current.clearPress()
       if (current.current && !current.current.keyboard) void actions.current.drop()
     }
     function abort() { if (current.current) actions.current.cancel(); else actions.current.clearPress() }
-    function key(event: globalThis.KeyboardEvent) { if (event.key === 'Escape' && current.current) { event.preventDefault(); actions.current.cancel() } }
+    function key(event: globalThis.KeyboardEvent) {
+      if (event.defaultPrevented || !current.current) return
+      if (current.current.keyboard) actions.current.onKeyDown(current.current.item, event)
+      else if (event.key === 'Escape') { event.preventDefault(); actions.current.cancel() }
+    }
+    function preventNative(event: Event) { if (current.current && !current.current.keyboard) event.preventDefault() }
     window.addEventListener('pointermove', move, { passive: false })
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', abort)
     window.addEventListener('blur', abort)
     window.addEventListener('keydown', key)
+    window.addEventListener('touchmove', preventNative, { passive: false })
+    window.addEventListener('contextmenu', preventNative)
     return () => {
       actions.current.clearPress()
       document.body.classList.remove('plate-dragging')
@@ -146,6 +159,8 @@ export function usePlateDrag(options: Options) {
       window.removeEventListener('pointercancel', abort)
       window.removeEventListener('blur', abort)
       window.removeEventListener('keydown', key)
+      window.removeEventListener('touchmove', preventNative)
+      window.removeEventListener('contextmenu', preventNative)
     }
   }, [])
   const dragging = active !== null
@@ -158,7 +173,7 @@ export function usePlateDrag(options: Options) {
         const speed = scrollVelocity(drag.y, window.innerHeight)
         if (speed) {
           window.scrollBy(0, speed)
-          const target = targetAt(drag.x, drag.y, latest.current.targets())
+          const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
           if (JSON.stringify(target) !== JSON.stringify(drag.target)) actions.current.update({ ...drag, target })
         }
       }
@@ -176,7 +191,7 @@ export function usePlateDrag(options: Options) {
     pressed.current = { item, x: event.clientX, y: event.clientY, pointerId: event.pointerId, timer: null }
     if (event.pointerType === 'touch') pressed.current.timer = setTimeout(() => lift(item, event.clientX, event.clientY, false), 400)
   }
-  function onKeyDown(item: DragItem, event: KeyboardEvent<HTMLElement>) {
+  function onKeyDown(item: DragItem, event: { key: string; preventDefault(): void }) {
     if (!enabled) return
     if (event.key === ' ') {
       event.preventDefault()
