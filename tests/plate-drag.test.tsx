@@ -337,7 +337,7 @@ test('cap uses the rendered sixth row, including unequal row heights and gaps', 
 test('five variants stay uncapped; six show five measured rows and half the sixth', () => {
   const observe = vi.fn()
   let resized = () => {}
-  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resized = callback } observe = observe; disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class { callback: () => void; constructor(callback: () => void) { this.callback = callback } observe = (element: HTMLElement) => { if (element.hasAttribute('data-variant-index')) { resized = this.callback; observe(element) } }; disconnect() {} })
   const sizes = [80, 130, 65, 160, 90, 140]
   const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     const index = Number(this.dataset.variantIndex ?? -1)
@@ -418,4 +418,41 @@ test('scrolling the nested list does not create a false FLIP movement', () => {
   const after = playDragFlip(root, before, false)
   expect(after).toEqual(before)
   expect(row.animate).not.toHaveBeenCalled()
+})
+
+test('plate ids measure overflow and preserve the full title without wrapping', () => {
+  const { container } = render(<FamilyCard template={a} variants={[v]} />)
+  const line = container.querySelector('p.id') as HTMLElement
+  expect(line.title).toBe(a.id)
+  expect(line.className).toContain('whitespace-nowrap')
+  expect(line.className).not.toContain('break-all')
+  expect(line.style.getPropertyValue('--id-offset')).toBe('-0px')
+  Object.defineProperties(HTMLElement.prototype, {
+    scrollWidth: { configurable: true, get: () => 260 },
+    clientWidth: { configurable: true, get: () => 100 },
+  })
+  try {
+    const view = render(<FamilyCard template={{ ...a, id: 'long-id' }} variants={[]} />)
+    const long = view.container.querySelector('p.id') as HTMLElement
+    expect(long.style.getPropertyValue('--id-offset')).toBe('-160px')
+    expect(long.style.getPropertyValue('--id-duration')).toBe('4000ms')
+  } finally {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollWidth')
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
+  }
+})
+
+test('handles expose grab and disabled cursors while image hover retains preview', () => {
+  const preview = vi.fn()
+  function Harness({ query = '' }) {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query, edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), targets: () => [] })
+    return <FamilyCard template={a} variants={[v]} canEdit drag={drag} onPreview={preview} />
+  }
+  const view = render(<Harness />)
+  for (const handle of view.container.querySelectorAll('[data-family-handle], [data-variant-handle]')) expect(handle.className).toContain('cursor-grab!')
+  expect(screen.queryByRole('button', { name: /^Preview / })).toBeNull()
+  fireEvent.mouseEnter(view.container.querySelector('[data-plate-image]')!)
+  expect(preview).toHaveBeenCalledWith(a, expect.any(HTMLElement), false)
+  view.rerender(<Harness query="army" />)
+  for (const handle of view.container.querySelectorAll('[data-family-handle], [data-variant-handle]')) expect(handle.className).toContain('cursor-not-allowed!')
 })

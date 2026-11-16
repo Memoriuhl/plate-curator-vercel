@@ -27,11 +27,11 @@ test('plate pointer intent and focus prefetch each plate once', () => {
   expect(prefetch.mock.calls).toEqual([['/plates/' + plateCards[0].id], ['/plates/' + plateCards[1].id]])
 })
 
-test('information button hover anchors to the button, plate focus to its image', () => {
+test('image hover and plate focus anchor preview to the image', () => {
   const preview = vi.fn()
   const close = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} onClosePreview={close} />)
-  const button = view.getByRole('button')
+  const button = view.container.querySelector('[data-plate-image]')!
   fireEvent.mouseEnter(button)
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], button, false)
   fireEvent.mouseLeave(button)
@@ -90,7 +90,7 @@ test('preview stays closed while its plate image is dropping', () => {
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
   const image = view.container.querySelector('[data-plate-image]')!
   image.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
-  fireEvent.mouseEnter(view.getByRole('button'))
+  fireEvent.mouseEnter(image)
   fireEvent.focus(view.getByRole('link'))
   expect(preview).not.toHaveBeenCalled()
 })
@@ -225,7 +225,7 @@ test('check strip suppresses breakdown while delegating unfocusable icon hover',
   expect(icon.tabIndex).toBe(-1)
 })
 
-test('only image and information hover open breakdown; text, id and container do not', () => {
+test('only image hover and link focus open breakdown; text, id and container do not', () => {
   const preview = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
   for (const element of [view.getByRole('article'), view.getByRole('link'), view.getByRole('heading'), view.container.querySelector('.id')!]) {
@@ -238,9 +238,7 @@ test('only image and information hover open breakdown; text, id and container do
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, false)
   fireEvent.focus(view.getByRole('link'))
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, true)
-  const info = view.getByRole('button', { name: 'Preview ' + plateCards[0].displayName })
-  fireEvent.mouseEnter(info)
-  expect(preview).toHaveBeenLastCalledWith(plateCards[0], info, false)
+  expect(view.queryByRole('button', { name: 'Preview ' + plateCards[0].displayName })).toBeNull()
 })
 
 import { UserAvatar } from '../components/app/user-avatar'
