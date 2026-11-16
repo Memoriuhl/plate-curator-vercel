@@ -68,6 +68,7 @@ const after: Plate = {
 }
 const detail: BatchDetail = {
   batch: {
+    stateOrders: {},
     id: 'one',
     name: 'Updates',
     createdBy: 'author',
@@ -269,4 +270,29 @@ test('batch chips and footer switch with the URL batch, with generic author fall
   expect(older).toContain('Approving &quot;Older batch&quot; by a curator')
   expect(older).toContain('Approve revision 8')
   expect(older).not.toContain('by Alex')
+})
+
+test('review shows reordered plates with canonical old and new positions', () => {
+  const order = { before: 2, after: 0, total: 5 }
+  const reordered: BatchDetail = {
+    ...detail,
+    batch: { ...detail.batch, stateOrders: { AK: [before.id, 'AK.other'] } },
+    plates: [{ baseline: before, proposed: before, edit: null, revision: 'r', order }],
+  }
+  state.query = 'state=AK&plate=AK.army&batch=one'
+  state.detail = reordered
+  const html = renderToStaticMarkup(<ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />)
+  expect(html).toContain('reordered: 3 → 1')
+  expect(html).toContain('3 of 5')
+  expect(html).toContain('1 of 5')
+})
+
+test('review describes a cleared variant link', () => {
+  const variant = { ...before, templateRole: 'variant' as const, variantOfPlateId: 'AK.parent' }
+  const detached = { ...variant, templateRole: 'template' as const, templateFamily: variant.id, variantOfPlateId: null }
+  expect(changeSummary(variant, detached)).toContain('variant link cleared')
+  const html = renderToStaticMarkup(<DiffTable before={variant} after={detached} version={41} revision={5} order={[variant.id]} />)
+  expect(html).toContain('Variant of')
+  expect(html).toContain('AK.parent')
+  expect(html).toContain('cleared')
 })

@@ -11,6 +11,6 @@ test('legacy batches read back with a null creator name', async () => {
     state: 'open' as const, revision: 0, baselineVersion: 1, plateIds: ['one'], approval: null,
   }
   const store = createMemoryStore([legacy])
-  expect(await store.getBatch('legacy')).toEqual({ ...legacy, createdByName: null })
-  expect(await store.list({})).toEqual([{ ...legacy, createdByName: null }])
+  expect(await store.getBatch('legacy')).toEqual({ ...legacy, createdByName: null, stateOrders: {} })
+  expect(await store.list({})).toEqual([{ ...legacy, createdByName: null, stateOrders: {} }])
 })

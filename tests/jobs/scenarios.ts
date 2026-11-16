@@ -9,7 +9,7 @@ import type { ReviewStore } from '../../lib/review/types'
 export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: ReviewStore; other: JobsStore }>) {
   async function setup() {
     const stores = await make()
-    await stores.review.create({ id: 'batch', name: 'Batch', createdBy: 'owner', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
+    await stores.review.create({ stateOrders: {}, id: 'batch', name: 'Batch', createdBy: 'owner', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
     let time = 1000
     let sequence = 0
     const plate: Plate = { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }

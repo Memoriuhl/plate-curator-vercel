@@ -29,6 +29,8 @@ export function parseEditableFields(input: unknown): EditableFields | null {
       const text = boundedText(value, 2000)
       if (value !== null && text === null) return null
       fields.description = text
+    } else if (key === 'variantOfPlateId' && value === null) {
+      fields.variantOfPlateId = null
     } else if (key === 'templateRole') {
       if (value !== 'template' && value !== 'variant') return null
       fields.templateRole = value

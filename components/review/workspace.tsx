@@ -371,7 +371,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   <strong className="block text-sm">{plate.displayName}</strong>
                   <span className="block truncate text-xs text-muted-foreground">
                     {item
-                      ? changeSummary(item.baseline, item.proposed)
+                      ? changeSummary(item.baseline, item.proposed, item.order)
                       : 'No changes'}
                   </span>
                   {item && (
@@ -457,6 +457,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               after={entry.proposed}
               version={entry.batch.baselineVersion}
               revision={entry.batch.revision}
+              positions={entry.order}
               order={state?.plates.map((plate) => plate.id) ?? []}
             />
             <ReviewFooter

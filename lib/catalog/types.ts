@@ -7,7 +7,7 @@ export type Plate = {
   image: string
   templateFamily?: string
   templateRole?: 'template' | 'variant'
-  variantOfPlateId?: string
+  variantOfPlateId?: string | null
   isStandard?: boolean
   sortOrder?: number
   description?: string | null

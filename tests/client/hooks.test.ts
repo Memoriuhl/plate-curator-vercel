@@ -6,7 +6,7 @@ import { ApiError } from '../../lib/client/api'
 import type { Plate } from '../../lib/catalog/types'
 import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import type { ReviewBatch } from '../../lib/review/types'
-import { batchesKey, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
+import { batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -21,6 +21,7 @@ vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
 const ownKey = batchesKey(['open'], { mine: true })
 const batch: ReviewBatch = {
+  stateOrders: {},
   id: 'draft', name: 'AK edits', createdBy: 'jon', createdByName: null, createdAt: '2026-11-16', state: 'open',
   revision: 1, baselineVersion: 1, plateIds: ['AK.one'], approval: null,
 }
@@ -313,4 +314,89 @@ test('failed batch creation releases serialization so a later edit can retry', a
   await act(async () => { expect(await result.current.edit(card, { tags: ['retry'] })).toEqual({ ok: true, proposed }) })
   expect(session.api.send).toHaveBeenCalledTimes(3)
   expect(result.current.pending).toBe(false)
+})
+
+test('reorder creates a batch on the first change and serializes using the saved batch revision', async () => {
+  let created = false
+  let revision = 1
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  session.api.get.mockImplementation(async (key: string) => key === ownKey ? (created ? [batch] : []) : { ...detail(), batch: { ...batch, revision } })
+  session.api.send.mockImplementation(async (method: string) => {
+    if (method === 'POST') { created = true; return batch }
+    if (revision === 1) await gate
+    revision += 1
+    return { ...batch, revision, stateOrders: { AK: ['AK.other', card.id] } }
+  })
+  const { result } = renderHook(() => useReorderState(), harness())
+  let first!: Promise<unknown>
+  let second!: Promise<unknown>
+  act(() => {
+    first = result.current.reorder('AK', ['AK.other', card.id])
+    second = result.current.reorder('AK', [card.id, 'AK.other'])
+  })
+  await waitFor(() => expect(session.api.send).toHaveBeenCalledTimes(2))
+  expect(result.current.pending).toBe(true)
+  await act(async () => { release(); expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]) })
+  expect(session.api.send.mock.calls).toEqual([
+    ['POST', '/api/batches', { name: 'AK edits', plateIds: ['AK.other'] }],
+    ['PUT', '/api/batches/draft/state-order/AK', { batchRevision: 1, order: ['AK.other', card.id] }],
+    ['PUT', '/api/batches/draft/state-order/AK', { batchRevision: 2, order: [card.id, 'AK.other'] }],
+  ])
+  expect(result.current.pending).toBe(false)
+})
+
+test('overlay applies proposed state order to all cards including plates outside field-edit membership', async () => {
+  session.api.get.mockImplementation(async (key: string) => key === ownKey ? [batch] : {
+    ...detail(), batch: { ...batch, stateOrders: { AK: ['AK.other', card.id] } },
+  })
+  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }, { ...card, id: 'CA.one', state: 'CA' }]
+  const { result } = renderHook(() => useDraftOverlay(plates), harness())
+  await waitFor(() => expect(result.current[0].sortOrder).toBe(1))
+  expect(result.current[1]).toMatchObject({ id: 'AK.other', sortOrder: 0, changedInBatch: true })
+  expect(result.current[0].changedInBatch).toBe(true)
+  expect(result.current[2]).toEqual({ ...plates[2], changedInBatch: false })
+})
+
+test.each([[409, 'superseded_revision'], [403, 'forbidden'], [404, 'not_found'], [422, 'invalid_state']] as const)('reorder maps HTTP %s %s and clears pending', async (status, error) => {
+  session.api.send.mockRejectedValue(new ApiError(status, error, { error }))
+  const { result } = renderHook(() => useReorderState(), harness())
+  let response
+  await act(async () => { response = await result.current.reorder('AK', [card.id]) })
+  expect(response).toEqual({ ok: false, error })
+  expect(result.current.pending).toBe(false)
+})
+
+test('reorder overlays immediately while saving and rolls back on failure so another reorder can retry', async () => {
+  let reject!: (error: Error) => void
+  const gate = new Promise<never>((_resolve, fail) => { reject = fail })
+  const failure = new TypeError('Network unavailable')
+  session.api.send.mockReturnValueOnce(gate).mockResolvedValueOnce({ ...batch, revision: 2 })
+  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+  const { result } = renderHook(() => ({ reorder: useReorderState(), overlay: useDraftOverlay(plates) }), harness())
+  await waitFor(() => expect(result.current.overlay[0].revision).toBe('draft-revision'))
+  let saved!: Promise<unknown>
+  act(() => { saved = result.current.reorder.reorder('AK', ['AK.other', card.id]) })
+  await waitFor(() => expect(result.current.overlay[0].sortOrder).toBe(1))
+  expect(result.current.reorder.pending).toBe(true)
+  await act(async () => { reject(failure); await expect(saved).rejects.toBe(failure) })
+  expect(result.current.overlay[0].sortOrder).toBe(3)
+  expect(result.current.reorder.pending).toBe(false)
+  await act(async () => { expect(await result.current.reorder.reorder('AK', ['AK.other', card.id])).toEqual({ ok: true }) })
+})
+
+test('detaching a variant sends null and overlays its own template without the old parent link', async () => {
+  const fields = { templateRole: 'template' as const, variantOfPlateId: null, templateFamily: card.id }
+  const detached = { ...proposed, ...fields }
+  let saved = false
+  session.api.get.mockImplementation(async (key: string) => key === ownKey ? [batch] : {
+    batch, plates: [{ baseline: proposed, proposed: saved ? detached : proposed, edit: null, revision: saved ? 'detached-revision' : 'variant-revision' }],
+  })
+  session.api.send.mockImplementation(async () => { saved = true; return { batch, plate: detached } })
+  const plates = [{ ...card, templateRole: 'variant' as const, variantOfPlateId: 'AK.parent', templateFamily: 'family' }]
+  const { result } = renderHook(() => ({ edit: useEditPlate(), overlay: useDraftOverlay(plates) }), harness())
+  await waitFor(() => expect(result.current.overlay[0].revision).toBe('variant-revision'))
+  await act(async () => { expect(await result.current.edit.edit(plates[0], fields)).toEqual({ ok: true, proposed: detached }) })
+  expect(session.api.send).toHaveBeenCalledWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'variant-revision', fields })
+  expect(result.current.overlay[0]).toMatchObject({ templateRole: 'template', templateFamily: card.id, variantOfPlateId: null })
 })
