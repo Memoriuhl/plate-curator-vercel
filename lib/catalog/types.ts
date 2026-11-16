@@ -24,6 +24,7 @@ export type CuratorState = {
 }
 
 export interface CatalogSource {
+  readVersion(): Promise<number>
   readSnapshot(): Promise<Snapshot>
   readCuratorState(): Promise<CuratorState>
   imageUrl(plate: Plate): string | null

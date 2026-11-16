@@ -7,12 +7,16 @@ export function firestoreCatalogSource(
   loadSnapshot: (version: number) => Promise<Snapshot>,
   imageBase: string | null = null,
 ): CatalogSource {
+  const readVersion = async () => {
+    const pointer = await db.doc('config/catalog').get()
+    const version = pointer.get('version')
+    if (typeof version !== 'number') throw new Error('config/catalog has no numeric version')
+    return version
+  }
   return {
+    readVersion,
     async readSnapshot() {
-      const pointer = await db.doc('config/catalog').get()
-      const version = pointer.get('version')
-      if (typeof version !== 'number') throw new Error('config/catalog has no numeric version')
-      return loadSnapshot(version)
+      return loadSnapshot(await readVersion())
     },
     async readCuratorState() {
       const snapshot = await db.doc('curator/workflow').get()

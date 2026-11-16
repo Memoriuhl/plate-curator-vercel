@@ -5,6 +5,9 @@ import type { CatalogSource, Snapshot } from './types'
 
 export function fixtureSource(imageBase: string | null = null): CatalogSource {
   return {
+    async readVersion() {
+      return catalog.version
+    },
     async readSnapshot() {
       return structuredClone(catalog) as Snapshot
     },

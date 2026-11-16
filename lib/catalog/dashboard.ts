@@ -1,26 +1,39 @@
 import 'server-only'
 import { cache } from 'react'
 import { catalog } from '../server/context'
-import { cachedSnapshot } from '../server/snapshot-cache'
-import { buildDashboard, buildJurisdiction, buildPlate } from './dashboard-build'
+import { cachedDashboard, cachedJurisdiction } from '../server/snapshot-cache'
+import { buildJurisdiction, buildPlate } from './dashboard-build'
+import { catalogSourceKind } from './source-kind'
 
 const loadInputs = cache(async () => {
-  const source = catalog(cachedSnapshot)
-  const [snapshot, curator] = await Promise.all([source.readSnapshot(), source.readCuratorState()])
-  return { snapshot, curator, imageUrl: source.imageUrl }
+  const source = catalog()
+  const [version, curator] = await Promise.all([source.readVersion(), source.readCuratorState()])
+  return {
+    version, curator, imageUrl: source.imageUrl,
+    kind: catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }),
+    imageBase: process.env.PLATE_IMAGE_BASE || null,
+  }
 })
 
 export const loadDashboard = cache(async () => {
-  const { snapshot, curator, imageUrl } = await loadInputs()
-  return buildDashboard(snapshot, curator, imageUrl)
+  const { version, curator, kind, imageBase } = await loadInputs()
+  const summary = await cachedDashboard(version, kind, imageBase)
+  return {
+    ...summary,
+    jurisdictions: summary.jurisdictions.map(jurisdiction => ({
+      ...jurisdiction, progress: curator.stateProgress[jurisdiction.code] ?? null,
+    })),
+  }
 })
 
 export const loadJurisdiction = cache(async (code: string) => {
-  const { snapshot, curator, imageUrl } = await loadInputs()
+  const { version, curator, imageUrl, kind } = await loadInputs()
+  const snapshot = await cachedJurisdiction(version, code, kind)
   return buildJurisdiction(snapshot, curator, imageUrl, code)
 })
 
 export const loadPlate = cache(async (id: string) => {
-  const { snapshot, curator, imageUrl } = await loadInputs()
+  const { version, curator, imageUrl, kind } = await loadInputs()
+  const snapshot = await cachedJurisdiction(version, id.split('.')[0], kind)
   return buildPlate(snapshot, curator, imageUrl, id)
 })
