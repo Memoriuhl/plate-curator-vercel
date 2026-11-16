@@ -58,7 +58,7 @@ function BatchItem({
       )}
       {batch.state === 'published' && (
         <span className="mt-2 block font-bold">
-          Published · v{run.data?.outcome?.version ?? '·'}
+          Published · v{run.data?.outcome?.version ?? '?'}
         </span>
       )}
     </button>
@@ -102,7 +102,7 @@ function BatchSelection({
       const result = await actions.publish(id, revision)
       if (result.ok) {
         setRequested(true)
-        setMessage('Publish requested. Waiting for the run·')
+        setMessage('Publish requested. Waiting for the run…')
       } else setMessage(result.message)
       dialog.current?.close()
     } finally {
@@ -185,7 +185,7 @@ function BatchSelection({
       <dialog
         ref={dialog}
         aria-labelledby="publish-title"
-        className="m-auto max-w-lg space-y-4 rounded-3xl bg-card p-6 text-foreground backdrop:bg-black/50"
+        className="m-auto max-w-lg space-y-4 rounded-3xl bg-card p-6 text-foreground backdrop:bg-[var(--scrim)]"
       >
         <h2 id="publish-title" className="text-xl font-bold">
           Publish {batch.name}?
