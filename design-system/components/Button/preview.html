@@ -1,0 +1,22 @@
+<!-- @dsCard group="Actions" height=100 -->
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:ital,wght@0,400;0,600;0,700;0,800;0,900;1,800;1,900&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font-sans)}
+.stage{padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{height:40px;padding:0 18px;border-radius:999px;font-family:var(--font-sans);font-weight:800;font-size:15px;border:2px solid transparent;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.btn-primary{background:var(--primary);color:var(--on-primary)}
+.btn-outline{background:transparent;border-color:var(--primary);color:var(--primary)}
+.btn-ghost{background:transparent;color:var(--ink)}
+.btn-publish{background:var(--info);color:#FFFFFF}
+.btn-push{background:var(--danger);color:#FFFFFF}
+.btn-sm{height:32px;padding:0 12px;font-size:13px}
+.mono{font-family:var(--font-mono)}
+.card{background:var(--card);border-radius:20px;padding:14px}
+.av{width:24px;height:24px;border-radius:50%;color:#FFFFFF;font-weight:800;font-size:11px;display:inline-flex;align-items:center;justify-content:center;position:relative}
+.badge{position:absolute;right:-4px;bottom:-4px;width:14px;height:14px;border-radius:50%;background:var(--card);display:inline-flex;align-items:center;justify-content:center}
+.ico{display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center}
+.good{color:var(--success)}.weak{color:var(--warning)}.missing{color:var(--danger)}
+.cap{font-size:12px;font-weight:600;color:var(--ink-2)}
+</style>
+<div class="stage"><button class="btn btn-primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16l13-8z"></path></svg>Run pipeline</button><button class="btn btn-outline">Submit for review</button><button class="btn btn-ghost">Cancel</button><button class="btn btn-publish"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>Publish</button><button class="btn btn-push">Push v42 to players</button><button class="btn btn-primary btn-sm">Next</button></div>
