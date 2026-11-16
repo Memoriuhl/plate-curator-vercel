@@ -9,6 +9,7 @@ import {
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
+import { StatusIcon } from '@/components/plate/status-icon'
 
 export function FilterBar({ plates }: { plates: PlateCardData[] }) {
   const batches = useBatches(['open'], { mine: true })
@@ -84,10 +85,13 @@ export function FilterBarControls({
           </span>
         ))}
       </div>
-      <div className="status-legend" aria-label="Check status legend">
-        <span>good</span>
-        <span>weak</span>
-        <span>missing</span>
+      <div className="status-legend" role="group" aria-label="Check status legend">
+        {(['good', 'weak', 'missing'] as const).map((status) => (
+          <span key={status} className="inline-flex items-center">
+            <StatusIcon checkKey="description" check={{ status, value: status }} />
+            {status}
+          </span>
+        ))}
       </div>
     </div>
   )
