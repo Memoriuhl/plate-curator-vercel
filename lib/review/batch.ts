@@ -71,3 +71,25 @@ async function transitionBatch(
   const result = await d.store.commit(batchId, revision, { batch: nextBatch })
   return result === 'ok' ? { ok: true, value: nextBatch } : { ok: false, error: 'superseded_revision' }
 }
+
+export async function reorderState(
+  d: ReviewDeps, actor: Actor,
+  input: { batchId: string; state: string; batchRevision: number; order: string[] },
+): Promise<Outcome<ReviewBatch>> {
+  const batch = await d.store.getBatch(input.batchId)
+  if (!batch) return { ok: false, error: 'not_found' }
+  if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
+  if (batch.revision !== input.batchRevision) return { ok: false, error: 'superseded_revision' }
+  if (!['open', 'submitted', 'approved'].includes(batch.state)) return { ok: false, error: 'invalid_state' }
+  const plates = await d.stateBaseline(batch.baselineVersion, input.state)
+  const ids = new Set(plates.map(plate => plate.id))
+  if (!plates.length || input.order.length !== ids.size || new Set(input.order).size !== ids.size || input.order.some(id => !ids.has(id))) {
+    return { ok: false, error: 'invalid_state' }
+  }
+  const next: ReviewBatch = {
+    ...batch, state: 'open', approval: null, revision: batch.revision + 1,
+    stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
+  }
+  const result = await d.store.commit(batch.id, batch.revision, { batch: next })
+  return result === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
+}

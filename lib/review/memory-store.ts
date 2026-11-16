@@ -1,7 +1,7 @@
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
-export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName'> & { createdByName?: string | null })[]): ReviewStore {
-  const batches = new Map(seed.map(batch => [batch.id, { ...structuredClone(batch), createdByName: batch.createdByName ?? null }]))
+export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'stateOrders'> & { createdByName?: string | null; stateOrders?: Record<string, string[]> })[]): ReviewStore {
+  const batches = new Map(seed.map(batch => [batch.id, structuredClone({ ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} })]))
   const edits = new Map<string, Map<string, ProposedEdit>>()
 
   return {

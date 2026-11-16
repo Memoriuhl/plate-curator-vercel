@@ -11,7 +11,7 @@ import { useSession } from './session'
 
 export type BatchDetail = {
   batch: ReviewBatch
-  plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string }[]
+  plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
 }
 
 export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
@@ -82,23 +82,29 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   const { data: detail } = useBatch(mostRecentBatch(batches)?.id ?? null)
   return useMemo(() => {
     const entries = new Map(detail?.plates.map(entry => [entry.proposed.id, entry]))
+    const positions = new Map(Object.entries(detail?.batch.stateOrders ?? {}).map(([state, order]) =>
+      [state, new Map(order.map((id, index) => [id, index]))],
+    ))
     return plates.map(card => {
       const entry = entries.get(card.id)
-      if (!entry) return { ...card, changedInBatch: false }
+      const position = positions.get(card.state)?.get(card.id) ?? -1
+      const ordered = position >= 0 ? { ...card, sortOrder: position } : card
+      const reordered = position >= 0 && position !== card.sortOrder
+      if (!entry) return { ...ordered, changedInBatch: reordered }
       const { proposed } = entry
       const checks = plateChecks(proposed, card.imageUrl)
       return {
-        ...card, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
+        ...ordered, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
         templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
-        complete: isComplete(checks), changedInBatch: entry.edit !== null,
+        complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,
       }
     })
   }, [plates, detail])
 }
 
-export type EditResult =
-  | { ok: true; proposed: Plate }
+export type EditResult<T = Plate | void> =
+  | ({ ok: true } & (T extends void ? object : { proposed: T }))
   | { ok: false; error: 'stale_plate'; current: Plate; draft: EditableFields }
   | { ok: false; error: 'forbidden' | 'invalid_state' | 'not_found' | 'superseded_revision' }
 
@@ -138,7 +144,7 @@ export function useEditPlate() {
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
-  async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult> {
+  async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult<Plate>> {
     try {
       const id = await ensureBatch(plate)
       const key = `/api/batches/${id}`
@@ -162,7 +168,7 @@ export function useEditPlate() {
     }
   }
 
-  function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult> {
+  function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult<Plate>> {
     setPendingCount(count => count + 1)
     const result = queue.current.then(() => save(plate, fields))
     queue.current = result.catch(() => undefined)
@@ -170,4 +176,50 @@ export function useEditPlate() {
   }
 
   return { edit, pending: pendingCount > 0 }
+}
+
+export function useReorderState() {
+  const { api } = useSession()
+  const { cache, mutate } = useSWRConfig()
+  const ensureBatch = useEnsureBatch()
+  const [pendingCount, setPendingCount] = useState(0)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+
+  async function save(state: string, order: string[]): Promise<EditResult> {
+    if (!order.length) return { ok: false, error: 'invalid_state' }
+    try {
+      const id = await ensureBatch({ id: order[0], state })
+      const key = `/api/batches/${id}`
+      const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
+      await mutate(key, async () => {
+        const batch = await api.send<ReviewBatch>('PUT', `${key}/state-order/${encodeURIComponent(state)}`, { batchRevision: detail.batch.revision, order })
+        return { ...detail, batch }
+      }, {
+        optimisticData: { ...detail, batch: { ...detail.batch, stateOrders: { ...detail.batch.stateOrders, [state]: order } } },
+        rollbackOnError: true,
+        revalidate: false,
+      })
+      await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
+      await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(`${batchesKey()}?`)))
+      return { ok: true }
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 409 && error.code === 'superseded_revision') return { ok: false, error: 'superseded_revision' }
+        if (error.status === 403) return { ok: false, error: 'forbidden' }
+        if (error.status === 404) return { ok: false, error: 'not_found' }
+        if (error.status === 422) return { ok: false, error: 'invalid_state' }
+      }
+      throw error
+    }
+  }
+
+  function reorder(state: string, order: string[]): Promise<EditResult> {
+    setPendingCount(count => count + 1)
+    const proposed = [...order]
+    const result = queue.current.then(() => save(state, proposed))
+    queue.current = result.catch(() => undefined)
+    return result.finally(() => setPendingCount(count => count - 1))
+  }
+
+  return { reorder, pending: pendingCount > 0 }
 }

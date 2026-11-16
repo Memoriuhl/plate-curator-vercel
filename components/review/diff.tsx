@@ -1,6 +1,11 @@
+import type { BatchDetail } from '@/lib/client/hooks'
 import type { Plate } from '@/lib/catalog/types'
 
-export function changeSummary(before: Plate, after: Plate) {
+export function changeSummary(
+  before: Plate,
+  after: Plate,
+  order?: BatchDetail['plates'][number]['order'],
+) {
   return (
     [
       'image',
@@ -9,6 +14,7 @@ export function changeSummary(before: Plate, after: Plate) {
       'tags',
       'templateFamily',
       'templateRole',
+      'variantOfPlateId',
       'sortOrder',
       'isStandard',
       'sourceUrl',
@@ -19,6 +25,8 @@ export function changeSummary(before: Plate, after: Plate) {
           return []
         if (key === 'templateFamily')
           return [`moved to ${after.templateFamily ?? 'no family'}`]
+        if (key === 'variantOfPlateId')
+          return [after.variantOfPlateId == null ? 'variant link cleared' : `variant of ${after.variantOfPlateId}`]
         if (key === 'isStandard')
           return [after.isStandard ? 'now Standard' : 'no longer Standard']
         return [
@@ -31,6 +39,7 @@ export function changeSummary(before: Plate, after: Plate) {
           }[key] ?? key,
         ]
       })
+      .concat(order && order.before !== order.after ? [`reordered: ${order.before + 1} → ${order.after + 1}`] : [])
       .join(', ') || 'No changes'
   )
 }
@@ -41,11 +50,13 @@ export function DiffTable({
   version,
   revision,
   order,
+  positions,
 }: {
   before: Plate
   after: Plate
   version: number
   revision: number
+  positions?: BatchDetail['plates'][number]['order']
   order: string[]
 }) {
   const position = (plate: Plate) =>
@@ -57,12 +68,17 @@ export function DiffTable({
     ['Tags', before.tags, after.tags],
     ['Family', before.templateFamily, after.templateFamily],
     ['Role', before.templateRole, after.templateRole],
+    ['Variant of', before.variantOfPlateId, after.variantOfPlateId == null && before.variantOfPlateId ? 'cleared' : after.variantOfPlateId],
     [
       'Order',
-      position(before),
-      before.sortOrder === after.sortOrder
-        ? position(before)
-        : `${(after.sortOrder ?? 0) + 1} of ${order.length}`,
+      positions
+        ? `${positions.before + 1} of ${positions.total}`
+        : position(before),
+      positions
+        ? `${positions.after + 1} of ${positions.total}`
+        : before.sortOrder === after.sortOrder
+          ? position(before)
+          : `${(after.sortOrder ?? 0) + 1} of ${order.length}`,
     ],
     [
       'Standard',

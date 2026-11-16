@@ -43,3 +43,13 @@ test('description accepts trimmed text up to 2000 characters or null to clear', 
     expect(parseEditableFields({ description })).toBeNull()
   }
 })
+
+test('variant link accepts null to clear and a bounded string to set', () => {
+  const detached = { templateRole: 'template', variantOfPlateId: null, templateFamily: 'AK.one' }
+  expect(parseEditableFields(detached)).toEqual(detached)
+  expect(parseEditableFields({ variantOfPlateId: ' AK.parent ' })).toEqual({ variantOfPlateId: 'AK.parent' })
+  for (const variantOfPlateId of ['', ' ', 1, false, [], {}, 'x'.repeat(121)]) {
+    expect(parseEditableFields({ variantOfPlateId })).toBeNull()
+  }
+  expect(parseEditableFields({ templateFamily: null })).toBeNull()
+})

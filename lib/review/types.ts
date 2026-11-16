@@ -12,10 +12,11 @@ export type ReviewBatch = {
   state: BatchState
   revision: number
   baselineVersion: number
+  stateOrders: Record<string, string[]>
   plateIds: string[]
   approval: { revision: number; by: string; at: string } | null
 }
-export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'variantOfPlateId' | 'isStandard' | 'description'>>
+export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & { variantOfPlateId?: string | null }
 export type ProposedEdit = {
   plateId: string
   baseRevision: string
@@ -37,5 +38,6 @@ export interface ReviewStore {
 export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
+  stateBaseline(version: number, state: string): Promise<Plate[]>
   now(): string
 }

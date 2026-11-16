@@ -6,6 +6,7 @@ import type { CatalogPointer, PublishDeps, PublishLease, PublishRecord } from '.
 
 export const owner = { uid: 'owner', name: null, role: 'owner' } as const
 export const batch: ReviewBatch = {
+  stateOrders: {},
   id: 'batch', name: 'Release', createdBy: 'editor', createdByName: null, createdAt: '2026-11-15T12:00:00Z',
   state: 'approved', revision: 2, baselineVersion: 1, plateIds: ['one'],
   approval: { revision: 1, by: owner.uid, at: '2026-11-15T12:00:00Z' },
@@ -33,6 +34,7 @@ export function fixture(seed: ReviewBatch = batch) {
     return result
   }
   const deps: PublishDeps = {
+    stateBaseline: async (_version, state) => snapshot.plates.filter(plate => plate.state === state),
     store, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
     now: () => time, leaseMs: 60000,
     pointer: {

@@ -3,6 +3,7 @@ import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
 import type { Plate, Snapshot } from '../catalog/types'
+import { orderedStatePlates } from '../catalog/order'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
 import { fixtureSource } from '../catalog/fixture-source'
 import { catalogSourceKind } from '../catalog/source-kind'
@@ -19,6 +20,7 @@ import { loadSnapshot } from '../gcp/storage'
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
+import { cachedJurisdiction } from './snapshot-cache'
 
 const platesByVersion = new Map<number, Map<string, Plate>>()
 
@@ -53,6 +55,14 @@ export function reviewDeps(): ReviewDeps {
         platesByVersion.set(snapshot.version, plates)
       }
       return plates.get(plateId) ?? null
+    },
+    async stateBaseline(version, state) {
+      const source = catalog()
+      const kind = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV })
+      const snapshot = await cachedJurisdiction(version, state, kind)
+      if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
+      if (!snapshot.plates.some(plate => plate.state === state)) return []
+      return orderedStatePlates(snapshot, state, await source.readCuratorState())
     },
     now: () => new Date().toISOString(),
   }

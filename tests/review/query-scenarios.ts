@@ -18,6 +18,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
   async function setup() {
     const store = await makeStore()
     const deps: ReviewDeps = {
+      stateBaseline: async (_version, state) => baseline.filter(plate => plate.state === state),
       store,
       baseline: async id => structuredClone(baseline.find(plate => plate.id === id) ?? null),
       now: () => createdAt,
@@ -27,7 +28,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
 
   test.each([editor, owner])('creates an open batch at revision 0: $role', async actor => {
     const { deps, store } = await setup()
-    const expected: ReviewBatch = { ...input, state: 'open', revision: 0, approval: null, createdBy: actor.uid, createdByName: actor.name, createdAt }
+    const expected: ReviewBatch = { ...input, stateOrders: {}, state: 'open', revision: 0, approval: null, createdBy: actor.uid, createdByName: actor.name, createdAt }
     expect(await createBatch(deps, actor, input)).toEqual({ ok: true, value: expected })
     expect(await store.getBatch(input.id)).toEqual(expected)
   })
@@ -69,9 +70,9 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
   test('lists only the requested states, newest first', async () => {
     const { deps, store } = await setup()
     const batches: ReviewBatch[] = [
-      { ...input, id: 'old', state: 'submitted', revision: 1, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-13T12:00:00Z' },
-      { ...input, id: 'approved', state: 'approved', revision: 2, approval: { revision: 1, by: owner.uid, at: createdAt }, createdBy: editor.uid, createdByName: editor.name, createdAt },
-      { ...input, id: 'new', state: 'open', revision: 0, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-14T12:00:00Z' },
+      { ...input, stateOrders: {}, id: 'old', state: 'submitted', revision: 1, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-13T12:00:00Z' },
+      { ...input, stateOrders: {}, id: 'approved', state: 'approved', revision: 2, approval: { revision: 1, by: owner.uid, at: createdAt }, createdBy: editor.uid, createdByName: editor.name, createdAt },
+      { ...input, stateOrders: {}, id: 'new', state: 'open', revision: 0, approval: null, createdBy: editor.uid, createdByName: editor.name, createdAt: '2026-11-14T12:00:00Z' },
     ]
     for (const batch of batches) expect(await store.create(batch)).toBe('ok')
     expect(await listBatches(deps, { states: ['open', 'submitted'] })).toEqual([batches[2], batches[0]])
