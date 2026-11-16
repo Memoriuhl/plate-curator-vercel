@@ -8,11 +8,14 @@ export function parseOwnerUids(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map((uid) => uid.trim()).filter(Boolean)
 }
 
-export async function authenticate(request: Request, deps: { verify: (token: string) => Promise<{ uid: string } | null>; ownerUids: string[] }): Promise<{ ok: true; actor: Actor } | { ok: false; response: Response }> {
+export async function authenticate(request: Request, deps: { verify: (token: string) => Promise<{ uid: string; name?: string; email?: string } | null>; ownerUids: string[] }): Promise<{ ok: true; actor: Actor } | { ok: false; response: Response }> {
   const match = /^Bearer ([^\s]+)$/i.exec(request.headers.get('Authorization') ?? '')
   if (match) {
     const user = await deps.verify(match[1])
-    if (user) return { ok: true, actor: { uid: user.uid, role: roleFor(user.uid, deps.ownerUids) } }
+    if (user) {
+      const name = (user.name?.trim() || user.email?.split('@')[0].trim() || '').slice(0, 60) || null
+      return { ok: true, actor: { uid: user.uid, name, role: roleFor(user.uid, deps.ownerUids) } }
+    }
   }
   return {
     ok: false,

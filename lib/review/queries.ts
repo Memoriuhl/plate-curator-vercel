@@ -17,7 +17,7 @@ export async function createBatch(
   }
   const batch: ReviewBatch = {
     ...i, plateIds: [...i.plateIds], state: 'open', revision: 0, approval: null,
-    createdBy: actor.uid, createdAt: d.now(),
+    createdBy: actor.uid, createdByName: actor.name, createdAt: d.now(),
   }
   const result = await d.store.create(batch)
   return result === 'ok' ? { ok: true, value: batch } : { ok: false, error: 'invalid_state' }

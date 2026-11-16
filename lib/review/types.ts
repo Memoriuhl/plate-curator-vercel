@@ -1,11 +1,12 @@
 import type { Plate } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
-export type Actor = { uid: string; role: Role }
+export type Actor = { uid: string; name: string | null; role: Role }
 export type BatchState = 'open' | 'submitted' | 'approved' | 'published' | 'conflict'
 export type ReviewBatch = {
   id: string
   name: string
+  createdByName: string | null
   createdBy: string
   createdAt: string
   state: BatchState

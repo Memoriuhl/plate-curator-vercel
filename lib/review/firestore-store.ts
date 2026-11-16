@@ -23,7 +23,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         const batch = doc.data()
         delete batch.env
         delete batch.publishReservation
-        return batch as ReviewBatch
+        return { ...batch, createdByName: batch.createdByName ?? null } as ReviewBatch
       }).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     },
     async listEdits(batchId) {
@@ -39,7 +39,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
       const snapshot = await batches.doc(id).get()
       const { env: storedEnv, ...batch } = snapshot.data() ?? {}
       delete batch.publishReservation
-      return storedEnv === env ? batch as ReviewBatch : null
+      return storedEnv === env ? { ...batch, createdByName: batch.createdByName ?? null } as ReviewBatch : null
     },
     async getEdit(batchId, plateId) {
       return db.runTransaction(async transaction => {

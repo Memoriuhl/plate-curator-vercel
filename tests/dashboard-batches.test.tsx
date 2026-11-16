@@ -49,7 +49,7 @@ vi.mock('../components/ui/button', () => ({
 const batch: ReviewBatch = {
   id: 'batch-one',
   name: 'Alaska updates',
-  createdBy: 'Jonathan',
+  createdBy: 'Jonathan', createdByName: null,
   state: 'open',
   revision: 7,
   createdAt: '2026-11-16',

@@ -7,7 +7,7 @@ import { batch, command, fixture, owner, snapshot } from './fixture'
 
 test('an editor cannot publish', async () => {
   const f = fixture()
-  expect(await publishBatch(f.deps, { uid: 'editor', role: 'editor' }, command)).toEqual({ ok: false, error: 'forbidden' })
+  expect(await publishBatch(f.deps, { uid: 'editor', name: null, role: 'editor' }, command)).toEqual({ ok: false, error: 'forbidden' })
   expect(f.records.size).toBe(0)
   expect(f.blobs.has(2)).toBe(false)
 })

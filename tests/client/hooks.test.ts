@@ -21,7 +21,7 @@ vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
 const ownKey = batchesKey(['open'], { mine: true })
 const batch: ReviewBatch = {
-  id: 'draft', name: 'AK edits', createdBy: 'jon', createdAt: '2026-11-16', state: 'open',
+  id: 'draft', name: 'AK edits', createdBy: 'jon', createdByName: null, createdAt: '2026-11-16', state: 'open',
   revision: 1, baselineVersion: 1, plateIds: ['AK.one'], approval: null,
 }
 const baseline: Plate = {

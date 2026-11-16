@@ -5,8 +5,8 @@ import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
 
-const editor = { uid: 'editor-one', role: 'editor' } as const
-const owner = { uid: 'owner-one', role: 'owner' } as const
+const editor = { uid: 'editor-one', name: null, role: 'editor' } as const
+const owner = { uid: 'owner-one', name: null, role: 'owner' } as const
 const baseline: Plate[] = [
   { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png' },
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png' },
@@ -15,7 +15,7 @@ const baseline: Plate[] = [
 export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>) {
   async function setup(overrides: Partial<ReviewBatch> = {}) {
     const batch: ReviewBatch = {
-      id: 'batch', name: 'Review plates', createdBy: editor.uid, createdAt: '2026-11-15T12:00:00Z',
+      id: 'batch', name: 'Review plates', createdBy: editor.uid, createdByName: null, createdAt: '2026-11-15T12:00:00Z',
       state: 'open', revision: 4, baselineVersion: 1,
       plateIds: ['one', 'two'], approval: null, ...overrides,
     }
