@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useDraftOverlay } from '@/lib/client/hooks'
@@ -128,7 +128,11 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     initialRect: { width: 1440, height: 900 },
     estimateSize: (index) =>
       Math.max(
-        ...rows[index].map((family) => 110 + family.variants.length * 82),
+        ...rows[index].map((family) =>
+          family.variants.length > 12
+            ? 144 + family.variants.length * 96
+            : 110 + family.variants.length * 82,
+        ),
       ) + 16,
     overscan: 1,
     scrollMargin: layout.margin,
@@ -146,7 +150,9 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     const rect = element.getBoundingClientRect()
     const left = Math.max(8, Math.min(rect.right + 12, window.innerWidth - 388))
     const top = Math.max(8, Math.min(rect.top, window.innerHeight - 720))
-    const reveal = () => setPreview({ plate, left, top })
+    const reveal = () => {
+      if (element.isConnected) setPreview({ plate, left, top })
+    }
     if (immediate) reveal()
     else timer.current = setTimeout(reveal, 150)
   }
@@ -212,16 +218,18 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
           </p>
         </>
       )}
-      {preview ? (
-        <PlateHoverCard
-          {...preview}
-          parent={parent}
-          onMouseEnter={() => {
-            if (timer.current) clearTimeout(timer.current)
-          }}
-          onMouseLeave={close}
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {preview ? (
+          <PlateHoverCard
+            {...preview}
+            parent={parent}
+            onMouseEnter={() => {
+              if (timer.current) clearTimeout(timer.current)
+            }}
+            onMouseLeave={close}
+          />
+        ) : null}
+      </Suspense>
     </section>
   )
 }

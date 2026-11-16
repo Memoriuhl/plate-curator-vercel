@@ -46,7 +46,7 @@ export function PlateHoverContent({
       tabIndex={-1}
       aria-label={plate.displayName + ' preview'}
       className="fixed z-50 max-h-[calc(100dvh-16px)] w-[min(372px,calc(100vw-16px))] overflow-auto rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)] shadow-xl"
-      style={{ left, top }}
+      style={{ left: 0, top: 0, transform: `translate(${left}px, ${top}px)` }}
     >
       {plate.imageUrl ? (
         <Image

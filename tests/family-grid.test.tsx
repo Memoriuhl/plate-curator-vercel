@@ -159,3 +159,19 @@ test('server counts preserve every filter definition', () => {
     generic: Number(base.checks.description.status !== 'good'),
   })
 })
+
+test('large families server-render only a bounded variant window and retain the full list size', () => {
+  const variants = Array.from({ length: 990 }, (_, index) => ({
+    ...variant,
+    id: `variant-${index}`,
+  }))
+  const html = renderToStaticMarkup(
+    <FamilyCard template={head} variants={variants} />,
+  )
+  const links = html.match(/<a /g) ?? []
+  expect(links.length).toBeGreaterThan(1)
+  expect(links.length).toBeLessThan(15)
+  expect(html).toContain('aria-setsize="990"')
+  expect(html).not.toContain('href="/plates/variant-989"')
+  expect(html).toContain('role="listitem"')
+})

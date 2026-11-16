@@ -1,3 +1,5 @@
+'use client'
+
 import Image from 'next/image'
 import { preconnect } from 'react-dom'
 import Link from 'next/link'
@@ -10,6 +12,7 @@ import {
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { CheckStrip } from './check-strip'
+import { VirtualizedVariants } from './virtualized-variants'
 
 export type FamilyCardProps = {
   template: PlateCardData
@@ -132,7 +135,14 @@ export function FamilyCard({
       </div>
       {variants.length ? (
         <div className="flex flex-col gap-3 pl-8">
-          {variants.map((plate) => plateContent(plate, true))}
+          {variants.length > 12 ? (
+            <VirtualizedVariants
+              plates={variants}
+              renderPlate={(plate) => plateContent(plate, true)}
+            />
+          ) : (
+            variants.map((plate) => plateContent(plate, true))
+          )}
         </div>
       ) : null}
       {groupingNote ? (
