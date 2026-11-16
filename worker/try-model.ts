@@ -4,7 +4,12 @@ import { imageReader } from './images'
 import { ollamaAdapter } from './model'
 
 async function main() {
-  const repo = process.env.GAME_REPO ?? 'C:\\Users\\16jbe\\Code\\License-Plate-Game'
+  const repo = process.env.GAME_REPO
+  if (!repo?.trim()) {
+    console.error('GAME_REPO is required')
+    process.exitCode = 1
+    return
+  }
   const names = (await readdir(join(repo, 'assets', 'plates', 'AK'))).filter((name) => /\.(webp|png|jpe?g)$/i.test(name)).sort().slice(0, 2)
   if (names.length !== 2) throw new Error('Two real images are required')
   const readImage = imageReader(repo)
