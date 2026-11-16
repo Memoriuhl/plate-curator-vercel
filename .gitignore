@@ -1,0 +1,6 @@
+.hygiene-denylist
+.env*
+!.env.example
+.vercel
+node_modules
+.next
