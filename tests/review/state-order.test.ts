@@ -68,7 +68,6 @@ test('detail lists moved plates outside field-edit membership with canonical old
     batch: { stateOrders: { AK: ['AK.three', 'AK.one', 'AK.two'] } },
     plates: [
       { baseline: { id: 'AK.one' }, order: { before: 1, after: 1, total: 3 } },
-      { baseline: { id: 'AK.two' }, order: { before: 0, after: 2, total: 3 } },
       { baseline: { id: 'AK.three' }, order: { before: 2, after: 0, total: 3 } },
     ],
   } })
@@ -114,11 +113,13 @@ test('published detail keeps saved positions and versioned fields after the curr
   deps.stateBaseline = vi.fn(async () => order.map(id => current.find(plate => plate.id === id)!))
   deps.baselineAtVersion = vi.fn(async (version, id) => version === 7 ? plates.find(plate => plate.id === id) ?? null : null)
   expect(await store.commit('batch', 6, { batch: { ...reordered.value, state: 'published', revision: 7 } })).toBe('ok')
-  expect(await batchDetail(deps, 'batch')).toMatchObject({ ok: true, value: {
+  const detail = await batchDetail(deps, 'batch')
+  if (!detail.ok) throw new Error('expected published detail')
+  expect(detail.value.plates.find(plate => plate.baseline.id === original.id)).not.toHaveProperty('order')
+  expect(detail).toMatchObject({ ok: true, value: {
     batch: { state: 'published' },
     plates: [
-      { baseline: original, proposed: { ...original, ...fields }, order: { before: 1, after: 2, total: 3 } },
-      { baseline: { id: 'AK.two' }, order: { before: 0, after: 1, total: 3 } },
+      { baseline: original, proposed: { ...original, ...fields } },
       { baseline: { id: 'AK.three' }, order: { before: 2, after: 0, total: 3 } },
     ],
   } })
@@ -149,28 +150,41 @@ test.each(['open', 'published'] as const)('legacy %s detail selects the appropri
   expect(result).toMatchObject({ ok: true, value: {
     plates: state === 'published' ? [
       { baseline: { id: 'AK.one' }, order: { before: 1, after: 1, total: 3 } },
-      { baseline: { id: 'AK.two' }, order: { before: 0, after: 2, total: 3 } },
       { baseline: { id: 'AK.three' }, order: { before: 2, after: 0, total: 3 } },
-    ] : [{ baseline: { id: 'AK.one' }, order: { before: 1, after: 1, total: 3 } }],
+    ] : [{ baseline: { id: 'AK.one' } }],
   } })
 })
 
-test('a legacy published batch reports the original move from position 22 to position 4', async () => {
+test.each([false, true])('44-plate published detail reports only the move from 22 to 4 with saved before-order: %s', async saved => {
   const snapshot = {
     version: 7,
-    plates: Array.from({ length: 22 }, (_, index) => ({
+    plates: Array.from({ length: 44 }, (_, index) => ({
       ...plates[0], id: index === 21 ? 'AK.caribou' : `AK.plate-${index}`, sortOrder: index,
     })).reverse(),
   }
   const before = [...snapshot.plates].reverse().map(plate => plate.id)
   const order = before.filter(id => id !== 'AK.caribou')
   order.splice(3, 0, 'AK.caribou')
-  const { deps } = setup({ state: 'published', plateIds: [], stateOrders: { AK: order } })
+  const { deps } = setup({ state: 'published', plateIds: [], stateOrders: { AK: order }, ...(saved ? { baselineOrders: { AK: before } } : {}) })
   deps.stateBaseline = async (_version, state, source) => orderedStatePlates(snapshot, state, {
     stateOrder: source === 'snapshot' ? {} : { AK: order }, stateProgress: {},
   })
   deps.baselineAtVersion = async (version, id) => version === 7 ? snapshot.plates.find(plate => plate.id === id) ?? null : null
   const detail = await batchDetail(deps, 'batch')
   if (!detail.ok) throw new Error('expected published batch detail')
-  expect(detail.value.plates.find(plate => plate.baseline.id === 'AK.caribou')?.order).toEqual({ before: 21, after: 3, total: 22 })
+  expect(detail.value.plates).toHaveLength(1)
+  expect(detail.value.plates[0].baseline.id).toBe('AK.caribou')
+  expect(detail.value.plates[0].order).toEqual({ before: 21, after: 3, total: 44 })
+})
+
+test.each([
+  { name: 'adjacent swap', order: ['AK.one', 'AK.two', 'AK.three'], moved: [{ id: 'AK.one', before: 1, after: 0 }] },
+  { name: 'reverse three', order: ['AK.three', 'AK.one', 'AK.two'], moved: [{ id: 'AK.three', before: 2, after: 0 }, { id: 'AK.one', before: 1, after: 1 }] },
+  { name: 'unchanged order', order: ['AK.two', 'AK.one', 'AK.three'], moved: [] },
+])('$name reports only plates outside the deterministic increasing subsequence', async ({ order, moved }) => {
+  const { deps } = setup({ plateIds: [], stateOrders: { AK: order }, baselineOrders: { AK: plates.map(plate => plate.id) } })
+  const detail = await batchDetail(deps, 'batch')
+  if (!detail.ok) throw new Error('expected batch detail')
+  expect(detail.value.plates.map(plate => ({ id: plate.baseline.id, before: plate.order?.before, after: plate.order?.after }))).toEqual(moved)
+  expect(await batchDetail(deps, 'batch')).toEqual(detail)
 })
