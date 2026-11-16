@@ -1,13 +1,25 @@
 'use client'
 
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function WorkspaceTabs() {
+  return (
+    <Suspense fallback={<TabsView active="" />}>
+      <CurrentTabs />
+    </Suspense>
+  )
+}
+
+function CurrentTabs() {
   const pathname = usePathname()
-  const active = pathname.startsWith('/review') ? '/review' : '/'
+  return <TabsView active={pathname.startsWith('/review') ? '/review' : '/'} />
+}
+
+function TabsView({ active }: { active: '' | '/' | '/review' }) {
   return (
     <nav className="workspace-tabs" aria-label="Workspace">
       <Tabs value={active} activationMode="manual">

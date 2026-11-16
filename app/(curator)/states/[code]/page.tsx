@@ -1,5 +1,4 @@
 import { Suspense } from 'react'
-import { loadDashboard } from '@/lib/catalog/dashboard'
 import {
   JurisdictionStrip,
   StateContent,
@@ -8,11 +7,6 @@ import {
 import { DashboardSearch } from '@/components/dashboard/search'
 import { ReviewStrip } from '@/components/dashboard/review-strip'
 import { DashboardSkeleton } from '@/components/dashboard/skeleton'
-
-export async function generateStaticParams() {
-  const { jurisdictions } = await loadDashboard()
-  return jurisdictions.map(({ code }) => ({ code }))
-}
 
 async function Jurisdictions({
   params,
