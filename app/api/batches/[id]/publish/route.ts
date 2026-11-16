@@ -12,7 +12,8 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (typeof body?.revision !== 'number') return badRequest()
 
   const { id } = await ctx.params
-  const batch = await reviewDeps().store.getBatch(id)
+  const deps = reviewDeps()
+  const batch = await deps.store.getBatch(id)
   if (!batch) return json({ error: 'not_found' }, 404)
   if (batch.state !== 'approved' || batch.revision !== body.revision) return json({ error: 'superseded_revision' }, 409)
 
@@ -21,5 +22,6 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   } catch {
     return json({ error: 'not_waiting' }, 409)
   }
+  await deps.store.requestPublish(id, body.revision, deps.now())
   return json({ status: 'publishing' }, 202)
 }

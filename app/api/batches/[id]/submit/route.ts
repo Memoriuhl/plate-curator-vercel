@@ -1,4 +1,4 @@
-import { start } from 'workflow/api'
+import { resumeHook, start } from 'workflow/api'
 import { submitBatch } from '../../../../../lib/review/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../lib/server/respond'
@@ -12,7 +12,16 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (typeof body?.revision !== 'number') return badRequest()
 
   const { id } = await ctx.params
-  const outcome = await submitBatch(reviewDeps(), auth.actor, id, body.revision)
-  if (outcome.ok) await start(approvalRun, [id, outcome.value.revision])
+  const deps = reviewDeps()
+  const outcome = await submitBatch(deps, auth.actor, id, body.revision)
+  if (outcome.ok) {
+    const revision = outcome.value.revision
+    const run = await start(approvalRun, [id, revision], { experimental_hook: { token: `approval:${id}:${revision}` } })
+    if (await deps.store.recordRun(id, revision, run.runId)) {
+      outcome.value.approvalRun = { runId: run.runId, revision }
+    } else {
+      await resumeHook(`approval:${id}:${revision}`, { superseded: true })
+    }
+  }
   return respond(outcome)
 }
