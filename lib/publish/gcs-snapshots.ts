@@ -2,6 +2,8 @@ import type { Snapshot } from '../catalog/types'
 import { sha256 } from './bytes'
 import type { PublishSnapshots } from './types'
 
+const objectName = (version: number) => `catalog/v${version}.json`
+
 export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>, fetcher: typeof fetch = fetch): PublishSnapshots {
   const encodedBucket = encodeURIComponent(bucket)
   const download = async (version: number) => {
@@ -17,14 +19,33 @@ export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>,
       return await response.json() as Snapshot
     },
     async createOnly(version, bytes) {
-      const query = new URLSearchParams({ uploadType: 'media', name: `catalog/v${version}.json`, ifGenerationMatch: '0' })
+      const boundary = `snapshot-${crypto.randomUUID()}`
+      const metadata = { name: objectName(version), contentType: 'application/json', metadata: { firebaseStorageDownloadTokens: crypto.randomUUID() } }
+      const body = Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n`),
+        Buffer.from(bytes),
+        Buffer.from(`\r\n--${boundary}--`),
+      ])
+      const query = new URLSearchParams({ uploadType: 'multipart', ifGenerationMatch: '0' })
       const response = await fetcher(`https://storage.googleapis.com/upload/storage/v1/b/${encodedBucket}/o?${query}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-        body: new Uint8Array(bytes),
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body: new Uint8Array(body),
       })
       if (response.status === 412) return 'exists'
       if (!response.ok) throw new Error(`Snapshot upload failed: ${response.status}`)
       return 'created'
+    },
+    async downloadUrl(version) {
+      const object = encodeURIComponent(objectName(version))
+      const response = await fetcher(`https://storage.googleapis.com/storage/v1/b/${encodedBucket}/o/${object}?fields=metadata`, {
+        headers: { Authorization: `Bearer ${await accessToken()}` }, cache: 'no-store',
+      })
+      if (response.status === 404) return null
+      if (!response.ok) throw new Error(`Snapshot metadata failed: ${response.status}`)
+      const body = await response.json() as { metadata?: { firebaseStorageDownloadTokens?: string } }
+      const token = body.metadata?.firebaseStorageDownloadTokens?.split(',')[0]
+      return token ? `https://firebasestorage.googleapis.com/v0/b/${encodedBucket}/o/${object}?alt=media&token=${token}` : null
     },
     async checksum(version) {
       const response = await download(version)

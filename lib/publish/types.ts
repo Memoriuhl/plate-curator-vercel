@@ -1,7 +1,7 @@
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
 
-export type CatalogPointer = { version: number; blobSha256?: string; publishedAt?: string }
+export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
 export type PublishError = 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable'
 export type PublishRecord = {
   id: string
@@ -10,6 +10,7 @@ export type PublishRecord = {
   fromVersion: number
   toVersion: number
   blobSha256: string
+  url?: string
   state: 'started' | 'uploaded' | 'done' | 'failed'
   committedAt?: string
   completionToken?: string
@@ -24,6 +25,7 @@ export interface PublishSnapshots {
   read(version: number): Promise<Snapshot>
   createOnly(version: number, bytes: Uint8Array): Promise<'created' | 'exists'>
   checksum(version: number): Promise<string | null>
+  downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
   get(id: string): Promise<PublishRecord | null>

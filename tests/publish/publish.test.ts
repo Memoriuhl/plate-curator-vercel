@@ -224,3 +224,10 @@ test('retry recovers an uploaded object when the upload response was lost', asyn
   expect(createOnly).toHaveBeenCalledTimes(1)
   expect([...f.blobs.keys()]).toEqual([1, 2])
 })
+
+test('the pointer carries the new snapshot download url for the game', async () => {
+  const f = fixture()
+  const outcome = await publishBatch(f.deps, owner, command)
+  expect(outcome.ok).toBe(true)
+  expect(f.pointer()).toMatchObject({ version: 2, url: 'https://storage.example/v2.json?token=t2' })
+})

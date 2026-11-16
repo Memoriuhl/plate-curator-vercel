@@ -99,11 +99,12 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
         )
         if (!active(lock.data(), lease.token, env, now) || lock.get('batchId') !== record.batchId || lock.get('revision') !== record.revision) return 'lock_lost'
         if (batch.get('env') !== env || batch.get('revision') !== record.revision || batch.get('state') !== 'approved' || batch.get('publishReservation')?.token !== lease.token) return 'superseded_revision'
-        if (receipt.get('env') !== env || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion) return 'superseded_revision'
+        if (typeof record.url !== 'string' || record.url.length === 0) return 'superseded_revision'
+        if (receipt.get('env') !== env || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('url') !== record.url || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion) return 'superseded_revision'
         if (receipt.get('committedAt')) return 'advanced'
         if (receipt.get('state') !== 'uploaded') return 'superseded_revision'
         if (pointer.get('version') !== record.fromVersion) return 'pointer_moved'
-        transaction.set(pointerRef, { version: record.toVersion, blobSha256: record.blobSha256, publishedAt: now })
+        transaction.set(pointerRef, { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now })
         transaction.update(recordRef, { committedAt: now })
         return 'advanced'
       })

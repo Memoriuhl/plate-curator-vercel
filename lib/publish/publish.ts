@@ -77,7 +77,9 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
     }
     if (!await renew()) return { ok: false, error: 'lock_lost' }
     if (!record.committedAt) {
-      record = { ...record, state: 'uploaded' }
+      const url = record.url ?? await d.snapshots.downloadUrl(record.toVersion)
+      if (!url) return { ok: false, error: 'unavailable' }
+      record = { ...record, url, state: 'uploaded' }
       if (!await d.records.save(record, lease.token, d.now())) return { ok: false, error: 'lock_lost' }
       const advanced = await d.pointer.advance(record, lease, d.now())
       if (advanced !== 'advanced') return advanced === 'lock_lost' ? { ok: false, error: 'lock_lost' } : await fail(advanced)
