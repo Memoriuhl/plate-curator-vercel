@@ -15,9 +15,13 @@
     "verify": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.4.1",
+    "@vercel/oidc": "^4.0.9",
+    "google-auth-library": "^11.3.4",
     "next": "^16.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
