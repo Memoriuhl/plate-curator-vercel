@@ -67,7 +67,7 @@ afterEach(cleanup)
 
 test('state hooks fetch on first mount, reuse cached data on revisit, and explicitly refresh after writes', async () => {
   const context = harness()
-  const useStateHooks = () => ({ me: useMe(), batches: useBatches(['open'], { mine: true }), batch: useBatch(batch.id) })
+  const useStateHooks = () => ({ me: useMe(), batches: useBatches(['open'], { mine: true }), batch: useBatch(batch.id, { reuse: true }) })
   const first = renderHook(useStateHooks, context)
   await waitFor(() => expect(first.result.current.batch.data).toBeDefined())
   await waitFor(() => expect(first.result.current.me.data).toBeDefined())
@@ -84,6 +84,20 @@ test('state hooks fetch on first mount, reuse cached data on revisit, and explic
   expect(session.api.get).not.toHaveBeenCalled()
   await act(async () => { await Promise.all([revisit.result.current.batch.mutate(), revisit.result.current.batches.mutate(), revisit.result.current.me.mutate()]) })
   expect(session.api.get.mock.calls.map(([key]) => key).sort()).toEqual(['/api/batches/draft', ownKey, '/api/me'].sort())
+})
+
+test('Review and Publish default batch-detail reads revalidate cached state-page data on mount', async () => {
+  const context = harness()
+  context.cache.set('/api/batches/draft', { data: detail() })
+  const statePage = renderHook(() => useBatch(batch.id, { reuse: true }), context)
+  expect(statePage.result.current.data?.batch.revision).toBe(1)
+  expect(session.api.get).not.toHaveBeenCalled()
+  statePage.unmount()
+  const updated = { ...detail(), batch: { ...batch, revision: 2 } }
+  session.api.get.mockResolvedValue(updated)
+  const reviewOrPublish = renderHook(() => useBatch(batch.id), context)
+  await waitFor(() => expect(reviewOrPublish.result.current.data?.batch.revision).toBe(2))
+  expect(session.api.get).toHaveBeenCalledExactlyOnceWith('/api/batches/draft')
 })
 
 test('revisiting cached server cards retains a saved draft family order', async () => {

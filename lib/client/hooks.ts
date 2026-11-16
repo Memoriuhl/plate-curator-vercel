@@ -33,9 +33,11 @@ export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
     : undefined)
 }
 
-export function useBatch(id: string | null) {
+export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
+  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get, opts?.reuse
+    ? { revalidateIfStale: false }
+    : undefined)
 }
 
 export type BatchRun = {
@@ -141,7 +143,7 @@ function mostRecentBatch(batches: ReviewBatch[] | undefined): ReviewBatch | unde
 
 export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   const { data: batches } = useBatches(['open'], { mine: true })
-  const { data: detail } = useBatch(mostRecentBatch(batches)?.id ?? null)
+  const { data: detail } = useBatch(mostRecentBatch(batches)?.id ?? null, { reuse: true })
   return useMemo(() => {
     const entries = new Map(detail?.plates.map(entry => [entry.proposed.id, entry]))
     const positions = new Map(Object.entries(detail?.batch.stateOrders ?? {}).map(([state, order]) =>
