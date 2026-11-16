@@ -9,6 +9,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { ApiError } from './api'
 import { useSession } from './session'
+import type { MemberInvite, MemberSummary } from '../members/summary'
 
 export type BatchDetail = {
   batch: ReviewBatch
@@ -25,6 +26,22 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
 export function useMe() {
   const { user, api } = useSession()
   return useSWR<Actor>(user ? '/api/me' : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
+}
+
+export function useMembers() {
+  const { user, api } = useSession()
+  const me = useMe()
+  return useSWR<MemberSummary[]>(user && me.data?.role === 'owner' ? '/api/members' : null, api.get)
+}
+
+export function useInviteMember() {
+  const { api } = useSession()
+  const { mutate } = useSWRConfig()
+  return async (email: string, role: MemberSummary['role']) => {
+    const result = await api.send<MemberInvite>('POST', '/api/members', { email, role })
+    await mutate('/api/members').catch(() => undefined)
+    return result
+  }
 }
 
 export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
