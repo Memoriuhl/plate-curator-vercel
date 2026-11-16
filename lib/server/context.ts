@@ -22,8 +22,11 @@ import { firestoreReviewStore } from '../review/firestore-store'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
 import { cachedJurisdiction } from './snapshot-cache'
+import { membersStore } from './members'
+import { createMemoryMembersStore } from '../members/memory-store'
 
 const platesByVersion = new Map<number, Map<string, Plate>>()
+const fixtureMembers = createMemoryMembersStore()
 
 export function reviewEnv(): string {
   const env = process.env.VERCEL_ENV ?? 'development'
@@ -32,9 +35,15 @@ export function reviewEnv(): string {
 
 export function currentActor(request: Request) {
   const projectId = requireEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID')
+  const store = () => catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }) === 'fixture' ? fixtureMembers : membersStore()
   return authenticate(request, {
     verify: (token) => verifyIdToken(token, { projectId, jwks: googleSecureTokenJwks() }),
     ownerUids: parseOwnerUids(process.env.OWNER_UIDS),
+    members: {
+      getByEmail: email => store().getByEmail(email),
+      getByUid: uid => store().getByUid(uid),
+      activate: (email, uid, hash) => store().activate(email, uid, hash),
+    },
   })
 }
 

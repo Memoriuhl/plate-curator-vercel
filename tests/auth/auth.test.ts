@@ -2,8 +2,11 @@ import { beforeAll, expect, test, vi } from 'vitest'
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose'
 import type { JWTPayload } from 'jose'
 import { verifyIdToken } from '../../lib/auth/verify-id-token'
-import { authenticate, parseOwnerUids, roleFor } from '../../lib/auth/actor'
+import { authenticate, parseOwnerUids } from '../../lib/auth/actor'
 import { googleSecureTokenJwks } from '../../lib/auth/google-jwks'
+import { createMemoryMembersStore } from '../../lib/members/memory-store'
+import { createInvite } from '../../lib/members/invite'
+import type { Member, MembersStore } from '../../lib/members/types'
 
 const projectId = 'demo-auth'
 const now = 1800000000
@@ -27,7 +30,7 @@ async function verify(overrides: JWTPayload = {}) {
 }
 
 test('accepts a valid token', async () => {
-  expect(await verify()).toEqual({ uid: 'user-one', email: 'user@example.com' })
+  expect(await verify()).toEqual({ uid: 'user-one', email: 'user@example.com', signInProvider: null, emailVerified: false })
 })
 
 test.each([
@@ -51,7 +54,7 @@ test('rejects malformed tokens and key lookup failures', async () => {
 })
 
 test('omits an absent email', async () => {
-  expect(await verify({ email: undefined })).toEqual({ uid: 'user-one' })
+  expect(await verify({ email: undefined })).toEqual({ uid: 'user-one', signInProvider: null, emailVerified: false })
 })
 
 test('reuses the Google key resolver', () => {
@@ -59,7 +62,7 @@ test('reuses the Google key resolver', () => {
 })
 
 async function expectUnauthorized(request: Request, verify = vi.fn(async () => null)) {
-  const result = await authenticate(request, { verify, ownerUids: [] })
+  const result = await authenticate(request, { verify, ownerUids: [], members: createMemoryMembersStore() })
   expect(result.ok).toBe(false)
   if (result.ok) throw new Error('Expected authentication failure')
   expect(result.response.status).toBe(401)
@@ -81,15 +84,10 @@ test.each(['Basic token', 'Bearer', 'Bearer one two'])('rejects malformed author
   await expectUnauthorized(new Request('https://example.com', { headers: { authorization } }))
 })
 
-test('an allowlisted uid is owner and anyone else is editor', async () => {
-  expect(roleFor('owner-one', ['owner-one'])).toBe('owner')
-  expect(roleFor('user-one', ['owner-one'])).toBe('editor')
-  for (const uid of ['owner-one', 'user-one']) {
-    const verify = vi.fn(async () => ({ uid }))
-    expect(await authenticate(new Request('https://example.com', { headers: { Authorization: 'Bearer signed-token' } }), { verify, ownerUids: ['owner-one'] }))
-      .toEqual({ ok: true, actor: { uid, name: null, role: uid === 'owner-one' ? 'owner' : 'editor' } })
-    expect(verify).toHaveBeenCalledWith('signed-token')
-  }
+test('a break-glass uid is Owner without accessing Members', async () => {
+  const members = createMemoryMembersStore()
+  members.getByUid = members.getByEmail = async () => { throw new Error('Members unavailable') }
+  expect(await authorize(members, { sub: 'owner-one' }, ['owner-one'])).toEqual({ ok: true, actor: { uid: 'owner-one', name: 'user', role: 'owner' } })
 })
 
 test('parseOwnerUids trims and ignores blanks', () => {
@@ -117,6 +115,88 @@ test.each([
   }), {
     verify: value => verifyIdToken(value, { projectId, jwks, now: () => now * 1000 }),
     ownerUids: [],
+    members: createMemoryMembersStore([passwordMember]),
   })
   expect(result).toEqual({ ok: true, actor: { uid: 'user-one', role: 'editor', name } })
+})
+
+const instant = new Date(now * 1000).toISOString()
+const passwordMember: Member = { email: 'user@example.com', uid: 'user-one', role: 'editor', signIn: 'password', status: 'active', invite: null, invitedBy: null, createdAt: instant }
+const googleMember: Member = { ...passwordMember, signIn: 'google', status: 'pending', uid: null, invite: createInvite('invite', () => instant) }
+const googleClaims = { firebase: { sign_in_provider: 'google.com' }, email_verified: true }
+
+async function authorize(members: MembersStore, claims: JWTPayload = {}, ownerUids: string[] = []) {
+  return authenticate(new Request('https://example.com', { headers: { Authorization: `Bearer ${await token(claims)}` } }), {
+    verify: value => verifyIdToken(value, { projectId, jwks, now: () => now * 1000 }),
+    ownerUids, members, now: () => instant,
+  })
+}
+
+async function expectNotMember(members: MembersStore, claims: JWTPayload = {}) {
+  const result = await authorize(members, claims)
+  if (result.ok) throw new Error('Expected non-Member refusal')
+  expect(result.response.status).toBe(403)
+  expect(result.response.headers.get('Cache-Control')).toBe('private, no-store')
+  expect(await result.response.json()).toEqual({ error: 'not_member' })
+}
+
+test('returns only a proven email flag and the signed provider claim', async () => {
+  expect(await verify(googleClaims)).toMatchObject({ signInProvider: 'google.com', emailVerified: true })
+  expect(await verify({ firebase: { sign_in_provider: 123 }, email_verified: 'true' })).toMatchObject({ signInProvider: null, emailVerified: false })
+})
+
+test.each([
+  ['unverified Google email', googleMember, { ...googleClaims, email_verified: false }],
+  ['missing verification', googleMember, { ...googleClaims, email_verified: undefined }],
+  ['nonboolean verification', googleMember, { ...googleClaims, email_verified: 'true' }],
+  ['password provider claiming a Google email', googleMember, { ...googleClaims, firebase: { sign_in_provider: 'password' } }],
+  ['missing provider', googleMember, { email_verified: true }],
+  ['wrong uid claiming a password email', passwordMember, { sub: 'different-user', firebase: { sign_in_provider: 'password' } }],
+  ['active Google Member bound to another uid', { ...googleMember, status: 'active', uid: 'different-user', invite: null }, googleClaims],
+  ['expired pending Member', { ...googleMember, invite: createInvite('old', () => new Date((now - 8 * 86400) * 1000).toISOString()) }, googleClaims],
+  ['pending password Member', { ...passwordMember, status: 'pending' }, {}],
+] as [string, Member, JWTPayload][])('refuses %s', async (_, member, claims) => {
+  const members = createMemoryMembersStore([member], () => instant)
+  await expectNotMember(members, claims)
+  expect(await members.list()).toEqual([member])
+})
+
+test('refuses a non-Member even with a verified Google identity', async () => {
+  await expectNotMember(createMemoryMembersStore(), googleClaims)
+})
+
+test('accepts the bound password uid and reads role changes and removal on the next request', async () => {
+  const members = createMemoryMembersStore([passwordMember])
+  expect(await authorize(members, { firebase: { sign_in_provider: 'password' } })).toEqual({ ok: true, actor: { uid: 'user-one', name: 'user', role: 'editor' } })
+  await members.updateRole(passwordMember.email, 'owner')
+  expect(await authorize(members)).toMatchObject({ ok: true, actor: { role: 'owner' } })
+  await members.remove(passwordMember.email)
+  await expectNotMember(members)
+})
+
+test.each([googleMember.invite, null])('activates a pending Google Member by normalized email, including the seeded Owner', async invite => {
+  const members = createMemoryMembersStore([{ ...googleMember, role: 'owner', invite }], () => instant)
+  expect(await authorize(members, { ...googleClaims, email: ' USER@Example.com ' })).toMatchObject({ ok: true, actor: { role: 'owner', uid: 'user-one' } })
+  expect(await members.getByEmail(googleMember.email)).toEqual({ ...googleMember, role: 'owner', status: 'active', uid: 'user-one', invite: null })
+  expect(await authorize(members, googleClaims)).toMatchObject({ ok: true, actor: { role: 'owner' } })
+})
+
+test('concurrent first Google requests accept the same bound account', async () => {
+  const members = createMemoryMembersStore([googleMember], () => instant)
+  const results = await Promise.all([authorize(members, googleClaims), authorize(members, googleClaims)])
+  expect(results.every(result => result.ok)).toBe(true)
+  expect(await members.getByUid('user-one')).toMatchObject({ status: 'active', invite: null })
+})
+
+test('an activation race cannot grant access to another uid or a removed Member', async () => {
+  for (const removed of [false, true]) {
+    const members = createMemoryMembersStore([googleMember], () => instant)
+    const activate = members.activate
+    members.activate = async email => {
+      if (removed) { await members.remove(email); return 'not_found' }
+      await activate(email, 'different-user')
+      return 'invalid_state'
+    }
+    await expectNotMember(members, googleClaims)
+  }
 })
