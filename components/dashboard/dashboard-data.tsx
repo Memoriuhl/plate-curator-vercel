@@ -5,7 +5,7 @@ import { loadDashboard, loadJurisdiction } from '@/lib/catalog/dashboard'
 import { JurisdictionCard } from './jurisdiction-card'
 import { StateHeader } from './state-header'
 import { FilterBar } from './filter-bar'
-import { DashboardSkeleton } from './skeleton'
+import { FamilyGrid } from './family-grid'
 
 export async function JurisdictionStrip({ code }: { code: string }) {
   await connection()
@@ -43,19 +43,12 @@ export async function StateContent({ code }: { code: string }) {
       >
         <FilterBar plates={jurisdiction.plates} />
       </Suspense>
+      <Suspense fallback={<p>Loading families...</p>}>
+        <FamilyGrid plates={jurisdiction.plates} />
+      </Suspense>
       {jurisdiction.plates.length === 0 ? (
         <p>No plates in this jurisdiction yet.</p>
       ) : null}
     </>
-  )
-}
-
-export function FamilyGridSlot() {
-  return (
-    <section aria-label="Plate families" id="families">
-      <Suspense fallback={<DashboardSkeleton kind="families" />}>
-        <DashboardSkeleton kind="families" />
-      </Suspense>
-    </section>
   )
 }
