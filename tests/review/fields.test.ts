@@ -34,3 +34,12 @@ test('batch input needs a bounded name and 1 to 50 distinct plate ids', () => {
   expect(parseBatchInput({ name: 'ok', plateIds: Array.from({ length: 51 }, (_, i) => `AK.${i}`) })).toBeNull()
   expect(parseBatchInput({ name: 'ok', plateIds: [42] })).toBeNull()
 })
+
+test('description accepts trimmed text up to 2000 characters or null to clear', () => {
+  expect(parseEditableFields({ description: ' New description ' })).toEqual({ description: 'New description' })
+  expect(parseEditableFields({ description: 'x'.repeat(2000) })).toEqual({ description: 'x'.repeat(2000) })
+  expect(parseEditableFields({ description: null })).toEqual({ description: null })
+  for (const description of ['', '   ', 'x'.repeat(2001), 1, false, []]) {
+    expect(parseEditableFields({ description })).toBeNull()
+  }
+})

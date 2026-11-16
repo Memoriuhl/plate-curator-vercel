@@ -80,6 +80,17 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     expect(await listBatches(deps, { states: [] })).toEqual([])
   })
 
+  test('listing by creator composes with state filters', async () => {
+    const { deps, store } = await setup()
+    await createBatch(deps, editor, input)
+    await createBatch(deps, owner, { ...input, id: 'other' })
+    expect(await listBatches(deps, { createdBy: editor.uid })).toEqual([await store.getBatch(input.id)])
+    expect(await listBatches(deps, { createdBy: owner.uid, states: ['open'] })).toEqual([await store.getBatch('other')])
+    expect(await listBatches(deps, { createdBy: editor.uid, states: ['submitted'] })).toEqual([])
+    expect(await listBatches(deps, { createdBy: 'missing' })).toEqual([])
+    expect(await listBatches(deps, {})).toHaveLength(2)
+  })
+
   test('detail merges edits and returns each plate\'s revision', async () => {
     const { deps, store } = await setup()
     await createBatch(deps, editor, input)

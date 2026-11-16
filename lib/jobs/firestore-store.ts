@@ -20,7 +20,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment): JobsStore {
         async review(batchId, plateId) {
           const ref = db.collection('reviewBatches').doc(batchId)
           const batch = await transaction.get(ref)
-          if (batch.get('env') !== env || !(batch.get('plateIds') as string[] | undefined)?.includes(plateId)) return null
+          if (!batch.exists || batch.get('env') !== env) return null
           const edit = await transaction.get(ref.collection('edits').doc(plateId))
           return { fields: (edit.get('fields') as EditableFields | undefined) ?? {} }
         },

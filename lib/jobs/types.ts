@@ -8,6 +8,7 @@ export type TaggingJob = {
   id: string
   batchId: string
   plateId: string
+  requestedBy: string
   inputHash: string
   env: Environment
   createdAt: number

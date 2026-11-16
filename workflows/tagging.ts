@@ -2,19 +2,19 @@ import { createHook, sleep } from 'workflow'
 import { createJob, expireJob, getJob } from '../lib/jobs/jobs'
 import { jobsDeps } from '../lib/server/context'
 
-export async function taggingRun(jobId: string, batchId: string, plateId: string) {
+export async function taggingRun(jobId: string, batchId: string, plateId: string, requestedBy: string) {
   'use workflow'
 
   const result = createHook<{ jobId: string }>({ token: `tagging:${jobId}` })
-  if (!(await createTaggingJob(jobId, batchId, plateId))) return { outcome: 'not_created' as const }
+  if (!(await createTaggingJob(jobId, batchId, plateId, requestedBy))) return { outcome: 'not_created' as const }
 
   const settled = await Promise.race([result, sleep('10m').then(() => 'timeout' as const)])
   return finishTagging(jobId, settled === 'timeout')
 }
 
-async function createTaggingJob(jobId: string, batchId: string, plateId: string) {
+async function createTaggingJob(jobId: string, batchId: string, plateId: string, requestedBy: string) {
   'use step'
-  const outcome = await createJob(jobsDeps(), { id: jobId, batchId, plateId })
+  const outcome = await createJob(jobsDeps(), { id: jobId, batchId, plateId, requestedBy })
   return outcome.ok || outcome.error === 'already_exists'
 }
 

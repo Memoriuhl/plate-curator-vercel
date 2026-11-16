@@ -14,7 +14,7 @@ export type ReviewBatch = {
   plateIds: string[]
   approval: { revision: number; by: string; at: string } | null
 }
-export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'variantOfPlateId' | 'isStandard'>>
+export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'variantOfPlateId' | 'isStandard' | 'description'>>
 export type ProposedEdit = {
   plateId: string
   baseRevision: string

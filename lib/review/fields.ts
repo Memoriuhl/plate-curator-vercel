@@ -1,7 +1,7 @@
 import type { EditableFields } from './types'
 
-const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
-const keys = new Set(['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard'])
+export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
+const keys = new Set(['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -25,6 +25,10 @@ export function parseEditableFields(input: unknown): EditableFields | null {
       const tags = value.map((tag) => boundedText(tag, limits.tag))
       if (tags.some((tag) => tag === null)) return null
       fields.tags = tags as string[]
+    } else if (key === 'description') {
+      const text = boundedText(value, 2000)
+      if (value !== null && text === null) return null
+      fields.description = text
     } else if (key === 'templateRole') {
       if (value !== 'template' && value !== 'variant') return null
       fields.templateRole = value

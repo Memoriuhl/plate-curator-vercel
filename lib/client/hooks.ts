@@ -10,8 +10,11 @@ export type BatchDetail = {
   plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string }[]
 }
 
-function batchesKey(states?: BatchState[]) {
-  return states?.length ? `/api/batches?state=${states.join(',')}` : '/api/batches'
+export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
+  const params = []
+  if (states?.length) params.push(`state=${states.join(',')}`)
+  if (opts?.mine) params.push('mine=1')
+  return `/api/batches${params.length ? `?${params.join('&')}` : ''}`
 }
 
 export function useMe() {
@@ -19,9 +22,9 @@ export function useMe() {
   return useSWR<Actor>(user ? '/api/me' : null, api.get)
 }
 
-export function useBatches(states?: BatchState[]) {
+export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<ReviewBatch[]>(user ? batchesKey(states) : null, api.get)
+  return useSWR<ReviewBatch[]>(user ? batchesKey(states, opts) : null, api.get)
 }
 
 export function useBatch(id: string | null) {

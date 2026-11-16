@@ -1,4 +1,6 @@
 import { expect, test, vi } from 'vitest'
+import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
 import { validateSnapshot } from '../../lib/publish/validation'
 import { batch, command, fixture, owner, snapshot } from './fixture'
@@ -230,4 +232,14 @@ test('the pointer carries the new snapshot download url for the game', async () 
   const outcome = await publishBatch(f.deps, owner, command)
   expect(outcome.ok).toBe(true)
   expect(f.pointer()).toMatchObject({ version: 2, url: 'https://storage.example/v2.json?token=t2' })
+})
+
+test.each(['Published description', null])('publishes description edits through the review flow: %j', async description => {
+  const f = fixture({ ...batch, state: 'open', revision: 0, approval: null })
+  const result = await proposeEdit(f.deps, owner, { batchId: batch.id, plateId: 'one', baseRevision: plateRevision(snapshot.plates[0]), fields: { description } })
+  expect(result.ok).toBe(true)
+  expect(await submitBatch(f.deps, owner, batch.id, 1)).toMatchObject({ ok: true })
+  expect(await approveBatch(f.deps, owner, batch.id, 2)).toMatchObject({ ok: true })
+  expect(await publishBatch(f.deps, owner, { batchId: batch.id, revision: 3 })).toMatchObject({ ok: true })
+  expect(JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates[0]).toMatchObject({ description })
 })
