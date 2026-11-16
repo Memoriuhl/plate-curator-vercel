@@ -102,8 +102,8 @@ export function MembersPage() {
                   <div className="min-w-0 flex-1">
                     <p className="break-all font-bold">{member.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-bold">{roleName(member.role)}</span><span className={`rounded-full px-2.5 py-1 font-bold ${statusTint[member.status]}`}>{statusName[member.status]}</span><span className="text-muted-foreground">{member.signIn === 'google' ? 'Google' : 'Password'}</span></div>
-                    <p className="mt-2 break-all text-xs text-muted-foreground">{member.invitedBy ? `Invited by ${member.invitedBy === me.data?.uid ? 'you' : member.invitedBy}` : 'Starting Member'}</p>
                     <MemberRoleActions member={member} />
+                    <p className="mt-2 break-all text-xs text-muted-foreground">{member.invitedBy ? `Invited by ${member.invitedBy === me.data?.uid ? 'you' : member.invitedBy}` : 'Starting Member'}</p>
                   </div>
                 </li>
               ))}
