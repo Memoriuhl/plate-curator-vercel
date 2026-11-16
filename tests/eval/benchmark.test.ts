@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest'
 import { benchmark, boundedPool, RequestBudget } from '../../worker/benchmark'
 import { gatewayAdapter, ollamaAdapter } from '../../worker/model'
 import { reportHtml, summaryCsv } from '../../worker/report'
+import { modelReportHtml, modelSummaryCsv, type ModelLane } from '../../worker/model-report'
 
 const input = { imageB64: Buffer.from('RIFFfakeWEBP').toString('base64'), plate: { displayName: 'Bear', state: 'AK', tags: [] } }
 const completion = JSON.stringify({ primaryColor: 'white', subjects: ['bears'] })
@@ -93,6 +94,15 @@ test('comparison cap includes retries and applies across runs; reports reconcile
   expect(html).toContain('<svg')
   expect(html).not.toContain('<script')
   expect(html).toContain('Low wall time with zero throughput measures rejection')
+  const modelLanes: ModelLane[] = [local, hosted].map((run, i) => ({ file: `${i}.json`, run, coldLoadSeconds: i ? null : 2, peakVramMiB: i ? null : 10000, meanVramMiB: i ? null : 9000, meanGpuUtilization: i ? null : 80, spill: i ? 'unknown' : 'no', processor: '100% GPU', parallel: '1' }))
+  expect(modelSummaryCsv(modelLanes).trim().split('\n')).toHaveLength(3)
+  const modelsHtml = modelReportHtml(modelLanes, 'fixed dataset')
+  expect(modelsHtml).toContain('estimated catalog USD')
+  expect(modelsHtml).toContain('Same weights')
+  expect(modelsHtml).toContain('0.00066667')
+  expect(modelsHtml).toContain('10000')
+  expect(modelsHtml.match(/<table>/g)).toHaveLength(1)
+  expect(modelsHtml).not.toContain('<script')
   vi.unstubAllEnvs()
 })
 
@@ -115,4 +125,17 @@ test('billable malformed completions retain usage and cost before retry', async 
   const adapter = gatewayAdapter({ apiKey: 'test', pricing, onAttempt, fetch: vi.fn(async () => Response.json({ model: 'returned', choices: [{ message: { content: 'invalid' } }], usage: { cost: 0.002, prompt_tokens: 10, completion_tokens: 4 } })) })
   await expect(adapter.suggest(input)).rejects.toThrow()
   expect(onAttempt).toHaveBeenCalledWith(expect.objectContaining({ model: 'returned', cost: 0.002, costSource: 'reported' }))
+})
+
+test('rate-limit threshold stops retries and queued Plates, preserving in-flight responses', async () => {
+  vi.stubEnv('AI_GATEWAY_API_KEY', 'test')
+  const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(null, { status: 429 }))
+  const run = await benchmark({ backend: 'hosted', concurrency: 1, label: '', plates: Array.from({ length: 30 }, (_, i) => ({ ...input.plate, tags: ['bear'], id: String(i), image: 'image' })), fixtureText: '', minimumF1: 0.6, readImage: async () => input.imageB64, budget: new RequestBudget(400), pricing, request, maxRateLimitRatio: 0.2 })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(run.status).toBe('rate_limited')
+  expect(run.failedPlates).toBe(1)
+  expect(run.stoppedPlates).toBe(29)
+  expect(run.retries).toBe(0)
+  expect(run.overall.f1).toBe(0)
+  vi.unstubAllEnvs()
 })

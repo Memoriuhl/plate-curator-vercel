@@ -32,7 +32,8 @@ async function main() {
   try { gpu = execFileSync('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], { encoding: 'utf8' }).trim() } catch {}
   const folder = resolve('eval-results', `${comparison ? 'compare' : 'run'}-${new Date().toISOString().replaceAll(':', '-')}`)
   await mkdir(folder, { recursive: true })
-  const common = { fixtureText, minimumF1, readImage, budget, pricing, gpu, label: value('--label', '') }
+  const maxRateLimitRatio = args.includes('--max-rate-limit-ratio') ? Number(value('--max-rate-limit-ratio', '0.2')) : undefined
+  const common = { fixtureText, minimumF1, readImage, budget, pricing, gpu, label: value('--label', ''), maxRateLimitRatio }
   let smokeCost: number | null = null
   if (hosted) {
     const smoke = await benchmark({ ...common, backend: 'hosted', concurrency: 1, plates: fixture.plates.slice(0, 1), maximumAttempts: 1 })
