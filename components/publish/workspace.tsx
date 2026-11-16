@@ -105,7 +105,7 @@ function BatchSelection({
     onPublish()
     setBusy(true)
     try {
-      const result = await actions.publish(id, revision)
+      const result = await actions.publish(id, batch.revision)
       if (result.ok) {
         setRequested(true)
         setMessage('Publish requested. Waiting for the run…')
