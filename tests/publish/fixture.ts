@@ -44,7 +44,8 @@ export function fixture(seed: ReviewBatch = batch) {
         const saved = records.get(record.id)
         if (saved?.committedAt) return 'advanced'
         if (pointer.version !== record.fromVersion) return 'pointer_moved'
-        pointer = { version: record.toVersion, blobSha256: record.blobSha256, publishedAt: now }
+        if (!record.url) return 'superseded_revision'
+        pointer = { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now }
         records.set(record.id, { ...record, committedAt: now })
         return 'advanced'
       },
@@ -57,6 +58,7 @@ export function fixture(seed: ReviewBatch = batch) {
         return 'created'
       },
       checksum: async version => blobs.has(version) ? createHash('sha256').update(blobs.get(version)!).digest('hex') : null,
+      downloadUrl: async version => blobs.has(version) ? `https://storage.example/v${version}.json?token=t${version}` : null,
     },
     records: {
       get: async id => structuredClone(records.get(id) ?? null),

@@ -9,7 +9,7 @@ import { db } from './setup'
 const env = 'publish-test'
 const now = '2026-11-15T12:00:00Z'
 const lease: PublishLease = { ...command, token: 'first', expiresAt: '2026-11-15T12:01:00Z' }
-const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', state: 'uploaded' }
+const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', url: 'https://storage.example/v2.json?token=t', state: 'uploaded' }
 const lock = firestorePublishLock(db, env)
 const pointer = firestorePublishPointer(db, env)
 const records = firestorePublishRecords(db, env)
@@ -43,7 +43,7 @@ test('pointer advancement and its receipt commit together and repeat safely', as
   await lock.claim(lease, now)
   await records.save(record, lease.token, now)
   expect(await pointer.advance(record, lease, now)).toBe('advanced')
-  expect(await pointer.read()).toEqual({ version: 2, blobSha256: 'checksum', publishedAt: now })
+  expect(await pointer.read()).toEqual({ version: 2, url: 'https://storage.example/v2.json?token=t', blobSha256: 'checksum', publishedAt: now })
   expect(await records.get(record.id)).toEqual({ ...record, committedAt: now })
   expect(await pointer.advance(record, lease, now)).toBe('advanced')
 })

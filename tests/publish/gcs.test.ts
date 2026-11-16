@@ -3,7 +3,7 @@ import { expect, test, vi } from 'vitest'
 import { gcsSnapshots } from '../../lib/publish/gcs-snapshots'
 import { snapshot } from './fixture'
 
-test('uploads with a create-only generation precondition and exact bytes', async () => {
+test('uploads create-only, with a Firebase download token, and the exact bytes', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
   const snapshots = gcsSnapshots('demo-bucket', async () => 'test-token', fetcher)
   const bytes = Buffer.from(JSON.stringify(snapshot))
@@ -11,13 +11,31 @@ test('uploads with a create-only generation precondition and exact bytes', async
   const [input, init] = fetcher.mock.calls[0]
   const url = new URL(String(input))
   expect(url.origin + url.pathname).toBe('https://storage.googleapis.com/upload/storage/v1/b/demo-bucket/o')
-  expect(url.searchParams.get('uploadType')).toBe('media')
-  expect(url.searchParams.get('name')).toBe('catalog/v2.json')
+  expect(url.searchParams.get('uploadType')).toBe('multipart')
   expect(url.searchParams.get('ifGenerationMatch')).toBe('0')
   expect(init?.method).toBe('POST')
   expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-token')
-  expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
-  expect(Buffer.from(init?.body as Uint8Array)).toEqual(bytes)
+  const contentType = new Headers(init?.headers).get('content-type') ?? ''
+  expect(contentType).toMatch(/^multipart\/related; boundary=/)
+  const body = Buffer.from(init?.body as Uint8Array).toString()
+  const metadata = JSON.parse(body.split('\r\n\r\n')[1].split('\r\n--')[0])
+  expect(metadata).toMatchObject({ name: 'catalog/v2.json', contentType: 'application/json' })
+  expect(metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/)
+  expect(body).toContain(bytes.toString())
+})
+
+test('downloadUrl builds the Firebase download URL from the object token', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ metadata: { firebaseStorageDownloadTokens: 'tok-1,tok-2' } })))
+  const snapshots = gcsSnapshots('demo-bucket', async () => 'test-token', fetcher)
+  expect(await snapshots.downloadUrl(2)).toBe('https://firebasestorage.googleapis.com/v0/b/demo-bucket/o/catalog%2Fv2.json?alt=media&token=tok-1')
+  expect(String(fetcher.mock.calls[0][0])).toBe('https://storage.googleapis.com/storage/v1/b/demo-bucket/o/catalog%2Fv2.json?fields=metadata')
+})
+
+test('downloadUrl is null for a missing object or one without a token', async () => {
+  const missing = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }))
+  expect(await gcsSnapshots('demo-bucket', async () => 't', missing).downloadUrl(2)).toBeNull()
+  const tokenless = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({})))
+  expect(await gcsSnapshots('demo-bucket', async () => 't', tokenless).downloadUrl(2)).toBeNull()
 })
 
 test('a precondition failure means the object already exists', async () => {
