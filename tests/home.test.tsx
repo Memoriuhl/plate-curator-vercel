@@ -1,8 +1,21 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import Home from '../app/(curator)/page'
+import { dashboardFixture } from '../fixtures/dashboard-frame'
 
-test('home page presents the product name as its main heading', () => {
+vi.mock('../lib/catalog/dashboard', () => ({
+  loadDashboard: async () => dashboardFixture,
+}))
+vi.mock('next/navigation', () => ({
+  redirect: (path: string) => {
+    throw new Error(`Redirect ${path}`)
+  },
+}))
+vi.mock('next/server', () => ({ connection: async () => undefined }))
+
+test('home page keeps a static loading frame while selecting the first jurisdiction', async () => {
   const html = renderToStaticMarkup(<Home />)
-  expect(html).toContain('<h1 class="page-title">Plate Curator</h1>')
+  expect(html).toContain('Loading state')
+  const content = Home().props.children.props.children
+  await expect(content.type()).rejects.toThrow('Redirect /states/AK')
 })
