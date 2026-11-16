@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useInviteMember, useMe, useMembers } from '@/lib/client/hooks'
 import { ApiError } from '@/lib/client/api'
 import type { MemberInvite, MemberSummary } from '@/lib/members/summary'
+import { MemberRoleActions } from './member-role-actions'
 
 const roleName = (role: MemberSummary['role']) => role === 'owner' ? 'Owner' : 'Editor'
 const statusName = { active: 'Active', pending: 'Pending', expired: 'Expired' }
@@ -101,6 +102,7 @@ export function MembersPage() {
                   <div className="min-w-0 flex-1">
                     <p className="break-all font-bold">{member.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-bold">{roleName(member.role)}</span><span className={`rounded-full px-2.5 py-1 font-bold ${statusTint[member.status]}`}>{statusName[member.status]}</span><span className="text-muted-foreground">{member.signIn === 'google' ? 'Google' : 'Password'}</span></div>
+                    <MemberRoleActions member={member} />
                     <p className="mt-2 break-all text-xs text-muted-foreground">{member.invitedBy ? `Invited by ${member.invitedBy === me.data?.uid ? 'you' : member.invitedBy}` : 'Starting Member'}</p>
                   </div>
                 </li>

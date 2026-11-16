@@ -1,6 +1,6 @@
 import type { Firestore } from '@google-cloud/firestore'
 import { activationResult, normalizeEmail, pendingMember } from './member'
-import type { Member, MemberResult, MembersStore } from './types'
+import type { GuardedMemberResult, Member, MemberResult, MembersStore } from './types'
 
 export function firestoreMembersStore(db: Firestore, now: () => string = () => new Date().toISOString()): MembersStore {
   const members = db.collection('members')
@@ -14,6 +14,21 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
       const result = change(member)
       if (result === 'ok') transaction.set(document, member)
       return result
+    })
+  }
+  async function guarded(email: string, role?: Member['role']): Promise<GuardedMemberResult> {
+    return db.runTransaction(async transaction => {
+      const document = ref(email)
+      const snapshot = await transaction.get(document)
+      if (!snapshot.exists) return 'not_found'
+      const member = snapshot.data() as Member
+      if (member.role === 'owner' && role !== 'owner') {
+        const owners = await transaction.get(members.where('role', '==', 'owner'))
+        if (owners.size <= 1) return 'last_owner'
+      }
+      if (role) transaction.update(document, { role })
+      else transaction.delete(document)
+      return 'ok'
     })
   }
   return {
@@ -32,6 +47,8 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
       })
     },
     async updateRole(email, role) { return mutate(email, member => { member.role = role; return 'ok' }) },
+    updateRoleGuarded: (email, role) => guarded(email, role),
+    removeGuarded: email => guarded(email),
     async reissue(email, invite) {
       return mutate(email, member => {
         if (member.status !== 'pending') return 'invalid_state'

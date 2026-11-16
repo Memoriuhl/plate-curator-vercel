@@ -22,7 +22,7 @@ export function createApiClient(deps: ApiDeps) {
 
   return {
     get: <T>(path: string) => request<T>('GET', path),
-    send: <T>(method: 'POST' | 'PATCH' | 'PUT', path: string, body: unknown) => request<T>(method, path, body),
+    send: <T>(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: unknown) => request<T>(method, path, body),
   }
 }
 
