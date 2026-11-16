@@ -14,7 +14,8 @@ const baseline: Plate[] = [
 export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>) {
   async function setup(overrides: Partial<ReviewBatch> = {}) {
     const batch: ReviewBatch = {
-      id: 'batch', state: 'open', revision: 4, baselineVersion: 1,
+      id: 'batch', name: 'Review plates', createdBy: editor.uid, createdAt: '2026-11-15T12:00:00Z',
+      state: 'open', revision: 4, baselineVersion: 1,
       plateIds: ['one', 'two'], approval: null, ...overrides,
     }
     const store = await createStore(batch)

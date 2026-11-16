@@ -3,11 +3,12 @@ import { afterAll, beforeEach, expect, test } from 'vitest'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
 import { reviewBatchScenarios } from '../tests/review/batch-scenarios'
+import { reviewQueryScenarios } from '../tests/review/query-scenarios'
 import { db } from './setup'
 
 const env = 'preview-test'
 const store = firestoreReviewStore(db, env)
-const batch: ReviewBatch = { id: 'batch', state: 'open', revision: 4, baselineVersion: 1, plateIds: ['one', 'two'], approval: null }
+const batch: ReviewBatch = { id: 'batch', name: 'Review plates', createdBy: 'editor', createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 4, baselineVersion: 1, plateIds: ['one', 'two'], approval: null }
 const edit: ProposedEdit = { plateId: 'one', baseRevision: 'before', fields: { tags: ['changed'] }, authorId: 'editor', updatedAt: '2026-11-15T12:00:00Z', resultRevision: 'after' }
 
 beforeEach(async () => {
@@ -49,6 +50,7 @@ test('a batch from another env is invisible', async () => {
   const otherStore = firestoreReviewStore(db, 'production')
   expect(await otherStore.getBatch('batch')).toBeNull()
   expect(await otherStore.getEdit('batch', 'one')).toBeNull()
+  expect(await otherStore.listEdits('batch')).toEqual([])
   expect(await otherStore.commit('batch', 4, { batch: { ...batch, revision: 5 }, deleteEditFor: 'one' })).toBe('revision_mismatch')
   expect(await store.getBatch('batch')).toEqual(batch)
   expect(await store.getEdit('batch', 'one')).toEqual(edit)
@@ -74,4 +76,20 @@ test('a failed edit write leaves the batch unchanged', async () => {
   })).rejects.toThrow()
   expect(await store.getBatch('batch')).toEqual(batch)
   expect(await store.getEdit('batch', 'one')).toBeNull()
+})
+
+reviewQueryScenarios(async () => {
+  await db.recursiveDelete(db.collection('reviewBatches'))
+  return firestoreReviewStore(db, env)
+})
+
+test("list never returns another env's batches", async () => {
+  const otherBatch = { ...batch, id: 'other', name: 'Other environment' }
+  const otherStore = firestoreReviewStore(db, 'production')
+  expect(await otherStore.create(otherBatch)).toBe('ok')
+  expect(await store.list({})).toEqual([batch])
+  expect(await store.list({ states: ['open'] })).toEqual([batch])
+  expect(await otherStore.list({})).toEqual([otherBatch])
+  expect(await store.create(otherBatch)).toBe('exists')
+  expect(await otherStore.getBatch('other')).toEqual(otherBatch)
 })
