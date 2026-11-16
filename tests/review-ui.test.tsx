@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   buttons: new Map<string, ComponentProps<'button'>>(),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  useBatchRun: () => ({ data: { phase: 'published', outcome: { version: 12 } } }),
   useMe: () => ({ data: { uid: 'author', role: state.role } }),
   useBatches: () => ({ data: [] }),
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
@@ -295,4 +296,12 @@ test('review describes a cleared variant link', () => {
   expect(html).toContain('Variant of')
   expect(html).toContain('AK.parent')
   expect(html).toContain('cleared')
+})
+
+test('published Batch is read-only with its Snapshot version', () => {
+  const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: 'published' } }} />)
+  expect(html).toContain('Published · v12')
+  expect(html).not.toContain('Request changes')
+  expect(html).not.toContain('Approve revision')
+  expect(html).not.toContain('Submit for review')
 })

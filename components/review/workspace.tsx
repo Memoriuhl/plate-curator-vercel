@@ -22,6 +22,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
 import { changeSummary, DiffTable } from './diff'
+import { RunStatus } from './run-status'
+import { useBatchRun } from '@/lib/client/hooks'
 
 type State = {
   code: string
@@ -91,6 +93,7 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const batch = detail.batch
+  const run = useBatchRun(batch.state === 'published' ? batch.id : null)
   const approvedBy =
     batch.approval?.by === me.data?.uid
       ? me.data?.name
@@ -127,7 +130,7 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   }
   return (
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
-      {batch.state === 'approved' ? (
+      {batch.state === 'published' ? <p className="font-bold">Published · v{run.data?.outcome?.version ?? '?'}</p> : batch.state === 'approved' ? (
         <p>
           Approved by {approvedBy || 'an Owner'}
           {batch.approval?.at ? ` on ${when(batch.approval.at)}` : ''}
@@ -460,6 +463,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               positions={entry.order}
               order={state?.plates.map((plate) => plate.id) ?? []}
             />
+            <RunStatus batchId={entry.batch.id} />
             <ReviewFooter
               key={entry.batch.id}
               detail={currentDetails[entry.batch.id]}

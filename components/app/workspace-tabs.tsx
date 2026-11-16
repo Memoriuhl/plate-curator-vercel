@@ -1,5 +1,6 @@
 'use client'
 
+import { useMe } from '@/lib/client/hooks'
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -16,10 +17,11 @@ export function WorkspaceTabs() {
 
 function CurrentTabs() {
   const pathname = usePathname()
-  return <TabsView active={pathname.startsWith('/review') ? '/review' : '/'} />
+  const me = useMe()
+  return <TabsView owner={me.data?.role === 'owner'} active={pathname.startsWith('/publish') ? '/publish' : pathname.startsWith('/review') ? '/review' : '/'} />
 }
 
-function TabsView({ active }: { active: '' | '/' | '/review' }) {
+function TabsView({ active, owner = false }: { active: '' | '/' | '/review' | '/publish'; owner?: boolean }) {
   return (
     <nav className="workspace-tabs" aria-label="Workspace">
       <Tabs value={active} activationMode="manual">
@@ -37,6 +39,7 @@ function TabsView({ active }: { active: '' | '/' | '/review' }) {
               Review
             </Link>
           </TabsTrigger>
+          {owner && <TabsTrigger value="/publish" asChild><Link href="/publish" aria-current={active === '/publish' ? 'page' : undefined}>Publish</Link></TabsTrigger>}
           <Tooltip>
             <TooltipTrigger asChild>
               <span

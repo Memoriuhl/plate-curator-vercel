@@ -6,7 +6,7 @@ import { ApiError } from '../../lib/client/api'
 import type { Plate } from '../../lib/catalog/types'
 import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import type { ReviewBatch } from '../../lib/review/types'
-import { batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
+import { useBatchRun, useReviewActions, batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -425,7 +425,8 @@ test('detaching a variant sends null and overlays its own template without the o
   expect(result.current.overlay[0]).toMatchObject({ templateRole: 'template', templateFamily: card.id, variantOfPlateId: null })
 })
 
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { PublishWorkspace } from '../../components/publish/workspace'
 import { ReadyPlatePreview } from '../../components/plate/ready-plate-preview'
 
 test('shared preview consumes the preloaded session API response and draft overlay', async () => {
@@ -450,4 +451,78 @@ test('shared preview consumes the preloaded session API response and draft overl
   view.unmount()
   anchor.remove()
   vi.unstubAllGlobals()
+})
+
+test.each([
+  ['publish_disabled_here', 'Publishing is disabled in this environment.'],
+  ['superseded_revision', 'This Batch changed since approval and must be re-approved.'],
+  ['not_waiting', 'This run is no longer waiting for Publish. Refresh to see its status.'],
+  ['forbidden', 'Only the Owner can Publish.'],
+  ['not_found', 'This Batch could not be found.'],
+])('Publish maps %s and posts the approved revision', async (code, message) => {
+  session.api.send.mockRejectedValue(new ApiError(409, code, {}))
+  const { result } = renderHook(() => useReviewActions(), harness())
+  await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message }))
+  expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7 })
+})
+
+test('Editor never requests run status', async () => {
+  session.api.get.mockResolvedValue({ role: 'editor' })
+  const { result } = renderHook(() => useBatchRun('restricted'), harness())
+  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith('/api/me'))
+  expect(result.current.data).toBeUndefined()
+  expect(session.api.get).not.toHaveBeenCalledWith('/api/batches/restricted/run')
+})
+
+test.each(['published', 'failed'])('Publish polls through delayed start and stops at %s', async terminal => {
+  let phase = 'waiting-for-publish'
+  const id = `poll-${terminal}`
+  const key = `/api/batches/${id}/run`
+  session.api.get.mockImplementation(async (key: string) => key === '/api/me' ? { role: 'owner' } : { phase, runId: id, outcome: null, updatedAt: null })
+  session.api.send.mockResolvedValue({ status: 'publishing' })
+  const { result } = renderHook(() => ({ run: useBatchRun(id), actions: useReviewActions() }), harness())
+  await waitFor(() => expect(result.current.run.data?.phase).toBe('waiting-for-publish'))
+  vi.useFakeTimers()
+  try {
+    await act(async () => expect(await result.current.actions.publish(id, 7)).toEqual({ ok: true }))
+    phase = 'publishing'
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
+    expect(result.current.run.data?.phase).toBe('publishing')
+    phase = terminal
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
+    expect(result.current.run.data?.phase).toBe(terminal)
+    const count = session.api.get.mock.calls.filter(([path]) => path === key).length
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
+    expect(session.api.get.mock.calls.filter(([path]) => path === key)).toHaveLength(count)
+  } finally { vi.useRealTimers() }
+})
+
+test('Publish confirmation names the Batch, sends the approved revision and retains its result when lists refresh', async () => {
+  let published = false
+  const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 9, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
+  const other = { ...approved, id: 'other', name: 'Other release', approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' } }
+  session.api.get.mockImplementation(async (key: string) => {
+    if (key === '/api/me') return { role: 'owner' }
+    if (key.endsWith('/run')) return { phase: published ? 'published' : 'waiting-for-publish', runId: 'release-run', outcome: published ? { version: 12 } : null, updatedAt: null }
+    if (key.includes('?')) return [{ ...approved, state: published ? 'published' : 'approved' }, other]
+    return { batch: { ...approved, state: published ? 'published' : 'approved' }, plates: detail().plates }
+  })
+  session.api.send.mockImplementation(async () => { published = true; return { status: 'publishing' } })
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', '') } })
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open') } })
+  try {
+    render(createElement(PublishWorkspace), harness())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish revision 7' })).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 7' }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toContain('Publish Veterans release?')
+    expect(dialog.textContent).toContain('This creates the next Catalog Snapshot.')
+    expect(dialog.textContent).toContain('edited')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
+    await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
+    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 7 })
+    expect(screen.getByText('v12')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
+  } finally { Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
 })
