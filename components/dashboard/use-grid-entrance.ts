@@ -9,23 +9,31 @@ export function useGridEntrance(container: RefObject<HTMLDivElement | null>, rea
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
     const animations: Animation[] = []
     if (!media.matches) {
-      for (const row of container.current.children) {
-        const bounds = row.getBoundingClientRect()
-        if (bounds.bottom <= 0 || bounds.top >= window.innerHeight) continue
-        Array.from(row.children).forEach((card, column) => {
-          if (!(card instanceof HTMLElement) || !card.animate) return
-          const delay = entranceDelay(Number(row.getAttribute('data-index')), column)
-          animations.push(card.animate([
+      const images = Array.from(container.current.querySelectorAll<HTMLElement>('[data-plate-image]'))
+        .map(image => ({ image, bounds: image.getBoundingClientRect() }))
+        .filter(({ bounds }) => bounds.bottom > 0 && bounds.top < window.innerHeight)
+        .sort((a, b) => a.bounds.top - b.bounds.top || a.bounds.left - b.bounds.left)
+      const lines: typeof images[] = []
+      for (const entry of images) {
+        const line = lines.at(-1)
+        if (line && Math.abs(entry.bounds.top - line[0].bounds.top) <= 8) line.push(entry)
+        else lines.push([entry])
+      }
+      lines.forEach((line, row) => {
+        line.sort((a, b) => a.bounds.left - b.bounds.left).forEach(({ image }, column) => {
+          if (!image.animate) return
+          const delay = entranceDelay(row, column)
+          animations.push(image.animate([
             { transform: 'perspective(800px) translateY(-18px) rotateX(72deg)' },
             { transform: 'perspective(800px) translateY(0px) rotateX(0deg)' },
           ], { duration: DROP_DURATION, delay, easing: DROP_EASING, fill: 'backwards' }))
-          animations.push(card.animate([
+          animations.push(image.animate([
             { opacity: 0, offset: 0 },
             { opacity: 1, offset: 0.35 },
             { opacity: 1, offset: 1 },
           ], { duration: DROP_DURATION, delay, fill: 'backwards' }))
         })
-      }
+      })
     }
     const cancel = () => animations.forEach(animation => animation.cancel())
     media.addEventListener('change', cancel)

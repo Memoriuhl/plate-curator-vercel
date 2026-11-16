@@ -8,7 +8,11 @@ import { familyColumns } from './grid-feel'
 import { useGridEntrance } from './use-grid-entrance'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useDraftOverlay } from '@/lib/client/hooks'
+import { useDraftOverlay, useEditPlate, useMe, useReorderState } from '@/lib/client/hooks'
+import { useSWRConfig } from 'swr'
+import { usePlateDrag } from './use-plate-drag'
+import { collectDragTargets } from './drag-target-elements'
+import { DragPreview } from './drag-preview'
 import { FamilyCard } from '@/components/plate/family-card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -42,12 +46,9 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   )
   const show = params.get('show') ?? 'all'
   const query = params.get('q') ?? ''
-  const families = useMemo(() => groupFamilies(overlaid), [overlaid])
+  const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const matches = (plate: PlateCardData) =>
     matchesPlate(plate, show, query, changedIds)
-  const visible = families
-    .map((family, index) => ({ ...family, number: index + 1 }))
-    .filter((family) => [family.template, ...family.variants].some(matches))
   const container = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 5, margin: 420, ready: false })
   const [preview, setPreview] = useState<{
@@ -63,6 +64,29 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     anchor.current = null
     setPreview(null)
   }
+  const me = useMe()
+  const edits = useEditPlate()
+  const ordering = useReorderState()
+  const { mutate } = useSWRConfig()
+  const canEdit = me.data?.role === 'editor' || me.data?.role === 'owner'
+  const drag = usePlateDrag({
+    families: baselineFamilies, canEdit, show, query, edits, ordering,
+    targets: () => collectDragTargets(container.current, baselineFamilies),
+    closePreview: close,
+    reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
+  })
+  const families = useMemo(() => {
+    if (!drag.optimisticOrder && !drag.optimisticEdit) return baselineFamilies
+    const positions = new Map(drag.optimisticOrder?.map((id, index) => [id, index]))
+    return groupFamilies(overlaid.map(plate => ({
+      ...plate,
+      ...(drag.optimisticEdit?.plateId === plate.id ? drag.optimisticEdit.fields : {}),
+      sortOrder: positions.get(plate.id) ?? plate.sortOrder,
+    })))
+  }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdit])
+  const visible = families
+    .map((family, index) => ({ ...family, number: index + 1 }))
+    .filter((family) => [family.template, ...family.variants].some(matches))
   useLayoutEffect(() => {
     const resize = () =>
       setLayout({
@@ -129,11 +153,30 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       rows[index].map((family) => family.template.id).join('|'),
   })
   const virtualRows = virtualizer.getVirtualItems()
+  const keyboardSource = useRef<string | null>(null)
+  useEffect(() => {
+    if (drag.active?.keyboard) keyboardSource.current = drag.active.item.plate.id
+    if (drag.active || drag.saving || !keyboardSource.current) return
+    const id = keyboardSource.current
+    keyboardSource.current = null
+    const index = families.findIndex(family => family.template.id === id || family.variants.some(plate => plate.id === id))
+    if (index >= 0) virtualizer.scrollToIndex(Math.floor(index / layout.columns), { align: 'auto' })
+    const frame = requestAnimationFrame(() => {
+      Array.from(container.current?.querySelectorAll<HTMLElement>('[data-drag-handle-id]') ?? []).find(handle => handle.dataset.dragHandleId === id)?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [drag.active, drag.saving, families, virtualizer, layout.columns])
+  const keyboardSlot = drag.active?.keyboard && drag.active.target?.kind === 'family-slot' ? drag.active.target.index : null
+  useEffect(() => {
+    if (keyboardSlot === null) return
+    virtualizer.scrollToIndex(Math.floor(Math.min(keyboardSlot, visible.length - 1) / layout.columns), { align: 'auto' })
+  }, [keyboardSlot, virtualizer, visible.length, layout.columns])
   function open(
     plate: PlateCardData,
     element: HTMLElement,
     immediate: boolean,
   ) {
+    if (drag.active || drag.saving) return
     if (timer.current) clearTimeout(timer.current)
     anchor.current = element
     const reveal = () => {
@@ -176,6 +219,9 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
                   <FamilyCard
                     key={family.template.id}
                     {...family}
+                    drag={drag}
+                    canEdit={canEdit}
+                    last={family.number === families.length}
                     matches={matches}
                     prefetchedIds={prefetchedIds}
                     onPreview={open}
@@ -219,6 +265,9 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
           />
         ) : null}
       </Suspense>
+      <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
+      {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
+      {drag.active ? <DragPreview item={drag.active.item} x={drag.active.x} y={drag.active.y} /> : null}
     </section>
   )
 }

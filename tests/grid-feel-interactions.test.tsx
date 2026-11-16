@@ -42,8 +42,9 @@ test('information button hover anchors to the button, plate focus to its image',
 
 function grid() {
   const container = document.createElement('div')
-  container.innerHTML = '<div data-index="0"><article></article></div>'
+  container.innerHTML = '<div data-index="0"><article><div data-plate-image></div></article></div>'
   container.firstElementChild!.getBoundingClientRect = () => ({ top: 100, bottom: 300 }) as DOMRect
+  container.querySelector('[data-plate-image]')!.getBoundingClientRect = () => ({ top: 100, bottom: 142, left: 20 }) as DOMRect
   document.body.append(container)
   return { current: container }
 }
@@ -52,12 +53,13 @@ test('only first visible rows animate, later mounts and remounts never replay', 
   const container = grid()
   const view = renderHook(({ identity }) => useGridEntrance(container, true, identity), { initialProps: { identity: '/states/MD' } })
   expect(animate).toHaveBeenCalledTimes(2)
-  container.current.innerHTML = '<div data-index="1"><article></article></div>'
+  container.current.innerHTML = '<div data-index="1"><article><div data-plate-image></div></article></div>'
   view.rerender({ identity: '/states/MD' })
-  container.current.innerHTML = '<div data-index="0"><article></article></div>'
+  container.current.innerHTML = '<div data-index="0"><article><div data-plate-image></div></article></div>'
   view.rerender({ identity: '/states/MD' })
   expect(animate).toHaveBeenCalledTimes(2)
   container.current.firstElementChild!.getBoundingClientRect = () => ({ top: 100, bottom: 300 }) as DOMRect
+  container.current.querySelector('[data-plate-image]')!.getBoundingClientRect = () => ({ top: 100, bottom: 142, left: 20 }) as DOMRect
   view.rerender({ identity: '/states/AK' })
   expect(animate).toHaveBeenCalledTimes(4)
   container.current.remove()
@@ -71,11 +73,23 @@ test('reduced motion leaves all cards immediately visible without animation', ()
   expect(container.current.querySelector('article')?.getAttribute('style')).toBeNull()
   container.current.remove()
 })
-test('preview stays closed while the family is dropping', () => {
+
+test('only visible images animate in visual lines while containers stay still', () => {
+  const container = grid()
+  container.current.innerHTML = '<div><article><div data-plate-image></div><div data-plate-image></div></article><article><div data-plate-image></div><div data-plate-image></div><div data-plate-image></div></article></div>'
+  const images = Array.from(container.current.querySelectorAll('[data-plate-image]'))
+  const positions = [{ top: 100, left: 20 }, { top: 200, left: 20 }, { top: 108, left: 220 }, { top: 109, left: 420 }, { top: 1200, left: 220 }]
+  images.forEach((image, index) => { image.getBoundingClientRect = () => ({ ...positions[index], bottom: positions[index].top + 42 }) as DOMRect })
+  renderHook(() => useGridEntrance(container, true, '/states/AK'))
+  expect(animate.mock.contexts).toEqual([images[0], images[0], images[2], images[2], images[3], images[3], images[1], images[1]])
+  expect(animate.mock.calls.map(call => call[1].delay)).toEqual([0, 0, 30, 30, 55, 55, 110, 110])
+  container.current.remove()
+})
+test('preview stays closed while its plate image is dropping', () => {
   const preview = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
-  const card = view.getByRole('article')
-  card.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
+  const image = view.container.querySelector('[data-plate-image]')!
+  image.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
   fireEvent.mouseEnter(view.getByRole('button'))
   fireEvent.focus(view.getByRole('link'))
   expect(preview).not.toHaveBeenCalled()
