@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { familyColumns } from './grid-feel'
 import { useGridEntrance } from './use-grid-entrance'
+import { useDragFlip } from './use-drag-flip'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
@@ -94,7 +95,8 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       sortOrder: positions.get(plate.id) ?? plate.sortOrder,
     })))
   }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdit])
-  const visible = families
+  const displayedFamilies = drag.reflow?.families ?? families
+  const visible = displayedFamilies
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) => [family.template, ...family.variants].some(matches))
   useLayoutEffect(() => {
@@ -159,10 +161,14 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       ) + 16,
     overscan: 1,
     scrollMargin: layout.margin,
-    getItemKey: (index) =>
-      rows[index].map((family) => family.template.id).join('|'),
+    getItemKey: (index) => index,
   })
   const virtualRows = virtualizer.getVirtualItems()
+  const reflowIdentity = visible.map(family => [family.template.id, ...family.variants.map(plate => plate.id)].join(':')).join('|') + virtualRows.map(row => `${row.index}:${row.start}`).join('|')
+  useLayoutEffect(() => {
+    container.current?.querySelectorAll<HTMLElement>('[data-drag-row]').forEach(element => virtualizer.measureElement(element))
+  }, [displayedFamilies, virtualizer])
+  useDragFlip(container, reflowIdentity, !!drag.active)
   const keyboardSource = useRef<string | null>(null)
   useEffect(() => {
     if (drag.active?.keyboard) keyboardSource.current = drag.active.item.plate.id
@@ -216,6 +222,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
               <div
                 key={row.key}
                 data-index={row.index}
+                data-drag-row
                 ref={virtualizer.measureElement}
                 className="absolute top-0 left-0 grid w-full items-start gap-4 pb-4"
                 style={{
@@ -286,7 +293,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
       </Suspense>
       <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
       {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
-      {drag.active ? <DragPreview item={drag.active.item} x={drag.active.x} y={drag.active.y} /> : null}
+      {drag.active ? <DragPreview {...drag.active} /> : null}
     </section>
   )
 }

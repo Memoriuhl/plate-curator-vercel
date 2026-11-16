@@ -7,6 +7,7 @@ import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold,
 import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-reflow'
 import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
 import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
+import { createStableDragTargets } from '../components/dashboard/drag-target-elements'
 
 const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
 const v = { ...a, id: 'AK.v', templateRole: 'variant' as const }
@@ -300,4 +301,16 @@ test('placeholder preserves height and lifted copy preserves the grab point', ()
   const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
   expect(lifted.style.transform).toBe('translate3d(370px, 280px, 0) scale(1.03)')
   expect(lifted.textContent).toContain(a.displayName)
+})
+
+test('slot targets remain stable as cards reflow under a stationary pointer and follow scrolling', () => {
+  const stable = createStableDragTargets()
+  const target = { kind: 'family-slot' as const, index: 4 }
+  const initial = [{ target, rect: { left: 300, right: 328, top: 100, bottom: 400 } }, { target, rect: { left: 344, right: 372, top: 100, bottom: 400 } }]
+  stable(initial, 0, 0)
+  for (let step = 0; step < 8; step++) {
+    const moved = initial.map(entry => ({ ...entry, rect: { ...entry.rect, left: 100, right: 128 } }))
+    expect(targetAt(350, 200, stable(moved, 0, 0))).toEqual(target)
+  }
+  expect(targetAt(350, 100, stable([], 0, 100))).toEqual(target)
 })

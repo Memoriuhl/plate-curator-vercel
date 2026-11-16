@@ -1,5 +1,20 @@
 import type { DragFamily, TargetRect } from './drop-targets'
 
+export function createStableDragTargets() {
+  const rects = new Map<string, TargetRect>()
+  return (targets: TargetRect[], scrollX: number, scrollY: number) => {
+    const occurrences = new Map<string, number>()
+    for (const { target, rect } of targets) {
+      const identity = target.kind === 'family-slot' ? `family:${target.index}` : target.kind === 'variant-slot' ? `variant:${target.familyId}:${target.index}` : `merge:${target.familyId}`
+      const occurrence = occurrences.get(identity) ?? 0
+      occurrences.set(identity, occurrence + 1)
+      const key = `${identity}:${occurrence}`
+      if (!rects.has(key)) rects.set(key, { target, rect: { left: rect.left + scrollX, right: rect.right + scrollX, top: rect.top + scrollY, bottom: rect.bottom + scrollY } })
+    }
+    return Array.from(rects.values(), ({ target, rect }) => ({ target, rect: { left: rect.left - scrollX, right: rect.right - scrollX, top: rect.top - scrollY, bottom: rect.bottom - scrollY } }))
+  }
+}
+
 export function collectDragTargets(root: HTMLElement | null, families: DragFamily[]): TargetRect[] {
   if (!root) return []
   const targets: TargetRect[] = []

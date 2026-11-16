@@ -6,6 +6,7 @@ import type { EditableFields } from '@/lib/review/types'
 import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
 import { reflowForDrop, sameDropTarget } from './drag-reflow'
 import { dragElement, measureDragGeometry, type DragGeometry } from './drag-geometry'
+import { createStableDragTargets } from './drag-target-elements'
 
 type Options = {
   families: DragFamily[]
@@ -37,6 +38,7 @@ export function usePlateDrag(options: Options) {
   const current = useRef(active)
   const pressed = useRef<{ item: DragItem; x: number; y: number; geometry: DragGeometry; pointerId: number; timer: ReturnType<typeof setTimeout> | null } | null>(null)
   const suppress = useRef(false)
+  const stableTargets = useRef(createStableDragTargets())
   useEffect(() => { latest.current = options })
   const enabled = options.canEdit && options.show === 'all' && !options.query && !options.edits.pending && !options.ordering.pending && !saving
 
@@ -59,6 +61,8 @@ export function usePlateDrag(options: Options) {
     const rect = keyboard ? dragElement(item)?.getBoundingClientRect() : undefined
     if (rect) { x = rect.left + rect.width / 2; y = rect.top + 24 }
     const geometry = pressed.current?.geometry ?? measureDragGeometry(item, x, y)
+    stableTargets.current = createStableDragTargets()
+    stableTargets.current(latest.current.targets(), window.scrollX, window.scrollY)
     update({ item, x, y, geometry, keyboard, target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
     document.body.classList.add('plate-dragging')
     announce(`Lifted ${item.plate.displayName} ${item.kind}, position ${index + 1} of ${families.length}`)
@@ -75,7 +79,8 @@ export function usePlateDrag(options: Options) {
   function pointerTarget(item: DragItem, x: number, y: number) {
     const { families, targets } = latest.current
     const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
-    return targetAt(x, y, targets().filter(({ target }) => target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id)))
+    const stable = stableTargets.current(targets(), window.scrollX, window.scrollY)
+    return targetAt(x, y, stable.filter(({ target }) => target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id)))
   }
   async function drop() {
     const drag = current.current

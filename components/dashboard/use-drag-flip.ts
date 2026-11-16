@@ -49,10 +49,12 @@ export function playDragFlip(root: HTMLElement, previous: FlipSnapshot, reducedM
 export function useDragFlip(container: RefObject<HTMLElement | null>, identity: unknown, enabled: boolean) {
   const positions = useRef<FlipSnapshot>(new Map())
   const motions = useRef(new Map<string, Motion>())
+  const wasEnabled = useRef(false)
   useLayoutEffect(() => {
     const root = container.current
     if (!root) return
-    positions.current = playDragFlip(root, positions.current, !enabled || window.matchMedia('(prefers-reduced-motion: reduce)').matches, motions.current)
+    positions.current = playDragFlip(root, positions.current, (!enabled && !wasEnabled.current) || window.matchMedia('(prefers-reduced-motion: reduce)').matches, motions.current)
+    wasEnabled.current = enabled
   }, [container, identity, enabled])
   useLayoutEffect(() => {
     const running = motions.current

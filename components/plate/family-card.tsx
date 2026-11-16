@@ -15,7 +15,7 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { CheckStrip } from './check-strip'
 import { VirtualizedVariants } from './virtualized-variants'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
-import { DropIndicator } from '@/components/dashboard/drag-preview'
+import { DragPlaceholder } from '@/components/dashboard/drag-preview'
 
 export type FamilyCardProps = {
   template: PlateCardData
@@ -58,7 +58,6 @@ export function FamilyCard({
   onDismissPreview,
   drag,
   canEdit,
-  last,
 }: FamilyCardProps) {
   const router = useRouter()
   const prefetched = useRef(new Set<string>())
@@ -81,16 +80,20 @@ export function FamilyCard({
   const merge = target?.kind === 'merge' && target.familyId === template.id
   const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
   const item = { kind: 'family' as const, plate: template }
+  const placeholder = drag?.reflow?.placeholder
+  const gapHeight = drag?.active?.geometry.height ?? 0
   if (number === 1 && template.imageUrl?.startsWith('https:'))
     preconnect(new URL(template.imageUrl).origin)
   function plateContent(plate: PlateCardData, small: boolean) {
     const width = small ? 84 : 140
     const height = small ? 42 : 70
     const marker = badge?.(plate)
+    if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
       <div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
+        data-reflow-key={small ? 'variant:' + plate.id : undefined}
         onPointerEnter={() => onPreload?.(plate.id)}
         onPointerOver={event => {
           const marker = (event.target as Element).closest<HTMLElement>('[data-batch-marker]')
@@ -123,10 +126,6 @@ export function FamilyCard({
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {small && target?.kind === 'variant-slot' && target.familyId === template.id ? <>
-          <DropIndicator active={target.index === variants.findIndex(candidate => candidate.id === plate.id)} />
-          <DropIndicator active={target.index === variants.length && plate.id === variants.at(-1)?.id} end />
-        </> : null}
         {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && 'touch-none cursor-grab')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
@@ -206,9 +205,11 @@ export function FamilyCard({
       </div>
     )
   }
+  if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
   return (
     <article
       data-drag-family={template.id}
+      data-reflow-key={'family:' + template.id}
       aria-label={template.displayName + ' family'}
       onPointerDown={event => {
         if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-family-handle]')) return
@@ -218,8 +219,6 @@ export function FamilyCard({
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
       className={cn('@container relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
-      <DropIndicator vertical active={target?.kind === 'family-slot' && target.index === (number ?? 1) - 1} />
-      <DropIndicator vertical end active={!!last && target?.kind === 'family-slot' && target.index === number} />
       <div className="flex items-start gap-3">
         {canEdit ? <button
           type="button"
