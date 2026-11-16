@@ -8,11 +8,17 @@ import { ollamaAdapter } from './model'
 type EvalPlate = { id: string; state: string; displayName: string; image: string; tags: string[] }
 
 async function main() {
+  const repo = process.env.GAME_REPO
+  if (!repo?.trim()) {
+    console.error('GAME_REPO is required')
+    process.exitCode = 1
+    return
+  }
   const fixture = JSON.parse(await readFile(resolve('fixtures/tag-eval.json'), 'utf8')) as { plates: EvalPlate[] }
   const threshold = JSON.parse(await readFile(resolve('fixtures/tag-eval-threshold.json'), 'utf8')) as { minimumF1: number }
   if (!Number.isFinite(threshold.minimumF1) || threshold.minimumF1 < 0 || threshold.minimumF1 > 1) throw new Error('Invalid F1 threshold')
   if (fixture.plates.length < 25 || fixture.plates.length > 40 || new Set(fixture.plates.map(plate => plate.id)).size !== fixture.plates.length) throw new Error('Expected 25–40 distinct evaluation Plates')
-  const readImage = imageReader(process.env.GAME_REPO ?? 'C:\\Users\\16jbe\\Code\\License-Plate-Game')
+  const readImage = imageReader(repo)
   const adapter = ollamaAdapter({ url: process.env.OLLAMA_URL ?? 'http://localhost:11434', model: process.env.MODEL ?? 'gemma4:12b' })
   const date = new Date().toISOString()
   const plates = []
