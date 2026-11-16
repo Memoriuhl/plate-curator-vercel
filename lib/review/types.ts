@@ -5,6 +5,9 @@ export type Actor = { uid: string; role: Role }
 export type BatchState = 'open' | 'submitted' | 'approved' | 'published' | 'conflict'
 export type ReviewBatch = {
   id: string
+  name: string
+  createdBy: string
+  createdAt: string
   state: BatchState
   revision: number
   baselineVersion: number
@@ -23,6 +26,9 @@ export type ProposedEdit = {
 export type ReviewError = 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate }
 export interface ReviewStore {
+  create(batch: ReviewBatch): Promise<'ok' | 'exists'>
+  list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
+  listEdits(batchId: string): Promise<ProposedEdit[]>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string }): Promise<'ok' | 'revision_mismatch'>

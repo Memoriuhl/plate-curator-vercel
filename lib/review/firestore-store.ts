@@ -5,6 +5,35 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const batches = db.collection('reviewBatches')
 
   return {
+    async create(batch) {
+      try {
+        await batches.doc(batch.id).create({ ...batch, env })
+        return 'ok'
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 6) return 'exists'
+        throw error
+      }
+    },
+    async list(filter) {
+      if (filter.states?.length === 0) return []
+      let query = batches.where('env', '==', env)
+      if (filter.states !== undefined) query = query.where('state', 'in', [...new Set(filter.states)])
+      const snapshot = await query.get()
+      return snapshot.docs.map(doc => {
+        const batch = doc.data()
+        delete batch.env
+        return batch as ReviewBatch
+      }).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    },
+    async listEdits(batchId) {
+      return db.runTransaction(async transaction => {
+        const batchRef = batches.doc(batchId)
+        const batch = await transaction.get(batchRef)
+        if (!batch.exists || batch.get('env') !== env) return []
+        const edits = await transaction.get(batchRef.collection('edits'))
+        return edits.docs.map(doc => doc.data() as ProposedEdit)
+      }, { readOnly: true })
+    },
     async getBatch(id) {
       const snapshot = await batches.doc(id).get()
       const { env: storedEnv, ...batch } = snapshot.data() ?? {}

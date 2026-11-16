@@ -5,6 +5,19 @@ export function createMemoryStore(seed: ReviewBatch[]): ReviewStore {
   const edits = new Map<string, Map<string, ProposedEdit>>()
 
   return {
+    async create(batch) {
+      if (batches.has(batch.id)) return 'exists'
+      batches.set(batch.id, structuredClone(batch))
+      return 'ok'
+    },
+    async list(filter) {
+      return structuredClone([...batches.values()]
+        .filter(batch => filter.states === undefined || filter.states.includes(batch.state))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)))
+    },
+    async listEdits(batchId) {
+      return structuredClone([...edits.get(batchId)?.values() ?? []])
+    },
     async getBatch(id) {
       return structuredClone(batches.get(id) ?? null)
     },
