@@ -7,6 +7,33 @@ const invite = createInvite('first-token', () => instant)
 const pending: PendingMember = { email: ' Person@Example.com ', role: 'editor', signIn: 'google', invitedBy: 'owner', invite }
 
 export function membersStoreScenarios(setup: (now: () => string) => Promise<MembersStore>) {
+  it('guards the last Owner, counts pending Owners, and allows Editor removal', async () => {
+    const store = await setup(() => instant)
+    await store.create({ ...pending, email: 'owner@example.com', role: 'owner' })
+    expect(await store.updateRoleGuarded('owner@example.com', 'editor')).toBe('last_owner')
+    expect(await store.removeGuarded('owner@example.com')).toBe('last_owner')
+    expect(await store.updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
+    await store.create({ ...pending, email: 'second@example.com', role: 'owner' })
+    expect(await store.updateRoleGuarded('owner@example.com', 'editor')).toBe('ok')
+    expect(await store.getByEmail('owner@example.com')).toMatchObject({ role: 'editor' })
+    expect(await store.removeGuarded('owner@example.com')).toBe('ok')
+    expect(await store.removeGuarded('owner@example.com')).toBe('not_found')
+    expect(await store.updateRoleGuarded('missing@example.com', 'owner')).toBe('not_found')
+    await store.create({ ...pending, email: 'third@example.com', role: 'owner' })
+    expect(await store.removeGuarded('second@example.com')).toBe('ok')
+    expect(await store.list()).toHaveLength(1)
+    expect(await store.removeGuarded('third@example.com')).toBe('last_owner')
+  })
+
+  it('concurrent demotion and removal cannot eliminate both Owners', async () => {
+    const store = await setup(() => instant)
+    await store.create({ ...pending, email: 'one@example.com', role: 'owner' })
+    await store.create({ ...pending, email: 'two@example.com', role: 'owner' })
+    const results = await Promise.all([store.updateRoleGuarded('one@example.com', 'editor'), store.removeGuarded('two@example.com')])
+    expect(results.sort()).toEqual(['last_owner', 'ok'])
+    expect((await store.list()).filter(member => member.role === 'owner')).toHaveLength(1)
+  }, 20000)
+
   it('normalizes keys, refuses duplicates, lists, updates roles and removes', async () => {
     const store = await setup(() => instant)
     expect(await store.getByEmail(pending.email)).toBeNull()

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { MembersPage } from '../components/members/members-page'
 import { HeaderActions } from '../components/app/header-actions'
@@ -6,12 +6,15 @@ import { TooltipProvider } from '../components/ui/tooltip'
 import { ApiError } from '../lib/client/api'
 import type { MemberSummary } from '../lib/members/summary'
 
-const mocks = vi.hoisted(() => ({ me: { data: { uid: 'owner', role: 'owner' } }, list: vi.fn(), invite: vi.fn(), mutate: vi.fn(), clipboard: vi.fn() }))
+const mocks = vi.hoisted(() => ({ me: { data: { uid: 'owner', role: 'owner' } }, list: vi.fn(), invite: vi.fn(), mutate: vi.fn(), clipboard: vi.fn(), send: vi.fn() }))
+vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), useSWRConfig: () => ({ mutate: mocks.mutate }) }))
 vi.mock('../lib/client/hooks', () => ({ useMe: () => mocks.me, useMembers: mocks.list, useInviteMember: () => mocks.invite }))
-vi.mock('../lib/client/session', () => ({ useSession: () => ({ ready: true, user: { uid: 'owner', email: 'owner@example.com' }, signOut: vi.fn() }) }))
+vi.mock('../lib/client/session', () => ({ useSession: () => ({ ready: true, user: { uid: 'owner', email: 'owner@example.com' }, signOut: vi.fn(), api: { send: mocks.send } }) }))
 const members: MemberSummary[] = ['active', 'pending', 'expired'].map(status => ({ email: `${status}@example.com`, role: 'editor', signIn: 'google', status: status as MemberSummary['status'], invitedBy: status === 'pending' ? 'owner' : null, createdAt: '2026-11-16' }))
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.mutate.mockResolvedValue(undefined)
+  mocks.send.mockResolvedValue({ ok: true })
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
   mocks.me.data = { uid: 'owner', role: 'owner' }
   mocks.list.mockReturnValue({ data: members, mutate: mocks.mutate })
@@ -19,6 +22,68 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: mocks.clipboard.mockResolvedValue(undefined) } })
 })
 afterEach(cleanup)
+
+test('each role control sends the selected role and refreshes Members', async () => {
+  render(<MembersPage />)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Role for active@example.com' }), { target: { value: 'owner' } })
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('PATCH', '/api/members/active%40example.com', { role: 'owner' }))
+  expect(mocks.mutate).toHaveBeenCalledWith('/api/members')
+})
+
+test('removal names the email, cancels safely, and restores focus to the row', async () => {
+  render(<MembersPage />)
+  const trigger = screen.getByRole('button', { name: 'Remove active@example.com' })
+  fireEvent.click(trigger)
+  const dialog = await screen.findByRole('alertdialog')
+  expect(dialog.textContent).toContain('Remove active@example.com?')
+  expect(mocks.send).not.toHaveBeenCalled()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(document.activeElement).toBe(trigger)
+})
+
+test('confirmed removal sends DELETE and refreshes the list', async () => {
+  render(<MembersPage />)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove active@example.com' }))
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove Member' }))
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('DELETE', '/api/members/active%40example.com', undefined))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+})
+
+test('removing a row returns focus to an adjacent row', async () => {
+  const view = render(<MembersPage />)
+  mocks.mutate.mockImplementationOnce(async () => {
+    mocks.list.mockReturnValue({ data: members.slice(1), mutate: mocks.mutate })
+    view.rerender(<MembersPage />)
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Remove active@example.com' }))
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove Member' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove active@example.com' })).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Role for pending@example.com' })))
+})
+
+test.each(['role', 'remove'])('last-Owner refusal for %s is readable and returns focus', async action => {
+  mocks.send.mockRejectedValueOnce(new ApiError(409, 'last_owner', {}))
+  render(<MembersPage />)
+  if (action === 'role') fireEvent.change(screen.getByRole('combobox', { name: 'Role for active@example.com' }), { target: { value: 'owner' } })
+  else {
+    fireEvent.click(screen.getByRole('button', { name: 'Remove active@example.com' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove Member' }))
+  }
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('at least one Owner Member'))
+  expect(mocks.mutate).not.toHaveBeenCalled()
+  if (action === 'remove') expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove active@example.com' }))
+})
+
+test('self-removal explains that another Owner must remain and refreshes access', async () => {
+  mocks.list.mockReturnValue({ data: [{ ...members[0], email: 'owner@example.com', role: 'owner' }], mutate: mocks.mutate })
+  render(<MembersPage />)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove owner@example.com' }))
+  const dialog = await screen.findByRole('alertdialog')
+  expect(dialog.textContent).toContain('You are removing yourself. Another Owner Member must remain')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Remove Member' }))
+  await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith('/api/me'))
+})
 
 test('lists Members with statuses and an Editor-default role choice', () => {
   render(<MembersPage />)

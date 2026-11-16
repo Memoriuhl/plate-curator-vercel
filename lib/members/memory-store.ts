@@ -19,6 +19,21 @@ export function createMemoryMembersStore(seed: Member[] = [], now: () => string 
       member.role = role
       return 'ok'
     },
+    async updateRoleGuarded(email, role) {
+      const member = members.get(normalizeEmail(email))
+      if (!member) return 'not_found'
+      if (member.role === 'owner' && role !== 'owner' && [...members.values()].filter(entry => entry.role === 'owner').length <= 1) return 'last_owner'
+      member.role = role
+      return 'ok'
+    },
+    async removeGuarded(email) {
+      const key = normalizeEmail(email)
+      const member = members.get(key)
+      if (!member) return 'not_found'
+      if (member.role === 'owner' && [...members.values()].filter(entry => entry.role === 'owner').length <= 1) return 'last_owner'
+      members.delete(key)
+      return 'ok'
+    },
     async reissue(email, invite) {
       const member = members.get(normalizeEmail(email))
       if (!member) return 'not_found'
