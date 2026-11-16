@@ -33,6 +33,7 @@ test('the pending link exposes its loading indicator', () => {
   const idle = renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)
   expect(idle).not.toContain('data-navigation-pending')
   expect(idle).not.toContain('animate-spin')
+  expect(idle).not.toContain('role="status"')
   route.pending = true
   const html = renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)
   expect(html).toContain('data-navigation-pending')

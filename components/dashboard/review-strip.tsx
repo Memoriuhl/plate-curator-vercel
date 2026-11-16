@@ -55,7 +55,7 @@ export function ReviewStrip() {
     return <p role="alert">Could not load batches waiting for review.</p>
   if (isLoading)
     return (
-      <div className="review-loading" role="status">
+      <div className="review-loading flex h-11 items-center" role="status">
         Loading review batches…
       </div>
     )

@@ -9,18 +9,15 @@ import { cn } from '@/components/utils'
 
 function PendingIndicator() {
   const { pending } = useLinkStatus()
+  if (!pending) return null
   return (
     <span
       role="status"
-      data-navigation-pending={pending || undefined}
-      className={cn('absolute right-2 top-2 size-3 transition-opacity', pending ? 'opacity-100' : 'opacity-0')}
+      data-navigation-pending
+      className="absolute right-2 top-2 size-3"
     >
-      {pending ? (
-        <>
-          <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
-          <span className="sr-only">Loading jurisdiction…</span>
-        </>
-      ) : null}
+      <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
+      <span className="sr-only">Loading jurisdiction…</span>
     </span>
   )
 }

@@ -1,4 +1,4 @@
-﻿import { StateContent } from '@/components/dashboard/dashboard-data'
+import { StateContent } from '@/components/dashboard/dashboard-data'
 
 export default async function Dashboard({
   params,

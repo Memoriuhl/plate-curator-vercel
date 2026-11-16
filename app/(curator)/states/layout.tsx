@@ -7,7 +7,7 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 export default function StatesLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="app-main dashboard group/states">
-      <Suspense fallback={<div className="review-loading" role="status">Loading review batches…</div>}>
+      <Suspense fallback={<div className="review-loading flex h-11 items-center" role="status">Loading review batches…</div>}>
         <ReviewStrip />
       </Suspense>
       <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>
