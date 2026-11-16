@@ -71,6 +71,7 @@ const detail: BatchDetail = {
     id: 'one',
     name: 'Updates',
     createdBy: 'author',
+    createdByName: 'Alex',
     createdAt: '',
     state: 'submitted',
     revision: 4,
@@ -90,7 +91,7 @@ beforeEach(() => {
   state.mutate.mockReset().mockResolvedValue(detail)
 })
 test('approval sends the selected batch revision and refreshes after a superseded revision', async () => {
-  renderToStaticMarkup(<ReviewFooter detail={detail} stateName="Alaska" />)
+  renderToStaticMarkup(<ReviewFooter detail={detail} />)
   const approve = state.buttons.get('Approve revision 4')!
     .onClick as () => Promise<void>
   await approve()
@@ -142,13 +143,11 @@ test('table renders every field kind, tags diff and unchanged values in order', 
   expect(html).toContain('After · rev 4')
 })
 test('owner can approve and editor cannot', () => {
-  expect(
-    renderToStaticMarkup(<ReviewFooter detail={detail} stateName="Alaska" />),
-  ).toContain('Approve revision 4')
-  state.role = 'editor'
-  const html = renderToStaticMarkup(
-    <ReviewFooter detail={detail} stateName="Alaska" />,
+  expect(renderToStaticMarkup(<ReviewFooter detail={detail} />)).toContain(
+    'Approve revision 4',
   )
+  state.role = 'editor'
+  const html = renderToStaticMarkup(<ReviewFooter detail={detail} />)
   expect(html).not.toContain('Approve revision')
   expect(html).toContain('Waiting for an Owner to approve')
 })
@@ -158,7 +157,6 @@ test('own open batch offers submit and approved batch has no actions', () => {
     renderToStaticMarkup(
       <ReviewFooter
         detail={{ ...detail, batch: { ...detail.batch, state: 'open' } }}
-        stateName="Alaska"
       />,
     ),
   ).toContain('Submit for review')
@@ -172,10 +170,9 @@ test('own open batch offers submit and approved batch has no actions', () => {
           approval: { by: 'owner', at: 'today', revision: 4 },
         },
       }}
-      stateName="Alaska"
     />,
   )
-  expect(html).toContain('Approved by owner at today')
+  expect(html).toContain('Approved by an Owner at today')
   expect(html).not.toContain('Request changes')
 })
 test('superseded and invalid state errors explain recovery', () => {
@@ -218,4 +215,58 @@ test('URL state, plate and batch select the requested comparison', () => {
     'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"',
   )
   expect(html).not.toContain('Nothing waiting for review')
+})
+
+test('approval names the entire batch and counts changes across two states', async () => {
+  const kansas = { ...before, id: 'KS.army', state: 'KS' }
+  const multi: BatchDetail = {
+    ...detail,
+    batch: {
+      ...detail.batch,
+      name: 'Veterans updates',
+      plateIds: [before.id, kansas.id],
+    },
+    plates: [
+      ...detail.plates,
+      { baseline: kansas, proposed: kansas, edit: null, revision: 'ks' },
+    ],
+  }
+  const html = renderToStaticMarkup(<ReviewFooter detail={multi} />)
+  expect(html).toContain(
+    'Approving &quot;Veterans updates&quot; by Alex covers all 2 changes in revision 4 (AK 1, KS 1).',
+  )
+  expect(html).toContain('Any later edit asks you to look again.')
+  const approve = state.buttons.get('Approve revision 4')!
+    .onClick as () => Promise<void>
+  await approve()
+  expect(state.approve).toHaveBeenCalledWith('one', 4)
+})
+
+test('batch chips and footer switch with the URL batch, with generic author fallback', () => {
+  const render = (selected: BatchDetail) => {
+    state.detail = selected
+    state.query = `state=AK&plate=AK.army&batch=${selected.batch.id}`
+    return renderToStaticMarkup(
+      <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />,
+    )
+  }
+  const named = render(detail)
+  expect(named).toContain('Updates · by Alex')
+  expect(named).toContain('aria-label="Alex"')
+  expect(named).toContain('Approving &quot;Updates&quot; by Alex')
+  const older = render({
+    ...detail,
+    batch: {
+      ...detail.batch,
+      id: 'two',
+      name: 'Older batch',
+      revision: 8,
+      createdByName: null,
+    },
+  })
+  expect(older).toContain('Older batch · by a curator')
+  expect(older).toContain('aria-label="Curator"')
+  expect(older).toContain('Approving &quot;Older batch&quot; by a curator')
+  expect(older).toContain('Approve revision 8')
+  expect(older).not.toContain('by Alex')
 })

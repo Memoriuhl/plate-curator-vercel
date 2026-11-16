@@ -4,7 +4,12 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { IoChevronBack, IoChevronForward, IoCheckmark } from 'react-icons/io5'
+import {
+  IoChevronBack,
+  IoChevronForward,
+  IoCheckmark,
+  IoPersonOutline,
+} from 'react-icons/io5'
 import {
   useBatch,
   useBatches,
@@ -12,7 +17,6 @@ import {
   useReviewActions,
 } from '@/lib/client/hooks'
 import type { BatchDetail } from '@/lib/client/hooks'
-import { useSession } from '@/lib/client/session'
 import type { ReviewBatch } from '@/lib/review/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -34,16 +38,19 @@ export function reviewHref(state: string, plate?: string, batch?: string) {
   return `/review?${query}`
 }
 
-function Author({ uid }: { uid: string }) {
+function Author({ uid, name }: { uid: string; name?: string | null }) {
   const me = useMe()
-  const { user } = useSession()
   const own = me.data?.uid === uid
-  const initial = own
-    ? (user?.displayName || user?.email || uid).slice(0, 1)
-    : uid.slice(0, 1)
+  const initial = name?.trim().slice(0, 1).toUpperCase()
   return (
-    <Avatar size="sm" player={own ? 'you' : 'friend'}>
-      <AvatarFallback>{initial.toUpperCase()}</AvatarFallback>
+    <Avatar
+      size="sm"
+      player={own ? 'you' : 'friend'}
+      aria-label={name || 'Curator'}
+    >
+      <AvatarFallback>
+        {initial || <IoPersonOutline aria-hidden="true" />}
+      </AvatarFallback>
     </Avatar>
   )
 }
@@ -72,19 +79,29 @@ export function reviewError(error: unknown, revision: number) {
   return 'Could not save this action. Please try again.'
 }
 
-export function ReviewFooter({
-  detail,
-  stateName,
-}: {
-  detail: BatchDetail
-  stateName: string
-}) {
+export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const me = useMe()
   const actions = useReviewActions()
   const latest = useBatch(detail.batch.id)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const batch = detail.batch
+  const approvedBy =
+    batch.approval?.by === me.data?.uid
+      ? me.data?.name
+      : batch.approval?.by === batch.createdBy
+        ? batch.createdByName
+        : null
+  const counts = new Map<string, number>()
+  for (const plate of detail.plates)
+    counts.set(
+      plate.baseline.state,
+      (counts.get(plate.baseline.state) ?? 0) + 1,
+    )
+  const scope = [...counts]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([code, count]) => `${code} ${count}`)
+    .join(', ')
   const submit = batch.state === 'open' && batch.createdBy === me.data?.uid
   const approve =
     me.data?.role === 'owner' && ['submitted', 'conflict'].includes(batch.state)
@@ -107,13 +124,15 @@ export function ReviewFooter({
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
       {batch.state === 'approved' ? (
         <p>
-          Approved by {batch.approval?.by} at {batch.approval?.at}
+          Approved by {approvedBy || 'an Owner'} at {batch.approval?.at}
         </p>
       ) : (
         <>
           <p className="min-w-0 flex-1">
-            Approving covers all {detail.plates.length} {stateName} changes in
-            revision {batch.revision}. Any later edit asks you to look again.
+            Approving &quot;{batch.name}&quot; by{' '}
+            {batch.createdByName || 'a curator'} covers all{' '}
+            {detail.plates.length} changes in revision {batch.revision} ({scope}
+            ). Any later edit asks you to look again.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" disabled title="Coming soon">
@@ -324,7 +343,10 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                 href={reviewHref(code!, plate.id, item?.batch.id)}
                 className={cn(
                   'flex min-h-14 items-center gap-3 rounded-2xl p-2',
-                  params.get('plate') === plate.id && 'bg-muted',
+                  params.get('plate') === plate.id &&
+                    (!params.get('batch') ||
+                      params.get('batch') === item?.batch.id) &&
+                    'bg-muted',
                 )}
               >
                 {plate.imageUrl ? (
@@ -346,9 +368,21 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                       ? changeSummary(item.baseline, item.proposed)
                       : 'No changes'}
                   </span>
+                  {item && (
+                    <span
+                      className="mt-1 inline-block max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-[10px]"
+                      title={`${item.batch.name} by ${item.batch.createdByName || 'a curator'}`}
+                    >
+                      {item.batch.name} · by{' '}
+                      {item.batch.createdByName || 'a curator'}
+                    </span>
+                  )}
                 </span>
                 {item && (
-                  <Author uid={item.edit?.authorId ?? item.batch.createdBy} />
+                  <Author
+                    uid={item.batch.createdBy}
+                    name={item.batch.createdByName}
+                  />
                 )}
               </Link>
             )
@@ -401,7 +435,10 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   ),
                 )}
                 <span className="flex items-center gap-2 rounded-full bg-primary p-1 pr-3 text-primary-foreground">
-                  <Author uid={entry.edit?.authorId ?? entry.batch.createdBy} />
+                  <Author
+                    uid={entry.batch.createdBy}
+                    name={entry.batch.createdByName}
+                  />
                   rev {entry.batch.revision} ·{' '}
                   {entry.edit
                     ? `${Math.max(0, Math.floor((now - Date.parse(entry.edit.updatedAt)) / 60000))} min ago`
@@ -419,16 +456,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             <ReviewFooter
               key={entry.batch.id}
               detail={currentDetails[entry.batch.id]}
-              stateName={[
-                ...new Set(
-                  currentDetails[entry.batch.id].plates.map(
-                    (plate) =>
-                      states.find(
-                        (state) => state.code === plate.baseline.state,
-                      )?.name ?? plate.baseline.state,
-                  ),
-                ),
-              ].join(', ')}
             />
           </>
         ) : review.error || mine.error || selected.error ? (
