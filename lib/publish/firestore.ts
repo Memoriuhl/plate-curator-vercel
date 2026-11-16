@@ -1,5 +1,5 @@
 import { FieldValue, type DocumentData, type Firestore } from '@google-cloud/firestore'
-import type { PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
+import type { PublishCurator, PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
 
 function unexpired(expiresAt: unknown, now: string): boolean {
   return typeof expiresAt === 'string' && Date.parse(expiresAt) > Date.parse(now)
@@ -107,6 +107,22 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
         transaction.set(pointerRef, { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now })
         transaction.update(recordRef, { committedAt: now })
         return 'advanced'
+      })
+    },
+  }
+}
+
+export function firestorePublishCurator(db: Firestore, env: string): PublishCurator {
+  return {
+    async writeStateOrders(orders, lease, now) {
+      return db.runTransaction(async transaction => {
+        const ref = db.doc('curator/workflow')
+        const [lock, workflow] = await transaction.getAll(db.doc('locks/publish'), ref)
+        if (!active(lock.data(), lease.token, env, now) || lock.get('batchId') !== lease.batchId || lock.get('revision') !== lease.revision) return 'lock_lost'
+        if (Object.keys(orders).length > 0) {
+          transaction.set(ref, { stateOrder: { ...workflow.get('stateOrder'), ...orders } }, { mergeFields: ['stateOrder'] })
+        }
+        return 'ok'
       })
     },
   }

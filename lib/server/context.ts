@@ -11,7 +11,7 @@ import { gcpAuthClient } from '../gcp/credentials'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
-import { firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
+import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
 import type { PublishDeps } from '../publish/types'
 import { requireEnv } from '../env'
@@ -83,6 +83,7 @@ export function publishDeps(): PublishDeps {
   const env = reviewEnv()
   return {
     ...reviewDeps(),
+    curator: firestorePublishCurator(db, env),
     pointer: firestorePublishPointer(db, env),
     records: firestorePublishRecords(db, env),
     lock: firestorePublishLock(db, env),

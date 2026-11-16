@@ -36,7 +36,11 @@ export interface PublishLock {
   renew(lease: PublishLease, now: string): Promise<boolean>
   release(token: string, keepBatchFrozen: boolean): Promise<void>
 }
+export interface PublishCurator {
+  writeStateOrders(orders: Record<string, string[]>, lease: PublishLease, now: string): Promise<'ok' | 'lock_lost'>
+}
 export type PublishDeps = ReviewDeps & {
+  curator: PublishCurator
   pointer: PublishPointer
   snapshots: PublishSnapshots
   records: PublishRecords

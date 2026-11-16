@@ -57,8 +57,21 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
       }
       const edits = await d.store.listEdits(command.batchId)
       const fields = new Map(edits.map(edit => [edit.plateId, edit.fields]))
-      const next = { version: fromVersion + 1, plates: baseline.plates.map(plate => ({ ...plate, ...fields.get(plate.id) })) }
+      const orders = new Map(Object.entries(batch.stateOrders).map(([state, order]) => [state, new Map(order.map((id, index) => [id, index]))]))
+      const next = { version: fromVersion + 1, plates: baseline.plates.map(plate => {
+        const edited = { ...plate, ...fields.get(plate.id) }
+        if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
+        const order = orders.get(plate.state)
+        if (order) edited.sortOrder = order.get(plate.id)
+        return edited
+      }) }
       const reasons = validateSnapshot(baseline, next)
+      for (const [state, order] of Object.entries(batch.stateOrders)) {
+        const ids = new Set(baseline.plates.filter(plate => plate.state === state).map(plate => plate.id))
+        if (order.length !== ids.size || new Set(order).size !== order.length || order.some(id => !ids.has(id))) {
+          reasons.push(`State order for ${state} must list exactly its baseline plates, without duplicates or extras`)
+        }
+      }
       for (const edit of edits) {
         if (!batch.plateIds.includes(edit.plateId) || !baseline.plates.some(plate => plate.id === edit.plateId)) reasons.push(`Edit references a missing batch plate: ${edit.plateId}`)
       }
@@ -86,6 +99,7 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
       record = await d.records.get(id)
       if (!record?.committedAt) return { ok: false, error: 'unavailable' }
     }
+    if (await d.curator.writeStateOrders(batch.stateOrders, lease, d.now()) !== 'ok') return { ok: false, error: 'lock_lost' }
     const done: PublishRecord = { ...record, state: 'done', completionToken: lease.token }
     if (!await d.records.save(done, lease.token, d.now()) || !await renew()) return { ok: false, error: 'lock_lost' }
     const committed = await d.store.commit(batch.id, command.revision, {
