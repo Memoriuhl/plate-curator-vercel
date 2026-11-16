@@ -242,3 +242,48 @@ test('only image and information hover open breakdown; text, id and container do
   fireEvent.mouseEnter(info)
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], info, false)
 })
+
+import { UserAvatar } from '../components/app/user-avatar'
+import { HeaderActions } from '../components/app/header-actions'
+import { TooltipProvider } from '../components/ui/tooltip'
+const avatarSession = vi.hoisted(() => ({ ready: true, user: { displayName: 'Priya', email: 'curator', photoURL: null as string | null }, signOut: vi.fn() }))
+vi.mock('../lib/client/session', () => ({ useSession: () => avatarSession }))
+
+beforeEach(() => { avatarSession.user.displayName = 'Priya'; avatarSession.user.photoURL = null })
+
+test('header and plate marker share the avatar and fallback letter', () => {
+  const view = render(<TooltipProvider><HeaderActions /><FamilyCard template={plateCards[0]} variants={[]} badge={() => <UserAvatar user={avatarSession.user} size="sm" activity="changed" />} /></TooltipProvider>)
+  const avatars = view.container.querySelectorAll('[data-user-avatar]')
+  expect(avatars).toHaveLength(2)
+  expect(Array.from(avatars).map(avatar => avatar.querySelector('[data-slot=avatar-fallback]')?.textContent)).toEqual(['P', 'P'])
+  expect(avatars[1].getAttribute('data-activity')).toBe('changed')
+})
+
+test('header and marker show profile photos with the same fallback when unavailable', () => {
+  vi.stubGlobal('Image', class extends EventTarget { complete = true; naturalWidth = 1; src = '' })
+  avatarSession.user.photoURL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+  const view = render(<TooltipProvider><HeaderActions /><UserAvatar user={avatarSession.user} size="sm" /></TooltipProvider>)
+  const images = view.container.querySelectorAll('[data-slot=avatar-image]')
+  expect(images).toHaveLength(2)
+  expect(Array.from(images).map(image => image.getAttribute('src'))).toEqual([avatarSession.user.photoURL, avatarSession.user.photoURL])
+  avatarSession.user.photoURL = null
+  avatarSession.user.displayName = ''
+  view.rerender(<TooltipProvider><HeaderActions /><UserAvatar user={avatarSession.user} size="sm" /></TooltipProvider>)
+  expect(view.container.querySelectorAll('[data-slot=avatar-image]')).toHaveLength(0)
+  expect(Array.from(view.container.querySelectorAll('[data-slot=avatar-fallback]')).map(avatar => avatar.textContent)).toEqual(['C', 'C'])
+})
+
+test('marker name uses the shared tooltip, without a detail fetch or breakdown', () => {
+  vi.useFakeTimers()
+  const marker = vi.fn()
+  const view = render(<FamilyCard template={plateCards[0]} variants={[]} badge={() => <UserAvatar user={avatarSession.user} size="sm" />} onMarker={marker} />)
+  const anchor = view.container.querySelector<HTMLElement>('[data-batch-marker]')!
+  fireEvent.pointerOver(anchor)
+  expect(marker).toHaveBeenCalledWith(plateCards[0], anchor)
+  const tooltip = render(<ReadyPlatePreview plate={plateCards[0]} anchor={anchor} immediate={false} markerName="Priya" />)
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelectorAll('[role=tooltip]')).toHaveLength(1)
+  expect(document.querySelector('[data-check-tooltip]')?.textContent).toBe('Priya, edited in your batch')
+  expect(document.querySelector('#plate-breakdown-preview')).toBeNull()
+  tooltip.unmount()
+})

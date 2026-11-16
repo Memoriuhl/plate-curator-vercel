@@ -13,7 +13,8 @@ import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
 import { DragPreview } from './drag-preview'
 import { FamilyCard } from '@/components/plate/family-card'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar, userAvatarName } from '@/components/app/user-avatar'
+import { useSession } from '@/lib/client/session'
 import {
   groupFamilies,
   matchesPlate,
@@ -54,6 +55,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     anchor: HTMLElement
     immediate: boolean
     checkKey?: PlateCheckKey
+    markerName?: string
   } | null>(null)
   useGridEntrance(container, layout.ready, pathname)
   const opened = useRef(false)
@@ -66,6 +68,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     anchor.current = null
     setPreview(null)
   }
+  const { user } = useSession()
   const me = useMe()
   const edits = useEditPlate()
   const ordering = useReorderState()
@@ -228,6 +231,12 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
                     onPreload={preload}
                     onDismissPreview={close}
                     onLeaveCheck={close}
+                    onMarker={(plate, element) => {
+                      if (drag.active || drag.saving) return
+                      opened.current = false
+                      anchor.current = element
+                      setPreview({ plate, anchor: element, immediate: false, markerName: userAvatarName(user) })
+                    }}
                     onCheck={(plate, checkKey, element) => {
                       if (drag.active || drag.saving) return
                       opened.current = false
@@ -240,14 +249,8 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
                       timer.current = setTimeout(close, 150)
                     }}
                     badge={(plate) =>
-                      changedIds.has(plate.id) ? (
-                        <Avatar
-                          size="sm"
-                          activity="changed"
-                          aria-label="Changed in your batch"
-                        >
-                          <AvatarFallback>Y</AvatarFallback>
-                        </Avatar>
+                      changedIds.has(plate.id) && user ? (
+                        <UserAvatar user={user} size="sm" activity="changed" aria-label={userAvatarName(user) + ', edited in your batch'} />
                       ) : null
                     }
                   />

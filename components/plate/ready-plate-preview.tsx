@@ -12,6 +12,7 @@ export type ReadyPreviewProps = {
   anchor: HTMLElement
   immediate: boolean
   checkKey?: PlateCheckKey
+  markerName?: string
   parent?: string
   onReady?: () => void
   onMouseEnter?: () => void
@@ -19,25 +20,26 @@ export type ReadyPreviewProps = {
 }
 
 export function ReadyPlatePreview(props: ReadyPreviewProps) {
-  return <PendingPreview key={`${props.plate.id}:${props.checkKey ?? 'card'}:${props.immediate}`} {...props} />
+  return <PendingPreview key={`${props.plate.id}:${props.markerName ? 'marker' : props.checkKey ?? 'card'}:${props.immediate}`} {...props} />
 }
 
 function PendingPreview(props: ReadyPreviewProps) {
-  const local = props.checkKey === 'tags' || props.checkKey === 'family' || props.checkKey === 'image'
+  const local = !!props.markerName || props.checkKey === 'tags' || props.checkKey === 'family' || props.checkKey === 'image'
   const { data } = usePlateDetail(local ? null : props.plate.id)
   const baselines = useMemo(() => data ? [data.plate] : [], [data])
   const [overlaid] = useDraftOverlay(baselines)
   const [intent, setIntent] = useState(props.immediate)
   const [expired, setExpired] = useState(false)
   useEffect(() => {
-    const delay = setTimeout(() => setIntent(true), props.checkKey ? 300 : 150)
+    const delay = setTimeout(() => setIntent(true), props.checkKey || props.markerName ? 300 : 150)
     const fallback = setTimeout(() => setExpired(true), 1500)
     return () => { clearTimeout(delay); clearTimeout(fallback) }
-  }, [props.checkKey])
+  }, [props.checkKey, props.markerName])
   const onReady = props.onReady
   const visible = intent && (local || !!data || expired)
   useEffect(() => { if (visible) onReady?.() }, [visible, onReady])
   if (!props.anchor.isConnected || !visible) return null
+  if (props.markerName) return <CheckTooltip plate={props.plate} anchor={props.anchor} loading={false} message={props.markerName + ', edited in your batch'} />
   if (props.checkKey) return <CheckTooltip plate={local ? props.plate : overlaid ?? props.plate} checkKey={props.checkKey} parent={props.parent} anchor={props.anchor} loading={!local && !data} />
   return <PlateHoverContent {...props} plate={overlaid ?? props.plate} state={data ? undefined : 'loading'} />
 }
@@ -56,7 +58,7 @@ export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; 
   return <p className={checkKey === 'description' ? 'line-clamp-4' : undefined}>{value}</p>
 }
 
-function CheckTooltip({ plate, checkKey, parent, anchor, loading }: { plate: PlateCardData; checkKey: PlateCheckKey; parent?: string; anchor: HTMLElement; loading: boolean }) {
+function CheckTooltip({ plate, checkKey, parent, anchor, loading, message }: { plate: PlateCardData; checkKey?: PlateCheckKey; parent?: string; anchor: HTMLElement; loading: boolean; message?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const [snapshot] = useState({ plate, loading })
@@ -72,5 +74,5 @@ function CheckTooltip({ plate, checkKey, parent, anchor, loading }: { plate: Pla
     window.addEventListener('resize', place)
     return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
   }, [anchor])
-  return createPortal(<div ref={ref} role="tooltip" data-check-tooltip className="pointer-events-none fixed z-50 w-max max-w-72 rounded-[var(--radius-md)] bg-[var(--card)] p-3 text-xs text-[var(--ink)] shadow-xl ring-1 ring-[var(--border)]" style={position}><p className="mb-1 font-medium">{CHECK_META[checkKey].label} <span className="font-normal text-[var(--ink-2)]">· {snapshot.plate.checks[checkKey].status}</span></p><div className="break-words">{snapshot.loading ? 'Loading…' : <CheckValue plate={snapshot.plate} checkKey={checkKey} parent={parent} />}</div></div>, document.body)
+  return createPortal(<div ref={ref} role="tooltip" data-check-tooltip className="pointer-events-none fixed z-50 w-max max-w-72 rounded-[var(--radius-md)] bg-[var(--card)] p-3 text-xs text-[var(--ink)] shadow-xl ring-1 ring-[var(--border)]" style={position}>{checkKey ? <><p className="mb-1 font-medium">{CHECK_META[checkKey].label} <span className="font-normal text-[var(--ink-2)]">· {snapshot.plate.checks[checkKey].status}</span></p><div className="break-words">{snapshot.loading ? 'Loading…' : <CheckValue plate={snapshot.plate} checkKey={checkKey} parent={parent} />}</div></> : message}</div>, document.body)
 }

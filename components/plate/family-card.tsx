@@ -32,6 +32,7 @@ export type FamilyCardProps = {
   onClosePreview?: () => void
   onPreload?: (id: string) => void
   onCheck?: (plate: PlateCardData, key: import('@/lib/catalog/dashboard-types').PlateCheckKey, anchor: HTMLElement) => void
+  onMarker?: (plate: PlateCardData, anchor: HTMLElement) => void
   onLeaveCheck?: () => void
   onDismissPreview?: () => void
   prefetchedIds?: Set<string>
@@ -52,6 +53,7 @@ export function FamilyCard({
   prefetchedIds,
   onPreload,
   onCheck,
+  onMarker,
   onLeaveCheck,
   onDismissPreview,
   drag,
@@ -84,12 +86,20 @@ export function FamilyCard({
   function plateContent(plate: PlateCardData, small: boolean) {
     const width = small ? 84 : 140
     const height = small ? 42 : 70
+    const marker = badge?.(plate)
     return (
       <div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
         onPointerEnter={() => onPreload?.(plate.id)}
         onPointerOver={event => {
+          const marker = (event.target as Element).closest<HTMLElement>('[data-batch-marker]')
+          if (marker) {
+            if (event.relatedTarget instanceof Node && marker.contains(event.relatedTarget)) return
+            onDismissPreview?.()
+            if (!drag?.active && !drag?.saving && !entranceRunning(marker)) onMarker?.(plate, marker)
+            return
+          }
           const icon = (event.target as Element).closest<HTMLElement>('[data-check]')
           if (!icon || !event.currentTarget.contains(icon)) {
             if ((event.target as Element).closest('[data-check-strip]')) onDismissPreview?.()
@@ -100,7 +110,7 @@ export function FamilyCard({
           if (!drag?.active && !drag?.saving && !entranceRunning(icon)) onCheck?.(plate, icon.dataset.check as import('@/lib/catalog/dashboard-types').PlateCheckKey, icon)
         }}
         onPointerOut={event => {
-          const icon = (event.target as Element).closest('[data-check]')
+          const icon = (event.target as Element).closest('[data-check], [data-batch-marker]')
           if (icon && !(event.relatedTarget instanceof Node && icon.contains(event.relatedTarget))) onLeaveCheck?.()
         }}
         onPointerDown={small ? event => {
@@ -177,7 +187,7 @@ export function FamilyCard({
             </p>
             <CheckStrip checks={plate.checks} />
           </div>
-          {badge?.(plate)}
+          {marker ? <span data-batch-marker>{marker}</span> : null}
         </Link>
         {onPreview ? (
           <button
