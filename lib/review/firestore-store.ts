@@ -22,6 +22,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
       return snapshot.docs.map(doc => {
         const batch = doc.data()
         delete batch.env
+        delete batch.publishReservation
         return batch as ReviewBatch
       }).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     },
@@ -37,6 +38,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
     async getBatch(id) {
       const snapshot = await batches.doc(id).get()
       const { env: storedEnv, ...batch } = snapshot.data() ?? {}
+      delete batch.publishReservation
       return storedEnv === env ? batch as ReviewBatch : null
     },
     async getEdit(batchId, plateId) {
@@ -55,6 +57,12 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         if (!batch.exists || batch.get('env') !== env || batch.get('revision') !== expectedRevision) {
           return 'revision_mismatch'
         }
+        const reservation = batch.get('publishReservation')
+        if (reservation) {
+          if (next.publishToken !== reservation.token || next.batch.state !== 'published' || next.batch.revision !== expectedRevision + 1) return 'revision_mismatch'
+          const record = await transaction.get(db.doc(`publishRecords/${reservation.recordId}`))
+          if (!record.get('committedAt') || record.get('state') !== 'done' || record.get('env') !== env || record.get('revision') !== expectedRevision || record.get('batchId') !== batchId) return 'revision_mismatch'
+        } else if (next.publishToken !== undefined) return 'revision_mismatch'
         transaction.set(batchRef, { ...next.batch, env })
         if (next.deleteEditFor !== undefined) {
           transaction.delete(batchRef.collection('edits').doc(next.deleteEditFor))
