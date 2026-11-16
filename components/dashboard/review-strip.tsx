@@ -21,7 +21,9 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
           {batch.createdBy.slice(0, 1).toUpperCase()}
         </AvatarFallback>
       </Avatar>
-      <strong>{states || (detail.error ? 'Unavailable' : '…')}</strong>
+      <strong className="inline-block w-24 shrink-0 truncate" title={states || undefined}>
+        {states || (detail.error ? 'Unavailable' : '…')}
+      </strong>
       <span className="count">rev {batch.revision}</span>
       <span>{batch.plateIds.length} plates</span>
       <span
