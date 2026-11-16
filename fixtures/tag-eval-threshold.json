@@ -1,0 +1,6 @@
+{
+  "minimumF1": 0.6,
+  "basis": "Calibrated 0.029 below the first complete real run micro F1 (0.629). Failed tagging attempts count as empty suggestions.",
+  "baselineResults": "eval-results/tag-eval-2026-11-16T16-27-20.077Z.json",
+  "baselineF1": 0.6288343558282209
+}

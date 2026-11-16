@@ -1,0 +1,601 @@
+{
+  "catalogVersion": 12,
+  "provenance": {
+    "source": "Staging Catalog Snapshot v12, with curator progress confirmed from the legacy curator sidecar.",
+    "stateProgress": {
+      "AK": "in_progress",
+      "AL": "in_progress"
+    },
+    "limitation": "No Jurisdiction is marked done. The approved scope uses 30 curator-reviewed AK/AL Plates from partially curated Jurisdictions; these answers are a provisional reference, not completed-state ground truth.",
+    "selection": "15 evenly spaced Plates per Jurisdiction in catalog order, spanning family Templates and variants. Tags copied unchanged from the snapshot."
+  },
+  "plates": [
+    {
+      "id": "AK.standard_gold",
+      "state": "AK",
+      "displayName": "Standard Gold",
+      "image": "AK/standard_gold.webp",
+      "tags": [
+        "gold",
+        "yellow",
+        "blue text",
+        "border",
+        "outline",
+        "standard",
+        "simple"
+      ]
+    },
+    {
+      "id": "AK.caribou",
+      "state": "AK",
+      "displayName": "Caribou",
+      "image": "AK/caribou.webp",
+      "tags": [
+        "white",
+        "blue text",
+        "black text",
+        "multi-colored",
+        "caribou",
+        "mountain",
+        "star",
+        "tree",
+        "wildlife",
+        "environmental",
+        "silhouette",
+        "landscape",
+        "stripe",
+        "antlers"
+      ]
+    },
+    {
+      "id": "AK.army",
+      "state": "AK",
+      "displayName": "Army",
+      "image": "AK/army.webp",
+      "tags": [
+        "white",
+        "red text",
+        "blue text",
+        "seal",
+        "veteran",
+        "military",
+        "patriotic",
+        "stripe",
+        "army"
+      ]
+    },
+    {
+      "id": "AK.coast_guard",
+      "state": "AK",
+      "displayName": "Coast Guard",
+      "image": "AK/coast_guard.webp",
+      "tags": [
+        "white",
+        "red text",
+        "blue text",
+        "seal",
+        "veteran",
+        "military",
+        "patriotic",
+        "crest",
+        "coast",
+        "guard"
+      ]
+    },
+    {
+      "id": "AK.mountain",
+      "state": "AK",
+      "displayName": "Mountain",
+      "image": "AK/mountain.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "mountain",
+        "wildlife",
+        "environmental",
+        "landscape",
+        "silhouette"
+      ]
+    },
+    {
+      "id": "AK.uas",
+      "state": "AK",
+      "displayName": "UAS",
+      "image": "AK/uas.webp",
+      "tags": [
+        "blue",
+        "yellow text",
+        "seal",
+        "education",
+        "university",
+        "gradient",
+        "uas"
+      ]
+    },
+    {
+      "id": "AK.disabled_w_parking_privileges",
+      "state": "AK",
+      "displayName": "Disabled w/ Parking Privileges",
+      "image": "AK/disabled_w_parking_privileges.webp",
+      "tags": [
+        "yellow",
+        "black text",
+        "wheelchair",
+        "memorial",
+        "border",
+        "outline",
+        "disabled",
+        "parking",
+        "privilege"
+      ]
+    },
+    {
+      "id": "AK.breast_cancer_awareness",
+      "state": "AK",
+      "displayName": "Breast Cancer Awareness",
+      "image": "AK/breast_cancer_awareness.webp",
+      "tags": [
+        "pink",
+        "white",
+        "black text",
+        "ribbon",
+        "charity",
+        "medical",
+        "stripe",
+        "landscape",
+        "breast",
+        "cancer",
+        "awareness"
+      ]
+    },
+    {
+      "id": "AK.choose_life",
+      "state": "AK",
+      "displayName": "Choose Life",
+      "image": "AK/choose_life.webp",
+      "tags": [
+        "yellow",
+        "blue text",
+        "red text",
+        "multi-colored",
+        "doll",
+        "charity",
+        "silhouette",
+        "choose",
+        "life"
+      ]
+    },
+    {
+      "id": "AK.disabled_veteran_w_parking_privileges",
+      "state": "AK",
+      "displayName": "Disabled Veteran w/ Parking Privileges",
+      "image": "AK/disabled_veteran_w_parking_privileges.webp",
+      "tags": [
+        "red",
+        "blue",
+        "black text",
+        "white text",
+        "multi-colored",
+        "flag",
+        "cross",
+        "veteran",
+        "military",
+        "stripe",
+        "seal",
+        "gradient",
+        "disabled",
+        "parking",
+        "privilege"
+      ]
+    },
+    {
+      "id": "AK.former_prisoner_of_war",
+      "state": "AK",
+      "displayName": "Former Prisoner of War",
+      "image": "AK/former_prisoner_of_war.webp",
+      "tags": [
+        "yellow",
+        "red text",
+        "blue text",
+        "veteran",
+        "military",
+        "memorial",
+        "stripe",
+        "former",
+        "prisoner",
+        "war"
+      ]
+    },
+    {
+      "id": "AK.veterans_commemorative",
+      "state": "AK",
+      "displayName": "Veterans Commemorative",
+      "image": "AK/veterans_commemorative.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "red text",
+        "multi-colored",
+        "star",
+        "flag",
+        "patriotic",
+        "veteran",
+        "military",
+        "stripe",
+        "seal",
+        "landscape",
+        "commemorative"
+      ]
+    },
+    {
+      "id": "AK.knights_of_columbus",
+      "state": "AK",
+      "displayName": "Knights of Columbus",
+      "image": "AK/knights_of_columbus.webp",
+      "tags": [
+        "white",
+        "gold",
+        "blue text",
+        "gold text",
+        "face",
+        "seal",
+        "fraternal",
+        "religious",
+        "portrait",
+        "knights",
+        "columbus"
+      ]
+    },
+    {
+      "id": "AK.purple_heart",
+      "state": "AK",
+      "displayName": "Purple Heart",
+      "image": "AK/purple_heart.webp",
+      "tags": [
+        "blue",
+        "white",
+        "red",
+        "black text",
+        "multi-colored",
+        "star",
+        "heart",
+        "military",
+        "veteran",
+        "patriotic",
+        "stripe",
+        "seal",
+        "landscape",
+        "purple"
+      ]
+    },
+    {
+      "id": "AK.pro_family_pro_choice",
+      "state": "AK",
+      "displayName": "Pro-Family, Pro-Choice",
+      "image": "AK/pro_family_pro_choice.webp",
+      "tags": [
+        "white",
+        "blue text",
+        "red text",
+        "multi-colored",
+        "moose",
+        "political",
+        "silhouette",
+        "landscape",
+        "pro",
+        "family",
+        "choice"
+      ]
+    },
+    {
+      "id": "AL.standard_passenger",
+      "state": "AL",
+      "displayName": "Standard Passenger",
+      "image": "AL/standard_passenger.webp",
+      "tags": [
+        "bird",
+        "water",
+        "grass",
+        "tourism",
+        "environmental",
+        "sunrise",
+        "coastline",
+        "silhouette",
+        "alabama",
+        "passenger",
+        "standard",
+        "yellow",
+        "blue",
+        "green",
+        "black text",
+        "multi-colored"
+      ]
+    },
+    {
+      "id": "AL.friends_of_coal",
+      "state": "AL",
+      "displayName": "Friends of Coal",
+      "image": "AL/friends_of_coal.webp",
+      "tags": [
+        "coal",
+        "miner",
+        "occupational",
+        "commercial",
+        "patriotic",
+        "silhouette",
+        "seal",
+        "friends",
+        "white",
+        "black",
+        "blue",
+        "black text"
+      ]
+    },
+    {
+      "id": "AL.support_our_troops",
+      "state": "AL",
+      "displayName": "Support Our Troops",
+      "image": "AL/support_our_troops.webp",
+      "tags": [
+        "flag",
+        "heart",
+        "patriotic",
+        "military",
+        "veteran",
+        "stripe",
+        "ribbon",
+        "support",
+        "troops",
+        "white",
+        "blue",
+        "red",
+        "black text",
+        "multi-colored"
+      ]
+    },
+    {
+      "id": "AL.a_pink_breast_cancer_tag",
+      "state": "AL",
+      "displayName": "A Pink Breast Cancer Tag",
+      "image": "AL/a_pink_breast_cancer_tag.webp",
+      "tags": [
+        "ribbon",
+        "charity",
+        "healthcare",
+        "memorial",
+        "banner",
+        "breast",
+        "cancer",
+        "tag",
+        "pink",
+        "black",
+        "white",
+        "black text",
+        "alabama"
+      ]
+    },
+    {
+      "id": "AL.albertville_city_schools_foundation",
+      "state": "AL",
+      "displayName": "Albertville City Schools Foundation",
+      "image": "AL/albertville_city_schools_foundation.webp",
+      "tags": [
+        "white",
+        "red",
+        "black text",
+        "multi-colored",
+        "education",
+        "charity",
+        "seal",
+        "albertville",
+        "city",
+        "schools",
+        "foundation"
+      ]
+    },
+    {
+      "id": "AL.calhoun_community_college",
+      "state": "AL",
+      "displayName": "Calhoun Community College",
+      "image": "AL/calhoun_community_college.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "education",
+        "seal",
+        "calhoun",
+        "community",
+        "college"
+      ]
+    },
+    {
+      "id": "AL.educator_retired_educator",
+      "state": "AL",
+      "displayName": "Educator/Retired Educator",
+      "image": "AL/educator_retired_educator.webp",
+      "tags": [
+        "state",
+        "education",
+        "occupational",
+        "silhouette",
+        "educator",
+        "retired",
+        "white",
+        "blue",
+        "black text",
+        "red text"
+      ]
+    },
+    {
+      "id": "AL.help_end_epilepsy",
+      "state": "AL",
+      "displayName": "Help End Epilepsy",
+      "image": "AL/help_end_epilepsy.webp",
+      "tags": [
+        "bolt",
+        "charity",
+        "end",
+        "epilepsy",
+        "health",
+        "help",
+        "lightning",
+        "medical",
+        "silhouette",
+        "purple",
+        "red",
+        "white",
+        "black text",
+        "white text",
+        "multi-colored"
+      ]
+    },
+    {
+      "id": "AL.consular_official",
+      "state": "AL",
+      "displayName": "Consular Official",
+      "image": "AL/consular_official.webp",
+      "tags": [
+        "white",
+        "green",
+        "black text",
+        "green text",
+        "seal",
+        "professional",
+        "occupational",
+        "consular",
+        "official"
+      ]
+    },
+    {
+      "id": "AL.professional_firefighter",
+      "state": "AL",
+      "displayName": "Professional Firefighter",
+      "image": "AL/professional_firefighter.webp",
+      "tags": [
+        "cross",
+        "star",
+        "flame",
+        "occupational",
+        "professional",
+        "emergency",
+        "seal",
+        "badge",
+        "firefighter",
+        "gray",
+        "white",
+        "red",
+        "black",
+        "black text",
+        "red text",
+        "multi-colored"
+      ]
+    },
+    {
+      "id": "AL.state_disability_access",
+      "state": "AL",
+      "displayName": "State Disability Access",
+      "image": "AL/state_disability_access.webp",
+      "tags": [
+        "heart",
+        "government",
+        "disability",
+        "accessibility",
+        "seal",
+        "silhouette",
+        "state",
+        "access",
+        "white",
+        "black",
+        "gray",
+        "black text"
+      ]
+    },
+    {
+      "id": "AL.university_of_south_alabama",
+      "state": "AL",
+      "displayName": "University of South Alabama",
+      "image": "AL/university_of_south_alabama.webp",
+      "tags": [
+        "heart",
+        "university",
+        "education",
+        "seal",
+        "banner",
+        "south",
+        "alabama",
+        "white",
+        "red",
+        "blue",
+        "black text",
+        "blue text",
+        "multi-colored"
+      ]
+    },
+    {
+      "id": "AL.desert_shield_desert_storm",
+      "state": "AL",
+      "displayName": "Desert Shield/Desert Storm",
+      "image": "AL/desert_shield_desert_storm.webp",
+      "tags": [
+        "shield",
+        "military",
+        "veteran",
+        "patriotic",
+        "stripe",
+        "seal",
+        "banner",
+        "desert",
+        "storm",
+        "white",
+        "black",
+        "red",
+        "black text",
+        "red text"
+      ]
+    },
+    {
+      "id": "AL.pearl_harbor_survivor",
+      "state": "AL",
+      "displayName": "Pearl Harbor Survivor",
+      "image": "AL/pearl_harbor_survivor.webp",
+      "tags": [
+        "military",
+        "memorial",
+        "historical",
+        "veteran",
+        "seal",
+        "banner",
+        "pearl",
+        "harbor",
+        "survivor",
+        "white",
+        "red",
+        "black"
+      ]
+    },
+    {
+      "id": "AL.tuskegee_university",
+      "state": "AL",
+      "displayName": "Tuskegee University",
+      "image": "AL/tuskegee_university.webp",
+      "tags": [
+        "eagle",
+        "university",
+        "education",
+        "seal",
+        "crest",
+        "tuskegee",
+        "white",
+        "brown",
+        "black",
+        "gold",
+        "black text",
+        "gold text",
+        "multi-colored"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1365 @@
+{
+  "date": "2026-11-16T16:27:20.077Z",
+  "model": "gemma4:12b",
+  "backend": "ollama",
+  "promptVersion": "9baf8f69e869",
+  "settings": {
+    "temperature": 0.1,
+    "num_ctx": 4096,
+    "think": false,
+    "stream": false,
+    "keep_alive": "30m"
+  },
+  "aggregation": "micro",
+  "emptySetPolicy": "Both empty scores 1; empty suggestions against nonempty curated scores 0; empty curated recall is 1.",
+  "minimumF1": 0,
+  "failedPlates": 2,
+  "plates": [
+    {
+      "id": "AK.standard_gold",
+      "state": "AK",
+      "displayName": "Standard Gold",
+      "image": "AK/standard_gold.webp",
+      "tags": [
+        "gold",
+        "yellow",
+        "blue text",
+        "border",
+        "outline",
+        "standard",
+        "simple"
+      ],
+      "suggestions": [
+        "gold",
+        "black text"
+      ],
+      "score": {
+        "truePositive": 1,
+        "falsePositive": 1,
+        "falseNegative": 6,
+        "precision": 0.5,
+        "recall": 0.14285714285714285,
+        "f1": 0.22222222222222224
+      },
+      "durationMs": 1146,
+      "usage": {
+        "eval_count": 118,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.caribou",
+      "state": "AK",
+      "displayName": "Caribou",
+      "image": "AK/caribou.webp",
+      "tags": [
+        "white",
+        "blue text",
+        "black text",
+        "multi-colored",
+        "caribou",
+        "mountain",
+        "star",
+        "tree",
+        "wildlife",
+        "environmental",
+        "silhouette",
+        "landscape",
+        "stripe",
+        "antlers"
+      ],
+      "suggestions": [
+        "blue",
+        "white",
+        "black",
+        "white text",
+        "blue text",
+        "wildlife",
+        "environmental",
+        "star",
+        "mountains",
+        "tree",
+        "silhouette",
+        "caribou",
+        "mountain",
+        "tre"
+      ],
+      "score": {
+        "truePositive": 9,
+        "falsePositive": 5,
+        "falseNegative": 5,
+        "precision": 0.6428571428571429,
+        "recall": 0.6428571428571429,
+        "f1": 0.6428571428571429
+      },
+      "durationMs": 1525,
+      "usage": {
+        "eval_count": 204,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.army",
+      "state": "AK",
+      "displayName": "Army",
+      "image": "AK/army.webp",
+      "tags": [
+        "white",
+        "red text",
+        "blue text",
+        "seal",
+        "veteran",
+        "military",
+        "patriotic",
+        "stripe",
+        "army"
+      ],
+      "suggestions": [
+        "white",
+        "red text",
+        "navy text",
+        "military",
+        "veteran",
+        "seal",
+        "star",
+        "army"
+      ],
+      "score": {
+        "truePositive": 6,
+        "falsePositive": 2,
+        "falseNegative": 3,
+        "precision": 0.75,
+        "recall": 0.6666666666666666,
+        "f1": 0.7058823529411765
+      },
+      "durationMs": 1127,
+      "usage": {
+        "eval_count": 166,
+        "prompt_eval_count": 1469
+      }
+    },
+    {
+      "id": "AK.coast_guard",
+      "state": "AK",
+      "displayName": "Coast Guard",
+      "image": "AK/coast_guard.webp",
+      "tags": [
+        "white",
+        "red text",
+        "blue text",
+        "seal",
+        "veteran",
+        "military",
+        "patriotic",
+        "crest",
+        "coast",
+        "guard"
+      ],
+      "suggestions": [
+        "white",
+        "red text",
+        "blue text",
+        "veteran",
+        "military",
+        "seal",
+        "coast",
+        "guard"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 0,
+        "falseNegative": 2,
+        "precision": 1,
+        "recall": 0.8,
+        "f1": 0.888888888888889
+      },
+      "durationMs": 1272,
+      "usage": {
+        "eval_count": 163,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.mountain",
+      "state": "AK",
+      "displayName": "Mountain",
+      "image": "AK/mountain.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "mountain",
+        "wildlife",
+        "environmental",
+        "landscape",
+        "silhouette"
+      ],
+      "suggestions": [],
+      "score": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 8,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      "durationMs": 1192,
+      "error": "tagging_failed"
+    },
+    {
+      "id": "AK.uas",
+      "state": "AK",
+      "displayName": "UAS",
+      "image": "AK/uas.webp",
+      "tags": [
+        "blue",
+        "yellow text",
+        "seal",
+        "education",
+        "university",
+        "gradient",
+        "uas"
+      ],
+      "suggestions": [
+        "blue",
+        "yellow text",
+        "white text",
+        "education",
+        "university",
+        "seal",
+        "circle",
+        "uas"
+      ],
+      "score": {
+        "truePositive": 6,
+        "falsePositive": 2,
+        "falseNegative": 1,
+        "precision": 0.75,
+        "recall": 0.8571428571428571,
+        "f1": 0.7999999999999999
+      },
+      "durationMs": 1293,
+      "usage": {
+        "eval_count": 164,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.disabled_w_parking_privileges",
+      "state": "AK",
+      "displayName": "Disabled w/ Parking Privileges",
+      "image": "AK/disabled_w_parking_privileges.webp",
+      "tags": [
+        "yellow",
+        "black text",
+        "wheelchair",
+        "memorial",
+        "border",
+        "outline",
+        "disabled",
+        "parking",
+        "privilege"
+      ],
+      "suggestions": [
+        "gold",
+        "navy text",
+        "occupational",
+        "circle",
+        "wheelchair",
+        "disabled",
+        "parking",
+        "privileges"
+      ],
+      "score": {
+        "truePositive": 3,
+        "falsePositive": 5,
+        "falseNegative": 6,
+        "precision": 0.375,
+        "recall": 0.3333333333333333,
+        "f1": 0.35294117647058826
+      },
+      "durationMs": 1027,
+      "usage": {
+        "eval_count": 152,
+        "prompt_eval_count": 1474
+      }
+    },
+    {
+      "id": "AK.breast_cancer_awareness",
+      "state": "AK",
+      "displayName": "Breast Cancer Awareness",
+      "image": "AK/breast_cancer_awareness.webp",
+      "tags": [
+        "pink",
+        "white",
+        "black text",
+        "ribbon",
+        "charity",
+        "medical",
+        "stripe",
+        "landscape",
+        "breast",
+        "cancer",
+        "awareness"
+      ],
+      "suggestions": [
+        "white",
+        "pink",
+        "black text",
+        "blue text",
+        "charity",
+        "ribbon",
+        "stripe",
+        "breast",
+        "cancer",
+        "awareness"
+      ],
+      "score": {
+        "truePositive": 9,
+        "falsePositive": 1,
+        "falseNegative": 2,
+        "precision": 0.9,
+        "recall": 0.8181818181818182,
+        "f1": 0.8571428571428572
+      },
+      "durationMs": 1340,
+      "usage": {
+        "eval_count": 174,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AK.choose_life",
+      "state": "AK",
+      "displayName": "Choose Life",
+      "image": "AK/choose_life.webp",
+      "tags": [
+        "yellow",
+        "blue text",
+        "red text",
+        "multi-colored",
+        "doll",
+        "charity",
+        "silhouette",
+        "choose",
+        "life"
+      ],
+      "suggestions": [
+        "yellow",
+        "navy text",
+        "red text",
+        "charity",
+        "circle",
+        "baby",
+        "choose",
+        "life"
+      ],
+      "score": {
+        "truePositive": 5,
+        "falsePositive": 3,
+        "falseNegative": 4,
+        "precision": 0.625,
+        "recall": 0.5555555555555556,
+        "f1": 0.5882352941176471
+      },
+      "durationMs": 1059,
+      "usage": {
+        "eval_count": 157,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.disabled_veteran_w_parking_privileges",
+      "state": "AK",
+      "displayName": "Disabled Veteran w/ Parking Privileges",
+      "image": "AK/disabled_veteran_w_parking_privileges.webp",
+      "tags": [
+        "red",
+        "blue",
+        "black text",
+        "white text",
+        "multi-colored",
+        "flag",
+        "cross",
+        "veteran",
+        "military",
+        "stripe",
+        "seal",
+        "gradient",
+        "disabled",
+        "parking",
+        "privilege"
+      ],
+      "suggestions": [
+        "white",
+        "red",
+        "blue",
+        "white text",
+        "black text",
+        "veteran",
+        "military",
+        "occupational",
+        "flag",
+        "stripe",
+        "wheelchair",
+        "disabled",
+        "parking",
+        "privileges"
+      ],
+      "score": {
+        "truePositive": 10,
+        "falsePositive": 4,
+        "falseNegative": 5,
+        "precision": 0.7142857142857143,
+        "recall": 0.6666666666666666,
+        "f1": 0.689655172413793
+      },
+      "durationMs": 1426,
+      "usage": {
+        "eval_count": 188,
+        "prompt_eval_count": 1475
+      }
+    },
+    {
+      "id": "AK.former_prisoner_of_war",
+      "state": "AK",
+      "displayName": "Former Prisoner of War",
+      "image": "AK/former_prisoner_of_war.webp",
+      "tags": [
+        "yellow",
+        "red text",
+        "blue text",
+        "veteran",
+        "military",
+        "memorial",
+        "stripe",
+        "former",
+        "prisoner",
+        "war"
+      ],
+      "suggestions": [
+        "yellow",
+        "blue text",
+        "red text",
+        "military",
+        "veteran",
+        "memorial",
+        "former",
+        "prisoner",
+        "war"
+      ],
+      "score": {
+        "truePositive": 9,
+        "falsePositive": 0,
+        "falseNegative": 1,
+        "precision": 1,
+        "recall": 0.9,
+        "f1": 0.9473684210526316
+      },
+      "durationMs": 1007,
+      "usage": {
+        "eval_count": 155,
+        "prompt_eval_count": 1472
+      }
+    },
+    {
+      "id": "AK.veterans_commemorative",
+      "state": "AK",
+      "displayName": "Veterans Commemorative",
+      "image": "AK/veterans_commemorative.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "red text",
+        "multi-colored",
+        "star",
+        "flag",
+        "patriotic",
+        "veteran",
+        "military",
+        "stripe",
+        "seal",
+        "landscape",
+        "commemorative"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "red",
+        "blue text",
+        "red text",
+        "veteran",
+        "military",
+        "patriotic",
+        "star",
+        "stripe",
+        "flag",
+        "seal",
+        "usa",
+        "veterans",
+        "commemorative"
+      ],
+      "score": {
+        "truePositive": 11,
+        "falsePositive": 4,
+        "falseNegative": 3,
+        "precision": 0.7333333333333333,
+        "recall": 0.7857142857142857,
+        "f1": 0.7586206896551724
+      },
+      "durationMs": 1493,
+      "usage": {
+        "eval_count": 205,
+        "prompt_eval_count": 1473
+      }
+    },
+    {
+      "id": "AK.knights_of_columbus",
+      "state": "AK",
+      "displayName": "Knights of Columbus",
+      "image": "AK/knights_of_columbus.webp",
+      "tags": [
+        "white",
+        "gold",
+        "blue text",
+        "gold text",
+        "face",
+        "seal",
+        "fraternal",
+        "religious",
+        "portrait",
+        "knights",
+        "columbus"
+      ],
+      "suggestions": [
+        "white",
+        "gold",
+        "gray",
+        "navy text",
+        "black text",
+        "religious",
+        "fraternal",
+        "gradient",
+        "seal",
+        "man",
+        "knights",
+        "columbus"
+      ],
+      "score": {
+        "truePositive": 7,
+        "falsePositive": 5,
+        "falseNegative": 4,
+        "precision": 0.5833333333333334,
+        "recall": 0.6363636363636364,
+        "f1": 0.6086956521739131
+      },
+      "durationMs": 1179,
+      "usage": {
+        "eval_count": 181,
+        "prompt_eval_count": 1472
+      }
+    },
+    {
+      "id": "AK.purple_heart",
+      "state": "AK",
+      "displayName": "Purple Heart",
+      "image": "AK/purple_heart.webp",
+      "tags": [
+        "blue",
+        "white",
+        "red",
+        "black text",
+        "multi-colored",
+        "star",
+        "heart",
+        "military",
+        "veteran",
+        "patriotic",
+        "stripe",
+        "seal",
+        "landscape",
+        "purple"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "purple",
+        "purple text",
+        "blue text",
+        "military",
+        "veteran",
+        "star",
+        "stripe",
+        "flag",
+        "ribbon",
+        "medal",
+        "heart"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 5,
+        "falseNegative": 6,
+        "precision": 0.6153846153846154,
+        "recall": 0.5714285714285714,
+        "f1": 0.5925925925925927
+      },
+      "durationMs": 1520,
+      "usage": {
+        "eval_count": 195,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AK.pro_family_pro_choice",
+      "state": "AK",
+      "displayName": "Pro-Family, Pro-Choice",
+      "image": "AK/pro_family_pro_choice.webp",
+      "tags": [
+        "white",
+        "blue text",
+        "red text",
+        "multi-colored",
+        "moose",
+        "political",
+        "silhouette",
+        "landscape",
+        "pro",
+        "family",
+        "choice"
+      ],
+      "suggestions": [],
+      "score": {
+        "truePositive": 0,
+        "falsePositive": 0,
+        "falseNegative": 11,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      "durationMs": 1281,
+      "error": "tagging_failed"
+    },
+    {
+      "id": "AL.standard_passenger",
+      "state": "AL",
+      "displayName": "Standard Passenger",
+      "image": "AL/standard_passenger.webp",
+      "tags": [
+        "bird",
+        "water",
+        "grass",
+        "tourism",
+        "environmental",
+        "sunrise",
+        "coastline",
+        "silhouette",
+        "alabama",
+        "passenger",
+        "standard",
+        "yellow",
+        "blue",
+        "green",
+        "black text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "green",
+        "tan",
+        "black text",
+        "blue text",
+        "environmental",
+        "automotive",
+        "landscape",
+        "sunset",
+        "tree",
+        "coastline",
+        "beach",
+        "ocean",
+        "palm tree",
+        "sun"
+      ],
+      "score": {
+        "truePositive": 5,
+        "falsePositive": 11,
+        "falseNegative": 11,
+        "precision": 0.3125,
+        "recall": 0.3125,
+        "f1": 0.3125
+      },
+      "durationMs": 1602,
+      "usage": {
+        "eval_count": 210,
+        "prompt_eval_count": 1470
+      }
+    },
+    {
+      "id": "AL.friends_of_coal",
+      "state": "AL",
+      "displayName": "Friends of Coal",
+      "image": "AL/friends_of_coal.webp",
+      "tags": [
+        "coal",
+        "miner",
+        "occupational",
+        "commercial",
+        "patriotic",
+        "silhouette",
+        "seal",
+        "friends",
+        "white",
+        "black",
+        "blue",
+        "black text"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "gray",
+        "black text",
+        "blue text",
+        "occupational",
+        "environmental",
+        "silhouette",
+        "landscape",
+        "circle",
+        "miner",
+        "coal",
+        "mountain",
+        "friends"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 6,
+        "falseNegative": 4,
+        "precision": 0.5714285714285714,
+        "recall": 0.6666666666666666,
+        "f1": 0.6153846153846153
+      },
+      "durationMs": 1351,
+      "usage": {
+        "eval_count": 204,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.support_our_troops",
+      "state": "AL",
+      "displayName": "Support Our Troops",
+      "image": "AL/support_our_troops.webp",
+      "tags": [
+        "flag",
+        "heart",
+        "patriotic",
+        "military",
+        "veteran",
+        "stripe",
+        "ribbon",
+        "support",
+        "troops",
+        "white",
+        "blue",
+        "red",
+        "black text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "red",
+        "black text",
+        "red text",
+        "military",
+        "patriotic",
+        "veteran",
+        "flag",
+        "silhouette",
+        "star",
+        "stripe",
+        "soldier",
+        "support",
+        "our",
+        "troops"
+      ],
+      "score": {
+        "truePositive": 11,
+        "falsePositive": 5,
+        "falseNegative": 3,
+        "precision": 0.6875,
+        "recall": 0.7857142857142857,
+        "f1": 0.7333333333333334
+      },
+      "durationMs": 1537,
+      "usage": {
+        "eval_count": 207,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.a_pink_breast_cancer_tag",
+      "state": "AL",
+      "displayName": "A Pink Breast Cancer Tag",
+      "image": "AL/a_pink_breast_cancer_tag.webp",
+      "tags": [
+        "ribbon",
+        "charity",
+        "healthcare",
+        "memorial",
+        "banner",
+        "breast",
+        "cancer",
+        "tag",
+        "pink",
+        "black",
+        "white",
+        "black text",
+        "alabama"
+      ],
+      "suggestions": [
+        "pink",
+        "white",
+        "maroon text",
+        "black text",
+        "charity",
+        "ribbon",
+        "gradient",
+        "breast",
+        "cancer",
+        "tag"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 2,
+        "falseNegative": 5,
+        "precision": 0.8,
+        "recall": 0.6153846153846154,
+        "f1": 0.6956521739130435
+      },
+      "durationMs": 1135,
+      "usage": {
+        "eval_count": 175,
+        "prompt_eval_count": 1473
+      }
+    },
+    {
+      "id": "AL.albertville_city_schools_foundation",
+      "state": "AL",
+      "displayName": "Albertville City Schools Foundation",
+      "image": "AL/albertville_city_schools_foundation.webp",
+      "tags": [
+        "white",
+        "red",
+        "black text",
+        "multi-colored",
+        "education",
+        "charity",
+        "seal",
+        "albertville",
+        "city",
+        "schools",
+        "foundation"
+      ],
+      "suggestions": [
+        "white",
+        "red",
+        "black text",
+        "red text",
+        "education",
+        "stripe",
+        "banner",
+        "letter",
+        "albertville",
+        "city",
+        "schools",
+        "foundation"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 4,
+        "falseNegative": 3,
+        "precision": 0.6666666666666666,
+        "recall": 0.7272727272727273,
+        "f1": 0.6956521739130435
+      },
+      "durationMs": 1338,
+      "usage": {
+        "eval_count": 171,
+        "prompt_eval_count": 1473
+      }
+    },
+    {
+      "id": "AL.calhoun_community_college",
+      "state": "AL",
+      "displayName": "Calhoun Community College",
+      "image": "AL/calhoun_community_college.webp",
+      "tags": [
+        "white",
+        "blue",
+        "black text",
+        "education",
+        "seal",
+        "calhoun",
+        "community",
+        "college"
+      ],
+      "suggestions": [
+        "white",
+        "teal",
+        "black",
+        "white text",
+        "black text",
+        "education",
+        "university",
+        "seal",
+        "gradient",
+        "calhoun",
+        "community",
+        "college"
+      ],
+      "score": {
+        "truePositive": 7,
+        "falsePositive": 5,
+        "falseNegative": 1,
+        "precision": 0.5833333333333334,
+        "recall": 0.875,
+        "f1": 0.7000000000000001
+      },
+      "durationMs": 1184,
+      "usage": {
+        "eval_count": 171,
+        "prompt_eval_count": 1472
+      }
+    },
+    {
+      "id": "AL.educator_retired_educator",
+      "state": "AL",
+      "displayName": "Educator/Retired Educator",
+      "image": "AL/educator_retired_educator.webp",
+      "tags": [
+        "state",
+        "education",
+        "occupational",
+        "silhouette",
+        "educator",
+        "retired",
+        "white",
+        "blue",
+        "black text",
+        "red text"
+      ],
+      "suggestions": [
+        "white",
+        "blue",
+        "black text",
+        "white text",
+        "education",
+        "map",
+        "educator",
+        "retired"
+      ],
+      "score": {
+        "truePositive": 6,
+        "falsePositive": 2,
+        "falseNegative": 4,
+        "precision": 0.75,
+        "recall": 0.6,
+        "f1": 0.6666666666666665
+      },
+      "durationMs": 1336,
+      "usage": {
+        "eval_count": 167,
+        "prompt_eval_count": 1473
+      }
+    },
+    {
+      "id": "AL.help_end_epilepsy",
+      "state": "AL",
+      "displayName": "Help End Epilepsy",
+      "image": "AL/help_end_epilepsy.webp",
+      "tags": [
+        "bolt",
+        "charity",
+        "end",
+        "epilepsy",
+        "health",
+        "help",
+        "lightning",
+        "medical",
+        "silhouette",
+        "purple",
+        "red",
+        "white",
+        "black text",
+        "white text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "purple",
+        "white",
+        "white text",
+        "black text",
+        "charity",
+        "gradient",
+        "lightning bolt",
+        "help",
+        "end",
+        "epilepsy"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 2,
+        "falseNegative": 7,
+        "precision": 0.8,
+        "recall": 0.5333333333333333,
+        "f1": 0.64
+      },
+      "durationMs": 1196,
+      "usage": {
+        "eval_count": 179,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.consular_official",
+      "state": "AL",
+      "displayName": "Consular Official",
+      "image": "AL/consular_official.webp",
+      "tags": [
+        "white",
+        "green",
+        "black text",
+        "green text",
+        "seal",
+        "professional",
+        "occupational",
+        "consular",
+        "official"
+      ],
+      "suggestions": [
+        "white",
+        "black text",
+        "green text",
+        "military",
+        "professional",
+        "circle",
+        "consular"
+      ],
+      "score": {
+        "truePositive": 5,
+        "falsePositive": 2,
+        "falseNegative": 4,
+        "precision": 0.7142857142857143,
+        "recall": 0.5555555555555556,
+        "f1": 0.6250000000000001
+      },
+      "durationMs": 1363,
+      "usage": {
+        "eval_count": 160,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.professional_firefighter",
+      "state": "AL",
+      "displayName": "Professional Firefighter",
+      "image": "AL/professional_firefighter.webp",
+      "tags": [
+        "cross",
+        "star",
+        "flame",
+        "occupational",
+        "professional",
+        "emergency",
+        "seal",
+        "badge",
+        "firefighter",
+        "gray",
+        "white",
+        "red",
+        "black",
+        "black text",
+        "red text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "silver",
+        "gray",
+        "black text",
+        "red text",
+        "occupational",
+        "military",
+        "seal",
+        "circle",
+        "firefighter emblem",
+        "professional",
+        "firefighter"
+      ],
+      "score": {
+        "truePositive": 7,
+        "falsePositive": 4,
+        "falseNegative": 9,
+        "precision": 0.6363636363636364,
+        "recall": 0.4375,
+        "f1": 0.5185185185185185
+      },
+      "durationMs": 1270,
+      "usage": {
+        "eval_count": 176,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.state_disability_access",
+      "state": "AL",
+      "displayName": "State Disability Access",
+      "image": "AL/state_disability_access.webp",
+      "tags": [
+        "heart",
+        "government",
+        "disability",
+        "accessibility",
+        "seal",
+        "silhouette",
+        "state",
+        "access",
+        "white",
+        "black",
+        "gray",
+        "black text"
+      ],
+      "suggestions": [
+        "white",
+        "black text",
+        "occupational",
+        "seal",
+        "circle",
+        "wheelchair",
+        "disability",
+        "access"
+      ],
+      "score": {
+        "truePositive": 5,
+        "falsePositive": 3,
+        "falseNegative": 7,
+        "precision": 0.625,
+        "recall": 0.4166666666666667,
+        "f1": 0.5
+      },
+      "durationMs": 1328,
+      "usage": {
+        "eval_count": 172,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.university_of_south_alabama",
+      "state": "AL",
+      "displayName": "University of South Alabama",
+      "image": "AL/university_of_south_alabama.webp",
+      "tags": [
+        "heart",
+        "university",
+        "education",
+        "seal",
+        "banner",
+        "south",
+        "alabama",
+        "white",
+        "red",
+        "blue",
+        "black text",
+        "blue text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "white",
+        "red",
+        "blue",
+        "black text",
+        "white text",
+        "education",
+        "university",
+        "stripe",
+        "circle",
+        "south",
+        "alabama"
+      ],
+      "score": {
+        "truePositive": 8,
+        "falsePositive": 3,
+        "falseNegative": 5,
+        "precision": 0.7272727272727273,
+        "recall": 0.6153846153846154,
+        "f1": 0.6666666666666667
+      },
+      "durationMs": 1148,
+      "usage": {
+        "eval_count": 172,
+        "prompt_eval_count": 1472
+      }
+    },
+    {
+      "id": "AL.desert_shield_desert_storm",
+      "state": "AL",
+      "displayName": "Desert Shield/Desert Storm",
+      "image": "AL/desert_shield_desert_storm.webp",
+      "tags": [
+        "shield",
+        "military",
+        "veteran",
+        "patriotic",
+        "stripe",
+        "seal",
+        "banner",
+        "desert",
+        "storm",
+        "white",
+        "black",
+        "red",
+        "black text",
+        "red text"
+      ],
+      "suggestions": [
+        "white",
+        "red",
+        "black",
+        "white text",
+        "red text",
+        "military",
+        "veteran",
+        "patriotic",
+        "flag",
+        "stripe",
+        "seal",
+        "gradient",
+        "desert",
+        "shield",
+        "storm"
+      ],
+      "score": {
+        "truePositive": 12,
+        "falsePositive": 3,
+        "falseNegative": 2,
+        "precision": 0.8,
+        "recall": 0.8571428571428571,
+        "f1": 0.8275862068965518
+      },
+      "durationMs": 1525,
+      "usage": {
+        "eval_count": 212,
+        "prompt_eval_count": 1473
+      }
+    },
+    {
+      "id": "AL.pearl_harbor_survivor",
+      "state": "AL",
+      "displayName": "Pearl Harbor Survivor",
+      "image": "AL/pearl_harbor_survivor.webp",
+      "tags": [
+        "military",
+        "memorial",
+        "historical",
+        "veteran",
+        "seal",
+        "banner",
+        "pearl",
+        "harbor",
+        "survivor",
+        "white",
+        "red",
+        "black"
+      ],
+      "suggestions": [
+        "white",
+        "red",
+        "black",
+        "white text",
+        "red text",
+        "military",
+        "veteran",
+        "historical",
+        "flag",
+        "stripe",
+        "scroll",
+        "pearl",
+        "harbor",
+        "survivor"
+      ],
+      "score": {
+        "truePositive": 9,
+        "falsePositive": 5,
+        "falseNegative": 3,
+        "precision": 0.6428571428571429,
+        "recall": 0.75,
+        "f1": 0.6923076923076924
+      },
+      "durationMs": 1312,
+      "usage": {
+        "eval_count": 198,
+        "prompt_eval_count": 1471
+      }
+    },
+    {
+      "id": "AL.tuskegee_university",
+      "state": "AL",
+      "displayName": "Tuskegee University",
+      "image": "AL/tuskegee_university.webp",
+      "tags": [
+        "eagle",
+        "university",
+        "education",
+        "seal",
+        "crest",
+        "tuskegee",
+        "white",
+        "brown",
+        "black",
+        "gold",
+        "black text",
+        "gold text",
+        "multi-colored"
+      ],
+      "suggestions": [
+        "white",
+        "maroon",
+        "gold",
+        "maroon text",
+        "white text",
+        "education",
+        "university",
+        "seal",
+        "banner",
+        "scroll",
+        "horse",
+        "tuskegee"
+      ],
+      "score": {
+        "truePositive": 6,
+        "falsePositive": 6,
+        "falseNegative": 7,
+        "precision": 0.5,
+        "recall": 0.46153846153846156,
+        "f1": 0.48000000000000004
+      },
+      "durationMs": 1514,
+      "usage": {
+        "eval_count": 192,
+        "prompt_eval_count": 1473
+      }
+    }
+  ],
+  "overall": {
+    "truePositive": 205,
+    "falsePositive": 100,
+    "falseNegative": 142,
+    "precision": 0.6721311475409836,
+    "recall": 0.590778097982709,
+    "f1": 0.6288343558282209
+  },
+  "timings": {
+    "totalMs": 39026,
+    "meanMs": 1300.8666666666666
+  }
+}
