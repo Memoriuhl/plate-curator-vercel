@@ -4,6 +4,8 @@ import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
 import type { Plate, Snapshot } from '../catalog/types'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
+import { fixtureSource } from '../catalog/fixture-source'
+import { catalogSourceKind } from '../catalog/source-kind'
 import { gcpAuthClient } from '../gcp/credentials'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
@@ -34,6 +36,8 @@ export function currentActor(request: Request) {
 }
 
 export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {
+  const { CATALOG_SOURCE, VERCEL_ENV } = process.env
+  if (catalogSourceKind({ CATALOG_SOURCE, VERCEL_ENV }) === 'fixture') return fixtureSource()
   return firestoreCatalogSource(stagingFirestore(), snapshotLoader)
 }
 
