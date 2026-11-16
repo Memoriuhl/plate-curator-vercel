@@ -32,7 +32,7 @@ export function BatchActions({
       (a as typeof a & { updatedAt?: string }).updatedAt ?? a.createdAt,
     ),
   )[0]
-  const detail = useBatch(batch?.id ?? null)
+  const detail = useBatch(batch?.id ?? null, { reuse: true })
   const me = useMe()
   const actions = useReviewActions()
   const [pending, setPending] = useState(false)

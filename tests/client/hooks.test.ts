@@ -6,7 +6,7 @@ import { ApiError } from '../../lib/client/api'
 import type { Plate } from '../../lib/catalog/types'
 import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import type { ReviewBatch } from '../../lib/review/types'
-import { useBatchRun, useReviewActions, batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
+import { useMe, useBatchRun, useReviewActions, batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
 import { projectFamilyPlate, expandFamilyPlate } from '../../components/dashboard/family-data'
 import { usePlateDrag } from '../../components/dashboard/use-plate-drag'
 
@@ -64,6 +64,56 @@ beforeEach(() => {
   session.api.send.mockReset()
 })
 afterEach(cleanup)
+
+test('state hooks fetch on first mount, reuse cached data on revisit, and explicitly refresh after writes', async () => {
+  const context = harness()
+  const useStateHooks = () => ({ me: useMe(), batches: useBatches(['open'], { mine: true }), batch: useBatch(batch.id, { reuse: true }) })
+  const first = renderHook(useStateHooks, context)
+  await waitFor(() => expect(first.result.current.batch.data).toBeDefined())
+  await waitFor(() => expect(first.result.current.me.data).toBeDefined())
+  await waitFor(() => expect(first.result.current.batches.data).toBeDefined())
+  first.unmount()
+  session.api.get.mockClear()
+  const revisit = renderHook(useStateHooks, context)
+  expect(revisit.result.current.batch.data).toBeDefined()
+  expect(revisit.result.current.batches.data).toBeDefined()
+  expect(revisit.result.current.me.data).toBeDefined()
+  expect(revisit.result.current.batch.isValidating).toBe(false)
+  expect(revisit.result.current.batches.isValidating).toBe(false)
+  expect(revisit.result.current.me.isValidating).toBe(false)
+  expect(session.api.get).not.toHaveBeenCalled()
+  await act(async () => { await Promise.all([revisit.result.current.batch.mutate(), revisit.result.current.batches.mutate(), revisit.result.current.me.mutate()]) })
+  expect(session.api.get.mock.calls.map(([key]) => key).sort()).toEqual(['/api/batches/draft', ownKey, '/api/me'].sort())
+})
+
+test('Review and Publish default batch-detail reads revalidate cached state-page data on mount', async () => {
+  const context = harness()
+  context.cache.set('/api/batches/draft', { data: detail() })
+  const statePage = renderHook(() => useBatch(batch.id, { reuse: true }), context)
+  expect(statePage.result.current.data?.batch.revision).toBe(1)
+  expect(session.api.get).not.toHaveBeenCalled()
+  statePage.unmount()
+  const updated = { ...detail(), batch: { ...batch, revision: 2 } }
+  session.api.get.mockResolvedValue(updated)
+  const reviewOrPublish = renderHook(() => useBatch(batch.id), context)
+  await waitFor(() => expect(reviewOrPublish.result.current.data?.batch.revision).toBe(2))
+  expect(session.api.get).toHaveBeenCalledExactlyOnceWith('/api/batches/draft')
+})
+
+test('revisiting cached server cards retains a saved draft family order', async () => {
+  const context = harness()
+  let order: string[] | undefined
+  session.api.get.mockImplementation(async (key: string) => key === ownKey ? [batch] : { ...detail(), batch: { ...batch, stateOrders: order ? { AK: order } : {} } })
+  session.api.send.mockImplementation(async () => { order = ['AK.other', card.id]; return { ...batch, stateOrders: { AK: order } } })
+  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+  const first = renderHook(() => ({ ordering: useReorderState(), overlay: useDraftOverlay(plates) }), context)
+  await waitFor(() => expect(first.result.current.overlay[0].revision).toBe('draft-revision'))
+  await act(async () => { expect(await first.result.current.ordering.reorder('AK', ['AK.other', card.id])).toEqual({ ok: true }) })
+  first.unmount()
+  const revisit = renderHook(() => useDraftOverlay(plates), context)
+  expect(revisit.result.current[0].sortOrder).toBe(1)
+  expect(revisit.result.current[1].sortOrder).toBe(0)
+})
 
 test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the server revision', async action => {
   const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', templateRole: action === 'merge' ? 'template' : 'variant' }))

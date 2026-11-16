@@ -28,7 +28,7 @@ export function TagRunBanner({
   dismiss(): void
   retry(plate: RunPlate): void
 }) {
-  const detail = useBatch(batchId)
+  const detail = useBatch(batchId, { reuse: true })
   const { edit, pending } = useEditPlate()
   const [messages, setMessages] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState<Record<string, string[]>>({})

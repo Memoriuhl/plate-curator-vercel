@@ -5,17 +5,16 @@ import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { ThemeToggle } from '@/components/app/theme-toggle'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
-const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', push: vi.fn() }))
+const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', push: vi.fn(), prefetch: vi.fn() }))
 vi.mock('next/navigation', () => ({
   useParams: () => ({ code: mounted.code, id: mounted.id }),
   usePathname: () => mounted.pathname,
-  useRouter: () => ({ push: mounted.push }),
+  useRouter: () => ({ push: mounted.push, prefetch: mounted.prefetch }),
 }))
 vi.mock('next/link', () => ({
   default: ({ children, prefetch, scroll, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
-    void prefetch
     void scroll
-    return <a {...props}>{children}</a>
+    return <a {...props} data-prefetch={String(prefetch)}>{children}</a>
   },
   useLinkStatus: () => ({ pending: false }),
 }))
@@ -62,6 +61,7 @@ beforeEach(() => {
   mounted.id = undefined
   mounted.pathname = '/states/AK'
   mounted.push.mockClear()
+  mounted.prefetch.mockClear()
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
 })
 test('appearance segments stay open, persist choices, and support arrow keys', () => {
@@ -115,6 +115,25 @@ const jurisdictions = [
   { code: 'ON', name: 'Ontario', region: 'CA' },
   { code: 'BC', name: 'British Columbia', region: 'CA' },
 ].map((item) => ({ ...item, completeCount: 1, plateCount: 2, progress: null })) satisfies JurisdictionSummary[]
+
+test('prefetches only two neighbors on each side and keeps viewport and intent prefetch', () => {
+  const states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT'].map(code => ({ ...jurisdictions[0], code, name: code }))
+  mounted.code = 'AR'
+  const view = render(<JurisdictionNav jurisdictions={[...states, jurisdictions[2]]} />)
+  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual(['/states/AK', '/states/AZ', '/states/CA', '/states/CO'])
+  expect(screen.getAllByRole('link').filter(link => link.dataset.prefetch === 'true').map(link => link.textContent?.slice(0, 2))).toEqual(['AK', 'AZ', 'CA', 'CO'])
+  const distant = screen.getByRole('link', { name: /CT/ })
+  expect(distant.dataset.prefetch).toBe('auto')
+  fireEvent.mouseEnter(distant)
+  expect(distant.dataset.prefetch).toBe('true')
+  const first = screen.getByRole('link', { name: /AL/ })
+  fireEvent.focus(first)
+  expect(first.dataset.prefetch).toBe('true')
+  mounted.prefetch.mockClear()
+  mounted.code = 'AL'
+  view.rerender(<JurisdictionNav jurisdictions={states} />)
+  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual(['/states/AK', '/states/AZ'])
+})
 
 test('one navigation filters by URL region and keeps its DOM node across state switches', () => {
   const view = render(<JurisdictionNav jurisdictions={jurisdictions} />)
