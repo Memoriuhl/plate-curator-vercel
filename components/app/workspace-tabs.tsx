@@ -32,7 +32,6 @@ function TabsView({ active }: { active: '' | '/' | '/review' }) {
           <TabsTrigger value="/review" asChild>
             <Link
               href="/review"
-              prefetch={false}
               aria-current={active === '/review' ? 'page' : undefined}
             >
               Review
