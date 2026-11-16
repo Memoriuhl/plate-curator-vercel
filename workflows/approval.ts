@@ -1,5 +1,6 @@
 import { createHook, RetryableError, sleep } from 'workflow'
 import { publishBatch } from '../lib/publish/publish'
+import { catalogChanged } from '../lib/server/catalog-head'
 import { publishDeps, reviewDeps } from '../lib/server/context'
 
 export async function approvalRun(batchId: string, revision: number) {
@@ -36,6 +37,7 @@ async function runPublish(batchId: string, revision: number, ownerUid: string) {
   const batch = await reviewDeps().store.getBatch(batchId)
   if (!batch || (batch.state !== 'published' && (batch.state !== 'approved' || batch.revision !== revision || batch.approval?.revision !== revision - 1))) return { outcome: 'superseded' as const }
   const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision })
+  if (outcome.ok) catalogChanged()
   if (!outcome.ok && (outcome.error === 'locked' || outcome.error === 'unavailable')) {
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })
   }

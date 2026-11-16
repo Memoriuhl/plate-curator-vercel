@@ -1,4 +1,5 @@
 import { reorderState } from '../../../../../../lib/review/batch'
+import { catalogChanged } from '../../../../../../lib/server/catalog-head'
 import { currentActor, reviewDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../../lib/server/respond'
 
@@ -9,7 +10,9 @@ export async function PUT(request: Request, ctx: RouteContext<'/api/batches/[id]
   if (typeof body?.batchRevision !== 'number' || !Number.isSafeInteger(body.batchRevision) || body.batchRevision < 0 ||
     !Array.isArray(body.order) || !body.order.every((id: unknown) => typeof id === 'string')) return badRequest()
   const { id, state } = await ctx.params
-  return respond(await reorderState(reviewDeps(), auth.actor, {
+  const outcome = await reorderState(reviewDeps(), auth.actor, {
     batchId: id, state, batchRevision: body.batchRevision, order: body.order,
-  }))
+  })
+  if (outcome.ok) catalogChanged()
+  return respond(outcome)
 }

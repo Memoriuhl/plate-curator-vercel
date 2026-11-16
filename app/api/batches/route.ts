@@ -2,6 +2,7 @@ import { connection } from 'next/server'
 import { parseBatchInput } from '../../../lib/review/fields'
 import { createBatch, listBatches } from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
+import { catalogChanged } from '../../../lib/server/catalog-head'
 import { catalog, currentActor, reviewDeps } from '../../../lib/server/context'
 import { badRequest, json, readJson, respond } from '../../../lib/server/respond'
 
@@ -30,10 +31,12 @@ export async function POST(request: Request) {
   const known = new Set(snapshot.plates.map((plate) => plate.id))
   if (!input.plateIds.every((id) => known.has(id))) return json({ error: 'not_found' }, 404)
 
-  return respond(await createBatch(reviewDeps(), auth.actor, {
+  const outcome = await createBatch(reviewDeps(), auth.actor, {
     id: crypto.randomUUID(),
     name: input.name,
     plateIds: input.plateIds,
     baselineVersion: snapshot.version,
-  }))
+  })
+  if (outcome.ok) catalogChanged()
+  return respond(outcome)
 }

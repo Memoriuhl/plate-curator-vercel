@@ -7,6 +7,8 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewDeps } from '../../lib/review/types'
 
 const context = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn() }))
+vi.mock('server-only', () => ({}))
+vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', () => context)
 const batch = { id: 'batch', name: 'Order', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 7, plateIds: ['one'], stateOrders: {}, approval: null }
 beforeEach(() => {
