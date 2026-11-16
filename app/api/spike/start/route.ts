@@ -1,10 +1,13 @@
 import { start } from 'workflow/api'
 import { rejectWithoutSpikeSecret } from '../../../../lib/spike/auth'
 import { waitForSpikeNote } from '../../../../workflows/spike'
+import { currentActor } from '../../../../lib/server/context'
 
 export async function POST(request: Request) {
 const rejected = rejectWithoutSpikeSecret(request, process.env.SPIKE_SECRET)
 if (rejected) return rejected
+const auth = await currentActor(request)
+if (!auth.ok) return auth.response
 
 const minutes = Number(new URL(request.url).searchParams.get('minutes') ?? 1440)
 const timeoutMinutes = Math.min(Math.max(minutes, 1), 1440)
