@@ -22,10 +22,10 @@ function PendingIndicator() {
   )
 }
 
-export function JurisdictionCard({ jurisdiction }: { jurisdiction: JurisdictionSummary }) {
+export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
   const params = useParams<{ code: string }>()
   const selected = params.code === jurisdiction.code
-  const [prefetch, setPrefetch] = useState<false | null>(false)
+  const [prefetch, setPrefetch] = useState<true | 'auto'>('auto')
   const ref = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
     const card = ref.current
@@ -54,9 +54,9 @@ export function JurisdictionCard({ jurisdiction }: { jurisdiction: JurisdictionS
     <Link
       ref={ref}
       href={`/states/${jurisdiction.code}`}
-      prefetch={prefetch}
-      onMouseEnter={() => setPrefetch(null)}
-      onFocus={() => setPrefetch(null)}
+      prefetch={prefetchNearby || prefetch}
+      onMouseEnter={() => setPrefetch(true)}
+      onFocus={() => setPrefetch(true)}
       scroll={false}
       aria-current={selected ? 'page' : undefined}
       className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected')}

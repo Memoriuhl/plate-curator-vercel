@@ -23,17 +23,19 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
 
 export function useMe() {
   const { user, api } = useSession()
-  return useSWR<Actor>(user ? '/api/me' : null, api.get)
+  return useSWR<Actor>(user ? '/api/me' : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
 }
 
 export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<ReviewBatch[]>(user ? batchesKey(states, opts) : null, api.get)
+  return useSWR<ReviewBatch[]>(user ? batchesKey(states, opts) : null, api.get, states?.length === 1 && states[0] === 'open' && opts?.mine
+    ? { revalidateIfStale: false, dedupingInterval: 30000 }
+    : undefined)
 }
 
 export function useBatch(id: string | null) {
   const { user, api } = useSession()
-  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get)
+  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
 }
 
 export type BatchRun = {
