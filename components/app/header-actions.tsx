@@ -6,8 +6,10 @@ import {
   IoChevronDownOutline,
   IoFileTrayOutline,
   IoLogOutOutline,
+  IoPeopleOutline,
 } from 'react-icons/io5'
 import { useSession } from '../../lib/client/session'
+import { useMe } from '../../lib/client/hooks'
 import { UserAvatar } from './user-avatar'
 import { ThemeToggle } from './theme-toggle'
 import { Button } from '../ui/button'
@@ -23,6 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function HeaderActions() {
   const { user, ready, signOut } = useSession()
+  const me = useMe()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
   async function handleSignOut() {
@@ -73,6 +76,11 @@ export function HeaderActions() {
             className="w-64 max-w-[calc(100vw-32px)]"
           >
             <DropdownMenuLabel>{user.email || 'Signed in'}</DropdownMenuLabel>
+            {me.data?.role === 'owner' ? (
+              <DropdownMenuItem asChild>
+                <Link href="/members"><IoPeopleOutline className="chrome-icon" aria-hidden="true" />Members</Link>
+              </DropdownMenuItem>
+            ) : null}
             <ThemeToggle />
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void handleSignOut()}>
