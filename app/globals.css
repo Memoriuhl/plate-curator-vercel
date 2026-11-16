@@ -200,9 +200,6 @@ svg {
   }
 }
 @media (width < 420px) {
-  :root {
-    --header-h: 118px;
-  }
   .brand-region {
     flex-wrap: wrap;
     gap: var(--space-2);
