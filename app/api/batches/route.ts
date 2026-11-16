@@ -1,3 +1,4 @@
+import { parseBatchInput } from '../../../lib/review/fields'
 import { createBatch, listBatches } from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
 import { catalog, currentActor, reviewDeps } from '../../../lib/server/context'
@@ -19,20 +20,17 @@ export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
 
-  const body = await readJson(request)
-  const plateIds = body?.plateIds
-  if (typeof body?.name !== 'string' || !Array.isArray(plateIds) || !plateIds.every((id) => typeof id === 'string')) {
-    return badRequest()
-  }
+  const input = parseBatchInput(await readJson(request))
+  if (input === null) return badRequest()
 
   const snapshot = await catalog().readSnapshot()
   const known = new Set(snapshot.plates.map((plate) => plate.id))
-  if (!plateIds.every((id) => known.has(id))) return json({ error: 'not_found' }, 404)
+  if (!input.plateIds.every((id) => known.has(id))) return json({ error: 'not_found' }, 404)
 
   return respond(await createBatch(reviewDeps(), auth.actor, {
     id: crypto.randomUUID(),
-    name: body.name,
-    plateIds,
+    name: input.name,
+    plateIds: input.plateIds,
     baselineVersion: snapshot.version,
   }))
 }
