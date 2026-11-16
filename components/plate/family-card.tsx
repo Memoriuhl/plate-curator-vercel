@@ -69,7 +69,7 @@ export function FamilyCard({
   }
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
-  const invalidMerge = merge && (drag?.active?.item.kind === 'family' || variants.some(plate => plate.id === drag?.active?.item.plate.id))
+  const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
   const item = { kind: 'family' as const, plate: template }
   if (number === 1 && template.imageUrl?.startsWith('https:'))
     preconnect(new URL(template.imageUrl).origin)

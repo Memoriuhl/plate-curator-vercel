@@ -31,16 +31,16 @@ test('threshold, hit targets and scroll edges', () => {
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
-function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false } = {}) {
+function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false } = {}) {
   const edit = vi.fn().mockResolvedValue(success)
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
   const reload = vi.fn().mockResolvedValue(undefined)
   const closePreview = vi.fn()
   function Harness() {
     const drag = usePlateDrag({ families, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, pending: false }, reload, closePreview,
-      targets: () => [{ target: merge ? { kind: 'merge', familyId: b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
+      targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
-    const item = { kind: variant ? 'variant' as const : 'family' as const, plate: variant ? v : a }
+    const item = { kind: variant ? 'variant' as const : 'family' as const, plate: singleton ? b : variant ? v : a }
     return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span></>
   }
   render(<Harness />)
@@ -162,6 +162,17 @@ test('a failed promotion does not send a reorder', async () => {
   await waitFor(() => expect(screen.getByText("Only the batch's creator or an Owner can edit it.")).toBeTruthy())
   expect(reorder).not.toHaveBeenCalled()
   expect(screen.getByTestId('order').textContent).toBe('')
+})
+
+test('a family without variants can merge back into another family', async () => {
+  const { handle, edit, reorder } = setup({ singleton: true, merge: true })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  await waitFor(() => expect(edit).toHaveBeenCalledExactlyOnceWith(b, { templateRole: 'variant', variantOfPlateId: a.id, templateFamily: a.templateFamily }))
+  expect(reorder).not.toHaveBeenCalled()
 })
 
 test('new family slugs use state and plate slug and avoid state collisions', () => {

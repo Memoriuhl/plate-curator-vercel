@@ -79,7 +79,7 @@ export function usePlateDrag(options: Options) {
     const { families, edits, ordering, reload } = latest.current
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
-    if (!source || (target.kind === 'merge' && (item.kind === 'family' || !destination || destination === source))) { announce('Cancelled'); return }
+    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { announce('Cancelled'); return }
     setSaving(true)
     const order = orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
@@ -214,7 +214,8 @@ export function usePlateDrag(options: Options) {
       announce(`Moved to position ${index > sourceIndex ? index : index + 1}`)
     }
   }
-  return { active, announcement, optimisticOrder, optimisticEdit, saving, enabled, onPointerDown, onKeyDown, cancel,
+  const canMerge = active?.item.kind === 'variant' || options.families.find(family => family.template.id === active?.item.plate.id)?.variants.length === 0
+  return { active, announcement, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
     handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Space to reorder',
   }
