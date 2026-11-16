@@ -36,9 +36,10 @@ export function currentActor(request: Request) {
 }
 
 export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {
-  const { CATALOG_SOURCE, VERCEL_ENV } = process.env
-  if (catalogSourceKind({ CATALOG_SOURCE, VERCEL_ENV }) === 'fixture') return fixtureSource()
-  return firestoreCatalogSource(stagingFirestore(), snapshotLoader)
+  const { CATALOG_SOURCE, VERCEL_ENV, PLATE_IMAGE_BASE } = process.env
+  const imageBase = PLATE_IMAGE_BASE || null
+  if (catalogSourceKind({ CATALOG_SOURCE, VERCEL_ENV }) === 'fixture') return fixtureSource(imageBase)
+  return firestoreCatalogSource(stagingFirestore(), snapshotLoader, imageBase)
 }
 
 export function reviewDeps(): ReviewDeps {

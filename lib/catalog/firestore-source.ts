@@ -1,9 +1,11 @@
 import type { Firestore } from '@google-cloud/firestore'
+import { plateImageUrl } from './image-url'
 import type { CatalogSource, Snapshot } from './types'
 
 export function firestoreCatalogSource(
   db: Firestore,
   loadSnapshot: (version: number) => Promise<Snapshot>,
+  imageBase: string | null = null,
 ): CatalogSource {
   return {
     async readSnapshot() {
@@ -18,7 +20,7 @@ export function firestoreCatalogSource(
       return { stateOrder: state?.stateOrder ?? {}, stateProgress: state?.stateProgress ?? {} }
     },
     imageUrl(plate) {
-      return typeof plate.imageUrl === 'string' && plate.imageUrl.length > 0 ? plate.imageUrl : null
+      return plateImageUrl(plate, imageBase)
     },
   }
 }
