@@ -375,6 +375,18 @@ body {
   justify-content: flex-end;
   gap: var(--space-2);
 }
+@media (max-width: 420px) {
+  [data-radix-popper-content-wrapper]:has([data-run-menu]) {
+    inset: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    z-index: 50 !important;
+  }
+  [data-run-menu] {
+    height: 100dvh;
+    max-height: 100dvh !important;
+  }
+}
 .batch-summary {
   font-size: 13px;
   color: var(--ink-2);

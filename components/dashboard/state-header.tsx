@@ -24,7 +24,19 @@ export function StateHeader({
           variants · {plates.filter((plate) => plate.complete).length} complete
         </p>
       </div>
-      <BatchActions />
+      <BatchActions
+        stateCode={jurisdiction.code}
+        stateName={jurisdiction.name}
+        underTagged={plates
+          .filter((plate) => plate.checks.tags.status !== 'good')
+          .map(({ id, state, displayName, revision, tags }) => ({
+            id,
+            state,
+            displayName,
+            revision,
+            tags,
+          }))}
+      />
     </header>
   )
 }
