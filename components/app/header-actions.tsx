@@ -9,6 +9,7 @@ import {
 } from 'react-icons/io5'
 import { useSession } from '../../lib/client/session'
 import { UserAvatar } from './user-avatar'
+import { ThemeToggle } from './theme-toggle'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -16,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '../ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
@@ -71,6 +73,8 @@ export function HeaderActions() {
             className="w-64 max-w-[calc(100vw-32px)]"
           >
             <DropdownMenuLabel>{user.email || 'Signed in'}</DropdownMenuLabel>
+            <ThemeToggle />
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void handleSignOut()}>
               <IoLogOutOutline className="chrome-icon" aria-hidden="true" />
               Sign out
