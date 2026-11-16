@@ -26,7 +26,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('plate-curator-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t}}catch{}` }} />
+      </head>
       <body className={overpass.variable + ' ' + mono.variable}>
         <SessionProvider>
           <TooltipProvider>{children}</TooltipProvider>

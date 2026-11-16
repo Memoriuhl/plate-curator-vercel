@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { fireEvent } from '@testing-library/react'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
+import { ThemeToggle } from '@/components/app/theme-toggle'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', push: vi.fn() }))
 vi.mock('next/navigation', () => ({
@@ -62,6 +63,29 @@ beforeEach(() => {
   mounted.pathname = '/states/AK'
   mounted.push.mockClear()
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+})
+test('appearance segments stay open, persist choices, and support arrow keys', () => {
+  document.documentElement.removeAttribute('data-theme')
+  localStorage.clear()
+  render(<DropdownMenu defaultOpen><DropdownMenuTrigger>Profile</DropdownMenuTrigger><DropdownMenuContent><ThemeToggle /></DropdownMenuContent></DropdownMenu>)
+  fireEvent.click(screen.getByRole('radio', { name: 'Dark' }))
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  expect(localStorage.getItem('plate-curator-theme')).toBe('dark')
+  expect(screen.getByRole('radiogroup', { name: 'Appearance' })).toBeTruthy()
+  expect(screen.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Dark' }), { key: 'ArrowLeft' })
+  expect(document.documentElement.dataset.theme).toBe('light')
+  expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Light' }))
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Light' }), { key: 'Home' })
+  expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+  expect(localStorage.getItem('plate-curator-theme')).toBe('system')
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'System' }), { key: 'ArrowLeft' })
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  fireEvent.click(screen.getByRole('radio', { name: 'Light' }))
+  expect(document.documentElement.style.colorScheme).toBe('light')
+  document.documentElement.removeAttribute('data-theme')
+  document.documentElement.style.removeProperty('color-scheme')
+  localStorage.clear()
 })
 
 test('shared controls stay mounted when the router changes the state parameter', () => {
