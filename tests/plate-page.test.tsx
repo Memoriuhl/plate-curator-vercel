@@ -1,46 +1,45 @@
-import { isValidElement, type ReactNode, type ReactElement } from 'react'
-import { beforeEach, expect, test, vi } from 'vitest'
+import type { AnchorHTMLAttributes } from 'react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
 import { PlatePage } from '../components/plate-page/plate-page'
-import type { EditResult } from '../components/plate-page/edit-adapter'
+import type { PlateCardData } from '../lib/catalog/dashboard-types'
+import type { EditResult } from '../lib/client/hooks'
 import { slimPlate, type PlatePageProps } from '../components/plate-page/types'
 
 const state = vi.hoisted(() => ({
-  values: [] as unknown[],
-  cursor: 0,
   edit: vi.fn(),
+  mutate: vi.fn(),
   pending: false,
+  remote: null as PlateCardData | null,
+  refreshed: false,
 }))
-
-vi.mock('react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('react')>()),
-  useState: (initial: unknown) => {
-    const index = state.cursor++
-    if (!(index in state.values)) state.values[index] = initial
-    return [
-      state.values[index],
-      (value: unknown) => {
-        state.values[index] = value
-      },
-    ]
-  },
-}))
-vi.mock('../components/plate-page/edit-adapter', () => ({
+vi.mock('swr', () => ({ useSWRConfig: () => ({ mutate: state.mutate }) }))
+vi.mock('../lib/client/hooks', () => ({
   useEditPlate: () => ({ edit: state.edit, pending: state.pending }),
-  useDraftOverlay: (plates: unknown[]) => plates,
+  useDraftOverlay: (plates: PlateCardData[]) =>
+    plates.map((plate) => ({
+      ...(state.refreshed && state.remote?.id === plate.id
+        ? state.remote
+        : plate),
+      changedInBatch: state.refreshed,
+    })),
 }))
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('show=tags&q=army'),
   useRouter: () => ({ back: vi.fn() }),
 }))
-vi.mock('next/link', () => ({ default: (props: object) => <a {...props} /> }))
-vi.mock('next/image', () => ({ default: () => <span /> }))
-vi.mock('../components/ui/button', () => ({
-  Button: (props: object) => <button {...props} />,
+vi.mock('next/link', () => ({
+  default: (props: AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props} />,
 }))
+vi.mock('next/image', () => ({ default: () => <span /> }))
 
-type Node = { props: Record<string, unknown>; text: string }
-let nodes: Node[] = []
 const army = plateCards.find((plate) => plate.id === 'AK.army')!
 const props: PlatePageProps = {
   plate: {
@@ -54,197 +53,228 @@ const props: PlatePageProps = {
   stateName: 'Alaska',
   prevId: 'AK.standard_gold',
   nextId: 'AK.air_force',
-  templateIndex: 2,
-  templateCount: 3,
 }
-
-function walk(node: ReactNode): string {
-  if (Array.isArray(node)) return node.map(walk).join('')
-  if (!isValidElement(node))
-    return typeof node === 'string' || typeof node === 'number'
-      ? String(node)
-      : ''
-  const element = node as ReactElement<Record<string, unknown>>
-  if (typeof element.type === 'function')
-    return walk((element.type as (props: object) => ReactNode)(element.props))
-  const text = walk(element.props.children as ReactNode)
-  nodes.push({ props: element.props, text })
-  return text
-}
-
-function render(pageProps = props) {
-  let text = ''
-  for (let pass = 0; pass < 4; pass++) {
-    const previous = [...state.values]
-    nodes = []
-    state.cursor = 0
-    text = walk(<PlatePage {...pageProps} />)
-    if (
-      previous.length === state.values.length &&
-      previous.every((value, index) => value === state.values[index])
-    )
-      break
-  }
-  return text
-}
-
-function byLabel(label: string) {
-  return nodes.find((node) => node.props['aria-label'] === label)!
-}
-
-function button(text: string) {
-  return nodes.find(
-    (node) => node.text === text && typeof node.props.onClick === 'function',
-  )!
-}
-
-async function click(node: Node) {
-  await (node.props.onClick as () => Promise<void>)()
-}
-
+const description = () =>
+  screen.getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement
 function change(label: string, value: string) {
-  ;(byLabel(label).props.onChange as (event: object) => void)({
+  fireEvent.change(screen.getByRole('textbox', { name: label }), {
     target: { value },
   })
-  render()
 }
-
-async function key(label: string, key: string, ctrlKey = false) {
-  ;(byLabel(label).props.onKeyDown as (event: object) => void)({
-    key,
-    ctrlKey,
-    preventDefault() {},
-  })
-  await Promise.resolve()
+function saveDescription(value: string) {
+  change('Description', value)
+  fireEvent.keyDown(description(), { key: 'Enter', ctrlKey: true })
 }
-
 beforeEach(() => {
-  state.values = []
   state.pending = false
+  state.remote = null
+  state.refreshed = false
+  state.mutate.mockReset().mockImplementation(async () => {
+    state.refreshed = true
+  })
   state.edit.mockReset().mockResolvedValue({ ok: true })
-  render()
 })
+afterEach(cleanup)
 
 test('tags normalize on Enter, deduplicate, and remove individually', async () => {
+  render(<PlatePage {...props} />)
   change('Add tag', '  NEW TAG  ')
-  await key('Add tag', 'Enter')
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Add tag' }), {
+    key: 'Enter',
+  })
+  await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(1))
   expect(state.edit).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: army.id }),
     { tags: [...army.tags, 'new tag'] },
   )
   change('Add tag', army.tags[0])
-  await key('Add tag', 'Enter')
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Add tag' }), {
+    key: 'Enter',
+  })
   expect(state.edit).toHaveBeenCalledTimes(1)
-  await click(byLabel(`Remove tag ${army.tags[0]}`))
-  expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
-    tags: army.tags.slice(1),
-  })
-})
-
-test('description stays local until blur or Ctrl+Enter, empty sends null', async () => {
-  change('Description', 'Updated story')
-  expect(state.edit).not.toHaveBeenCalled()
-  await key('Description', 'Enter', true)
-  expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
-    description: 'Updated story',
-  })
-  change('Description', '')
-  await (byLabel('Description').props.onBlur as () => void)()
-  expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
-    description: null,
-  })
-})
-
-test('overlong descriptions stay local and show a validation message', async () => {
-  change('Description', 'x'.repeat(2001))
-  await key('Description', 'Enter', true)
-  expect(state.edit).not.toHaveBeenCalled()
-  expect(render()).toContain('2000 characters or fewer')
-})
-
-test('Standard toggle sends the inverse value', async () => {
-  await click(button('Set as Standard'))
-  expect(state.edit).toHaveBeenCalledWith(expect.anything(), {
-    isStandard: !army.isStandard,
-  })
-})
-
-test('family plus sends the destination family and its template id', async () => {
-  await click(byLabel('Add Standard Gold to family'))
-  expect(state.edit).toHaveBeenCalledWith(
-    expect.objectContaining({ id: 'AK.standard_gold' }),
-    {
-      templateFamily: army.templateFamily,
-      templateRole: 'variant',
-      variantOfPlateId: army.id,
-    },
+  fireEvent.click(
+    screen.getByRole('button', { name: `Remove tag ${army.tags[0]}` }),
+  )
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
+      tags: army.tags.slice(1),
+    }),
   )
 })
 
-test('family without a template allows adding a variant and omits its parent id', async () => {
-  const html = render({
-    ...props,
-    plates: props.plates.map((plate) =>
-      plate.templateFamily === army.templateFamily
-        ? { ...plate, templateRole: null }
-        : plate,
+test('description stays local until blur or Ctrl+Enter and clears with null', async () => {
+  render(<PlatePage {...props} />)
+  change('Description', 'Updated story')
+  expect(state.edit).not.toHaveBeenCalled()
+  fireEvent.keyDown(description(), { key: 'Enter', ctrlKey: true })
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
+      description: 'Updated story',
+    }),
+  )
+  change('Description', '')
+  fireEvent.blur(description())
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
+      description: null,
+    }),
+  )
+})
+
+test('description rejects overlong text without saving', () => {
+  render(<PlatePage {...props} />)
+  saveDescription('x'.repeat(2001))
+  expect(state.edit).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert').textContent).toContain(
+    '2000 characters or fewer',
+  )
+})
+
+test('Standard sends the inverse value', async () => {
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenCalledWith(expect.anything(), {
+      isStandard: !army.isStandard,
+    }),
+  )
+})
+
+test('family plus sends the destination family and its template id', async () => {
+  render(<PlatePage {...props} />)
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Add Standard Gold to family' }),
+  )
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'AK.standard_gold' }),
+      {
+        templateFamily: army.templateFamily,
+        templateRole: 'variant',
+        variantOfPlateId: army.id,
+      },
     ),
-  })
-  expect(html).toContain('No template yet')
-  const add = byLabel('Add Standard Gold to family')
-  expect(add.props.disabled).toBe(false)
-  await click(add)
-  expect(state.edit).toHaveBeenCalledWith(
-    expect.objectContaining({ id: 'AK.standard_gold' }),
-    { templateFamily: army.templateFamily, templateRole: 'variant' },
+  )
+})
+
+test('a family without a template allows a variant and omits its parent id', async () => {
+  render(
+    <PlatePage
+      {...props}
+      plates={props.plates.map((plate) =>
+        plate.templateFamily === army.templateFamily
+          ? { ...plate, templateRole: null }
+          : plate,
+      )}
+    />,
+  )
+  expect(screen.getByText('No template yet')).toBeTruthy()
+  const add = screen.getByRole('button', {
+    name: 'Add Standard Gold to family',
+  }) as HTMLButtonElement
+  expect(add.disabled).toBe(false)
+  fireEvent.click(add)
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'AK.standard_gold' }),
+      { templateFamily: army.templateFamily, templateRole: 'variant' },
+    ),
   )
   expect(state.edit.mock.calls[0][1]).not.toHaveProperty('variantOfPlateId')
 })
 
 test('family and role edits use the editable fields contract', async () => {
+  render(<PlatePage {...props} />)
   change('Template family', 'new_family')
-  await key('Template family', 'Enter')
-  expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
-    templateFamily: 'new_family',
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Template family' }), {
+    key: 'Enter',
   })
-  await click(button('Variant'))
-  expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
-    templateRole: 'variant',
-  })
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
+      templateFamily: 'new_family',
+    }),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Variant' }))
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
+      templateRole: 'variant',
+    }),
+  )
 })
 
 async function conflict() {
+  state.remote = {
+    ...army,
+    revision: 'fresh',
+    checks: {
+      ...army.checks,
+      description: { value: 'Their story', status: 'good' },
+    },
+  }
   state.edit.mockResolvedValueOnce({
     ok: false,
     error: 'stale_plate',
-    current: { ...army, description: 'Their story', revision: 'fresh' },
+    current: {
+      id: army.id,
+      state: army.state,
+      slug: army.slug,
+      displayName: army.displayName,
+      image: '',
+      tags: army.tags,
+      description: 'Their story',
+    },
     draft: { description: 'My story' },
   } satisfies EditResult)
-  change('Description', 'My story')
-  await key('Description', 'Enter', true)
-  await Promise.resolve()
-  return render()
+  render(<PlatePage {...props} />)
+  saveDescription('My story')
+  await screen.findByText('Someone changed this while you were editing.')
 }
 
-test('conflict compares both values and Keep theirs drops the local draft', async () => {
-  expect(await conflict()).toContain(
-    'Someone changed this while you were editing.',
-  )
-  expect(render()).toContain('Theirs: Their storyYours: My story')
-  await click(button('Keep theirs'))
-  expect(render()).not.toContain('Someone changed this')
-  expect(byLabel('Description').props.value).toBe('Their story')
+test('Keep theirs compares both values and drops the local draft without another save', async () => {
+  await conflict()
+  expect(screen.getByText('Theirs: Their story')).toBeTruthy()
+  expect(screen.getByText('Yours: My story')).toBeTruthy()
+  fireEvent.blur(description())
+  fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }))
+  await waitFor(() => expect(description().value).toBe('Their story'))
+  expect(
+    screen.queryByText('Someone changed this while you were editing.'),
+  ).toBeNull()
   expect(state.edit).toHaveBeenCalledTimes(1)
 })
 
-test('Use mine retries the draft against the fresh revision', async () => {
+test('Use mine refreshes the batch revision before retrying the draft', async () => {
   await conflict()
-  await click(button('Use mine'))
+  fireEvent.blur(description())
+  fireEvent.click(screen.getByRole('button', { name: 'Use mine' }))
+  await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(2))
   expect(state.edit).toHaveBeenLastCalledWith(
-    expect.objectContaining({ revision: 'fresh' }),
+    expect.objectContaining({ id: army.id }),
     { description: 'My story' },
   )
-  expect(render()).toContain('Saved to your batch')
+  expect(state.mutate).toHaveBeenCalledOnce()
+  const matches = state.mutate.mock.calls[0][0]
+  expect(matches('/api/batches/current')).toBe(true)
+  expect(matches('/api/plates/AK.army')).toBe(false)
+  expect(state.mutate.mock.invocationCallOrder[0]).toBeLessThan(
+    state.edit.mock.invocationCallOrder[1],
+  )
+  await screen.findByText('Saved to your batch')
+})
+
+test('a remote overlay refresh preserves an unsaved description draft', () => {
+  const view = render(<PlatePage {...props} />)
+  change('Description', 'My unsaved story')
+  state.remote = {
+    ...army,
+    checks: {
+      ...army.checks,
+      description: { value: 'Remote story', status: 'good' },
+    },
+  }
+  state.refreshed = true
+  view.rerender(<PlatePage {...props} />)
+  expect(description().value).toBe('My unsaved story')
 })
 
 test.each([
@@ -252,20 +282,25 @@ test.each([
   ['superseded_revision', 'This batch has a newer revision.'],
   ['invalid_state', 'This batch is no longer open for editing.'],
   ['not_found', 'This plate or batch could not be found.'],
-  ['unavailable', 'Editing is waiting for the draft service'],
 ] as const)('%s appears inline', async (error, message) => {
   state.edit.mockResolvedValueOnce({ ok: false, error })
-  await click(button('Set as Standard'))
-  expect(render()).toContain(message)
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  await waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toContain(message),
+  )
 })
 
-test('navigation retains state filters and parked actions are disabled', () => {
+test('navigation keeps state filters and parked actions are disabled', () => {
+  render(<PlatePage {...props} />)
   expect(
-    nodes.some((node) => node.props.href === '/states/AK?show=tags&q=army'),
-  ).toBe(true)
-  expect(button('Set as Standard').props.disabled).toBe(false)
+    screen.getByRole('link', { name: 'Alaska' }).getAttribute('href'),
+  ).toBe('/states/AK?show=tags&q=army')
   expect(
-    nodes.find((node) => node.text === 'Replace or crop' && node.props.disabled)
-      ?.props.disabled,
+    (
+      screen.getByRole('button', {
+        name: 'Replace or crop',
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true)
 })

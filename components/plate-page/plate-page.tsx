@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useSWRConfig } from 'swr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -21,9 +22,10 @@ import type { EditableFields } from '@/lib/review/types'
 import {
   useDraftOverlay,
   useEditPlate,
-  type EditPlate,
   type EditResult,
-} from './edit-adapter'
+} from '@/lib/client/hooks'
+import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import { cardData } from './types'
 import type { FamilyPlate, PlatePageProps } from './types'
 
 const input =
@@ -33,7 +35,6 @@ const errors = {
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
   invalid_state: 'This batch is no longer open for editing.',
   not_found: 'This plate or batch could not be found.',
-  unavailable: 'Editing is waiting for the draft service to become available.',
   stale_plate: 'Someone changed this while you were editing.',
 }
 
@@ -71,7 +72,7 @@ function Parked({ children }: { children: ReactNode }) {
 }
 
 type Issue = {
-  plate: EditPlate
+  plate: PlateCardData
   fields: EditableFields
   result: Extract<EditResult, { ok: false }>
 }
@@ -93,6 +94,7 @@ export function Conflict({
         {errors[issue.result.error]}
       </p>
     )
+  const result = issue.result
   return (
     <div
       role="alert"
@@ -104,8 +106,8 @@ export function Conflict({
         return (
           <div key={key} className="grid gap-1 break-words">
             <span className="label">{key}</span>
-            <p>Theirs: {format(issue.result.current?.[field])}</p>
-            <p>Yours: {format((issue.result.draft ?? issue.fields)[field])}</p>
+            <p>Theirs: {format(result.current[field])}</p>
+            <p>Yours: {format(result.draft[field])}</p>
           </div>
         )
       })}
@@ -118,11 +120,7 @@ export function Conflict({
         >
           Keep theirs
         </Button>
-        <Button
-          size="sm"
-          disabled={pending || !issue.result.current}
-          onClick={onMine}
-        >
+        <Button size="sm" disabled={pending} onClick={onMine}>
           Use mine
         </Button>
       </div>
@@ -152,7 +150,7 @@ function DraftText({
   const [base, setBase] = useState(value)
   if (base !== value) {
     setBase(value)
-    setDraft(value)
+    if (draft === base) setDraft(value)
   }
   const valid = !multiline || draft.length <= 2000
   async function commit() {
@@ -230,29 +228,37 @@ function Member({
 export function PlatePage(props: PlatePageProps) {
   const params = useSearchParams()
   const router = useRouter()
+  const { mutate } = useSWRConfig()
   const { edit, pending } = useEditPlate()
-  const [plate] = useDraftOverlay([props.plate])
-  const plates = useDraftOverlay(props.plates)
+  const detailCard = useMemo(() => [cardData(props.plate)], [props.plate])
+  const cards = useMemo(() => props.plates.map(cardData), [props.plates])
+  const [plate] = useDraftOverlay(detailCard)
+  const plates = useDraftOverlay(cards)
   const [tag, setTag] = useState('')
   const [filter, setFilter] = useState('')
   const [issue, setIssue] = useState<Issue | null>(null)
   const [status, setStatus] = useState('')
-  const [accepted, setAccepted] = useState<EditPlate | null>(null)
-  const current = accepted?.id === plate.id ? { ...plate, ...accepted } : plate
+  const [draftReset, setDraftReset] = useState(0)
+  const [resolving, setResolving] = useState(false)
+  const current = { ...plate, description: plate.checks.description.value }
   const family = plates.filter((member) =>
     current.templateFamily
       ? member.templateFamily === current.templateFamily
       : member.id === current.id,
   )
-  const others = plates.filter(
-    (member) => !family.some((relative) => relative.id === member.id),
-  )
+  const familyIds = new Set(family.map((member) => member.id))
+  const others = plates.filter((member) => !familyIds.has(member.id))
   const filtered = others.filter((member) =>
     `${member.displayName} ${member.id}`
       .toLowerCase()
       .includes(filter.toLowerCase()),
   )
   const template = family.find((member) => member.templateRole === 'template')
+  const templates = plates.filter(
+    (member) => member.templateRole === 'template',
+  )
+  const templateIndex =
+    templates.findIndex((member) => member.id === current.id) + 1
   const query = new URLSearchParams(props.returnQuery)
   for (const key of ['show', 'q'])
     if (params.has(key)) query.set(key, params.get(key)!)
@@ -260,14 +266,13 @@ export function PlatePage(props: PlatePageProps) {
   const stateHref = `/states/${plate.state}${suffix}`
   const plateHref = (id: string) => `/plates/${encodeURIComponent(id)}${suffix}`
 
-  async function save(target: EditPlate, fields: EditableFields) {
+  async function save(target: PlateCardData, fields: EditableFields) {
     setStatus('Saving to your batch…')
     try {
       const result = await edit(target, fields)
       if (result.ok) {
         setStatus('Saved to your batch')
         setIssue(null)
-        setAccepted(null)
       } else {
         setStatus('Could not save')
         setIssue({ plate: target, fields, result })
@@ -283,19 +288,36 @@ export function PlatePage(props: PlatePageProps) {
     return (
       <Conflict
         issue={issue}
-        pending={pending}
-        onTheirs={() => {
-          if (issue.result.current && id === current.id)
-            setAccepted(issue.result.current)
-          setIssue(null)
-          setStatus('Kept the current value')
+        pending={pending || resolving}
+        onTheirs={async () => {
+          await resolveConflict(false)
         }}
-        onMine={() => {
-          if (issue.result.current)
-            void save(issue.result.current, issue.result.draft ?? issue.fields)
+        onMine={async () => {
+          await resolveConflict(true)
         }}
       />
     )
+  }
+
+  async function resolveConflict(useMine: boolean) {
+    if (!issue || issue.result.error !== 'stale_plate' || pending || resolving)
+      return
+    setResolving(true)
+    try {
+      await mutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/batches/'),
+      )
+      if (useMine) await save(issue.plate, issue.result.draft)
+      else {
+        setDraftReset((value) => value + 1)
+        setIssue(null)
+        setStatus('Kept the current value')
+      }
+    } catch {
+      setStatus('Could not refresh. Check your connection and try again.')
+    } finally {
+      setResolving(false)
+    }
   }
 
   return (
@@ -318,9 +340,11 @@ export function PlatePage(props: PlatePageProps) {
           <h1 className="page-title">{current.displayName}</h1>
           <span className="id text-[var(--ink-2)]">
             {current.id} ·{' '}
-            {current.templateRole === 'variant'
-              ? `variant of ${current.variantOfPlateId ?? template?.displayName ?? 'unassigned'}`
-              : `template ${props.templateIndex} of ${props.templateCount}`}
+            {current.templateRole === null
+              ? 'role not set'
+              : current.templateRole === 'variant'
+                ? `variant of ${current.variantOfPlateId ?? template?.displayName ?? 'unassigned'}`
+                : `template ${templateIndex} of ${templates.length}`}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -359,11 +383,11 @@ export function PlatePage(props: PlatePageProps) {
         <div className="grid min-w-0 gap-4">
           <Card>
             <div className="flex min-h-[200px] items-center justify-center overflow-hidden">
-              {plate.imageUrl ? (
+              {props.plate.imageUrl ? (
                 <Image
-                  src={plate.imageUrl}
-                  width={plate.imageSize.width}
-                  height={plate.imageSize.height}
+                  src={props.plate.imageUrl}
+                  width={props.plate.imageSize.width}
+                  height={props.plate.imageSize.height}
                   alt={`${plate.displayName} plate`}
                   unoptimized
                   priority
@@ -380,7 +404,7 @@ export function PlatePage(props: PlatePageProps) {
                       plate.imageUrl.split('/').at(-1)!.split('?')[0],
                     )
                   : 'No source file'}{' '}
-                · {plate.imageSize.width} px
+                · {props.plate.imageSize.width} px
               </p>
               <Parked>Replace or crop</Parked>
             </div>
@@ -488,9 +512,14 @@ export function PlatePage(props: PlatePageProps) {
               <div className="grid gap-2">
                 {fieldIssue('templateFamily')}
                 <DraftText
+                  key={`family-${draftReset}`}
                   label="Template family"
                   value={current.templateFamily ?? ''}
-                  pending={pending}
+                  pending={
+                    pending ||
+                    resolving ||
+                    issue?.result.error === 'stale_plate'
+                  }
                   save={(value) =>
                     save(current, { templateFamily: value.trim() })
                   }
@@ -501,10 +530,13 @@ export function PlatePage(props: PlatePageProps) {
           <Card title="Story" icon={<IoDocumentTextOutline />}>
             {fieldIssue('description')}
             <DraftText
+              key={`description-${draftReset}`}
               label="Description"
               multiline
               value={current.description ?? ''}
-              pending={pending}
+              pending={
+                pending || resolving || issue?.result.error === 'stale_plate'
+              }
               save={(value) => save(current, { description: value || null })}
             />
             <label className="grid gap-2">
@@ -538,7 +570,7 @@ export function PlatePage(props: PlatePageProps) {
               </Parked>
             </div>
             <div className="grid gap-2">
-              {[plate.sourceUrl, plate.wikiUrl]
+              {[props.plate.sourceUrl, props.plate.wikiUrl]
                 .filter((url): url is string => !!url)
                 .map((url, index) => {
                   let domain = url

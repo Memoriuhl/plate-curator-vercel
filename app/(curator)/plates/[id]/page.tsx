@@ -21,9 +21,6 @@ async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
   const jurisdiction = await loadJurisdiction(detail.plate.state)
   if (!jurisdiction) notFound()
   const { plate } = detail
-  const templates = jurisdiction.plates.filter(
-    (member) => member.templateRole === 'template',
-  )
   const requestHeaders = await headers()
   const returnQuery = new URLSearchParams()
   let fromState = false
@@ -49,10 +46,6 @@ async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
       stateName={jurisdiction.name}
       prevId={detail.prevId}
       nextId={detail.nextId}
-      templateIndex={
-        templates.findIndex((member) => member.id === plate.id) + 1
-      }
-      templateCount={templates.length}
       returnQuery={returnQuery.toString()}
       fromState={fromState}
     />

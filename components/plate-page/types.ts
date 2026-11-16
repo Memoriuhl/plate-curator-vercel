@@ -1,4 +1,6 @@
 import type { PlateCardData, PlateDetail } from '@/lib/catalog/dashboard-types'
+import { PLATE_IMAGE_SIZE } from '@/lib/catalog/dashboard-types'
+import { isComplete, plateChecks } from '@/lib/catalog/plate-checks'
 
 export type FamilyPlate = Omit<
   PlateCardData,
@@ -14,8 +16,6 @@ export type PlatePageProps = {
   stateName: string
   prevId: string | null
   nextId: string | null
-  templateIndex: number
-  templateCount: number
   returnQuery?: string
   fromState?: boolean
 }
@@ -32,5 +32,33 @@ export function slimPlate(plate: PlateCardData): FamilyPlate {
     variantOfPlateId: plate.variantOfPlateId,
     isStandard: plate.isStandard,
     revision: plate.revision,
+  }
+}
+
+export function cardData(
+  plate: FamilyPlate & {
+    description?: string | null
+    sourceUrl?: string | null
+    wikiUrl?: string | null
+  },
+): PlateCardData {
+  const checks = plateChecks(
+    {
+      ...plate,
+      slug: plate.id.split('.').slice(1).join('.'),
+      image: '',
+      templateFamily: plate.templateFamily ?? undefined,
+      templateRole: plate.templateRole ?? undefined,
+      variantOfPlateId: plate.variantOfPlateId ?? undefined,
+    },
+    plate.imageUrl,
+  )
+  return {
+    ...plate,
+    slug: plate.id.split('.').slice(1).join('.'),
+    sortOrder: 0,
+    imageSize: PLATE_IMAGE_SIZE,
+    checks,
+    complete: isComplete(checks),
   }
 }
