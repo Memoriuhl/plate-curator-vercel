@@ -359,6 +359,6 @@ export function usePlateDrag(options: Options) {
   const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])
   return { active, reflow, announcement, optimisticEdits, promote: () => editSelection(plateSelection.snapshot()), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
-    handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Space to reorder',
+    handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Shift+Space to reorder',
   }
 }

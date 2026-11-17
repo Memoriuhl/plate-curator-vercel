@@ -80,7 +80,7 @@ describe('filters', () => {
   })
 })
 
-test('one link per plate with nonfocusable status glyphs and touch previews', () => {
+test('image and title links with nonfocusable status glyphs', () => {
   const html = renderToStaticMarkup(
     <FamilyCard
       template={head}
@@ -89,10 +89,10 @@ test('one link per plate with nonfocusable status glyphs and touch previews', ()
       onPreview={() => {}}
     />,
   )
-  expect(html.match(/<a /g)).toHaveLength(2)
+  expect(html.match(/<a /g)).toHaveLength(4)
   expect(html).toContain('href="/plates/head"')
   expect(html).not.toContain('aria-label="Preview ')
-  expect(html).not.toContain('tabindex="0"')
+  expect(html.match(/tabindex="0"/g)).toHaveLength(2)
   expect(html.match(/role="img"/g)).toHaveLength(14)
 })
 
@@ -176,7 +176,7 @@ test('large families server-render only a bounded variant window and retain the 
   const html = renderToStaticMarkup(
     <FamilyCard template={head} variants={variants} />,
   )
-  const links = html.match(/<a /g) ?? []
+  const links = html.match(/data-plate-row=/g) ?? []
   expect(links.length).toBeGreaterThan(1)
   expect(links.length).toBeLessThan(15)
   expect(html).toContain('aria-setsize="990"')

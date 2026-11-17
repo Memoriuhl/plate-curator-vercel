@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type HTMLAttributes } from 'react'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
 export function createPlateSelection() {
@@ -58,28 +58,20 @@ export function usePlateSelected(id: string) { return useSyncExternalStore(plate
 export function selectionInput(target: EventTarget | null) {
   return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]')
 }
-export function SelectionPlate({ id, children, disabled = false }: { id: string; children: ReactNode; disabled?: boolean }) {
+export function SelectionPlate({ id, children, disabled = false, className = '', ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'id'> & { id: string; disabled?: boolean }) {
   const selected = usePlateSelected(id)
   function select(event: MouseEvent) {
-    if (!event.ctrlKey && !event.metaKey && !event.shiftKey) return
+    const target = event.target as Element
+    if (target.closest('button, input, [data-plate-open]')) return
+    if (target.closest('a') && !event.ctrlKey && !event.metaKey && !event.shiftKey) return
     event.preventDefault()
     event.stopPropagation()
     if (!disabled) plateSelection.select(id, event)
   }
-  return <div onClickCapture={select} className={'group/selection relative ' + (selected ? 'rounded-[var(--radius-sm)] ring-2 ring-[var(--primary)]' : '')}>
+  return <div {...props} role="button" tabIndex={0} aria-pressed={selected} aria-disabled={disabled} onClickCapture={select}
+    className={'relative select-none rounded-[var(--radius-sm)] transition-shadow focus-visible:outline-2 focus-visible:outline-[var(--primary)] ' + (selected ? 'bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ring-2 ring-[var(--primary)] ' : 'hover:ring-1 hover:ring-[var(--hairline)] ') + className}>
     {children}
   </div>
-}
-
-export function SelectionCheckbox({ id, disabled = false, imageOffset = 0 }: { id: string; disabled?: boolean; imageOffset?: number }) {
-  const selected = usePlateSelected(id)
-  return <input type="checkbox" aria-label={'Select ' + id} checked={selected} disabled={disabled}
-    title={disabled ? 'Does not match the current filters' : 'Select plate'}
-    data-plate-selection style={{ left: imageOffset + 4 }}
-    className="absolute top-1 left-1 z-10 size-4 accent-[var(--primary)] opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 in-data-[has-selection=true]:opacity-100"
-    onPointerDown={event => event.stopPropagation()}
-    onClick={event => { event.stopPropagation(); plateSelection.select(id, { ctrlKey: true }) }}
-    onChange={() => {}} />
 }
 
 export function useSelectionKeyboard({ close, promote, disabled, dragging = false }: { close(): void; promote(): Promise<void>; disabled: boolean; dragging?: boolean }) {

@@ -635,10 +635,8 @@ body {
 
 .family-card { container-name: family-card; }
 
-.family-template-handle { height: var(--family-image-height, 70px); }
 
 @container family-card (width < 328px) {
-  .family-template-handle { --family-image-height: 56px; }
   [data-plate-image] {
     --family-image-width: 112px;
     --family-image-height: 56px;

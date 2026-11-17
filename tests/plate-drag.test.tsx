@@ -25,10 +25,11 @@ const w = { ...v, id: 'AK.w' }
 const b = { ...a, id: 'AK.b', displayName: 'Navy' }
 const families = [{ template: a, variants: [v, w] }, { template: b, variants: [] }]
 const success = { ok: true, proposed: {} }
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn() }) }))
+const { push } = vi.hoisted(() => ({ push: vi.fn() }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn(), push }) }))
 vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
 vi.mock('next/image', () => ({ default: () => <span /> }))
-afterEach(() => { cleanup(); plateSelection.clear() })
+afterEach(() => { cleanup(); plateSelection.clear(); push.mockClear() })
 
 test('moves family blocks and variants while retaining the full permutation', () => {
   const order = familyOrder(families)
@@ -45,7 +46,7 @@ test('threshold, hit targets and scroll edges', () => {
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
-function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false, save = vi.fn().mockResolvedValue(success) } = {}) {
+function setup({ rows = false, show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false, save = vi.fn().mockResolvedValue(success) } = {}) {
   const edit = save
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
   const move = vi.fn().mockResolvedValue(success)
@@ -58,10 +59,10 @@ function setup({ show = 'all', query = '', canEdit = true, error = false, merge 
       targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
     const item = { kind: variant ? 'variant' as const : 'family' as const, plate: deletedSource ? { ...(singleton ? b : variant ? v : a), deleted: true } : singleton ? b : variant ? v : a }
-    return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
+    return <>{rows ? <FamilyCard template={a} variants={[v, w]} canEdit={canEdit} drag={drag} /> : null}<button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
   }
   render(<Harness />)
-  return { edit, reorder, move, capture, reload, closePreview, handle: screen.getByRole('button') }
+  return { edit, reorder, move, capture, reload, closePreview, handle: rows ? document.querySelector<HTMLElement>('[data-plate-row="' + (variant ? v.id : a.id) + '"]')! : screen.getByRole('button') }
 }
 
 test('keyboard lifts, moves, drops once and removes the global cursor', async () => {
@@ -208,17 +209,17 @@ test('card handles respect entrance animations and global keyboard survives sour
   }
   render(<Cards />)
   const article = screen.getByRole('article')
-  const handle = screen.getByRole('button', { name: 'Move Army family' })
+  const handle = screen.getByRole('button', { name: 'Army template' })
   const image = article.querySelector('[data-plate-image]')!
   image.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
-  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
   expect(screen.queryByText(/Lifted/)).toBeNull()
   image.getAnimations = () => []
-  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
   expect(screen.getByText(/Lifted Army/)).toBeTruthy()
   handle.remove()
   fireEvent.keyDown(window, { key: 'ArrowDown' })
-  fireEvent.keyDown(window, { key: ' ' })
+  fireEvent.keyDown(window, { key: ' ', shiftKey: true })
   await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
   expect(screen.getByText('Dropped')).toBeTruthy()
 })
@@ -470,12 +471,12 @@ test('handles expose grab and disabled cursors while image hover retains preview
     return <FamilyCard template={a} variants={[v]} canEdit drag={drag} onPreview={preview} />
   }
   const view = render(<Harness />)
-  for (const handle of view.container.querySelectorAll('[data-family-handle], [data-variant-handle]')) expect(handle.className).toContain('cursor-grab!')
+  for (const handle of view.container.querySelectorAll('[data-plate-row]')) expect(handle.className).toContain('cursor-grab!')
   expect(screen.queryByRole('button', { name: /^Preview / })).toBeNull()
   fireEvent.mouseEnter(view.container.querySelector('[data-plate-image]')!)
   expect(preview).toHaveBeenCalledWith(a, expect.any(HTMLElement), false)
   view.rerender(<Harness query="army" />)
-  for (const handle of view.container.querySelectorAll('[data-family-handle], [data-variant-handle]')) expect(handle.className).toContain('cursor-not-allowed!')
+  for (const handle of view.container.querySelectorAll('[data-plate-row]')) expect(handle.className).toContain('cursor-pointer')
 })
 
 test.each([false, true])('deleted plates cannot start keyboard or pointer drags, Variant %s', variant => {
@@ -508,8 +509,8 @@ test('deleted cards and Variants expose disabled handles and no drop targets', (
   const deleted = { ...b, deleted: true }
   const deletedVariant = { ...v, deleted: true }
   const view = render(<section><FamilyCard template={a} variants={[deletedVariant, w]} canEdit /><FamilyCard template={deleted} variants={[]} canEdit /></section>)
-  expect((screen.getByRole('button', { name: 'Move Navy family' }) as HTMLButtonElement).disabled).toBe(true)
-  expect((view.container.querySelector('[data-drag-handle-id="AK.v"]') as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByRole('button', { name: 'Navy template' }).getAttribute('aria-disabled')).toBe('true')
+  expect(view.container.querySelector('[data-drag-handle-id="AK.v"]')?.getAttribute('aria-disabled')).toBe('true')
   const targets = collectDragTargets(view.container, [{ template: a, variants: [deletedVariant, w] }, { template: deleted, variants: [] }])
   expect(targets.some(({ target }) => target.kind === 'merge' && target.familyId === b.id)).toBe(false)
   expect(targets.some(({ target }) => target.kind === 'variant-slot' && target.index === 0)).toBe(false)
@@ -664,11 +665,11 @@ test('deleted destinations are checked before multi-merge and never promote the 
   expect(move).not.toHaveBeenCalled()
 })
 
-test('deleted plate checkboxes and modifier selection are disabled', () => {
+test('deleted plate row and modifier selection are disabled', () => {
   const deleted = { ...v, deleted: true }
   plateSelection.visible([deleted])
   const view = render(<FamilyCard template={a} variants={[deleted]} matches={() => true} />)
-  expect((screen.getByRole('checkbox', { name: 'Select ' + v.id }) as HTMLInputElement).disabled).toBe(true)
+  expect(view.container.querySelector('[data-plate-row="AK.v"]')?.getAttribute('aria-disabled')).toBe('true')
   fireEvent.click(view.container.querySelector('a[title="' + v.id + '"]')!, { ctrlKey: true })
   expect(plateSelection.snapshot()).toEqual([])
 })
@@ -692,6 +693,62 @@ test('titles and checks share the details container beside each image', () => {
     expect(detail.querySelector('[data-check-strip]')).not.toBeNull()
     expect(detail.parentElement?.querySelector('[data-plate-image]')).not.toBeNull()
   })
-  expect(view.container.querySelector('[data-family-handle]')?.className).toContain('family-template-handle')
-  expect(view.container.querySelector('[data-variant-handle]')?.className).toContain('h-[42px]')
+  expect(view.container.querySelectorAll('[data-plate-row][tabindex="0"]')).toHaveLength(2)
+})
+
+
+test('row clicks select, link clicks open, and keyboard selection stays distinct from movement', () => {
+  plateSelection.visible([a, v, w])
+  const view = render(<FamilyCard template={a} variants={[v, w]} canEdit />)
+  const row = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+  expect(row).not.toBeNull()
+  fireEvent.click(row)
+  expect(row.getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(view.container.querySelector('[data-plate-row="AK.w"]')!, { ctrlKey: true })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([v.id, w.id])
+  fireEvent.keyDown(row, { key: ' ' })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([w.id])
+  const imageLink = row.querySelector('a[data-plate-open]')!
+  imageLink.addEventListener('click', event => event.preventDefault())
+  fireEvent.click(imageLink)
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([w.id])
+  fireEvent.click(row.querySelector('h3 a')!, { metaKey: true })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([w.id, v.id])
+  expect(view.container.querySelector('input[type="checkbox"]')).toBeNull()
+  expect(view.container.querySelector('[data-family-handle], [data-variant-handle]')).toBeNull()
+})
+
+
+test('whole rows reuse the pointer threshold and suppress selection after a drag', async () => {
+  plateSelection.visible([a, v, w])
+  const { handle, move } = setup({ rows: true, variant: true })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 103], ['pointerup', 103]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  expect(document.body.classList.contains('plate-dragging')).toBe(false)
+  fireEvent.click(handle)
+  expect(plateSelection.has(v.id)).toBe(true)
+  pointerDrag(handle, 110)
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
+  await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
+  fireEvent.click(document.querySelector('[data-plate-row="AK.v"]')!)
+  expect(plateSelection.has(v.id)).toBe(true)
+})
+
+test('rows use Space for selection, Enter for opening and Shift+Space for keyboard moves', async () => {
+  plateSelection.visible([a, v, w])
+  const { handle, reorder } = setup({ rows: true })
+  fireEvent.keyDown(handle, { key: ' ' })
+  expect(plateSelection.has(a.id)).toBe(true)
+  expect(screen.queryByText(/Lifted/)).toBeNull()
+  fireEvent.keyDown(handle, { key: 'Enter' })
+  expect(push).toHaveBeenCalledWith('/plates/' + a.id)
+  fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
+  expect(screen.getByText(/Lifted Army family/)).toBeTruthy()
+  fireEvent.keyDown(window, { key: 'ArrowDown' })
+  fireEvent.keyDown(window, { key: 'ArrowDown' })
+  fireEvent.keyDown(window, { key: ' ' })
+  await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
 })

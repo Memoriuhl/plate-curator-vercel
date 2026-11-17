@@ -1,6 +1,6 @@
 'use client'
 
-import { SelectionPlate, SelectionCheckbox } from '@/components/dashboard/plate-selection'
+import { SelectionPlate, plateSelection } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -8,7 +8,7 @@ import { preconnect } from 'react-dom'
 import Link from 'next/link'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { IoReorderThreeOutline, IoStar } from 'react-icons/io5'
+import { IoStar } from 'react-icons/io5'
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { CheckStrip } from './check-strip'
@@ -97,7 +97,6 @@ export function FamilyCard({
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
   const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
-  const item = { kind: 'family' as const, plate: template }
   const placeholder = drag?.reflow?.placeholder
   const gapHeight = drag?.active?.geometry.height ?? 0
   if (number === 1 && template.imageUrl?.startsWith('https:'))
@@ -106,10 +105,28 @@ export function FamilyCard({
     const width = small ? 84 : 140
     const height = small ? 42 : 70
     const marker = badge?.(plate)
+    const item = { kind: small ? 'variant' as const : 'family' as const, plate }
+    const href = '/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}><div
-        key={plate.id}
+      <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}
+        data-plate-row={plate.id}
+        data-drag-handle-id={plate.id}
+        aria-label={plate.displayName + (small ? ' variant' : ' template')}
+        aria-keyshortcuts="Space Enter Shift+Space"
+        title={drag?.handleTitle}
+        onKeyDown={event => {
+          if (event.target !== event.currentTarget || entranceRunning(event.currentTarget)) return
+          if (drag?.active?.keyboard || (event.key === ' ' && event.shiftKey)) {
+            drag?.onKeyDown(item, event)
+          } else if (event.key === ' ') {
+            event.preventDefault()
+            if (!plate.deleted && (!matches || matches(plate))) plateSelection.select(plate.id, { ctrlKey: true })
+          } else if (event.key === 'Enter') {
+            event.preventDefault()
+            router.push(href)
+          }
+        }}
         data-drag-variant={small ? plate.id : undefined}
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
         onPointerEnter={() => onPreload?.(plate.id)}
@@ -134,35 +151,28 @@ export function FamilyCard({
           const icon = (event.target as Element).closest('[data-check], [data-batch-marker]')
           if (icon && !(event.relatedTarget instanceof Node && icon.contains(event.relatedTarget))) onLeaveCheck?.()
         }}
-        onPointerDown={small ? event => {
+        onPointerDown={event => {
           event.stopPropagation()
-          if ((event.target as Element).closest('input')) return
-          if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-variant-handle]')) return
-          if (!entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'variant', plate }, event)
-        } : undefined}
+          if ((event.target as Element).closest('button, input')) return
+          if (canEdit && !entranceRunning(event.currentTarget)) drag?.onPointerDown(item, event)
+        }}
         className={cn(
           'relative flex items-start gap-3',
+          drag?.enabled && !plate.deleted ? 'cursor-grab!' : 'cursor-pointer',
           plate.deleted && 'opacity-60 [&_h3]:line-through',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
         {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
-        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} disabled={plate.deleted}
-          aria-disabled={!drag?.enabled || !!plate.deleted} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-start h-[42px] rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !plate.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
-          if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
-        }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
-        <SelectionCheckbox id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))} imageOffset={small && canEdit ? 28 : 0} />
+        {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="caption absolute -top-3 -left-3 rounded-[var(--radius-sm)] bg-[var(--fill)] px-1 text-[var(--ink-2)]">{number}</span> : null}
         <Link
-          lang="en"
-          title={plate.id}
+          href={href}
+          data-plate-open
+          aria-label={'Open ' + plate.displayName}
           prefetch={false}
-          href={'/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')}
-          className="group/plate flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+          className="shrink-0 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
           onPointerEnter={() => prefetch(plate.id)}
-          onFocus={(event) => {
-            prefetch(plate.id)
-            preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true)
-          }}
+          onFocus={event => { prefetch(plate.id); preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true) }}
           onBlur={onClosePreview}
         >
           <div
@@ -190,10 +200,11 @@ export function FamilyCard({
               <span className="caption">No image</span>
             )}
           </div>
+        </Link>
           <div className="family-plate-details flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-start justify-between gap-2">
               <h3 className="plate-name min-w-0 whitespace-normal hyphens-auto [overflow-wrap:break-word]">
-                {plate.displayName}
+                <Link lang="en" title={plate.id} prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
               </h3>
               {plate.isStandard ? (
                 <span
@@ -208,8 +219,7 @@ export function FamilyCard({
             <CheckStrip checks={plate.checks} />
           </div>
           {marker ? <span data-batch-marker>{marker}</span> : null}
-        </Link>
-      </div></SelectionPlate>
+      </SelectionPlate>
     )
   }
   if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
@@ -218,34 +228,11 @@ export function FamilyCard({
       data-drag-family={template.id}
       data-reflow-key={'family:' + template.id}
       aria-label={template.displayName + ' family'}
-      onPointerDown={event => {
-        if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-family-handle]')) return
-        if (!entranceRunning(event.currentTarget)) drag?.onPointerDown(item, event)
-      }}
       onClickCapture={event => drag?.suppressClick(event)}
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
       className={cn('@container family-card relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
-      <div className="flex items-start gap-3">
-        {canEdit ? <button
-          type="button"
-          data-family-handle
-          data-drag-handle-id={template.id}
-          aria-label={'Move ' + template.displayName + ' family'}
-          disabled={template.deleted}
-          aria-disabled={!drag?.enabled || !!template.deleted}
-          title={drag?.handleTitle}
-          onKeyDown={event => { if (!entranceRunning(event.currentTarget)) drag?.onKeyDown(item, event) }}
-          className={cn('flex shrink-0 flex-col items-center justify-center self-start family-template-handle rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !template.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
-        ><IoReorderThreeOutline size={20} aria-hidden="true" />{number}</button> : <span
-          aria-hidden="true"
-          className="flex shrink-0 flex-col items-center justify-center self-start family-template-handle rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
-        >
-          <IoReorderThreeOutline size={20} />
-          {number}
-        </span>}
-        <div className="min-w-0 flex-1">{plateContent(template, false)}</div>
-      </div>
+      {plateContent(template, false)}
       {variants.length ? (
         <div className="mt-3 flex flex-col gap-2 pl-8">
           {variants.length >= 6 ? (
