@@ -52,7 +52,9 @@ test('Story read-more links include only sources cited by retained facts or year
   const unused = { ...source, id: 'S2', url: 'https://example.org/unused' }
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ firstIssuedYear: null, funFacts: [{ text: 'The program supports wildlife conservation projects across Alaska.', source: 'S1' }] }) } }))
   const result = await createTextStageHandler({ url: 'http://localhost:11434', fetch, gather: async () => [source, unused] })({ stage: 'story', plate: { displayName: 'Wildlife', state: 'AK', image: '', tags: [] } })
-  expect(result.fieldSuggestion?.fields.readMore?.map(link => link.url)).toEqual([source.url])
+  const suggestion = result.fieldSuggestion
+  if (suggestion?.kind !== 'fields') throw new Error('Expected field suggestion')
+  expect(suggestion.fields.readMore?.map(link => link.url)).toEqual([source.url])
 })
 
 test('a subject founding year cannot become the plate issue year', () => {
