@@ -1,9 +1,11 @@
 import type { Plate } from '../catalog/types'
 import type { EditableFields } from '../review/types'
+import type { GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
-export type FieldSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
+export type FieldsSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
+export type FieldSuggestion = FieldsSuggestion | ImageSuggestion | GroupSuggestion
 export type StageError = 'no_sources' | 'no_supported_fields'
 export type JobResult = { suggestions: string[]; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
 export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion' | 'stageError'> & { suggestions?: unknown; fieldSuggestion?: unknown; stageError?: unknown }

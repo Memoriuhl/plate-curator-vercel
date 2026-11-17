@@ -43,6 +43,7 @@ export function TagRunBanner({
     entries.filter((entry) => !entry.error && entry.job.state === state).length
   const active = starting || counts('queued') + counts('claimed') > 0
   async function acceptFields(entry: RunEntry, suggestion: Suggestion) {
+    if (suggestion.kind !== 'fields') return
     if (saving.current || blocked || !batchId || !entry.job.inputHash) return
     saving.current = true
     try {
@@ -131,7 +132,7 @@ export function TagRunBanner({
                   Current tags: {tags.join(', ') || 'None'}
                 </p> : null}
                 {entry.error ? <p role="alert">{entry.error}</p> : null}
-                {entry.job.state === 'completed' && !entry.error && fieldSuggestion ? <FieldSuggestion
+                {entry.job.state === 'completed' && !entry.error && fieldSuggestion?.kind === 'fields' ? <FieldSuggestion
                   suggestion={fieldSuggestion}
                   before={detail.data?.plates.find(item => item.proposed.id === entry.plate.id)?.proposed}
                   blocked={pending || blocked || !entry.job.inputHash}

@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import type { Plate } from '@/lib/catalog/types'
-import type { FieldSuggestion as Suggestion } from '@/lib/jobs/types'
+import type { FieldsSuggestion as Suggestion } from '@/lib/jobs/types'
 
 const show = (value: unknown) => value == null ? 'None' : typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 
