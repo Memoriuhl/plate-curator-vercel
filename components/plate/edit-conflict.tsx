@@ -33,7 +33,9 @@ export function Conflict({
   if (issue.result.error !== 'stale_plate')
     return (
       <p role="alert" className="rounded-xl bg-[var(--danger-tint)] p-3">
-        {errors[issue.result.error]}
+        {issue.result.error === 'invalid_state' && issue.fields.deleted === true
+          ? 'Cannot delete this plate. Set another Standard plate or move or promote its Variants first.'
+          : errors[issue.result.error]}
       </p>
     )
   const result = issue.result

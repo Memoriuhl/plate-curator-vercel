@@ -408,3 +408,12 @@ test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion counts V
   expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
   expect(screen.queryByText('Move or promote its 1 Variants first.')).toBeNull()
 })
+
+test('delete rejections explain the deletion rules through the field issue', async () => {
+  state.edit.mockResolvedValue({ ok: false, error: 'invalid_state' })
+  render(<PlatePage {...props} plates={[]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Cannot delete this plate. Set another Standard plate or move or promote its Variants first.'))
+  expect(screen.queryByText('This batch is no longer open for editing.')).toBeNull()
+})

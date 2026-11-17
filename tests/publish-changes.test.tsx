@@ -94,3 +94,14 @@ test('retry eligibility suppresses the current approval warning', () => {
   expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
   expect(screen.queryByText(/needs current approval/)).toBeNull()
 })
+
+test('deleted plate thumbnails are dimmed and their names struck through', () => {
+  const deleted = { ...entry, proposed: { ...entry.proposed, deleted: true } }
+  const view = render(<BatchChanges plates={[deleted]} batch={batch} />)
+  expect(view.container.querySelector('img')?.parentElement?.className).toContain('opacity-60')
+  fireEvent.click(screen.getByRole('button', { name: /AK Alaska/ }))
+  const row = screen.getByRole('button', { name: /One/ })
+  expect(row.querySelector('strong')?.className).toContain('line-through')
+  expect(row.querySelector('img')?.parentElement?.className).toContain('opacity-60')
+  expect(row.textContent).toContain('Deleted')
+})

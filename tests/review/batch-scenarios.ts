@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { approveBatch, proposeEdit, reorderState, submitBatch } from '../../lib/review/batch'
 import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
@@ -30,6 +30,34 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     const input = { batchId: batch.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
     return { deps, store, input }
   }
+
+  test.each(['link', 'family'] as const)('new draft families reject deletion and joins in either order: %s', join => {
+    return (async () => {
+      for (const deletionFirst of [false, true]) {
+        const { deps, input } = await setup()
+        const promoted = await proposeEdit(deps, editor, { ...input, fields: { templateRole: 'template', templateFamily: 'new-family' } })
+        if (!promoted.ok) throw new Error('expected promotion')
+        const deletion = { ...input, baseRevision: plateRevision(promoted.value.plate), fields: { deleted: true } }
+        const addition = { ...input, plateId: 'two', baseRevision: plateRevision(baseline[1]), fields: { templateRole: 'variant' as const, ...(join === 'link' ? { variantOfPlateId: 'one' } : { templateFamily: 'new-family' }) } }
+        if (deletionFirst) {
+          expect(await proposeEdit(deps, editor, deletion)).toMatchObject({ ok: true })
+          expect(await proposeEdit(deps, editor, addition)).toEqual({ ok: false, error: 'invalid_state' })
+        } else {
+          expect(await proposeEdit(deps, editor, addition)).toMatchObject({ ok: true })
+          expect(await proposeEdit(deps, editor, deletion)).toEqual({ ok: false, error: 'invalid_state' })
+        }
+      }
+    })()
+  })
+
+  test('a deleted Variant cannot be promoted by a reorder', async () => {
+    const { deps, input, store } = await setup()
+    const variant = { ...baseline[0], templateRole: 'variant' as const }
+    deps.baselineAtVersion = async () => variant
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(variant), fields: { deleted: true } })).toMatchObject({ ok: true })
+    expect(await reorderState(deps, editor, { batchId: input.batchId, state: 'CA', batchRevision: 5, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new-family' } })).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getBatch(input.batchId)).toMatchObject({ revision: 5 })
+  })
 
   test('Standard plates cannot be deleted until their draft Standard flag is cleared', async () => {
     const { deps, store, input } = await setup()

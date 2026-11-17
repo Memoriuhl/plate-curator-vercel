@@ -24,7 +24,7 @@ export function collectDragTargets(root: HTMLElement | null, families: DragFamil
   for (const element of root.querySelectorAll<HTMLElement>('[data-drag-family]')) {
     const familyId = element.dataset.dragFamily
     const index = families.findIndex(family => family.template.id === familyId)
-    if (index < 0) continue
+    if (index < 0 || families[index].template.deleted) continue
     const rect = element.getBoundingClientRect()
     const edge = Math.min(28, rect.width / 5)
     targets.push(
@@ -34,7 +34,7 @@ export function collectDragTargets(root: HTMLElement | null, families: DragFamil
     )
     for (const variant of element.querySelectorAll<HTMLElement>('[data-drag-variant]')) {
       const variantIndex = families[index].variants.findIndex(plate => plate.id === variant.dataset.dragVariant)
-      if (variantIndex < 0) continue
+      if (variantIndex < 0 || families[index].variants[variantIndex].deleted) continue
       const bounds = variant.getBoundingClientRect()
       const scrollElement = variant.closest<HTMLElement>('[data-variant-scroll]') ?? undefined
       const midpoint = (bounds.top + bounds.bottom) / 2

@@ -28,6 +28,17 @@ export async function proposeEdit(
       .filter(key => i.fields[key] !== undefined)
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
+    if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
+      const edits = await d.store.listEdits(batch.id)
+      const deleted = edits.filter(edit => edit.plateId !== plate.id && edit.fields.deleted)
+      if (deleted.some(edit => edit.plateId === plate.variantOfPlateId)) return { ok: false, error: 'invalid_state' }
+      if (plate.templateFamily) {
+        const parents = await Promise.all(deleted.map(async edit => ({
+          ...await d.baselineAtVersion(batch.baselineVersion, edit.plateId), ...edit.fields,
+        })))
+        if (parents.some(parent => parent.templateRole === 'template' && parent.templateFamily === plate.templateFamily)) return { ok: false, error: 'invalid_state' }
+      }
+    }
     if (plate.deleted) {
       if (plate.isStandard) return { ok: false, error: 'invalid_state' }
       if (plate.templateRole === 'template') {
@@ -112,7 +123,7 @@ export async function reorderState(
     if (!baseline || !ids.has(plateId) || baseline.state !== input.state) return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(batch.id, plateId)
     const current = { ...baseline, ...existing?.fields }
-    if (current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
+    if (current.deleted || current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
     const edits = await d.store.listEdits(batch.id)
     if (plates.some(plate => plate.id !== plateId && (edits.find(entry => entry.plateId === plate.id)?.fields.templateFamily ?? plate.templateFamily) === templateFamily)) return { ok: false, error: 'invalid_state' }
     plateIds = plateIds.includes(plateId) ? plateIds : [...plateIds, plateId]
