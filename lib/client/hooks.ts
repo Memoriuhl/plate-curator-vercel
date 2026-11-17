@@ -284,7 +284,7 @@ export function useEnsureBatch(): (plate: { id: string; state: string }) => Prom
   }
 }
 
-export function useEditPlate() {
+export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
@@ -323,7 +323,7 @@ export function useEditPlate() {
 
   function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }): Promise<EditResult<Plate>> {
     setPendingCount(count => count + 1)
-    const result = queue.current.then(() => save(plate, fields, reviewed))
+    const result = parallel ? save(plate, fields, reviewed) : queue.current.then(() => save(plate, fields, reviewed))
     queue.current = result.catch(() => undefined)
     return result.finally(() => setPendingCount(count => count - 1))
   }

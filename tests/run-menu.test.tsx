@@ -10,6 +10,8 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { plateSelection } from '../components/dashboard/plate-selection'
+import { plateCards } from '../fixtures/plate-cards'
 import { RunMenu } from '../components/dashboard/run-menu'
 import { TagRunBanner } from '../components/dashboard/tag-run-banner'
 import {
@@ -71,6 +73,7 @@ beforeEach(() => {
   mocks.detail.plates = []
 })
 afterEach(() => {
+  plateSelection.clear()
   cleanup()
   vi.useRealTimers()
 })
@@ -390,4 +393,15 @@ test('Run menu hides picker with one model', () => {
   render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   expect(screen.queryByRole('combobox')).toBeNull()
+})
+
+test('selection scope passes plates across states to the pipeline', () => {
+  const selected = [{ ...plateCards[0], id: 'NY.a', state: 'NY' }, { ...plateCards[0], id: 'NJ.b', state: 'NJ' }]
+  plateSelection.add(selected)
+  const start = vi.fn()
+  render(<RunMenu underTagged={[]} batchPlates={[]} stateName="New York" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(screen.getByRole('button', { name: 'Selected plates 2' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith(selected, false, 'desktop-gemma4-12b')
 })

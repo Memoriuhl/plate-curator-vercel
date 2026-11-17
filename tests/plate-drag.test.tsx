@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
+import { plateSelection } from '../components/dashboard/plate-selection'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
 import { FamilyCard } from '../components/plate/family-card'
 import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
@@ -27,7 +28,7 @@ const success = { ok: true, proposed: {} }
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn() }) }))
 vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
 vi.mock('next/image', () => ({ default: () => <span /> }))
-afterEach(cleanup)
+afterEach(() => { cleanup(); plateSelection.clear() })
 
 test('moves family blocks and variants while retaining the full permutation', () => {
   const order = familyOrder(families)
@@ -512,4 +513,32 @@ test('deleted cards and Variants expose disabled handles and no drop targets', (
   const targets = collectDragTargets(view.container, [{ template: a, variants: [deletedVariant, w] }, { template: deleted, variants: [] }])
   expect(targets.some(({ target }) => target.kind === 'merge' && target.familyId === b.id)).toBe(false)
   expect(targets.some(({ target }) => target.kind === 'variant-slot' && target.index === 0)).toBe(false)
+})
+
+function pointerDrag(handle: HTMLElement, x: number) {
+  for (const [type, position] of [['pointerdown', 100], ['pointermove', x], ['pointerup', x]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: position, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+}
+
+test('background drop promotes selected variants and ignores selected templates', async () => {
+  plateSelection.visible([a, v, w])
+  plateSelection.add([a, v, w])
+  const { handle, edit, reorder } = setup({ variant: true })
+  pointerDrag(handle, 700)
+  await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
+  expect(edit).toHaveBeenCalledWith(v, { templateRole: 'template', templateFamily: v.id, variantOfPlateId: null })
+  expect(edit).toHaveBeenCalledWith(w, { templateRole: 'template', templateFamily: w.id, variantOfPlateId: null })
+  expect(reorder).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('2 plates are now Templates')).toBeTruthy())
+})
+
+test('multi-drag edits each selected plate into the destination family', async () => {
+  plateSelection.add([v, w])
+  const { handle, edit } = setup({ variant: true, merge: true })
+  pointerDrag(handle, 110)
+  await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
+  for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
 })

@@ -1,5 +1,6 @@
 'use client'
 
+import { SelectionPlate } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -95,7 +96,7 @@ export function FamilyCard({
   }, [pointerDragging])
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
-  const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
+  const invalidMerge = merge && (!drag?.canMerge || ((drag.active?.selection.length ?? 0) <= 1 && (drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))))
   const item = { kind: 'family' as const, plate: template }
   const placeholder = drag?.reflow?.placeholder
   const gapHeight = drag?.active?.geometry.height ?? 0
@@ -107,7 +108,7 @@ export function FamilyCard({
     const marker = badge?.(plate)
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <div
+      <SelectionPlate key={plate.id} id={plate.id}><div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
@@ -208,7 +209,7 @@ export function FamilyCard({
           {marker ? <span data-batch-marker>{marker}</span> : null}
           {small ? <div className="family-variant-checks family-plate-details basis-full"><CheckStrip checks={plate.checks} /></div> : null}
         </Link>
-      </div>
+      </div></SelectionPlate>
     )
   }
   if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
