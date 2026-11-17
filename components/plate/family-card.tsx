@@ -260,7 +260,7 @@ export function FamilyCard({
     >
       {plateContent(template, false)}
       {variants.length ? (
-        <div className="mt-3 ml-1 flex flex-col gap-2 border-l-2 border-[var(--hairline)] pl-2.5">
+        <div className="mt-3 flex flex-col gap-2">
           {variants.length >= 6 ? (
             <VirtualizedVariants
               plates={variants}

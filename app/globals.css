@@ -661,3 +661,8 @@ body {
 .variant-row[data-selected="true"] {
   background: color-mix(in srgb, var(--primary) 16%, var(--fill));
 }
+
+.variant-row [data-batch-marker] {
+  top: 10px;
+  right: 10px;
+}
