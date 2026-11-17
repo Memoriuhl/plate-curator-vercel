@@ -58,9 +58,11 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
 }
 
 function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null {
-  const fieldSuggestion = stage ? parseFieldSuggestion(input?.fieldSuggestion, stage) : undefined
-  if (stage && (!fieldSuggestion || input.suggestions !== undefined && (!Array.isArray(input.suggestions) || input.suggestions.length > 0))) return null
-  if (!stage && input?.fieldSuggestion !== undefined) return null
+  const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields') ? input.stageError : undefined
+  if (input?.stageError !== undefined && !stageError) return null
+  const fieldSuggestion = stage && !stageError ? parseFieldSuggestion(input?.fieldSuggestion, stage) : undefined
+  if (stage && (!stageError && !fieldSuggestion || stageError && input.fieldSuggestion !== undefined || input.suggestions !== undefined && (!Array.isArray(input.suggestions) || input.suggestions.length > 0))) return null
+  if (!stage && (input?.fieldSuggestion !== undefined || input?.stageError !== undefined)) return null
   const rawTags = stage ? [] : input?.suggestions
   if (!input || !Array.isArray(rawTags) || !['backend', 'model', 'promptVersion'].every(key => {
     const value = input[key as keyof ReportInput]
@@ -70,7 +72,7 @@ function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null 
     Object.values(input.usage).some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0))) return null
   const suggestions = [...new Set(rawTags.filter((value): value is string => typeof value === 'string')
     .map(value => value.trim().toLowerCase()).filter(value => value.length > 0 && value.length <= 60))].slice(0, 20)
-  return { suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: input.durationMs,
+  return { suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: input.durationMs,
     ...(input.usage === undefined ? {} : { usage: Object.fromEntries(Object.entries(input.usage).sort(([a], [b]) => a.localeCompare(b))) }) }
 }
 

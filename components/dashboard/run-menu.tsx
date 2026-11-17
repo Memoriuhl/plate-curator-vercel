@@ -14,6 +14,7 @@ import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picke
 import type { TaggingModelId } from '@/lib/tagging/models'
 import type { RunPlate } from './use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
+import type { PipelineStage } from '@/lib/jobs/types'
 
 const stages = [
   [
@@ -70,7 +71,7 @@ export function RunMenu({
   disabledReason?: string
   disabled: boolean
   modelError?: string
-  start(plates: RunPlate[], retry: boolean, modelId?: TaggingModelId): void
+  start(plates: RunPlate[], retry: boolean, modelId?: TaggingModelId, stage?: PipelineStage): void
 }) {
   const selectedPlates = useSelectedPlates()
   const choice = useTaggingModelChoice()
@@ -80,11 +81,20 @@ export function RunMenu({
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
   const [limit, setLimit] = useState('25')
   const [onlyUnderTagged, setOnlyUnderTagged] = useState(false)
+  const [stageName, setStageName] = useState('Tag')
+  const [redoStory, setRedoStory] = useState(false)
+  const activeStage = local ? stageName : 'Tag'
+  const textStage = activeStage === 'Describe' || activeStage === 'Story'
+  const desktopModels = choice.data?.models.filter(model => model.runsOn === 'desktop')
+  const textChoice = { ...choice, modelId: desktopModels?.find(model => model.id === choice.modelId)?.id as TaggingModelId | undefined ?? desktopModels?.[0]?.id as TaggingModelId | undefined,
+    data: choice.data ? { ...choice.data, models: desktopModels ?? [] } : undefined }
+  const activeChoice = textStage ? textChoice : choice
   const validLimit = Number.isInteger(Number(limit)) && Number(limit) >= 1 && Number(limit) <= 25
-  const plates = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : local && scope === 'all' ? allPlates : underTagged
-  const planned = useMemo(() => planTagRun(plates, local && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit])
+  const plates: readonly RunPlate[] = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : local && scope === 'all' ? allPlates : underTagged
+  const planned = useMemo(() => planTagRun(activeStage === 'Story' && !redoStory ? plates.filter(plate => !(plate.hasStory ?? plate.checks?.funFacts.status === 'good')) : plates, local && activeStage === 'Tag' && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit, activeStage, redoStory])
   const count = planned.length
-  const selectedModel = choice.data?.models.find(model => model.id === choice.modelId)
+  const selectedModel = activeChoice.data?.models.find(model => model.id === activeChoice.modelId)
+  const enabled = (name: string) => name === 'Tag' || local && ['Describe', 'Story'].includes(name)
   return (
     <>
     <Popover open={open} onOpenChange={setOpen}>
@@ -160,49 +170,50 @@ export function RunMenu({
         </fieldset> : null}
         <section aria-label="Stages and their options" className="grid gap-1">
           <h2 className="label mb-1">Stages and their options</h2>
+          {local ? <p className="caption">Choose one stage for this local run.</p> : null}
           {stages.map(([name, description, duration, ...options]) => (
             <fieldset
               key={name}
-              disabled={name !== 'Tag'}
+              disabled={!enabled(name)}
               className={cn(
                 'rounded-[var(--radius-md)] p-4',
                 options.length > 0 && 'bg-[var(--fill)]',
-                name !== 'Tag' && 'text-[var(--ink-2)]',
+                !enabled(name) && 'text-[var(--ink-2)]',
               )}
             >
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
-                  aria-label={name === 'Tag' ? 'Tag' : `${name}: ${local ? localStageReasons[name] : 'Coming soon'}`}
-                  checked={name === 'Tag'}
-                  onChange={() => {}}
+                  aria-label={enabled(name) ? name : `${name}: ${local ? localStageReasons[name] : 'Coming soon'}`}
+                  checked={name === activeStage}
+                  onChange={() => { if (enabled(name)) setStageName(name) }}
                   className="accent-[var(--ink)]"
                 />
                 <div className="flex-1">
                   <strong>{name}</strong>
                   <p className="caption">{description}</p>
                 </div>
-                {name !== 'Tag' ? (
+                {!enabled(name) ? (
                   <span className="caption">{local ? localStageReasons[name] : 'Coming soon'}</span>
                 ) : null}
                 <span className="id">{duration}</span>
               </div>
-              {name === 'Tag' ? <TaggingModelPicker choice={choice} error={modelError} /> : null}
-              {options.filter(option => !local || !option.startsWith('Limit')).map((option) => (
+              {name === activeStage ? <TaggingModelPicker choice={activeChoice} error={modelError} /> : null}
+              {options.filter(option => !local || !option.startsWith('Limit') && option !== 'Model · local').map((option) => (
                 <label
                   key={option}
                   className="mt-2 flex items-center gap-2 pr-1 pl-7 text-xs"
                 >
                   <input
                     type="checkbox"
-                    disabled={!local || option !== 'Only under-tagged plates'}
-                    checked={local && option === 'Only under-tagged plates' ? onlyUnderTagged : false}
-                    onChange={event => setOnlyUnderTagged(event.target.checked)}
-                    aria-label={local && option === 'Only under-tagged plates' ? option : `${option}: ${local ? name === 'Tag' ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}`}
+                    disabled={!local || !['Only under-tagged plates', 'Redo plates that already have a story'].includes(option)}
+                    checked={local ? option === 'Only under-tagged plates' ? onlyUnderTagged : option === 'Redo plates that already have a story' ? redoStory : false : false}
+                    onChange={event => option === 'Only under-tagged plates' ? setOnlyUnderTagged(event.target.checked) : setRedoStory(event.target.checked)}
+                    aria-label={local && ['Only under-tagged plates', 'Redo plates that already have a story'].includes(option) ? option : `${option}: ${local ? enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}`}
                   />
                   {option}
                   <span className="ml-auto text-[var(--ink-2)]">
-                    {local ? option === 'Only under-tagged plates' ? '' : name === 'Tag' ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}
+                    {local ? ['Only under-tagged plates', 'Redo plates that already have a story'].includes(option) ? '' : enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}
                   </span>
                 </label>
               ))}
@@ -215,7 +226,7 @@ export function RunMenu({
             Preview only · {local ? 'Needs a result-only run without Batch writes' : 'Coming soon'}
           </label>
           <p className="caption">
-            {count} plates · Tag · about {Math.ceil((count * (selectedModel?.measured.p50Seconds ?? 40)) / 60)} min ·
+            {count} plates · {activeStage} · about {Math.ceil((count * (selectedModel?.measured.p50Seconds ?? 40)) / 60)} min ·
             Suggestions land here for you to accept.
           </p>
           <div className="flex items-center justify-end gap-2">
@@ -223,9 +234,10 @@ export function RunMenu({
               Cancel
             </Button>
             <Button
-              disabled={disabled || count === 0 || (local && !validLimit)}
+              disabled={disabled || count === 0 || (local && !validLimit) || (textStage && !activeChoice.modelId)}
               onClick={() => {
-                start(planned, false, choice.modelId)
+                if (textStage) start(planned, false, activeChoice.modelId, activeStage === 'Describe' ? 'describe' : 'story')
+                else start(planned, false, choice.modelId)
                 setOpen(false)
               }}
             >

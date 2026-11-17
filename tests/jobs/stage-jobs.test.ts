@@ -122,3 +122,14 @@ test('accepting a completed field result edits only the Batch, with a stale guar
   expect(await proposeEdit(deps, actor, { ...input, baseRevision: plateRevision(saved.value.plate), fields: { description: s.plate.description } })).toMatchObject({ ok: true })
   expect(await s.review.listEdits('batch')).toEqual([])
 })
+
+test('a sourced stage can complete without an acceptable suggestion and never writes a draft', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const s = setup()
+  await createJob(s.local, s.input)
+  const claim = await claimNext(s.local, 'worker')
+  if (!claim) throw Error('Expected claim')
+  const report = { backend: 'ollama', model: 'test', promptVersion: 'v1', durationMs: 10, stageError: 'no_supported_fields' }
+  expect(await reportResult(s.local, 'worker', s.input.id, claim.claimId, report)).toMatchObject({ ok: true, value: { state: 'completed', result: { stageError: 'no_supported_fields', suggestions: [] } } })
+  expect(await s.review.listEdits('batch')).toEqual([])
+})
