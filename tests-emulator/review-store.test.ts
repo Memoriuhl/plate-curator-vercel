@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { afterAll, beforeEach, expect, test } from 'vitest'
+import { afterAll, beforeEach, expect, test, vi } from 'vitest'
+import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
+import { plateRevision } from '../lib/review/revision'
+import { fixture, owner, snapshot } from '../tests/publish/fixture'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
 import { reviewBatchScenarios } from '../tests/review/batch-scenarios'
@@ -152,4 +155,47 @@ test.each(['stale', 'reserved', 'wrong-env', 'invalid-write'])('%s rejection pre
   expect((await signal.get()).data()).toEqual({ revision: 4 })
   expect((await db.doc('curatorLive/production/batchRevisions/batch').get()).exists).toBe(false)
   expect(await store.getEdit('batch', 'one')).toBeNull()
+})
+
+async function lifecycleSnapshot() {
+  return db.runTransaction(async tx => {
+    const batchDoc = await tx.get(db.doc('reviewBatches/batch'))
+    const signal = await tx.get(db.doc('curatorLive/preview-test/batchRevisions/batch'))
+    const edits = await tx.get(db.collection('reviewBatches/batch/edits'))
+    return { batch: batchDoc.data(), signal: signal.data(), edits: edits.docs.map(doc => doc.data()) }
+  }, { readOnly: true })
+}
+
+test('submit, approve and an edit after approval commit their lifecycle state with the signal', async () => {
+  await db.doc('curatorLive/preview-test/batchRevisions/batch').set({ revision: 4 })
+  const supersedeRun = vi.fn(async () => {})
+  const deps = { ...fixture().deps, store, supersedeRun }
+  for (const [transition, state, revision] of [
+    [() => submitBatch(deps, owner, 'batch', 4), 'submitted', 5],
+    [() => approveBatch(deps, owner, 'batch', 5), 'approved', 6],
+    [() => proposeEdit(deps, owner, { batchId: 'batch', plateId: 'one', baseRevision: plateRevision(snapshot.plates[0]), fields: { tags: ['after approval'] } }), 'open', 7],
+  ] as const) {
+    const [during, result] = await Promise.all([lifecycleSnapshot(), transition()])
+    expect(result).toMatchObject({ ok: true })
+    expect(during.batch?.revision).toBe(during.signal?.revision)
+    expect(during.edits).toMatchObject(during.batch?.revision === 7 ? [{ fields: { tags: ['after approval'] } }] : [])
+    const saved = await lifecycleSnapshot()
+    expect(saved.batch).toMatchObject({ state, revision, approval: state === 'approved' ? { revision: 5, by: 'owner' } : null })
+    expect(saved.signal).toEqual({ revision })
+  }
+  expect((await store.readBatch('batch'))?.edits).toMatchObject([{ plateId: 'one', fields: { tags: ['after approval'] } }])
+  expect(supersedeRun).toHaveBeenCalledWith(expect.objectContaining({ state: 'approved', revision: 6 }))
+})
+
+test.each(['stale-submit', 'stale-order', 'forbidden-approve'] as const)('%s leaves the lifecycle draft and signal unchanged', async reason => {
+  await db.doc('curatorLive/preview-test/batchRevisions/batch').set({ revision: 4 })
+  const deps = { ...fixture().deps, store }
+  const before = await lifecycleSnapshot()
+  const result = reason === 'stale-submit'
+    ? await submitBatch(deps, owner, 'batch', 3)
+    : reason === 'stale-order'
+      ? await reorderState(deps, owner, { batchId: 'batch', state: 'CA', batchRevision: 3, order: ['two', 'one'] })
+      : await approveBatch(deps, { ...owner, role: 'editor' }, 'batch', 4)
+  expect(result).toEqual({ ok: false, error: reason === 'forbidden-approve' ? 'forbidden' : 'superseded_revision' })
+  expect(await lifecycleSnapshot()).toEqual(before)
 })

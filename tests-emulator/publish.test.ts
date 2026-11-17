@@ -19,6 +19,7 @@ beforeEach(async () => {
   await db.doc('locks/publish').delete()
   await db.recursiveDelete(db.collection('publishRecords'))
   await db.doc('reviewBatches/batch').set({ ...batch, env })
+  await db.doc('curatorLive/publish-test/batchRevisions/batch').set({ revision: 2 })
   await db.doc('config/catalog').set({ version: 1 })
 })
 
@@ -27,6 +28,7 @@ afterAll(async () => {
   await db.doc('config/catalog').delete()
   await db.recursiveDelete(db.collection('publishRecords'))
   await db.recursiveDelete(db.collection('reviewBatches'))
+  await db.recursiveDelete(db.collection('curatorLive'))
   await db.terminate()
 })
 
@@ -96,10 +98,23 @@ test('publishes and reconciles through the Firestore adapters', async () => {
   const advance = pointer.advance
   deps.pointer = { ...pointer, advance: async (...args) => { await advance(...args); throw new Error('lost response') } }
   expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: false, error: 'unavailable' })
+  expect(await store.getBatch(batch.id)).toMatchObject({ state: 'approved', revision: 2 })
+  expect((await db.doc('curatorLive/publish-test/batchRevisions/batch').get()).data()).toEqual({ revision: 2 })
   expect((await pointer.read()).version).toBe(2)
   expect(await store.commit(batch.id, 2, { batch: { ...batch, revision: 3, state: 'open' } })).toBe('revision_mismatch')
   deps.pointer = pointer
-  expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { state: 'done', toVersion: 2 } })
+  const [during, completed] = await Promise.all([
+    db.runTransaction(async tx => {
+      const draft = await tx.get(db.doc('reviewBatches/batch'))
+      const signal = await tx.get(db.doc('curatorLive/publish-test/batchRevisions/batch'))
+      return { revision: draft.get('revision'), state: draft.get('state'), signal: signal.data() }
+    }, { readOnly: true }),
+    publishBatch(deps, owner, command),
+  ])
+  expect(completed).toMatchObject({ ok: true, value: { state: 'done', toVersion: 2 } })
+  expect(during).toEqual(during.revision === 2
+    ? { revision: 2, state: 'approved', signal: { revision: 2 } }
+    : { revision: 3, state: 'published', signal: { revision: 3 } })
   expect(await store.getBatch(batch.id)).toMatchObject({ state: 'published', revision: 3 })
   expect((await db.doc('curatorLive/publish-test/batchRevisions/batch').get()).data()).toEqual({ revision: 3 })
   expect((await db.doc('locks/publish').get()).exists).toBe(false)

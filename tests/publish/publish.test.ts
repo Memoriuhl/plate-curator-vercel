@@ -20,6 +20,20 @@ test('only an approved current revision publishes', async () => {
   expect(await publishBatch(fixture().deps, owner, { ...command, batchId: 'missing' })).toEqual({ ok: false, error: 'not_found' })
 })
 
+test('an edit after approval supersedes Publish without advancing the catalog', async () => {
+  const f = fixture()
+  const supersedeRun = vi.fn(async () => {})
+  f.deps.supersedeRun = supersedeRun
+  expect(await proposeEdit(f.deps, owner, {
+    batchId: 'batch', plateId: 'one', baseRevision: plateRevision(snapshot.plates[0]), fields: { tags: ['revised'] },
+  })).toMatchObject({ ok: true, value: { batch: { state: 'open', revision: 3, approval: null } } })
+  expect(supersedeRun).toHaveBeenCalledWith(batch)
+  expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'superseded_revision' })
+  expect(f.pointer()).toEqual({ version: 1 })
+  expect(f.records.size).toBe(0)
+  expect(f.blobs.has(2)).toBe(false)
+})
+
 test('builds N+1 from the baseline plus edits', async () => {
   const f = fixture()
   f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'] }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
