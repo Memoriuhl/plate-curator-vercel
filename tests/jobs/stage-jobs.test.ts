@@ -58,7 +58,7 @@ test('field reports are stage checked, idempotent and leave the Batch unchanged 
   expect(await send({ ...s.report, fieldSuggestion: { ...s.report.fieldSuggestion, fields: { description: 'Different' } } })).toMatchObject({ error: 'result_mismatch' })
   expect(await s.review.listEdits('batch')).toEqual([])
   expect((await s.review.getBatch('batch'))?.revision).toBe(0)
-  expect((await getJob(s.local, s.input.id))?.result?.fieldSuggestion?.fields).toEqual({ description: 'Sourced description' })
+  expect((await getJob(s.local, s.input.id))?.result?.fieldSuggestion).toMatchObject({ kind: 'fields', fields: { description: 'Sourced description' } })
 })
 
 test('reports retain stale input and scope guards', async () => {
@@ -112,7 +112,9 @@ test('accepting a completed field result edits only the Batch, with a stale guar
   const job = await getJob(s.local, s.input.id)
   const deps = { store: s.review, baseline: async () => s.plate, baselineAtVersion: async () => s.plate, stateBaseline: async () => [s.plate], now: () => '' }
   const actor = { uid: 'editor', name: null, role: 'editor' as const }
-  const input = { batchId: 'batch', plateId: s.plate.id, baseRevision: job!.inputHash, fields: job!.result!.fieldSuggestion!.fields }
+  const suggestion = job!.result!.fieldSuggestion!
+  if (suggestion.kind !== 'fields') throw Error('Expected fields')
+  const input = { batchId: 'batch', plateId: s.plate.id, baseRevision: job!.inputHash, fields: suggestion.fields }
   const saved = await proposeEdit(deps, actor, input)
   expect(saved).toMatchObject({ ok: true })
   expect(s.plate.description).toBe('Original description')

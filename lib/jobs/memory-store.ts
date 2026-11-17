@@ -1,17 +1,25 @@
 import type { ReviewStore } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
+import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 
 export function createMemoryJobsStore(review: ReviewStore, environment: Environment) {
   const jobs = new Map<string, TaggingJob>()
   const tokens = new Map<string, WorkerToken>()
+  const capabilities = new Map<string, WorkerCapabilityRecord>()
   let pending: Promise<unknown> = Promise.resolve()
   function forEnvironment(env: Environment, scopedReview = env === environment ? review : undefined): JobsStore {
     return {
       env,
+      async readCapabilities(scope) { return structuredClone(capabilities.get(`${env}:${scope}`) ?? null) },
+      async writeCapabilities(scope, record) {
+        const key = `${env}:${scope}`
+        if (shouldWriteCapabilities(capabilities.get(key) ?? null, record)) capabilities.set(key, structuredClone(record))
+      },
       transaction(run) {
         const next = pending.then(async () => {
           const writes = new Map<string, TaggingJob>()
           const value = await run({
+            async batch(id) { return await scopedReview?.getBatch(id) ?? null },
             async get(id) {
               const job = jobs.get(id)
               return job?.env === env ? structuredClone(job) : null

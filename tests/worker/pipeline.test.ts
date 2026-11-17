@@ -29,7 +29,7 @@ test('Story maps fetched citation IDs to source URLs and keeps only grounded fac
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ description: null, descriptionSource: null, firstIssuedYear: { year: 1976, source: 'S1' }, funFacts: [{ text: 'The program supports wildlife conservation projects across Alaska.', source: 'S1' }] }) } }))
   const result = await createTextStageHandler({ url: 'http://localhost:11434', fetch, gather: async () => [source] })({ stage: 'story', plate: { displayName: 'Wildlife', state: 'AK', image: '', tags: [] }, model: 'gemma4:12b' })
-  expect(result.fieldSuggestion?.fields).toMatchObject({ firstIssuedYear: 1976, funFacts: [{ text: expect.any(String), sourceUrl: source.url }], readMore: [{ url: source.url }] })
+  expect(result.fieldSuggestion).toMatchObject({ kind: 'fields', fields: { firstIssuedYear: 1976, funFacts: [{ text: expect.any(String), sourceUrl: source.url }], readMore: [{ url: source.url }] } })
 })
 
 test('missing sources stop before model inference', async () => {
@@ -52,7 +52,9 @@ test('Story read-more links include only sources cited by retained facts or year
   const unused = { ...source, id: 'S2', url: 'https://example.org/unused' }
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ firstIssuedYear: null, funFacts: [{ text: 'The program supports wildlife conservation projects across Alaska.', source: 'S1' }] }) } }))
   const result = await createTextStageHandler({ url: 'http://localhost:11434', fetch, gather: async () => [source, unused] })({ stage: 'story', plate: { displayName: 'Wildlife', state: 'AK', image: '', tags: [] } })
-  expect(result.fieldSuggestion?.fields.readMore?.map(link => link.url)).toEqual([source.url])
+  const suggestion = result.fieldSuggestion
+  if (suggestion?.kind !== 'fields') throw new Error('Expected field suggestion')
+  expect(suggestion.fields.readMore?.map(link => link.url)).toEqual([source.url])
 })
 
 test('a subject founding year cannot become the plate issue year', () => {

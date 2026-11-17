@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   loadSnapshot: vi.fn(() => { throw new Error('Full snapshot reads are unavailable') }),
   readSnapshot: vi.fn(() => { throw new Error('Full snapshot reads are unavailable') }),
   readCuratorState: vi.fn(async () => ({ stateOrder: { AK: ['AK.two', 'AK.one'] }, stateProgress: {} })),
+  imageUrl: vi.fn((plate: { image: string; imageUrl?: string }) => plate.imageUrl ?? `https://assets.example/plates/${plate.image}`),
 }))
 vi.mock('workflow/api', () => ({ resumeHook: mocks.resumeHook }))
 vi.mock('server-only', () => ({}))
@@ -19,8 +20,9 @@ vi.mock('../../lib/gcp/firestore', () => ({ stagingFirestore: () => ({}) }))
 vi.mock('../../lib/review/firestore-store', () => ({ firestoreReviewStore: () => ({}) }))
 vi.mock('../../lib/catalog/firestore-source', () => ({ firestoreCatalogSource: () => mocks }))
 vi.mock('../../lib/catalog/fixture-source', () => ({ fixtureSource: () => mocks }))
+vi.mock('../../lib/jobs/firestore-store', () => ({ firestoreJobsStore: () => ({ env: 'development' }) }))
 
-const { reviewDeps, catalogPushDeps, currentActiveOwner } = await import('../../lib/server/context')
+const { reviewDeps, catalogPushDeps, currentActiveOwner, hostedTaggingDeps } = await import('../../lib/server/context')
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -104,4 +106,17 @@ test('active Owner helper returns authenticated identity and current membership 
   expect(editor.ok).toBe(false)
   if (!editor.ok) expect(editor.response.status).toBe(403)
   expect(mocks.getByUid).not.toHaveBeenCalled()
+})
+
+test.each(['0', '1'])('hosted tagging preserves catalog image behavior outside local mode %s', async local => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', local)
+  vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'scope')
+  vi.stubEnv('AI_GATEWAY_API_KEY', 'fixture')
+  vi.stubEnv('CATALOG_SOURCE', 'fixture')
+  vi.stubEnv('VERCEL_ENV', 'development')
+  const deps = await hostedTaggingDeps('gateway-gemma4-26b')
+  const inputPlate = { id: 'AK.a', state: 'AK', slug: 'a', displayName: 'A', tags: [], image: 'AK/a.webp', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Override.jpg' }
+  const value = await deps.plate({ id: 'hosted', batchId: 'batch', plateId: inputPlate.id, requestedBy: 'editor', inputHash: 'base', env: 'development', createdAt: 0, state: 'queued', inputPlate })
+  expect(value?.imageUrl).toBe(local === '1' ? 'https://assets.example/plates/AK/a.webp' : inputPlate.imageUrl)
+  expect(mocks.imageUrl).toHaveBeenLastCalledWith(local === '1' ? { ...inputPlate, imageUrl: undefined } : inputPlate)
 })

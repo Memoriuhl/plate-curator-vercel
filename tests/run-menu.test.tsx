@@ -23,6 +23,8 @@ import { PlateTagActions } from '../components/dashboard/plate-tag-actions'
 import { TAGGING_MODELS } from '../lib/tagging/models'
 import { formatTaggingModel } from '../lib/client/tagging-models'
 import { ApiError } from '../lib/client/api'
+import { SpecializedSuggestion } from '../components/dashboard/specialized-suggestion'
+import type { ImageSuggestion } from '../lib/jobs/specialized-suggestions'
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn().mockResolvedValue(undefined),
@@ -522,4 +524,53 @@ test('stage retries retain both the selected model and stage', async () => {
   expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
   await act(async () => { await result.current.start([plate], true) })
   expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
+})
+
+test('image candidate choice is explicit and projection-only until aggregate Apply', async () => {
+  const suggestion: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'photo', title: 'Alaska plate', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64), license: 'CC BY 4.0' }] }
+  const choose = vi.fn().mockResolvedValue(undefined)
+  render(<SpecializedSuggestion suggestion={suggestion} plates={[]} blocked={false} accepted={false} onSelectImage={choose} />)
+  const useImage = screen.getByRole('button', { name: 'Use selected image for this run' }) as HTMLButtonElement
+  expect(useImage.disabled).toBe(true)
+  expect(screen.getByRole('img', { name: 'Alaska plate' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: /Image provenance/ }).getAttribute('href')).toBe(suggestion.candidates[0].sourceUrl)
+  expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull()
+  fireEvent.click(screen.getByRole('radio', { name: 'Alaska plate' }))
+  fireEvent.click(useImage)
+  await waitFor(() => expect(choose).toHaveBeenCalledWith('photo'))
+  expect(mocks.edit).not.toHaveBeenCalled()
+})
+
+test('image chooser instances have independent radio groups', () => {
+  const candidates: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'photo', title: 'Plate photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64) }] }
+  render(<><SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} onSelectImage={vi.fn()} /><SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} onSelectImage={vi.fn()} /></>)
+  const radios = screen.getAllByRole('radio') as HTMLInputElement[]
+  fireEvent.click(radios[0])
+  fireEvent.click(radios[1])
+  expect(radios.every(radio => radio.checked)).toBe(true)
+  expect(radios[0].name).not.toBe(radios[1].name)
+})
+
+test('a restored durable image choice can resume without changing the checked radio', async () => {
+  const candidates: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'restored', title: 'Restored photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64) }] }
+  const choose = vi.fn().mockResolvedValue(undefined)
+  render(<SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} selectedCandidateId="restored" onSelectImage={choose} />)
+  expect((screen.getByRole('radio') as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByText(/Your Batch changes only when you apply the run/)).toBeTruthy()
+  const button = screen.getByRole('button', { name: 'Use selected image for this run' }) as HTMLButtonElement
+  expect(button.disabled).toBe(false)
+  fireEvent.click(button)
+  await waitFor(() => expect(choose).toHaveBeenCalledWith('restored'))
+  expect(mocks.edit).not.toHaveBeenCalled()
+})
+
+test.each(['fields', 'tag'])('stored preview %s results show inspection without Apply or Accept', mode => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const job: RunEntry['job'] = mode === 'fields'
+    ? { state: 'completed', suggestions: [], previewOnly: true, stage: 'describe', inputHash: 'base', fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'Inspect this description' }, sources: ['https://example.org/source'] } }
+    : { state: 'completed', suggestions: ['inspect-tag'], previewOnly: true, inputHash: 'base' }
+  render(<TagRunBanner entries={[{ plate, jobId: 'preview', job }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  expect(screen.getByText(/Preview result.*inspect only/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Apply|Accept/ })).toBeNull()
+  expect(mocks.edit).not.toHaveBeenCalled()
 })

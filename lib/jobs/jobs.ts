@@ -2,6 +2,9 @@ import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { plateRevision } from '../review/revision'
 import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob, PipelineStage } from './types'
 import { isPipelineStage, parseFieldSuggestion } from './suggestions'
+import type { ImageGroupOptions } from './image-options'
+import type { GroupInput } from './specialized-suggestions'
+import { completeGroupScope } from '../review/group-context'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -9,13 +12,37 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string; stage?: PipelineStage }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
+  if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
+  if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
     if (!inputPlate) return { ok: false, error: 'not_found' }
-    const job: TaggingJob = { ...input, ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    let groupScope: GroupInput | undefined
+    let standardId: string | undefined
+    if (input.stage === 'group') {
+      const batch = await tx.batch(input.batchId)
+      if (!batch || batch.state !== 'open' || !d.stateBaseline || input.groupScope!.some(member => !batch.plateIds.includes(member.plate.id))) return { ok: false, error: 'forbidden' }
+      const statePlates = []
+      for (const baseline of await d.stateBaseline(batch.baselineVersion, inputPlate.state)) {
+        statePlates.push(batch.plateIds.includes(baseline.id) ? await currentPlate(d, tx, input.batchId, baseline.id) ?? baseline : baseline)
+      }
+      groupScope = []
+      for (const member of input.groupScope!) {
+        const plate = statePlates.find(plate => plate.id === member.plate.id)
+        if (!plate || plateRevision(plate) !== member.baseRevision) return { ok: false, error: 'stale_input' }
+        groupScope.push({ plate, baseRevision: plateRevision(plate) })
+      }
+      if (!completeGroupScope(groupScope.map(member => member.plate), statePlates)) return { ok: false, error: 'forbidden' }
+      standardId = batch.stateOrders[inputPlate.state]?.[0] ?? statePlates.find(plate => plate.isStandard)?.id ?? statePlates[0]?.id
+    }
+    for (const member of input.groupScope ?? []) {
+      const current = await currentPlate(d, tx, input.batchId, member.plate.id)
+      if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
+    }
+    const job: TaggingJob = { ...input, ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
@@ -58,7 +85,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
 }
 
 function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null {
-  const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields') ? input.stageError : undefined
+  const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields' || input?.stageError === 'unavailable') ? input.stageError : undefined
   if (input?.stageError !== undefined && !stageError) return null
   const fieldSuggestion = stage && !stageError ? parseFieldSuggestion(input?.fieldSuggestion, stage) : undefined
   if (stage && (!stageError && !fieldSuggestion || stageError && input.fieldSuggestion !== undefined || input.suggestions !== undefined && (!Array.isArray(input.suggestions) || input.suggestions.length > 0))) return null
@@ -88,6 +115,14 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (!result) return { ok: false, error: 'invalid_result' }
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
+    if (result.fieldSuggestion?.kind === 'group') {
+      const expected = job.groupScope?.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })).sort((a, b) => a.plateId.localeCompare(b.plateId))
+      if (JSON.stringify(expected) !== JSON.stringify(result.fieldSuggestion.scope)) return { ok: false, error: 'invalid_result' }
+      for (const member of job.groupScope ?? []) {
+        const current = await currentPlate(d, tx, job.batchId, member.plate.id)
+        if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
+      }
+    }
     const current = await currentPlate(d, tx, job.batchId, job.plateId)
     if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
