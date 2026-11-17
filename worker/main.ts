@@ -1,4 +1,4 @@
-import { gatewayAdapter, ollamaAdapter } from './model'
+import { gatewayAdapter, ollamaAdapter, type ModelAdapter } from './model'
 import { imageReader } from './images'
 import { runLoop } from './run'
 
@@ -12,7 +12,10 @@ async function main() {
   if (backend === 'hosted' && !process.env.AI_GATEWAY_API_KEY) throw new Error('AI_GATEWAY_API_KEY is required')
   const concurrency = Number(process.env.CONCURRENCY ?? 1)
   const adapter = backend === 'hosted' ? gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY ?? '', model: process.env.AI_GATEWAY_MODEL }) : ollamaAdapter({ url: process.env.OLLAMA_URL ?? 'http://localhost:11434', model: process.env.MODEL ?? 'gemma4:12b' })
-  await runLoop({ apiBase: API_BASE, token: WORKER_TOKEN, protectionBypass: VERCEL_PROTECTION_BYPASS, fetch, adapter, readImage: imageReader(GAME_REPO), now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
+  const ollamaUrl = process.env.OLLAMA_URL ?? 'http://localhost:11434'
+  const adapters = new Map<string, ModelAdapter>([[adapter.model, adapter]])
+  const adapterFor = backend === 'local' ? (model: string) => adapters.get(model) ?? adapters.set(model, ollamaAdapter({ url: ollamaUrl, model })).get(model)! : undefined
+  await runLoop({ apiBase: API_BASE, token: WORKER_TOKEN, protectionBypass: VERCEL_PROTECTION_BYPASS, fetch, adapter, adapterFor, readImage: imageReader(GAME_REPO), now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
 }
 
 main().catch(() => { console.error('Worker stopped after a configuration or startup failure'); process.exitCode = 1 })

@@ -1,6 +1,7 @@
 import { claimNext } from '../../../../lib/jobs/jobs'
 import { currentWorker, jobsDeps, reviewDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
+import { taggingModel } from '../../../../lib/tagging/models'
 
 export async function POST(request: Request) {
   const worker = await currentWorker(request)
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
     job: { id: claim.job.id, batchId: claim.job.batchId, plateId: claim.job.plateId, inputHash: claim.job.inputHash },
     claimId: claim.claimId,
     leaseExpiresAt: new Date(claim.leaseExpiresAt).toISOString(),
+    ...(taggingModel(claim.job.modelId)?.runsOn === 'desktop' ? { model: taggingModel(claim.job.modelId)!.model } : {}),
     plate: { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [] },
   })
 }

@@ -1,6 +1,6 @@
 import { start } from 'workflow/api'
 import { canEdit } from '../../../../../lib/review/batch'
-import { currentActor, reviewDeps, taggingBackend } from '../../../../../lib/server/context'
+import { chooseModel, currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { badRequest, json, readJson, respond } from '../../../../../lib/server/respond'
 import { batchTaggingRun } from '../../../../../workflows/hosted-tagging'
 
@@ -9,11 +9,12 @@ const MAX_BATCH_TAGGING = 500
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/tagging'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
-  if (taggingBackend() !== 'hosted') return respond({ ok: false, error: 'invalid_state' })
 
   const { id } = await ctx.params
   const body = await readJson(request)
   if (!body) return badRequest()
+  const choice = chooseModel(body.model, 'gateway')
+  if (!choice.ok) return choice.error === 'bad_request' ? badRequest() : respond({ ok: false, error: 'invalid_state' })
   const requested = body.plateIds
   if (requested !== undefined && (!Array.isArray(requested) || !requested.every(value => typeof value === 'string'))) return badRequest()
 
@@ -29,6 +30,6 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (!plateIds.every(plateId => members.has(plateId))) return respond({ ok: false, error: 'not_found' })
 
   const requests = plateIds.map(plateId => ({ jobId: crypto.randomUUID(), plateId }))
-  const run = await start(batchTaggingRun, [id, requests, auth.actor.uid])
-  return json({ runId: run.runId, jobs: requests }, 202)
+  const run = await start(batchTaggingRun, [id, requests, auth.actor.uid, choice.model.id])
+  return json({ runId: run.runId, model: choice.model.id, jobs: requests }, 202)
 }

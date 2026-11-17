@@ -31,3 +31,16 @@ test('worker receives the job snapshot even when the Batch draft changes before 
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ job: { batchId: 'shared', inputHash: plateRevision(first.value.plate) }, plate: { tags: ['reviewed'] } })
 })
+
+test('the claim names the desktop model the job asked for, and only desktop models', async () => {
+  const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
+  const store = createMemoryStore([{ id: 'shared', name: 'Shared', createdBy: 'editor', createdByName: null, createdAt: 'now', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: [plate.id], approval: null }])
+  let sequence = 0
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: async () => plate, now: () => 1000 + sequence, id: () => `claim-${++sequence}`, leaseMs: 1000 }
+  await createJob(jobs, { id: 'big', batchId: 'shared', plateId: plate.id, requestedBy: 'editor', modelId: 'desktop-gemma4-26b' })
+  await createJob(jobs, { id: 'plain', batchId: 'shared', plateId: plate.id, requestedBy: 'editor' })
+  mocks.jobs.mockReturnValue(jobs)
+  const claim = () => POST(new Request('https://example.com/api/worker/claim', { method: 'POST' })).then(response => response.json())
+  expect(await claim()).toMatchObject({ job: { id: 'big' }, model: 'gemma4:26b' })
+  expect(await claim()).not.toHaveProperty('model')
+})
