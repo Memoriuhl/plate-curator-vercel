@@ -2,18 +2,18 @@ import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { plateRevision } from '../review/revision'
 import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob } from './types'
 
-async function currentRevision(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
+async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
-  const baseline = await d.baseline(plateId)
-  return review && baseline ? plateRevision({ ...baseline, ...review.fields }) : null
+  const baseline = review && d.baselineAtVersion ? await d.baselineAtVersion(review.baselineVersion, plateId) : await d.baseline(plateId)
+  return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
 export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string }): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
-    const inputHash = await currentRevision(d, tx, input.batchId, input.plateId)
-    if (!inputHash) return { ok: false, error: 'not_found' }
-    const job: TaggingJob = { ...input, inputHash, env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
+    if (!inputPlate) return { ok: false, error: 'not_found' }
+    const job: TaggingJob = { ...input, inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
@@ -59,8 +59,8 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (!result) return { ok: false, error: 'invalid_result' }
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
-    const revision = await currentRevision(d, tx, job.batchId, job.plateId)
-    if (revision !== job.inputHash) return { ok: false, error: 'stale_input' }
+    const current = await currentPlate(d, tx, job.batchId, job.plateId)
+    if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
     tx.set(completed)
     return { ok: true, value: completed }

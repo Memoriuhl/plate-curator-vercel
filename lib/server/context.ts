@@ -102,6 +102,7 @@ export function jobsDeps(): JobsDeps {
   return {
     store: firestoreJobsStore(stagingFirestore(), reviewEnv() as Environment),
     baseline: reviewDeps().baseline,
+    baselineAtVersion: reviewDeps().baselineAtVersion,
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     leaseMs: 5 * 60_000,

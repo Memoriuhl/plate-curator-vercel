@@ -168,13 +168,12 @@ test('changed filter counts current-jurisdiction batch membership including uned
 })
 
 
-test('selected submit targets the shared Batch and Run Tag stays disabled', async () => {
+test('selected submit targets the shared Batch and Run Tag is available', async () => {
   state.selected = true
   state.detail!.batch = { ...batch, id: 'shared', revision: 9 }
   const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
   expect(html).toContain('Selected batch:')
-  expect(html).toContain('Run Tag on a shared Batch is coming next')
-  expect(state.buttons.get('Run pipeline')?.disabled).toBe(true)
+  expect(state.buttons.get('Run pipeline')?.disabled).toBe(false)
   await state.buttons.get('Submit for review')!.onClick!()
   expect(state.submit).toHaveBeenCalledWith('shared', 9)
 })

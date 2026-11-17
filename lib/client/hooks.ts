@@ -250,13 +250,14 @@ export function useEditPlate() {
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
-  async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult<Plate>> {
+  async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }): Promise<EditResult<Plate>> {
     try {
       if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
-      const id = workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate)
+      if (reviewed && workspace.mode === 'selected' && reviewed.batchId !== workspace.id) return { ok: false, error: 'not_found' }
+      const id = reviewed?.batchId ?? (workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate))
       const key = `/api/batches/${id}`
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
-      const baseRevision = workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision
+      const baseRevision = reviewed?.baseRevision ?? (workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision)
       if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${key}/plates/${plate.id}`, { baseRevision, fields })
       await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
@@ -276,9 +277,9 @@ export function useEditPlate() {
     }
   }
 
-  function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult<Plate>> {
+  function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }): Promise<EditResult<Plate>> {
     setPendingCount(count => count + 1)
-    const result = queue.current.then(() => save(plate, fields))
+    const result = queue.current.then(() => save(plate, fields, reviewed))
     queue.current = result.catch(() => undefined)
     return result.finally(() => setPendingCount(count => count - 1))
   }

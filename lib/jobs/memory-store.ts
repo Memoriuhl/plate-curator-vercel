@@ -20,7 +20,7 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
             async review(batchId, plateId) {
               const batch = await scopedReview?.getBatch(batchId)
               if (!batch) return null
-              return { fields: (await scopedReview!.getEdit(batchId, plateId))?.fields ?? {} }
+              return { baselineVersion: batch.baselineVersion, fields: (await scopedReview!.getEdit(batchId, plateId))?.fields ?? {} }
             },
             create(job) {
               if (jobs.has(job.id)) throw new Error('Job already exists')

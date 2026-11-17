@@ -22,7 +22,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment): JobsStore {
           const batch = await transaction.get(ref)
           if (!batch.exists || batch.get('env') !== env) return null
           const edit = await transaction.get(ref.collection('edits').doc(plateId))
-          return { fields: (edit.get('fields') as EditableFields | undefined) ?? {} }
+          return { baselineVersion: batch.get('baselineVersion') as number, fields: (edit.get('fields') as EditableFields | undefined) ?? {} }
         },
         create(job) { transaction.create(jobs.doc(job.id), job) },
         set(job) { transaction.set(jobs.doc(job.id), job) },
