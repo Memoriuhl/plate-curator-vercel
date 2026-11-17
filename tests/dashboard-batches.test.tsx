@@ -172,6 +172,18 @@ test.each([0, 1, 3])('review strip pluralizes %i plates and uses body typography
   expect(html.indexOf('review-status')).toBeLessThan(html.indexOf('review-actions'))
 })
 
+test('review strip preserves the full state list in its title', () => {
+  const states = ['AK', 'AL', 'AZ', 'CA', 'CO', 'VT']
+  state.review = [{ ...batch, state: 'submitted' }]
+  state.detail!.plates = states.map(code => ({
+    ...state.detail!.plates[0],
+    baseline: { ...state.detail!.plates[0].baseline, state: code },
+  }))
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  const list = states.join(', ')
+  expect(html).toContain(`<strong class="review-states" title="${list}">${list}</strong>`)
+})
+
 test('changed filter counts current-jurisdiction batch membership including unedited plates', () => {
   const html = renderToStaticMarkup(
     <FilterBar counts={filterCounts(alaskaFixture.plates)} code="AK" />,

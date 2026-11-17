@@ -284,7 +284,9 @@ body {
 }
 .review-states {
   max-width: 12ch;
-  white-space: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .review-revision {
   color: var(--ink-2);
