@@ -257,7 +257,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     states.flatMap((state) => state.plates).find((plate) => plate.id === id)
       ?.imageUrl
   return (
-    <div className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] min-w-0 gap-4 md:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
+    <div className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] min-w-0 grid-cols-1 gap-4 md:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
       {batches.map((batch) => (
         <BatchLoader key={batch.id} batch={batch} onLoad={loaded} />
       ))}
@@ -401,7 +401,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       <section
         aria-label="Before and after"
         className={cn(
-          'flex min-w-0 flex-col gap-4 rounded-3xl bg-card p-4 md:overflow-y-auto',
+          'flex min-w-0 flex-col gap-4 rounded-3xl bg-card p-4 [overflow-wrap:anywhere] md:overflow-y-auto',
           mobile !== 'detail' && 'hidden md:flex',
         )}
       >
@@ -425,7 +425,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   className="h-12 w-24 object-contain"
                 />
               )}
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-xl font-extrabold">
                   {entry.proposed.displayName}
                 </h2>
@@ -433,7 +433,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   {entry.baseline.id}
                 </p>
               </div>
-              <div className="flex items-center gap-1 text-xs">
+              <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
                 <span>Revisions</span>
                 {Array.from(
                   {
