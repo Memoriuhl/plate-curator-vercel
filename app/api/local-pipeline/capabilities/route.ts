@@ -1,0 +1,10 @@
+import { currentActor, jobsDeps } from '@/lib/server/context'
+import { json } from '@/lib/server/respond'
+import { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
+
+export async function GET(request: Request) {
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth.response
+  return json(await readLocalWorkerCapabilities(jobsDeps()))
+}

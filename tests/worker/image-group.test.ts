@@ -59,14 +59,19 @@ test('image override edits are paired, gated and cannot publish before managed u
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   expect(parseEditableFields({ sourceUrl })).toBeNull()
   expect(parseEditableFields({ imageUrl })).toBeNull()
-  expect(parseEditableFields({ imageUrl, sourceUrl })).toEqual({ imageUrl, sourceUrl })
-  expect(parseEditableFields({ imageUrl, sourceUrl: 'not a URL' })).toBeNull()
+  expect(parseEditableFields({ imageUrl, sourceUrl })).toBeNull()
+  expect(parseEditableFields({ imageUrl, sourceUrl }, { imageUrl, sourceUrl })).toEqual({ imageUrl, sourceUrl })
+  expect(parseEditableFields({ imageUrl, sourceUrl: 'not a URL' }, { imageUrl, sourceUrl: 'not a URL' })).toBeNull()
+  expect(parseEditableFields({ imageUrl, sourceUrl: null }, { imageUrl, sourceUrl })).toBeNull()
+  expect(parseEditableFields({ imageUrl, sourceUrl: 'https://example.org' }, { imageUrl, sourceUrl: 'https://example.org' })).toBeNull()
+  expect(parseEditableFields({ imageUrl: null, sourceUrl: null })).toEqual({ imageUrl: null, sourceUrl: null })
   const longSource = `https://commons.wikimedia.org/wiki/File:${'Alaska_'.repeat(20)}Plate.jpg`
   expect(longSource.length).toBeGreaterThan(120)
-  expect(parseEditableFields({ imageUrl, sourceUrl: longSource })).toEqual({ imageUrl, sourceUrl: longSource })
+  expect(parseEditableFields({ imageUrl, sourceUrl: longSource }, { imageUrl, sourceUrl: longSource })).toEqual({ imageUrl, sourceUrl: longSource })
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
   expect(parseEditableFields({ imageUrl, sourceUrl })).toBeNull()
   expect(validateSnapshot({ version: 1, plates: [plate] }, { version: 2, plates: [{ ...plate, imageUrl, sourceUrl }] })).toContain('Image candidate needs upload before publishing')
+  expect(validateSnapshot({ version: 1, plates: [{ ...plate, imageUrl, sourceUrl }] }, { version: 2, plates: [{ ...plate, imageUrl, sourceUrl, tags: ['updated'] }] })).not.toContain('Image candidate needs upload before publishing')
 })
 
 test('flag-off imageReader preserves path-only behavior and never fetches remote URLs', async () => {

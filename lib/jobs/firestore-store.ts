@@ -5,10 +5,30 @@ import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
   const tokens = db.collection('workerTokens')
+  const capabilities = db.collection('localPipelineCapabilities')
   return {
     env,
+    async readCapabilities(scope) {
+      const doc = await capabilities.doc(`${encodeURIComponent(env)}--${scope}`).get()
+      return doc.exists ? doc.data() as import('./capabilities').WorkerCapabilityRecord : null
+    },
+    async writeCapabilities(scope, record) {
+      await db.runTransaction(async transaction => {
+        const ref = capabilities.doc(`${encodeURIComponent(env)}--${scope}`)
+        const previous = await transaction.get(ref)
+        if (!previous.exists || previous.get('reportedAt') <= record.reportedAt) transaction.set(ref, record)
+      })
+    },
     transaction(run) {
       return db.runTransaction(async transaction => run({
+        async batch(id) {
+          const doc = await transaction.get(db.collection('reviewBatches').doc(id))
+          if (doc.get('env') !== reviewEnv) return null
+          const value = doc.data()!
+          delete value.env
+          delete value.publishReservation
+          return { ...value, stateOrders: value.stateOrders ?? {} } as import('../review/types').ReviewBatch
+        },
         async get(id) {
           const doc = await transaction.get(jobs.doc(id))
           return doc.get('env') === env ? doc.data() as TaggingJob : null

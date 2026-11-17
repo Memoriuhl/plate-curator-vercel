@@ -1,0 +1,52 @@
+import { imageGroupCapabilities } from './image-options'
+import type { JobsDeps } from './types'
+
+export type Availability = { available: boolean; reason?: string }
+export type LocalWorkerCapabilities = { group: Availability; embeddings: Availability; mask: Availability; vision: Availability; pollIntervalMs: number }
+export type WorkerCapabilityRecord = { workerId: string; reportedAt: number; capabilities: LocalWorkerCapabilities }
+
+export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).some(key => !['group', 'embeddings', 'mask', 'vision', 'pollIntervalMs'].includes(key)) || !Number.isInteger(input.pollIntervalMs) || Number(input.pollIntervalMs) < 100 || Number(input.pollIntervalMs) > 60000) return null
+  const entries: [string, Availability][] = []
+  for (const key of ['group', 'embeddings', 'mask', 'vision']) {
+    const raw = input[key]
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const item = raw as Record<string, unknown>
+    if (typeof item.available !== 'boolean' || Object.keys(item).some(key => !['available', 'reason'].includes(key))) return null
+    if (item.reason !== undefined && (typeof item.reason !== 'string' || !item.reason.trim() || item.reason.length > 200)) return null
+    if (!item.available && !item.reason) return null
+    entries.push([key, { available: item.available, ...(item.reason ? { reason: String(item.reason).trim() } : {}) }])
+  }
+  return { ...Object.fromEntries(entries), pollIntervalMs: Number(input.pollIntervalMs) } as LocalWorkerCapabilities
+}
+
+export async function reportLocalWorkerCapabilities(d: JobsDeps, workerId: string, input: unknown): Promise<boolean> {
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope) return false
+  const capabilities = parseWorkerCapabilities(input)
+  if (!capabilities) return false
+  await d.store.writeCapabilities(d.localScope, { workerId, reportedAt: d.now(), capabilities })
+  return true
+}
+
+export async function readLocalWorkerCapabilities(d: JobsDeps) {
+  const record = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && d.localScope ? await d.store.readCapabilities(d.localScope) : null
+  const fresh = record && record.reportedAt <= d.now() && d.now() - record.reportedAt <= 2 * record.capabilities.pollIntervalMs
+  if (!fresh) {
+    const result = imageGroupCapabilities()
+    const unavailable = { available: false, reason: 'Local worker not reporting' }
+    return { ...result, 'find-image': unavailable, group: unavailable, embeddings: unavailable, colorSignal: unavailable, backgroundMask: unavailable, visionTiebreak: unavailable, reportedAt: record?.reportedAt ?? null, pollIntervalMs: record?.capabilities.pollIntervalMs ?? null }
+  }
+  const caps = record.capabilities
+  return {
+    ...imageGroupCapabilities(),
+    group: caps.group,
+    embeddings: caps.embeddings,
+    colorSignal: caps.mask,
+    backgroundMask: caps.mask,
+    visionTiebreak: caps.vision,
+    reportedAt: record.reportedAt,
+    pollIntervalMs: caps.pollIntervalMs,
+  }
+}

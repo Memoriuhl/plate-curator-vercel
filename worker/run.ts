@@ -2,18 +2,21 @@ import type { ModelAdapter } from './model'
 import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
 import type { GroupInput } from '../lib/jobs/specialized-suggestions'
 import type { ImageGroupOptions } from '../lib/jobs/image-options'
+import type { LocalWorkerCapabilities } from '../lib/jobs/capabilities'
+import { localCapabilityReport, withCapabilityHeartbeat } from './capability-heartbeat'
 
 export type WorkerPlate = { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
 export type StageResult = { fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
+  capabilities?: LocalWorkerCapabilities
   apiBase: string
   token: string
   protectionBypass?: string
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; options?: ImageGroupOptions }) => Promise<StageResult>
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -27,6 +30,7 @@ interface Claim {
   model?: string
   stage?: PipelineStage
   groupScope?: GroupInput
+  standardId?: string
   stageOptions?: ImageGroupOptions
   plate: WorkerPlate
 }
@@ -35,11 +39,16 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   const headers: Record<string, string> = { Authorization: `Bearer ${deps.token}` }
   if (deps.protectionBypass) headers['x-vercel-protection-bypass'] = deps.protectionBypass
   const base = deps.apiBase.replace(/\/+$/, '')
-  const response = await deps.fetch(`${base}/api/worker/claim`, { method: 'POST', headers })
+  const capabilities = localCapabilityReport(deps)
+  const response = await deps.fetch(`${base}/api/worker/claim`, { method: 'POST', headers: capabilities ? { ...headers, 'Content-Type': 'application/json' } : headers, ...(capabilities ? { body: JSON.stringify({ capabilities }) } : {}) })
   if (response.status === 401) return 'stopped'
   if (response.status === 204) return 'idle'
   if (!response.ok) throw new Error(`Claim failed: ${response.status}`)
   const claim = await response.json() as Claim
+  return withCapabilityHeartbeat(deps, () => executeClaim(deps, claim, headers, base))
+}
+
+async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<string, string>, base: string): Promise<Outcome> {
   const deadline = Date.parse(claim.leaseExpiresAt)
   const adapter = claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
   const start = deps.now()
@@ -55,7 +64,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
       deps.log('No handler is configured for this pipeline stage')
       return 'dropped'
     }
-    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}) })
+    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.standardId ? { standardId: claim.standardId } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}) })
     fieldSuggestion = result.fieldSuggestion
     stageError = result.stageError
     backend = result.backend
@@ -65,7 +74,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   } else {
     let imageB64: string
     try {
-      imageB64 = await deps.readImage(claim.plate.imageUrl || claim.plate.image)
+      imageB64 = await deps.readImage(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? claim.plate.imageUrl || claim.plate.image : claim.plate.image)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       backend = 'missing-image'

@@ -2,12 +2,19 @@ import { claimNext } from '../../../../lib/jobs/jobs'
 import { currentWorker, jobsDeps, reviewDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
 import { taggingModel } from '../../../../lib/tagging/models'
+import { reportLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
+import { readJson, badRequest } from '../../../../lib/server/respond'
 
 export async function POST(request: Request) {
   const worker = await currentWorker(request)
   if (!worker.ok) return worker.response
 
-  const claim = await claimNext(jobsDeps(), worker.workerId)
+  const dependencies = jobsDeps()
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && dependencies.localScope) {
+    const body = await readJson(request)
+    if (body?.capabilities !== undefined && !await reportLocalWorkerCapabilities(dependencies, worker.workerId, body.capabilities)) return badRequest()
+  }
+  const claim = await claimNext(dependencies, worker.workerId)
   if (!claim) return new Response(null, { status: 204, headers: { 'Cache-Control': 'private, no-store' } })
 
   const plate = claim.job.inputPlate ?? await legacyInput(claim.job.batchId, claim.job.plateId)
@@ -15,6 +22,7 @@ export async function POST(request: Request) {
     job: { id: claim.job.id, batchId: claim.job.batchId, plateId: claim.job.plateId, inputHash: claim.job.inputHash },
     ...(claim.job.stage ? { stage: claim.job.stage } : {}),
     ...(claim.job.groupScope ? { groupScope: claim.job.groupScope } : {}),
+    ...(claim.job.standardId ? { standardId: claim.job.standardId } : {}),
     ...(claim.job.stageOptions ? { stageOptions: claim.job.stageOptions } : {}),
     claimId: claim.claimId,
     leaseExpiresAt: new Date(claim.leaseExpiresAt).toISOString(),

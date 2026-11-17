@@ -141,3 +141,26 @@ test('concurrent lanes claim independently, isolate a failing job and report the
   for (const report of reports) expect(report.url).toContain(`/jobs/job-${report.claimId.split('-')[1]}/report`)
   expect(deps.log).toHaveBeenCalledWith('Worker iteration failed: model unavailable')
 })
+
+test.each(['0', '1'])('Tag reads the asset outside local mode (%s)', async local => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', local)
+  try {
+    const { deps, fetch } = setup()
+    const override = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Override.jpg'
+    fetch.mockReset().mockResolvedValueOnce(Response.json({ ...claim, plate: { ...claim.plate, imageUrl: override } })).mockResolvedValue(new Response(null, { status: 200 }))
+    expect(await runOnce(deps)).toBe('reported')
+    expect(deps.readImage).toHaveBeenCalledWith(local === '1' ? override : claim.plate.image)
+  } finally { vi.unstubAllEnvs() }
+})
+
+test('local claim polls carry the worker capability report', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'scope')
+  try {
+    const { deps, fetch } = setup()
+    deps.capabilities = { group: { available: true }, embeddings: { available: true }, mask: { available: true }, vision: { available: false, reason: 'Offline' }, pollIntervalMs: 5000 }
+    fetch.mockReset().mockResolvedValue(new Response(null, { status: 204 }))
+    expect(await runOnce(deps)).toBe('idle')
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ capabilities: deps.capabilities })
+  } finally { vi.unstubAllEnvs() }
+})

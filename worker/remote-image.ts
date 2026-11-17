@@ -32,7 +32,7 @@ export async function boundedResponse(response: Response, maxBytes: number): Pro
 export async function readCommonsImage(value: string, request: typeof fetch = fetch): Promise<Buffer> {
   const url = commonsImageUrl(value)
   if (!url) throw new Error('Only Wikimedia Commons raster images are supported')
-  const response = await request(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'PlateCurator/1.0 (https://github.com/Memoriuhl/plate-curator-vercel)' } })
+  const response = await request(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'LocalMediaReview/1.0' } })
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(response.headers.get('content-type')?.split(';')[0].trim() ?? '')) {
     await response.body?.cancel().catch(() => undefined)
     throw new Error('Unsupported image content type')

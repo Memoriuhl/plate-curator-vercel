@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { DEFAULT_TAGGING_MODEL, taggingModel, TAGGING_MODELS } from '../lib/tagging/models'
-import type { ImageGroupOptions } from '../lib/jobs/image-options'
+import type { GroupRuntime, ImageGroupOptions } from '../lib/jobs/image-options'
 import { parseGroupSuggestion, type GroupInput, type GroupSuggestion } from '../lib/jobs/specialized-suggestions'
 import type { WorkerDeps } from './run'
 import type { EmbeddingGroups } from './group-embedding'
@@ -10,7 +10,7 @@ import { boundedResponse } from './remote-image'
 
 export type GroupTiebreak = (a: GroupInput[number]['plate'], b: GroupInput[number]['plate'], model: string) => Promise<boolean>
 
-export function groupProposal(scope: GroupInput, result: EmbeddingGroups): GroupSuggestion | null {
+export function groupProposal(scope: GroupInput, result: EmbeddingGroups, standardId?: string): GroupSuggestion | null {
   if (scope.length < 2 || scope.length > 25 || new Set(scope.map(member => member.plate.id)).size !== scope.length || new Set(scope.map(member => member.plate.state)).size !== 1) return null
   const members = new Map(scope.map(member => [member.plate.id, member]))
   const used = new Set<string>()
@@ -19,7 +19,7 @@ export function groupProposal(scope: GroupInput, result: EmbeddingGroups): Group
     const ids = [group.templateId, ...group.variants.map(value => value.id)]
     if (ids.some(id => !members.has(id) || used.has(id)) || new Set(ids).size !== ids.length) return null
     ids.forEach(id => used.add(id))
-    const anchor = ids.find(id => members.get(id)!.plate.isStandard) ?? group.templateId
+    const anchor = standardId && ids.includes(standardId) ? standardId : group.templateId
     const family = anchor
     for (const id of ids) proposals.push({ plateId: id, baseRevision: members.get(id)!.baseRevision, fields: { templateFamily: family, templateRole: id === anchor ? 'template' : 'variant', variantOfPlateId: id === anchor ? null : anchor } })
   }
@@ -27,19 +27,19 @@ export function groupProposal(scope: GroupInput, result: EmbeddingGroups): Group
   return parseGroupSuggestion({ kind: 'group', stage: 'group', scope: scope.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })), proposals, sources: [] })
 }
 
-export function createImageGroupRunner(deps: { fetch?: typeof fetch; embed: (scope: GroupInput, options: ImageGroupOptions) => Promise<EmbeddingGroups>; tiebreak?: GroupTiebreak }): NonNullable<WorkerDeps['suggestFields']> {
-  return async ({ stage, plate, model: requested, options: rawOptions, groupScope }) => {
+export function createImageGroupRunner(deps: { fetch?: typeof fetch; embed?: (scope: GroupInput, options: ImageGroupOptions) => Promise<EmbeddingGroups>; runtime?: GroupRuntime; tiebreak?: GroupTiebreak }): NonNullable<WorkerDeps['suggestFields']> {
+  return async ({ stage, plate, model: requested, options: rawOptions, groupScope, standardId }) => {
     if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') throw new Error('Local pipeline is disabled')
     const options = rawOptions ?? {}
-    if (options.method !== undefined && options.method !== 'embeddings') throw new Error('Unsupported grouping method')
     if (stage === 'find-image') {
       const fieldSuggestion = await findImage(plate, { fetch: deps.fetch, onlyMissingImage: options.onlyMissingImage })
       return { backend: 'wikimedia-commons', model: 'commons-search', promptVersion: 'commons-raster-v1', ...(fieldSuggestion ? { fieldSuggestion } : { stageError: 'no_sources' as const }) }
     }
     if (stage !== 'group') throw new Error('Unsupported image/group stage')
     const metadata = { backend: 'local-cpu', model: 'dinov2_vits14', promptVersion: `legacy-cc-085-mask${Number(!!options.backgroundMask)}-color${Number(!!options.colorSignal)}-tie${Number(!!options.visionTiebreak)}` }
+    if (options.method !== undefined && options.method !== 'embeddings' || !deps.embed || deps.runtime && (!deps.runtime.embeddings || (options.backgroundMask || options.colorSignal) && !deps.runtime.backgroundMask || options.visionTiebreak && !deps.runtime.visionTiebreak)) return { ...metadata, stageError: 'unavailable' }
     if (!groupScope || groupScope.length < 2) return { ...metadata, stageError: 'no_supported_fields' }
-    if (options.visionTiebreak && !deps.tiebreak) throw new Error('Vision tiebreak is not configured')
+    if (options.visionTiebreak && !deps.tiebreak) return { ...metadata, stageError: 'unavailable' }
     const result = await deps.embed(groupScope, options)
     if (!Array.isArray(result.groups) || !Array.isArray(result.similarities) || result.similarities.length !== groupScope.length || result.similarities.some(row => row.length !== groupScope.length || row.some(value => !Number.isFinite(value) || value < -1.001 || value > 1.001))) throw new Error('Invalid embedding result')
     if (options.visionTiebreak && result.groups.length > 1) {
@@ -64,7 +64,7 @@ export function createImageGroupRunner(deps: { fetch?: typeof fetch; embed: (sco
         }
       }
     }
-    const fieldSuggestion = groupProposal(groupScope, result)
+    const fieldSuggestion = groupProposal(groupScope, result, standardId)
     if (!fieldSuggestion) throw new Error('Embedding groups do not cover the requested scope')
     return { ...metadata, fieldSuggestion }
   }

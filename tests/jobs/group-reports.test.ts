@@ -12,7 +12,7 @@ test('Group reports bind every persisted job member and remain idempotent after 
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const plates = ['a', 'b'].map(id => ({ id: `AK.${id}`, slug: id, state: 'AK', displayName: id, tags: [], image: `${id}.webp` }))
   const review = createMemoryStore([{ id: 'batch', name: 'Group', createdBy: 'editor', createdAt: '', state: 'open', revision: 0, baselineVersion: 1, approval: null, plateIds: plates.map(plate => plate.id) }])
-  const deps: JobsDeps = { store: createMemoryJobsStore(review, 'development'), baseline: async id => plates.find(plate => plate.id === id) ?? null, now: () => 100, id: () => 'claim', leaseMs: 10000, localScope: 'test' }
+  const deps: JobsDeps = { store: createMemoryJobsStore(review, 'development'), baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates, now: () => 100, id: () => 'claim', leaseMs: 10000, localScope: 'test' }
   const groupScope = plates.map(plate => ({ plate: structuredClone(plate), baseRevision: plateRevision(plate) }))
   expect(await createJob(deps, { id: 'group', batchId: 'batch', plateId: plates[0].id, requestedBy: 'editor', stage: 'group', groupScope })).toMatchObject({ ok: true })
   const claim = await claimNext(deps, 'worker')

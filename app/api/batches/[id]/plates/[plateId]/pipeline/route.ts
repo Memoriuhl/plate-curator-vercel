@@ -11,7 +11,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
-  if (!body || body.stage !== 'describe' && body.stage !== 'story') return badRequest()
+  if (!body || body.stage !== 'describe' && body.stage !== 'story' && body.stage !== 'find-image') return badRequest()
   const choice = chooseModel(body.model, 'desktop')
   if (!choice.ok) return choice.error === 'bad_request' ? badRequest() : respond({ ok: false, error: 'invalid_state' })
   const { id, plateId } = await ctx.params

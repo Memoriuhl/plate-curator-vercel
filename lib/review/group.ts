@@ -1,29 +1,14 @@
 import type { Plate } from '../catalog/types'
-import { parseGroupSuggestion, type GroupSuggestion } from '../jobs/specialized-suggestions'
+import { getJobForActor } from '../jobs/jobs'
+import type { JobsDeps } from '../jobs/types'
+import { parseGroupSuggestion } from '../jobs/specialized-suggestions'
+import { completeGroupScope, validGroupContext } from './group-context'
+export { completeGroupScope, validGroupContext } from './group-context'
 import { canEdit } from './access'
 import { editableKeys, limits } from './fields'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
 import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from './types'
-
-export function completeGroupScope(selected: Plate[], statePlates: Plate[]): boolean {
-  const ids = new Set(selected.map(plate => plate.id))
-  if (!selected.length || selected.length > 25 || ids.size !== selected.length || new Set(selected.map(plate => plate.state)).size !== 1 || selected.some(plate => plate.deleted || !statePlates.some(member => member.id === plate.id))) return false
-  const families = new Set(selected.map(plate => plate.templateFamily).filter(Boolean))
-  return statePlates.every(plate => plate.deleted || ids.has(plate.id) || !families.has(plate.templateFamily) && !ids.has(plate.variantOfPlateId ?? ''))
-    && selected.every(plate => !plate.variantOfPlateId || ids.has(plate.variantOfPlateId))
-}
-
-export function validGroupContext(suggestion: GroupSuggestion, selected: Plate[], statePlates: Plate[], standardId?: string): boolean {
-  if (!completeGroupScope(selected, statePlates)) return false
-  const ids = new Set(selected.map(plate => plate.id))
-  if (suggestion.scope.length !== ids.size || suggestion.scope.some(member => !ids.has(member.plateId))) return false
-  if (suggestion.proposals.some(value => value.plateId === standardId && value.fields.templateRole !== 'template')) return false
-  const templates = suggestion.proposals.filter(value => value.fields.templateRole === 'template')
-  if (templates.some(value => value.fields.templateFamily !== value.plateId)) return false
-  const newFamilies = new Set(templates.map(value => value.fields.templateFamily))
-  return !statePlates.some(plate => !plate.deleted && !ids.has(plate.id) && newFamilies.has(plate.templateFamily ?? ''))
-}
 
 export async function prepareGroupScope(d: ReviewDeps, actor: Actor, input: { batchId: string; batchRevision: number; plateIds: string[] }): Promise<Outcome<{ scope: import('../jobs/specialized-suggestions').GroupInput; standardId?: string }>> {
   const snapshot = await d.store.readBatch(input.batchId)
@@ -32,6 +17,7 @@ export async function prepareGroupScope(d: ReviewDeps, actor: Actor, input: { ba
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.state !== 'open') return { ok: false, error: 'invalid_state' }
   if (batch.revision !== input.batchRevision) return { ok: false, error: 'superseded_revision' }
+  if (input.plateIds.some(id => !batch.plateIds.includes(id))) return { ok: false, error: 'invalid_state' }
   if (!input.plateIds.length || input.plateIds.length > 25 || new Set(input.plateIds).size !== input.plateIds.length) return { ok: false, error: 'invalid_state' }
   const scope = []
   for (const id of input.plateIds) {
@@ -45,16 +31,22 @@ export async function prepareGroupScope(d: ReviewDeps, actor: Actor, input: { ba
   return { ok: true, value: { scope, standardId: batch.stateOrders[scope[0].plate.state]?.[0] ?? statePlates.find(plate => plate.isStandard)?.id ?? statePlates[0]?.id } }
 }
 
-export async function acceptGroup(d: ReviewDeps, actor: Actor, input: { batchId: string; batchRevision: number; suggestion: GroupSuggestion }): Promise<Outcome<ReviewBatch>> {
+export async function acceptGroup(d: ReviewDeps, jobs: JobsDeps, actor: Actor, input: { batchId: string; batchRevision: number; jobId: string }): Promise<Outcome<ReviewBatch>> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return { ok: false, error: 'forbidden' }
-  const suggestion = parseGroupSuggestion(input.suggestion)
-  if (!suggestion) return { ok: false, error: 'invalid_state' }
+  const found = await getJobForActor(jobs, actor, input.jobId)
+  if (!found.ok) return found
+  const job = found.value
+  if (!jobs.localScope || job.localScope !== jobs.localScope || job.batchId !== input.batchId || job.stage !== 'group' || job.state !== 'completed' || 'queueRunId' in job && job.queueRunId) return { ok: false, error: 'invalid_state' }
+  const suggestion = parseGroupSuggestion(job.result?.fieldSuggestion)
+  const expected = job.groupScope?.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })).sort((a, b) => a.plateId.localeCompare(b.plateId))
+  if (!suggestion || JSON.stringify(suggestion.scope) !== JSON.stringify(expected)) return { ok: false, error: 'invalid_state' }
   const snapshot = await d.store.readBatch(input.batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
   const { batch, edits } = snapshot
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.state !== 'open') return { ok: false, error: 'invalid_state' }
   if (batch.revision !== input.batchRevision) return { ok: false, error: 'superseded_revision' }
+  if (suggestion.scope.some(member => !batch.plateIds.includes(member.plateId))) return { ok: false, error: 'invalid_state' }
   const selected: Plate[] = []
   const baselines = new Map<string, Plate>()
   for (const member of suggestion.scope) {

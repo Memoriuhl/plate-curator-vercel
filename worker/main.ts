@@ -5,6 +5,8 @@ import { assertLocalWorker } from './local'
 import { createTextStageHandler } from './pipeline/text'
 import { createImageGroupRunner, localVisionTiebreak } from './image-group'
 import { legacyEmbeddingRunner } from './group-embedding'
+import { detectGroupRuntime } from './group-capabilities'
+import { imageGroupCapabilities } from '../lib/jobs/image-options'
 
 async function main() {
   const { API_BASE, GAME_REPO, VERCEL_PROTECTION_BYPASS } = process.env
@@ -27,12 +29,16 @@ async function main() {
   const { LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO, LOCAL_GROUP_CACHE } = process.env
   const embed = LOCAL_GROUP_PYTHON && LOCAL_GROUP_LEGACY_REPO && LOCAL_GROUP_CACHE
     ? legacyEmbeddingRunner({ python: LOCAL_GROUP_PYTHON, legacyRepo: LOCAL_GROUP_LEGACY_REPO, cache: LOCAL_GROUP_CACHE, readImage })
-    : async () => { throw new Error('Group needs LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO and LOCAL_GROUP_CACHE') }
-  const imageStages = createImageGroupRunner({ embed, tiebreak: localVisionTiebreak({ url: ollamaUrl, readImage }) })
+    : undefined
+  const runtime = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? await detectGroupRuntime(process.env) : undefined
+  const availability = imageGroupCapabilities(runtime)
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (!Number.isInteger(idleMs) || idleMs < 100 || idleMs > 60000)) throw new Error('Local IDLE_MS must be between 100 and 60000')
+  const capabilities = runtime ? { group: availability.group, embeddings: availability.embeddings, mask: availability.backgroundMask, vision: availability.visionTiebreak, pollIntervalMs: idleMs } : undefined
+  const imageStages = createImageGroupRunner({ embed, runtime, tiebreak: localVisionTiebreak({ url: ollamaUrl, readImage }) })
   const suggestFields: WorkerDeps['suggestFields'] = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
     ? input => ['find-image', 'group'].includes(input.stage) ? imageStages(input) : textStages(input)
     : undefined
-  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
+  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, capabilities, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
 }
 
 main().catch(() => { console.error('Worker stopped after a configuration or startup failure'); process.exitCode = 1 })

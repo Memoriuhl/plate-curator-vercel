@@ -1,6 +1,6 @@
 import type { EditableFields } from './types'
 import { storyFieldKeys } from './story'
-import { commonsImageUrl } from '../jobs/image-options'
+import { commonsImageUrl, commonsSourceUrl } from '../jobs/image-options'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
 const storyKeys = storyFieldKeys
@@ -97,8 +97,11 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
   return fields
 }
 
-export function parseEditableFields(input: unknown): EditableFields | null {
-  if (isRecord(input) && (Object.hasOwn(input, 'sourceUrl') !== Object.hasOwn(input, 'imageUrl'))) return null
+export function parseEditableFields(input: unknown, candidate?: { imageUrl: string; sourceUrl: string }): EditableFields | null {
+  if (isRecord(input) && (Object.hasOwn(input, 'sourceUrl') || Object.hasOwn(input, 'imageUrl'))) {
+    if (!Object.hasOwn(input, 'sourceUrl') || !Object.hasOwn(input, 'imageUrl')) return null
+    if (input.imageUrl === null ? input.sourceUrl !== null : !candidate || input.imageUrl !== candidate.imageUrl || input.sourceUrl !== candidate.sourceUrl || !commonsSourceUrl(input.sourceUrl)) return null
+  }
   return parseFields(input, new Set(editableFieldKeys()))
 }
 

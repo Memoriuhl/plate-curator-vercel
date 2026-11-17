@@ -6,15 +6,22 @@ export type ImageGroupOptions = {
   visionTiebreak?: boolean
 }
 
-export const imageGroupCapabilities = {
-  'find-image': { available: true, label: 'Wikimedia Commons' },
-  group: { available: true, label: 'DINOv2 embeddings · selected families' },
-  colorSignal: { available: true, label: 'Use colour signal' },
-  visionTiebreak: { available: true, label: 'Vision tiebreak' },
-  embeddings: { available: true, label: 'DINOv2 embeddings' },
-  backgroundMask: { available: true, label: 'MSER foreground mask' },
-  order: { available: false, reason: 'Order is manual: drag families to reorder' },
-} as const
+export type GroupRuntime = { embeddings: boolean; backgroundMask: boolean; visionTiebreak: boolean; reason?: string; maskReason?: string; visionReason?: string }
+
+export function imageGroupCapabilities(runtime?: GroupRuntime) {
+  const unavailable = runtime?.reason ?? 'Needs a configured local grouping worker'
+  const maskReady = !!runtime?.embeddings && runtime.backgroundMask
+  return {
+    'find-image': { available: true, label: 'Wikimedia Commons' },
+    group: { available: !!runtime?.embeddings, reason: runtime?.embeddings ? undefined : unavailable },
+    embeddings: { available: !!runtime?.embeddings, reason: runtime?.embeddings ? undefined : unavailable },
+    colorSignal: { available: maskReady, reason: maskReady ? undefined : runtime?.maskReason ?? unavailable },
+    backgroundMask: { available: maskReady, reason: maskReady ? undefined : runtime?.maskReason ?? unavailable },
+    visionTiebreak: { available: !!runtime?.visionTiebreak, reason: runtime?.visionTiebreak ? undefined : runtime?.visionReason ?? 'Needs a reachable local vision service' },
+    previewOnly: { available: false, reason: 'Preview-only runs need the connected run coordinator' },
+    order: { available: false, reason: 'Order is manual: drag families to reorder' },
+  }
+}
 
 export function commonsImageUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null

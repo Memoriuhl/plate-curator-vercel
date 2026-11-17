@@ -24,7 +24,7 @@ export async function findImage(plate: ImagePlate, options: { fetch?: typeof fet
   const query = `${JURISDICTIONS[plate.state] ?? plate.state} ${plate.displayName} license plate`
   const url = new URL('https://commons.wikimedia.org/w/api.php')
   url.search = new URLSearchParams({ action: 'query', generator: 'search', gsrnamespace: '6', gsrlimit: '5', gsrsearch: query, prop: 'imageinfo', iiprop: 'url|mime|extmetadata', iiurlwidth: '640', format: 'json' }).toString()
-  const response = await request(url.href, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'PlateCurator/1.0 (https://github.com/Memoriuhl/plate-curator-vercel)' } })
+  const response = await request(url.href, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'LocalMediaReview/1.0' } })
   const data = JSON.parse((await boundedResponse(response, 256 * 1024)).toString('utf8')) as { query?: { pages?: Record<string, CommonsPage> } }
   if ('error' in data) throw new Error('Commons search returned an error')
   const keywords = plate.displayName.toLowerCase().match(/[a-z0-9]+/g)?.filter(word => !['license', 'plate', 'plates', 'standard', 'passenger'].includes(word)) ?? []

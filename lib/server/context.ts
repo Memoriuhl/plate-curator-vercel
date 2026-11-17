@@ -128,6 +128,7 @@ export function jobsDeps(): JobsDeps {
     store: firestoreJobsStore(stagingFirestore(), localScope ? localJobsEnvironment(localScope) : reviewEnv() as Environment, reviewEnv()),
     baseline: reviewDeps().baseline,
     baselineAtVersion: reviewDeps().baselineAtVersion,
+    stateBaseline: reviewDeps().stateBaseline,
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     leaseMs: 5 * 60_000,
@@ -153,7 +154,7 @@ export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
     async plate(job) {
       const plate = job.inputPlate
       if (!plate) return null
-      const imageUrl = source.imageUrl(plate)
+      const imageUrl = source.imageUrl({ ...plate, imageUrl: undefined })
       return { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [], ...(imageUrl ? { imageUrl } : {}) }
     },
     async image(plate) {
