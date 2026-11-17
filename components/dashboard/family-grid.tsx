@@ -22,6 +22,7 @@ import { UserAvatar, userAvatarName } from '@/components/app/user-avatar'
 import { useSession } from '@/lib/client/session'
 import {
   groupFamilies,
+  attachedFamilyIds,
   filterCounts,
   matchesPlate,
   plateIdsForCheck,
@@ -51,7 +52,9 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const latestOverlay = useFamilyBatchOverlay(plates)
   const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(null)
   const overlaid = heldOverlay ?? latestOverlay
-  const counts = useMemo(() => filterCounts(overlaid), [overlaid])
+  const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
+  const attachedIds = useMemo(() => attachedFamilyIds(overlaid, baselineFamilies), [overlaid, baselineFamilies])
+  const counts = useMemo(() => filterCounts(overlaid, attachedIds), [overlaid, attachedIds])
   const workspace = useWorkspaceBatch()
   const changedIds = useMemo(
     () =>
@@ -64,10 +67,9 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   )
   const show = params.get('show') ?? 'all'
   const query = params.get('q') ?? ''
-  const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show) : []), [overlaid, show])
-  const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
+  const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show, '', attachedIds) : []), [overlaid, show, attachedIds])
   const matches = (plate: PlateCardData) =>
-    matchesPlate(plate, show, query, changedIds, standardIds)
+    matchesPlate(plate, show, query, changedIds, standardIds, attachedIds)
   const container = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 5, margin: 420, ready: false })
   const [preview, setPreview] = useState<{
@@ -252,7 +254,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     : undefined
   return (
     <section aria-label="Plate families" id="families">
-      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query)} onSelectGroup={onSelectGroup} /> : null}
+      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={onSelectGroup} /> : null}
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (

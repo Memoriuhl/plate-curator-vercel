@@ -6,7 +6,7 @@ import {
   type PlateCardData,
 } from '@/lib/catalog/dashboard-types'
 
-export function groupFamilies(plates: PlateCardData[]) {
+export function groupFamilies(plates: readonly PlateCardData[]) {
   const ordered = [...plates].sort(
     (a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
   )
@@ -43,12 +43,19 @@ export function groupFamilies(plates: PlateCardData[]) {
   )
 }
 
+export function attachedFamilyIds(plates: readonly PlateCardData[], families = groupFamilies(plates)) {
+  return new Set(families.flatMap(family => family.variants.map(plate => plate.id)))
+}
+
+const EMPTY_IDS: ReadonlySet<string> = new Set()
+
 export function matchesPlate(
   plate: PlateCardData,
   show: string,
   query: string,
   changed: ReadonlySet<string>,
   standardIds?: ReadonlySet<string>,
+  attachedIds: ReadonlySet<string> = EMPTY_IDS,
 ) {
   const search = query.trim().toLowerCase()
   if (
@@ -61,7 +68,7 @@ export function matchesPlate(
   if (PLATE_CHECK_KEYS.includes(show as PlateCheckKey))
     return plate.checks[show as PlateCheckKey].status !== 'good'
   if (show === 'standardPlate') return standardIds?.has(plate.id) ?? false
-  if (NEEDS_WORK_KEYS.has(show)) return matchesCheck(plate, show)
+  if (NEEDS_WORK_KEYS.has(show)) return matchesCheck(plate, show, attachedIds)
   switch (show) {
     case 'changed':
       return changed.has(plate.id)
@@ -106,12 +113,12 @@ export type FilterCounts = {
   groups: Record<NeedsWorkKey, CheckGroup>
 }
 
-function matchesCheck(plate: PlateCardData, key: string): boolean {
+function matchesCheck(plate: PlateCardData, key: string, attachedIds: ReadonlySet<string>): boolean {
   switch (key) {
     case 'missingDescription': return plate.checks.description.status === 'missing'
     case 'missingImage': return plate.checks.image.status !== 'good'
     case 'undertagged': return plate.checks.tags.status !== 'good'
-    case 'noFamily': return plate.templateRole !== 'template' && !plate.variantOfPlateId
+    case 'noFamily': return plate.templateRole !== 'template' && !attachedIds.has(plate.id)
     case 'generic': return plate.checks.description.status === 'weak'
     case 'nofunfacts': return plate.checks.funFacts.status === 'missing'
     default: return false
@@ -134,7 +141,7 @@ function standardFixIds(states: Map<string, StateStandards>) {
     standards.length === 1 ? [] : standards.length ? standards : [candidate.id])
 }
 
-function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string): string[] {
+function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string, attachedIds: ReadonlySet<string>): string[] {
   if (key === 'standardPlate') {
     const states = new Map<string, StateStandards>()
     for (const plate of plates) recordStandard(states, plate)
@@ -143,26 +150,26 @@ function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string
   if (key === 'all') return plates.map(plate => plate.id)
   return plates.filter(plate => {
     if (PLATE_CHECK_KEYS.includes(key as PlateCheckKey)) return plate.checks[key as PlateCheckKey].status !== 'good'
-    return matchesCheck(plate, key)
+    return matchesCheck(plate, key, attachedIds)
   }).map(plate => plate.id)
 }
 
-export function plateIdsForCheck(plates: readonly PlateCardData[], key: string, query = ''): string[] {
-  const ids = uncheckedPlateIdsForCheck(plates, key)
+export function plateIdsForCheck(plates: readonly PlateCardData[], key: string, query = '', attachedIds = attachedFamilyIds(plates)): string[] {
+  const ids = uncheckedPlateIdsForCheck(plates, key, attachedIds)
   if (!query.trim()) return ids
   const matching = new Set(ids)
   const changed = new Set<string>()
   return plates.filter(plate => matching.has(plate.id) && matchesPlate(plate, 'all', query, changed)).map(plate => plate.id)
 }
 
-export function filterCounts(plates: readonly PlateCardData[]): FilterCounts {
+export function filterCounts(plates: readonly PlateCardData[], attachedIds = attachedFamilyIds(plates)): FilterCounts {
   const groups = Object.fromEntries(NEEDS_WORK_CHECKS.map(({ key }) =>
     [key, { missing: 0, weak: 0, total: 0 }])) as FilterCounts['groups']
   const states = new Map<string, StateStandards>()
   for (const plate of plates) {
     recordStandard(states, plate)
     for (const { key, checkKey } of NEEDS_WORK_CHECKS) {
-      if (!matchesCheck(plate, key)) continue
+      if (!matchesCheck(plate, key, attachedIds)) continue
       const group = groups[key]
       group.total++
       const status = key === 'noFamily' ? 'missing' : plate.checks[checkKey].status
