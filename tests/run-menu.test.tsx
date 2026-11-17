@@ -338,15 +338,15 @@ test('switching workspace clears proposals and ignores an in-flight start respon
 
 
 test('formats measured labels', () => {
-  expect(formatTaggingModel(TAGGING_MODELS[2])).toBe('Gemma 4 26B \u00b7 AI Gateway \u2014 F1 0.68 \u00b7 ~8 s \u00b7 $0.0003/plate')
-  expect(formatTaggingModel(TAGGING_MODELS[0])).toContain('free, local GPU')
+  expect(formatTaggingModel(TAGGING_MODELS[2])).toBe('Gemma 4 26B \u00b7 $0.0003/plate')
+  expect(formatTaggingModel(TAGGING_MODELS[0])).toBe('Gemma 4 12B \u00b7 free, local GPU')
 })
 test.each([undefined, 'gateway-gemma4-26b', 'stale'])('Plate restores choice %s and sends selected model', async stored => {
   if (stored) localStorage.setItem('tagging-model:v1', stored)
   render(<PlateTagActions plate={plate} />)
-  expect(screen.getByRole('combobox').textContent).toContain(stored === 'gateway-gemma4-26b' ? 'AI Gateway' : '12B')
+  expect(screen.getByRole('combobox').textContent).toContain(stored === 'gateway-gemma4-26b' ? '$0.0003/plate' : '12B')
   fireEvent.click(screen.getByRole('combobox'))
-  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
+  fireEvent.click(screen.getByRole('option', { name: /Gemma 4 26B.*0\.0003/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Run Tag' }))
   await waitFor(() => expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/batches/batch/plates/MD.one/tagging', { model: 'gateway-gemma4-26b' }))
   expect(localStorage.getItem('tagging-model:v1')).toBe('gateway-gemma4-26b')
@@ -363,8 +363,8 @@ test('storage failures allow rendering and selection', () => {
   try {
     render(<PlateTagActions plate={plate} />)
     fireEvent.click(screen.getByRole('combobox'))
-  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
-    expect(screen.getByRole('combobox').textContent).toContain('AI Gateway')
+  fireEvent.click(screen.getByRole('option', { name: /Gemma 4 26B.*0\.0003/ }))
+    expect(screen.getByRole('combobox').textContent).toContain('$0.0003/plate')
   } finally { read.mockRestore(); write.mockRestore() }
 })
 test('disabled model error appears inline on Plate page', async () => {
@@ -381,7 +381,7 @@ test('Run menu passes chosen model and shows availability error beside picker', 
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   expect(screen.getByRole('alert').textContent).toBe('That model is no longer available. Choose another.')
   fireEvent.click(screen.getByRole('combobox'))
-  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
+  fireEvent.click(screen.getByRole('option', { name: /Gemma 4 26B.*0\.0003/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   expect(start).toHaveBeenCalledWith([plate], false, 'gateway-gemma4-26b')
 })

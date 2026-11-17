@@ -7,7 +7,7 @@ import type { ReviewBatch } from '@/lib/review/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
-import { ComingSoon } from './coming-soon'
+import { PublishButton } from './publish-button'
 
 function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   const detail = useBatch(batch.id)
@@ -42,11 +42,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
             Review
           </Link>
         </Button>
-        {batch.state === 'approved' && owner ? (
-          <ComingSoon label="Publish" size="sm">
-            Publish
-          </ComingSoon>
-        ) : null}
+        <PublishButton owner={owner} approved={batch.state === 'approved'} size="sm" />
       </div>
     </div>
   )

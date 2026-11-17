@@ -6,7 +6,7 @@ import { cn } from '@/components/utils'
 import { Toggle as TogglePrimitive } from 'radix-ui'
 
 const toggleVariants = cva(
-  'inline-flex items-center justify-center gap-2 rounded-[var(--radius-pill)] text-[13px] font-extrabold text-foreground active:opacity-80 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground [&_svg]:size-4',
+  'inline-flex items-center justify-center gap-2 [text-box:trim-both_cap_alphabetic] rounded-[var(--radius-pill)] text-[13px] font-extrabold text-foreground active:opacity-80 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: { default: 'bg-card', inset: 'bg-muted' },
@@ -28,7 +28,7 @@ function Toggle({
   return (
     <TogglePrimitive.Root
       data-slot="toggle"
-      className={cn(toggleVariants({ variant, size, className }))}
+      className={cn(toggleVariants({ variant, size }), 'leading-none', className)}
       {...props}
     >
       {children}

@@ -24,7 +24,7 @@ export function useTaggingModelChoice() {
 export function TaggingModelPicker({ choice, error }: { choice: ReturnType<typeof useTaggingModelChoice>; error?: string }) {
   return <div className="grid min-w-0 gap-1">
     {choice.data && choice.data.models.length > 1 ? <Select value={choice.modelId} onValueChange={choice.choose}>
-      <SelectTrigger size="sm" aria-label="Tagging model" className="max-w-full"><SelectValue /></SelectTrigger>
+      <SelectTrigger size="sm" aria-label="Tagging model" className="min-w-0 max-w-full whitespace-nowrap [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate"><SelectValue /></SelectTrigger>
       <SelectContent>{choice.data.models.map(model => <SelectItem key={model.id} value={model.id}>{formatTaggingModel(model)}</SelectItem>)}</SelectContent>
     </Select> : null}
     {error ? <p role="alert" className="caption">{error}</p> : null}
