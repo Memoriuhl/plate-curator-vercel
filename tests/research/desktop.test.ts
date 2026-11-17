@@ -37,3 +37,10 @@ test('a long-running desktop result renews its claim and reports only staged dat
     expect(calls.some(url => /accept|publish|plates\//.test(url))).toBe(false)
   } finally { vi.useRealTimers() }
 })
+
+test('a Preview worker carries short-lived deployment authentication alongside its research token', async () => {
+ let headers: Headers | undefined
+ expect(await runResearchWorkerOnce({ apiBase: 'https://preview.example.com', token: 'fixture-research-token', trustedOidc: 'fixture-deployment-token', fetch: (async (_url, init) => { headers = new Headers(init?.headers); return new Response(null, { status: 204 }) }) as typeof fetch, run: async () => { throw new Error('unexpected') }, heartbeatMs: 1000, sleep: async () => undefined })).toBe('idle')
+ expect(headers?.get('authorization')).toBe('Bearer fixture-research-token')
+ expect(headers?.get('x-vercel-trusted-oidc-idp-token')).toBe('fixture-deployment-token')
+})
