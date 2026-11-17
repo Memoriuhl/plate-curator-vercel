@@ -43,7 +43,7 @@ export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: R
     <div role="alert" className="space-y-3 rounded-2xl border border-border p-4">
       <p>Reviewed Catalog v{batch.baselineVersion}; current Catalog v{targetVersion}. {receiptConflict ? 'The interrupted Publish used an unreviewed baseline; its receipt needs triage.' : 'Publish stopped because the baseline changed.'}</p>
       <p>Copy the proposals for a fresh review. The new Batch requires Submit, Approve, and Publish.</p>
-      <Button disabled={busy} onClick={copy}>{busy ? 'Copying…' : 'Copy to new Batch'}</Button>
+      <Button disabled={busy} onClick={copy}>{busy ? 'Copyingâ€¦' : 'Copy to new Batch'}</Button>
       {message && <p role="status">{message}</p>}
       {reasons.length > 0 && <ul>{reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
     </div>
