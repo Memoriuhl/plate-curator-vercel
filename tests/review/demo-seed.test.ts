@@ -13,7 +13,7 @@ const plates: Plate[] = [
   { id: 'bear-variant', state: 'AK', slug: 'bear-variant', displayName: 'Bear Variant', image: 'AK/bear-variant.webp', tags: ['bear'], templateFamily: 'bear', templateRole: 'variant', variantOfPlateId: 'bear' },
 ]
 const input = { projectId: 'license-plate-game-staging', env: 'development', editor, version: 11 }
-function setup(): ReviewDeps {
+function setup(): ReviewDeps & { store: ReturnType<typeof createMemoryStore> } {
   return { store: createMemoryStore([]), baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => structuredClone(plates), now: () => '2026-11-16T12:00:00Z' }
 }
 
@@ -21,6 +21,7 @@ describe('demo seed', () => {
   it('creates realistic edits, valid revisions, a regroup and a full reorder, then converges on the same content', async () => {
     const d = setup()
     const first = await seedDemo(d, input)
+    expect(d.store.signalRevision(first.id)).toBe(first.revision)
     const edits = await d.store.listEdits(first.id)
     expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
     expect(edits.find(edit => edit.plateId === 'gold')?.fields).toMatchObject({ tags: ['gold', 'alaska', 'passenger'], isStandard: false })
@@ -31,6 +32,8 @@ describe('demo seed', () => {
       expect(edit.resultRevision).toBe(plateRevision({ ...baseline, ...edit.fields }))
     }
     const second = await seedDemo(d, input)
+    expect(second.revision).toBeGreaterThan(first.revision)
+    expect(d.store.signalRevision(second.id)).toBe(second.revision)
     expect({ ...second, revision: first.revision }).toEqual(first)
     expect(await d.store.listEdits(first.id)).toEqual(edits)
   })
@@ -46,7 +49,10 @@ describe('demo seed', () => {
       batch = (await d.store.getBatch(first.id))!
       if (state === 'approved') await approveBatch(d, { uid: 'owner', name: 'Owner', role: 'owner' }, first.id, batch.revision)
     }
-    expect(await seedDemo(d, input)).toMatchObject({ state: 'open', approval: null, plateIds: first.plateIds, stateOrders: first.stateOrders })
+    const reset = await seedDemo(d, input)
+    expect(reset).toMatchObject({ state: 'open', approval: null, plateIds: first.plateIds, stateOrders: first.stateOrders })
+    expect(reset.revision).toBeGreaterThan(batch.revision)
+    expect(d.store.signalRevision(reset.id)).toBe(reset.revision)
     expect(await d.store.listEdits(first.id)).toEqual(seededEdits)
   })
 
@@ -89,6 +95,8 @@ describe('demo seed', () => {
     const edits = await d.store.listEdits(fresh.id)
     await proposeEdit(d, editor, { batchId: fresh.id, plateId: 'bear', baseRevision: plateRevision(plates[1]), fields: { tags: ['changed'] } })
     const reset = await seedDemo(d, input)
+    expect(reset.revision).toBeGreaterThan(fresh.revision)
+    expect(d.store.signalRevision(reset.id)).toBe(reset.revision)
     expect(reset.id).toBe(`${first.id}-2`)
     expect({ ...reset, revision: fresh.revision }).toEqual(fresh)
     expect(await d.store.listEdits(reset.id)).toEqual(edits)
@@ -107,6 +115,7 @@ describe('demo seed', () => {
     const edits = await d.store.listEdits(batch.id)
     await expect(seedDemo(d, input)).rejects.toThrow('Demo batch owner mismatch')
     expect(await d.store.getBatch(batch.id)).toEqual(otherOwner)
+    expect(d.store.signalRevision(batch.id)).toBe(otherOwner.revision)
     expect(await d.store.listEdits(batch.id)).toEqual(edits)
   })
 
@@ -122,6 +131,7 @@ describe('demo seed', () => {
     const preview = await seedDemo(d, { ...input, env: 'preview:feature/demo' })
     const other = await seedDemo(d, { ...input, editor: { ...editor, uid: 'another-editor' } })
     expect(new Set([first.id, preview.id, other.id]).size).toBe(3)
+    for (const batch of [first, preview, other]) expect(d.store.signalRevision(batch.id)).toBe(batch.revision)
     expect(await d.store.getBatch(first.id)).toEqual(first)
   })
 
@@ -133,5 +143,6 @@ describe('demo seed', () => {
     await expect(seedDemo(d, input)).rejects.toThrow('changed during reset')
     expect(await d.store.getBatch(first.id)).toEqual(first)
     expect(await d.store.listEdits(first.id)).toEqual(before)
+    expect(d.store.signalRevision(first.id)).toBe(first.revision)
   })
 })

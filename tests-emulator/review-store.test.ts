@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
 import { plateRevision } from '../lib/review/revision'
+import { seedDemo } from '../lib/review/demo-seed'
+import { liveEnvKey, signalPath } from '../lib/review/live-signal'
 import { fixture, owner, snapshot } from '../tests/publish/fixture'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
@@ -14,6 +16,57 @@ const store = firestoreReviewStore(db, env)
 const batch: ReviewBatch = {
   stateOrders: {}, id: 'batch', name: 'Review plates', createdBy: 'editor', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 4, baselineVersion: 1, plateIds: ['one', 'two'], approval: null }
 const edit: ProposedEdit = { plateId: 'one', baseRevision: 'before', fields: { tags: ['changed'] }, authorId: 'editor', updatedAt: '2026-11-15T12:00:00Z', resultRevision: 'after' }
+
+test.each(['development', 'preview:feature/demo'])('demo seed and resets keep the signal scoped to %s at the draft revision', async demoEnv => {
+  const demoStore = firestoreReviewStore(db, demoEnv)
+  const editor = { uid: 'demo-editor', name: 'Demo Editor', role: 'editor' } as const
+  const plates = [
+    { ...snapshot.plates[0], state: 'AK', templateRole: 'template' as const, templateFamily: 'gold' },
+    { ...snapshot.plates[1], state: 'AK', templateRole: 'template' as const, templateFamily: 'bear' },
+    { ...snapshot.plates[1], id: 'variant', state: 'AK', templateRole: 'variant' as const, templateFamily: 'bear', variantOfPlateId: 'two' },
+  ]
+  const deps = { ...fixture().deps, store: demoStore, baseline: async (id: string) => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_version: number, id: string) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates }
+  const input = { projectId: 'license-plate-game-staging', env: demoEnv, editor, version: 1 }
+  const assertSignal = async (batch: ReviewBatch) => {
+    const saved = await db.runTransaction(async tx => {
+      const draft = await tx.get(db.doc(`reviewBatches/${batch.id}`))
+      const signal = await tx.get(db.doc(signalPath(liveEnvKey(demoEnv), batch.id)))
+      return { draft: draft.data(), signal: signal.data() }
+    }, { readOnly: true })
+    expect(saved.draft).toEqual({ ...batch, env: demoEnv })
+    expect(saved.signal).toEqual({ revision: batch.revision })
+    const otherEnv = demoEnv === 'development' ? 'preview:feature/demo' : 'development'
+    expect((await db.doc(signalPath(liveEnvKey(otherEnv), batch.id)).get()).exists).toBe(false)
+  }
+  let current = await seedDemo(deps, input)
+  await assertSignal(current)
+  const seededEdits = await demoStore.listEdits(current.id)
+  for (const state of ['open', 'edited', 'submitted', 'approved'] as const) {
+    if (state !== 'open') {
+      expect(await proposeEdit(deps, editor, { batchId: current.id, plateId: 'two', baseRevision: plateRevision(plates[1]), fields: { tags: ['changed'] } })).toMatchObject({ ok: true })
+      current = (await demoStore.getBatch(current.id))!
+    }
+    if (state === 'submitted' || state === 'approved') {
+      expect(await submitBatch(deps, editor, current.id, current.revision)).toMatchObject({ ok: true })
+      current = (await demoStore.getBatch(current.id))!
+    }
+    if (state === 'approved') {
+      expect(await approveBatch(deps, owner, current.id, current.revision)).toMatchObject({ ok: true })
+      current = (await demoStore.getBatch(current.id))!
+    }
+    const reset = await seedDemo(deps, input)
+    expect(reset.revision).toBeGreaterThan(current.revision)
+    expect(reset).toMatchObject({ state: 'open', approval: null })
+    await assertSignal(reset)
+    expect(await demoStore.listEdits(reset.id)).toEqual(seededEdits)
+    current = reset
+  }
+  const before = await demoStore.readBatch(current.id)
+  const rejectedStore = { ...demoStore, commit: async (...args: Parameters<typeof demoStore.commit>) => demoStore.commit(args[0], args[1] - 1, args[2]) }
+  await expect(seedDemo({ ...deps, store: rejectedStore }, input)).rejects.toThrow('Demo batch changed during reset')
+  expect(await demoStore.readBatch(current.id)).toEqual(before)
+  await assertSignal(current)
+})
 
 beforeEach(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
