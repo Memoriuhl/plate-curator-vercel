@@ -30,3 +30,9 @@ test('grandfathers untouched existing values even when unrelated tags change', (
   expect(validateSnapshot(previous, { version: 2, plates: [{ ...legacy, tags: ['updated'] }] })).toEqual([])
   expect(validateSnapshot(previous, { version: 2, plates: [{ ...legacy, funFacts: [{ text: 'Changed uncited fact' }] }] }).length).toBeGreaterThan(0)
 })
+
+test('validates only changed fields on a plate with legacy story values', () => {
+  const legacy = { ...plate, firstIssuedYear: 1750, sourceUrl: 'legacy-source', funFacts: [{ text: 'Old uncited fact' }] } as unknown as Plate
+  expect(validateSnapshot({ version: 1, plates: [legacy] }, { version: 2, plates: [{ ...legacy, readMore: [{ title: 'Reference', site: 'Example', url: 'http://example.org' }] }] })).toEqual([])
+  expect(validateSnapshot({ version: 1, plates: [legacy] }, { version: 2, plates: [{ ...legacy, firstIssuedYear: 1976 }] })).toEqual([])
+})
