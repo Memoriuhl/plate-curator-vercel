@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ApiError } from '@/lib/client/api'
@@ -14,6 +15,7 @@ export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: R
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [reasons, setReasons] = useState<string[]>([])
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   async function copy() {
     setBusy(true)
@@ -21,7 +23,11 @@ export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: R
     setReasons([])
     try {
       const copied = await actions.copy(batch.id, batch.revision, targetVersion)
-      router.push(`/review?batch=${encodeURIComponent(copied.id)}`)
+      if (copied.warnings?.length) {
+        setCopiedId(copied.id)
+        setReasons(copied.warnings)
+        setMessage('Copied to a new Batch. Repair these Standard issues there before submitting.')
+      } else router.push(`/review?batch=${encodeURIComponent(copied.id)}`)
     } catch (error) {
       if (error instanceof ApiError && error.code === 'head_moved' && typeof error.body.liveVersion === 'number') {
         setTargetVersion(error.body.liveVersion)
@@ -40,10 +46,10 @@ export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: R
   }
 
   return (
-    <div role="alert" className="space-y-3 rounded-2xl border border-border p-4">
+    <div role="alert" className="grid gap-[var(--stack-gap)] rounded-2xl border border-border p-4">
       <p>Reviewed Catalog v{batch.baselineVersion}; current Catalog v{targetVersion}. {receiptConflict ? 'The interrupted Publish used an unreviewed baseline; its receipt needs triage.' : 'Publish stopped because the baseline changed.'}</p>
       <p>Copy the proposals for a fresh review. The new Batch requires Submit, Approve, and Publish.</p>
-      <Button disabled={busy} onClick={copy}>{busy ? 'Copying…' : 'Copy to new Batch'}</Button>
+      {copiedId ? <Button asChild><Link href={`/review?batch=${encodeURIComponent(copiedId)}`}>Open copied Batch</Link></Button> : <Button disabled={busy} onClick={copy}>{busy ? 'Copying…' : 'Copy to new Batch'}</Button>}
       {message && <p role="status">{message}</p>}
       {reasons.length > 0 && <ul>{reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
     </div>

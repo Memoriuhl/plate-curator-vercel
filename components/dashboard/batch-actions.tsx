@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ApiError } from '@/lib/client/api'
+import { ApiError, apiErrorReasons } from '@/lib/client/api'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { IoPaperPlaneOutline } from 'react-icons/io5'
@@ -96,7 +96,7 @@ export function BatchActions({
               )
               setMessage('Submitted for review.')
             } catch (error) {
-              setMessage(error instanceof ApiError && error.code === 'standard_change_unconfirmed' ? 'Use Standard plate issues to make the first Template the Standard, then submit again.' : 'Could not submit your batch. Please try again.')
+              setMessage(error instanceof ApiError && error.code === 'standard_change_unconfirmed' ? apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.' : 'Could not submit your batch. Please try again.')
             } finally {
               setPending(false)
             }

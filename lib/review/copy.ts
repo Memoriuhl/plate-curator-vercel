@@ -12,7 +12,7 @@ export type CopyDeps = {
   now(): string
   env: string
 }
-export type CopyOutcome = CopyCommitResult | { ok: false; error: 'forbidden' | 'incompatible'; reasons?: string[] }
+export type CopyOutcome = (CopyCommitResult & { warnings?: string[] }) | { ok: false; error: 'forbidden' | 'incompatible'; reasons?: string[] }
 
 export function copyBatchId(env: string, sourceId: string, revision: number, version: number) {
   return `copy-${createHash('sha256').update(JSON.stringify([env, sourceId, revision, version])).digest('hex')}`
@@ -47,17 +47,18 @@ export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: st
     if (order.length !== ids.size || new Set(order).size !== order.length || order.some(id => !ids.has(id))) reasons.push(`State order no longer matches Jurisdiction: ${state}`)
     baselineOrders[state] = current
   }
-  if (!reasons.length) reasons.push(...standardOrderProblems(snapshot.plates, source.edits, source.batch.stateOrders))
   if (reasons.length) return { ok: false, error: 'incompatible', reasons }
+  const warnings = standardOrderProblems(snapshot.plates, source.edits, source.batch.stateOrders)
   const now = d.now()
   const edits: ProposedEdit[] = source.edits.map(edit => {
     const baseline = plates.get(edit.plateId)!
     return { plateId: edit.plateId, fields: structuredClone(edit.fields), baseRevision: plateRevision(baseline), resultRevision: plateRevision({ ...baseline, ...edit.fields }), authorId: actor.uid, updatedAt: now }
   })
-  return d.store.copy({ ...input, batch: {
+  const result = await d.store.copy({ ...input, batch: {
     id, name: `${source.batch.name} (fresh review)`, createdBy: actor.uid, createdByName: actor.name, createdAt: now,
     state: 'open', revision: 0, baselineVersion: input.targetVersion, approval: null,
     source: { batchId: input.sourceId, revision: input.sourceRevision },
     plateIds: [...source.batch.plateIds], stateOrders: structuredClone(source.batch.stateOrders), baselineOrders,
   }, edits })
+  return result.ok && warnings.length ? { ...result, warnings } : result
 }

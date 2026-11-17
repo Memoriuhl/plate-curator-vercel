@@ -12,7 +12,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   try {
     const deps = publishDeps()
     const result = await copyBatch({ store: deps.store, head: async () => (await deps.pointer.read()).version, snapshot: version => deps.snapshots.read(version), env: reviewEnv(), now: deps.now }, auth.actor, { sourceId: id, sourceRevision: body.revision, targetVersion: body.targetVersion })
-    return result.ok ? json(result.value) : json(result, result.error === 'forbidden' ? 403 : result.error === 'not_found' ? 404 : 409)
+    return result.ok ? json({ ...result.value, ...(result.warnings?.length ? { warnings: result.warnings } : {}) }) : json(result, result.error === 'forbidden' ? 403 : result.error === 'not_found' ? 404 : 409)
   } catch {
     return json({ ok: false, error: 'unavailable' }, 503)
   }

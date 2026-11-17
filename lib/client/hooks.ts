@@ -174,7 +174,7 @@ export function useReviewActions() {
       }
     },
     async copy(batchId: string, revision: number, targetVersion: number) {
-      const batch = await api.send<ReviewBatch>('POST', `/api/batches/${batchId}/copy`, { revision, targetVersion })
+      const batch = await api.send<ReviewBatch & { warnings?: string[] }>('POST', `/api/batches/${batchId}/copy`, { revision, targetVersion })
       await refresh().catch(() => undefined)
       return batch
     },
@@ -430,7 +430,7 @@ export function useReorderState() {
     } finally { setPendingCount(count => count - 1) }
   }
 
-  return { reorder, capture, move, pending: pendingCount > 0 }
+  return { reorder, capture, move, stateOrders: displayed?.batch.stateOrders, pending: pendingCount > 0 }
 }
 
 export function useTaggingModels() {

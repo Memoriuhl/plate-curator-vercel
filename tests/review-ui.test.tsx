@@ -331,3 +331,9 @@ test('changed image keeps live preview and names proposed file unless a URL is s
   expect(html).toContain('AK/new.webp')
   expect(html.split('src="/plate.webp"')).toHaveLength(2)
 })
+
+test('review submission errors show every affected state', async () => {
+  const { ApiError } = await import('../lib/client/api')
+  const reasons = ['AK: make Gold the Standard.', 'NY: make Blue the Standard.']
+  expect(reviewError(new ApiError(409, 'standard_change_unconfirmed', { reasons }), 1)).toBe(reasons.join(' '))
+})

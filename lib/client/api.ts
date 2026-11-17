@@ -27,3 +27,8 @@ export function createApiClient(deps: ApiDeps) {
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>
+
+export function apiErrorReasons(error: unknown): string[] {
+  return error instanceof ApiError && Array.isArray(error.body.reasons)
+    ? error.body.reasons.filter((reason): reason is string => typeof reason === 'string') : []
+}

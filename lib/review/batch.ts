@@ -119,7 +119,8 @@ async function transitionBatch(
     const standardPlates = await Promise.all(edits.filter(edit => Object.hasOwn(edit.fields, 'isStandard')).map(edit => d.baselineAtVersion(batch.baselineVersion, edit.plateId)))
     const touchedStates = new Set([...Object.keys(batch.stateOrders), ...standardPlates.flatMap(plate => plate ? [plate.state] : [])])
     const states = await Promise.all([...touchedStates].map(state => d.stateBaseline(batch.baselineVersion, state)))
-    if (standardOrderProblems(states.flat(), edits, batch.stateOrders).length) return { ok: false, error: 'standard_change_unconfirmed' }
+    const reasons = standardOrderProblems(states.flat(), edits, batch.stateOrders)
+    if (reasons.length) return { ok: false, error: 'standard_change_unconfirmed', reasons }
   }
   const nextBatch: ReviewBatch = {
     ...batch, ...(state === 'submitted' ? { publishRequestedAt: null, publishRequestedBy: null } : {}), state, revision: revision + 1,

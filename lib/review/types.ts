@@ -35,7 +35,7 @@ export type ProposedEdit = {
 }
 export type StandardChange = { from: string | null; to: string }
 export type ReviewError = 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' | 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
-export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate }
+export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
 export interface ReviewStore {
   updatePublishMetadata(batchId: string, revision: number, fields: PublishMetadata): Promise<boolean>
   copy(input: { sourceId: string; sourceRevision: number; targetVersion: number; batch: ReviewBatch; edits: ProposedEdit[] }): Promise<CopyCommitResult>

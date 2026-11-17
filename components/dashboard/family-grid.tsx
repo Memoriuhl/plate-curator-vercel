@@ -103,11 +103,11 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const standardRepairs = useMemo(() => {
     if (show !== 'standardPlate') return []
     const states = new Set(overlaid.filter(plate => standardIds.has(plate.id)).map(plate => plate.state))
-    return [...states].flatMap(state => {
+    return [...states].filter(state => ordering.stateOrders?.[state]).flatMap(state => {
       const first = baselineFamilies.find(family => family.template.state === state && !family.template.deleted && family.template.templateRole === 'template')?.template
       return first ? [first] : []
     })
-  }, [show, overlaid, standardIds, baselineFamilies])
+  }, [show, overlaid, standardIds, baselineFamilies, ordering.stateOrders])
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
   const [resolutionError, setResolutionError] = useState('')

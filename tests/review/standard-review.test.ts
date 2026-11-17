@@ -1,3 +1,4 @@
+import { respond } from '../../lib/server/respond'
 import { expect, test, vi } from 'vitest'
 import { proposeEdit, reorderState, submitBatch } from '../../lib/review/batch'
 import { editableKeys } from '../../lib/review/fields'
@@ -41,14 +42,23 @@ test.each(['first', 'old'])('any effective Standard is a valid acknowledgement: 
   const effective = (await deps.stateBaseline(1, 'CA')).map(plate => ({ ...plate, ...edits.find(edit => edit.plateId === plate.id)?.fields }))
   expect(effective.filter(plate => plate.isStandard).map(plate => plate.id)).toEqual(['third'])
 })
-test('copy detects a new baseline Standard left outside the source edits', async () => {
-  const { batch, store } = setup()
-  const approved = { ...batch, state: 'approved' as const, plateIds: ['first', 'old'], approval: { revision: 0, by: 'owner', at: '' } }
+test('copy warns about a new baseline Standard and can be repaired in the copied Batch', async () => {
+  const { batch, store, deps } = setup()
+  const approved = { ...batch, baselineVersion: 0, state: 'approved' as const, plateIds: ['first', 'old'], approval: { revision: 0, by: 'owner', at: '' } }
   await store.commit(batch.id, 0, { batch: approved, edits: ['first', 'old'].map(plateId => ({ plateId, fields: { isStandard: plateId === 'first' }, baseRevision: '', resultRevision: '', authorId: actor.uid, updatedAt: '' })) })
-  const result = await copyBatch({ store, env: 'test', now: () => '', head: async () => 1, snapshot: async () => ({ version: 1, plates: plates.map(plate => ({ ...plate, isStandard: plate.id === 'third' })) }) }, { ...actor, role: 'owner' }, { sourceId: batch.id, sourceRevision: 0, targetVersion: 1 })
-  expect(result).toMatchObject({ error: 'incompatible', reasons: [expect.stringContaining('Standard plate issues')] })
-  expect(await store.list({})).toHaveLength(1)
+  const current = plates.map(plate => ({ ...plate, isStandard: plate.id === 'third' }))
+  const result = await copyBatch({ store, env: 'test', now: () => '', head: async () => 1, snapshot: async () => ({ version: 1, plates: current }) }, { ...actor, role: 'owner' }, { sourceId: batch.id, sourceRevision: 0, targetVersion: 1 })
+  expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining('CA:')] })
+  expect(await store.list({})).toHaveLength(2)
+  if (!result.ok) throw new Error('Expected copy')
+  deps.stateBaseline = async () => current
+  deps.baselineAtVersion = async (_version, id) => current.find(plate => plate.id === id) ?? null
+  expect(await submitBatch(deps, actor, result.value.id, 0)).toMatchObject({ error: 'standard_change_unconfirmed', reasons: [expect.stringContaining('CA:')] })
+  const first = { ...current[0], ...(await store.getEdit(result.value.id, 'first'))?.fields }
+  expect((await proposeEdit(deps, actor, { batchId: result.value.id, plateId: 'first', baseRevision: plateRevision(first), fields: { isStandard: true }, standard: { from: 'third', to: 'first' } })).ok).toBe(true)
+  expect((await submitBatch(deps, actor, result.value.id, 1)).ok).toBe(true)
 })
+
 test('failed atomic multi-promotion preserves the original legacy Standard and order', async () => {
   const { deps, store, batch } = setup()
   const variants = ['v', 'w'].map(id => ({ ...plates[0], id, templateRole: 'variant' as const, variantOfPlateId: 'first', isStandard: false }))
@@ -75,4 +85,16 @@ test('compensating a partial move below a legacy first family restores the origi
   expect(await store.listEdits(batch.id)).toEqual([])
   expect((await store.getBatch(batch.id))?.stateOrders.CA).toEqual(originalOrder)
   expect((await deps.stateBaseline(1, 'CA')).filter(plate => plate.isStandard).map(plate => plate.id)).toEqual(['old'])
+})
+
+test('submit returns per-state reasons through the API response', async () => {
+  const { batch, store, deps } = setup()
+  const ny = plates.map(plate => ({ ...plate, id: 'NY.' + plate.id, state: 'NY' }))
+  deps.stateBaseline = async (_version, state) => state === 'NY' ? ny : plates
+  await store.commit(batch.id, 0, { batch: { ...batch, stateOrders: { ...batch.stateOrders, NY: ny.map(plate => plate.id) } } })
+  const result = await submitBatch(deps, actor, batch.id, 0)
+  expect(result).toMatchObject({ error: 'standard_change_unconfirmed', reasons: [expect.stringContaining('CA:'), expect.stringContaining('NY:')] })
+  const response = respond(result)
+  expect(response.status).toBe(409)
+  expect((await response.json()).reasons).toEqual([expect.stringContaining('CA:'), expect.stringContaining('NY:')])
 })

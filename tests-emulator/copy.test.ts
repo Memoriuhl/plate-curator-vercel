@@ -76,3 +76,10 @@ test('a copy transaction replay survives source revision and state changes', asy
   expect(await copyBatch(d, owner, input)).toEqual(copied)
   expect(await store.copy({ ...input, batch: copied.value, edits: [] })).toEqual(copied)
 })
+
+test('Standard mismatches return warnings and still create a repairable open copy', async () => {
+  const result = await copyBatch({ ...d, snapshot: async () => ({ ...copySnapshot, version: 2, plates: copySnapshot.plates.map(plate => ({ ...plate, isStandard: true })) }) }, owner, input)
+  expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining('CA:')] })
+  expect(await store.getBatch(targetId)).toMatchObject({ state: 'open', baselineVersion: 2 })
+  expect((await db.doc(signalPath(liveEnvKey(env), targetId)).get()).get('revision')).toBe(0)
+})

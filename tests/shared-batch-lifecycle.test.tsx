@@ -268,3 +268,23 @@ test('Standard plate issues offers a confirmed repair for the first Template', a
   await waitFor(async () => expect((await deps.store.getEdit('shared', 'AK.b'))?.fields.isStandard).toBe(true))
   expect((await deps.store.getEdit('shared', 'AK.a'))?.fields.isStandard).toBe(false)
 })
+
+test('Standard repair buttons exclude states absent from this Batch state orders', async () => {
+  const original = (await deps.store.getBatch('shared'))!
+  await deps.store.commit('shared', 0, { batch: { ...original, revision: 1 }, edits: plates.filter(plate => plate.id !== 'AK.v').map(plate => ({ plateId: plate.id, fields: { isStandard: plate.id === 'AK.b' }, baseRevision: '', resultRevision: '', authorId: editor.uid, updatedAt: '' })) })
+  const value = session(editor)
+  value.params.set('show', 'standardPlate')
+  const view = render(<Workspace value={value} />)
+  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  expect(within(view.container).queryByRole('button', { name: /Make .* the Standard/ })).toBeNull()
+  expect(requests.filter(request => request.method === 'PATCH')).toEqual([])
+})
+
+test('submit errors show the affected state and repair instruction', async () => {
+  const original = (await deps.store.getBatch('shared'))!
+  await deps.store.commit('shared', 0, { batch: { ...original, revision: 1, stateOrders: { AK: ['AK.b', 'AK.a', 'AK.v'] } } })
+  const view = render(<Workspace value={session(editor)} />)
+  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  fireEvent.click(within(view.container).getByRole('button', { name: 'Submit for review' }))
+  await waitFor(() => expect(view.container.textContent).toContain('AK: use Standard plate issues to make Navy the Standard'))
+})

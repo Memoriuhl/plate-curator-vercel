@@ -54,6 +54,6 @@ export function standardOrderProblems(plates: Plate[], edits: ProposedEdit[], or
     const standards = members.filter(plate => plate.isStandard)
     const first = members.find(plate => plate.id === order[0])
     return first?.templateRole === 'template' && standards.length === 1 && standards[0].id === first.id ? []
-      : [state + ': use Standard plate issues to make ' + (first?.displayName ?? 'the first Template') + ' the Standard before submitting or copying.']
+      : [state + ': use Standard plate issues to make ' + (first?.displayName ?? 'the first Template') + ' the Standard before submitting.']
   })
 }
