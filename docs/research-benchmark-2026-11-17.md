@@ -6,6 +6,11 @@ The 20 inputs were frozen from staging Snapshot v16 before measured execution, w
 six tuning plates and fourteen held-out plates. No prompts were tuned on the held-out
 results. See `fixtures/research-eval-v16.json` for the identities and revisions.
 
+The desktop baseline ran on the existing desktop host. Eve and the synthesis
+control ran on the Mac's Eve development host with remote AI Gateway model calls,
+before the Vercel Preview was deployed. These measurements do not establish
+Vercel-hosted latency or reliability.
+
 | Path | Plates | Descriptions | Facts | Fetched links | Failed runs | Median | Known charges |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Desktop / Ollama | 20 | 10 | 35 | 23 | 2 | 1.78s | Local hardware unmeasured |
@@ -48,7 +53,7 @@ maps blind labels to executors. The blind review page exports a local JSON asses
 and sends nothing to a service. No catalog applies or real Publish occurred.
 
 To finish the quality comparison: configure the existing search secrets, run a fresh
-named comparison with a separately authorized remaining budget, and score source
+named comparison within the remaining authorized budget, and score source
 support, relevance, duplicates, misleading dates/funding claims, acceptance, and actual
 corrections through the blind review. Do not infer those scores from the table above.
 

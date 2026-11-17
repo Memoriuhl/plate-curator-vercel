@@ -18,7 +18,7 @@ desktop/Ollama and Vercel/Eve execution options.
 | `worker/research-report.ts` | Summaries, CSV, and a local blind review page |
 | `components/research/` | Host choice, durable progress, citations, and field acceptance |
 | `workflows/research.ts` | Hosted dispatch and completion reconciliation |
-| `fixtures/research-eval.json` | Frozen 20-plate corpus (Snapshot v16) and rubric |
+| `fixtures/research-eval-v16.json` | Frozen 20-plate corpus (Snapshot v16) and rubric |
 
 Before editing agent-facing prompts or tool descriptions, invoke
 `mattpocock-skills:writing-for-agents`, as Jonathan requested. Keep the runtime's
@@ -38,7 +38,7 @@ connection, `/new` starts another conversation, `/info` shows the resolved agent
 and `/exit` leaves the terminal. The existing desktop/Ollama pipeline remains the
 application's desktop executor; this command is the Eve authoring interface.
 
-Model calls default to disabled. Jonathan authorized USD 2 total for this pilot and comparison on 2026-11-17; the ignored local environment enables that bounded campaign. This is not an ongoing spending authorization.
+Model calls default to disabled. Jonathan authorized USD 2 total for this pilot and comparison on 2026-11-17. Local calls were disabled after measurement; the feature Preview has a separate USD 0.50 campaign cap within that same total. This is not an ongoing spending authorization.
 Once authorized, set `RESEARCH_ENABLE_MODEL_CALLS=true` in an ignored `.env.local`
 or the executing process environment. The selected model is explicit in `agent.ts`;
 the initial candidate is `openai/gpt-6.1-sol`, verified in the Gateway catalog.
@@ -60,7 +60,7 @@ draft, which stays pending until a curator accepts fields through the applicatio
 
 The Next.js integration mounts the agent at `/eve/v1/*` on the application domain.
 Production access requires the research channel's verified Owner identity and
-session ownership checks. The channel checks current membership and session ownership on reads and controls as well as starts. Preview deployment and remote login still require verification against the deployed service.
+session ownership checks. The channel checks current membership and session ownership on reads and controls as well as starts. The feature Preview is deployed; an authenticated remote terminal conversation remains unverified.
 
 After deployment and authentication are configured, connect using the configured
 target and a fresh authenticated token:
@@ -121,6 +121,14 @@ An authenticated Owner issues a research token with
 value private. Revoke it through `DELETE /api/research-worker/tokens/{hash}`. It cannot
 accept edits or Publish. Do not reuse a tagging token.
 
+For a protected same-project Preview, the worker also sends a short-lived
+`VERCEL_OIDC_TOKEN` as `x-vercel-trusted-oidc-idp-token`. Obtain it through the
+linked project's `vercel env run`; the research token still authenticates the
+application request. Restart through `vercel env run` when that OIDC token expires.
+The current desktop Preview launcher loads its private environment file before
+starting the worker. Add search keys to that same file rather than an unrelated
+checkout's environment. Keep tokens out of saved command text and committed files.
+
 For Vercel, keep the Gateway/search keys and a random `RESEARCH_SERVICE_SECRET` of
 at least 32 characters as environment secrets. The service secret signs a short-lived
 capability bound to one job, requester, and environment. Configure a separate
@@ -168,6 +176,23 @@ source validation, field preservation, and mocked publishing serialization. The
 Firestore emulator checks actual transactions. Next and Eve production builds check
 runtime coexistence. Live catalog Publish was not performed.
 
-This branch has not been deployed. Remote terminal access, service dispatch on Vercel,
-and the desktop worker against that preview remain the deployment verification step.
-Search-provider credentials are an explicit setup limitation in the initial comparison.
+The Git-sourced feature Preview at
+<https://plate-curator-vercel-git-feat-eve-research-memoriuhl.vercel.app> is ready
+from commit `31140bd`. Its Eve health check returns ready, unauthenticated session
+creation returns 401, and the separate desktop research worker authenticates and
+polls successfully (204 when idle). Branch-scoped secrets and Firestore research
+indexes are configured. Deployment Protection remains enabled; the exact Preview
+alias is registered for Firebase Google sign-in. Production is unchanged.
+
+An Owner-started UI job, hosted service dispatch through completion, selected-field
+acceptance on that Preview, and authenticated remote terminal use remain unverified.
+The walkthrough is tracked in Herdr Tasks. Search-provider credentials are also
+still missing; Wikipedia works without them.
+
+Before integrating this branch, rebase onto PR #174's shared story validators.
+That PR owns the canonical shape: at most four facts and eight read-more links,
+link title at most 200 characters, required site at most 120, fact source title at
+most 300, and HTTP(S) URLs at most 2048. Eve may generate at most four links. Its
+acceptance must use the shared story validator; the local pipeline flag belongs
+only at direct Batch-edit input. Preserve the scoped review transaction and image
+provenance during that rebase.
