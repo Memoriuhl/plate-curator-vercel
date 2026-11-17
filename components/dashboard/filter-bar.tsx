@@ -7,7 +7,7 @@ import {
   IoHappyOutline,
 } from 'react-icons/io5'
 import type { FilterCounts } from './family-data'
-import { useBatches } from '@/lib/client/hooks'
+import { useWorkspaceBatch, useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
 import { StatusIcon } from '@/components/plate/status-icon'
 
@@ -18,9 +18,11 @@ export function FilterBar({
   counts: FilterCounts
   code: string
 }) {
+  const workspace = useWorkspaceBatch()
   const batches = useBatches(['open'], { mine: true })
+  const batch = workspace.mode === 'selected' ? workspace.detail?.batch : batches.data?.[0]
   const changedCount = new Set(
-    batches.data?.[0]?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
+    batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
   ).size
   return <FilterBarControls counts={counts} changedCount={changedCount} />
 }

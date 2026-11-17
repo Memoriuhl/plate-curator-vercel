@@ -1,8 +1,11 @@
 'use client'
 
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { IoArrowUpOutline, IoPaperPlaneOutline } from 'react-icons/io5'
 import {
+  useWorkspaceBatch,
   useBatch,
   useBatches,
   useMe,
@@ -24,15 +27,19 @@ export function BatchActions({
   stateCode: string
   stateName: string
 }) {
+  const workspace = useWorkspaceBatch()
+  const pathname = usePathname()
   const batches = useBatches(['open'], { mine: true })
-  const batch = batches.data?.toSorted((a, b) =>
+  const personalBatch = batches.data?.toSorted((a, b) =>
     (
       (b as typeof b & { updatedAt?: string }).updatedAt ?? b.createdAt
     ).localeCompare(
       (a as typeof a & { updatedAt?: string }).updatedAt ?? a.createdAt,
     ),
   )[0]
-  const detail = useBatch(batch?.id ?? null, { reuse: true })
+  const batch = workspace.mode === 'selected' ? workspace.detail?.batch : personalBatch
+  const personalDetail = useBatch(workspace.mode === 'personal' ? batch?.id ?? null : null, { reuse: true })
+  const detail = workspace.mode === 'selected' ? { data: workspace.detail, isLoading: workspace.status === 'loading', error: workspace.status === 'unavailable' } : personalDetail
   const me = useMe()
   const actions = useReviewActions()
   const [pending, setPending] = useState(false)
@@ -62,19 +69,20 @@ export function BatchActions({
                 </AvatarFallback>
               </Avatar>
               <span>
-                Your batch:{' '}
+                {workspace.mode === 'selected' ? 'Selected batch:' : 'Your batch:'}{' '}
                 {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
               </span>
             </>
           ) : null}
         </span>
+        {workspace.mode === 'personal' && batch ? <Link href={pathname + '?batch=' + encodeURIComponent(batch.id)}>Open / Share</Link> : null}
         <Button
           variant="outline"
           disabled={
-            !batch || !detail.data || !!detail.error || !edits || pending
+            (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending
           }
           onClick={async () => {
-            if (!detail.data) return
+            if (!detail.data || (workspace.mode === 'selected' && workspace.status !== 'ready')) return
             setPending(true)
             setMessage('')
             try {
@@ -97,7 +105,8 @@ export function BatchActions({
           underTagged={underTagged}
           batchPlates={batchPlates}
           stateName={stateName}
-          disabled={run.entries.length > 0 || run.starting}
+          shared={workspace.mode === 'selected'}
+          disabled={workspace.mode === 'selected' || run.entries.length > 0 || run.starting}
           start={(plates) => void run.start(plates)}
         />
         {me.data?.role === 'owner' ? (
@@ -111,13 +120,13 @@ export function BatchActions({
         ) : null}
         {message ? <span role="status">{message}</span> : null}
       </div>
-      <TagRunBanner
+      {workspace.mode === 'personal' ? <TagRunBanner
         entries={run.entries}
         starting={run.starting}
         batchId={batch?.id ?? null}
         dismiss={run.dismiss}
         retry={(plate) => void run.start([plate], true)}
-      />
+      /> : null}
     </>
   )
 }

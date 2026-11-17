@@ -269,7 +269,7 @@ export function PlatePage(props: PlatePageProps) {
   const templateIndex =
     templates.findIndex((member) => member.id === current.id) + 1
   const query = new URLSearchParams(props.returnQuery)
-  for (const key of ['show', 'q'])
+  for (const key of ['show', 'q', 'batch'])
     if (params.has(key)) query.set(key, params.get(key)!)
   const suffix = query.size ? `?${query}` : ''
   const stateHref = `/states/${plate.state}${suffix}`

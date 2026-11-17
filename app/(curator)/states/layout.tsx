@@ -1,3 +1,4 @@
+import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
 import { Suspense } from 'react'
 import { JurisdictionStrip } from '@/components/dashboard/dashboard-data'
 import { DashboardSearch } from '@/components/dashboard/search'
@@ -10,6 +11,7 @@ export default function StatesLayout({ children }: { children: React.ReactNode }
       <div className="states-review">
         <Suspense fallback={<div className="review-loading flex h-11 items-center" role="status">Loading review batches…</div>}>
           <ReviewStrip />
+          <SelectedBatchBar />
         </Suspense>
       </div>
       <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>

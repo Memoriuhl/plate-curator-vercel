@@ -20,7 +20,7 @@ test('batch cache keys distinguish mine and compose it with states', () => {
 
 const session = vi.hoisted(() => ({ user: { uid: 'jon' }, api: { get: vi.fn(), send: vi.fn() } }))
 const navigation = vi.hoisted(() => ({ refresh: vi.fn() }))
-vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => navigation }))
+vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useSearchParams: () => new URLSearchParams(), useRouter: () => navigation }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
 const ownKey = batchesKey(['open'], { mine: true })

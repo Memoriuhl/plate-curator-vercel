@@ -16,6 +16,7 @@ import { slimPlate, type PlatePageProps } from '../components/plate-page/types'
 const state = vi.hoisted(() => ({
   edit: vi.fn(),
   mutate: vi.fn(),
+  query: 'show=tags&q=army',
   pending: false,
   remote: null as PlateCardData | null,
   refreshed: false,
@@ -32,7 +33,7 @@ vi.mock('../lib/client/hooks', () => ({
     })),
 }))
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams('show=tags&q=army'),
+  useSearchParams: () => new URLSearchParams(state.query),
   useRouter: () => ({ back: vi.fn() }),
 }))
 vi.mock('next/link', () => ({
@@ -66,6 +67,7 @@ function saveDescription(value: string) {
   fireEvent.keyDown(description(), { key: 'Enter', ctrlKey: true })
 }
 beforeEach(() => {
+  state.query = 'show=tags&q=army'
   state.pending = false
   state.remote = null
   state.refreshed = false
@@ -303,4 +305,13 @@ test('navigation keeps state filters and parked actions are disabled', () => {
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true)
+})
+
+
+test('selected Batch survives the way back and adjacent Plate navigation', () => {
+  state.query = 'show=tags&q=army&batch=shared'
+  const view = render(<PlatePage {...props} />)
+  const links = Array.from(view.container.querySelectorAll('a')).map(link => link.getAttribute('href'))
+  expect(links).toContain('/states/AK?show=tags&q=army&batch=shared')
+  expect(links).toContain('/plates/AK.standard_gold?show=tags&q=army&batch=shared')
 })

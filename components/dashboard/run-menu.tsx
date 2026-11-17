@@ -54,11 +54,13 @@ export function RunMenu({
   batchPlates,
   stateName,
   disabled,
+  shared = false,
   start,
 }: {
   underTagged: RunPlate[]
   batchPlates: RunPlate[]
   stateName: string
+  shared?: boolean
   disabled: boolean
   start(plates: RunPlate[]): void
 }) {
@@ -70,7 +72,7 @@ export function RunMenu({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button ref={trigger}>
+        <Button ref={trigger} disabled={shared} title={shared ? "Run Tag on a shared Batch is coming next" : undefined}>
           <IoPlay aria-hidden="true" />
           Run pipeline
           <IoChevronDown

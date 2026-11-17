@@ -17,6 +17,7 @@ type Options = {
   edits: ReturnType<typeof useEditPlate>
   ordering: ReturnType<typeof useReorderState>
   targets(): TargetRect[]
+  holdOverlay?(held: boolean): void
   closePreview(): void
   reload(): Promise<unknown>
 }
@@ -53,6 +54,7 @@ export function usePlateDrag(options: Options) {
     pressed.current = null
   }
   function lift(item: DragItem, x: number, y: number, keyboard: boolean) {
+    latest.current.holdOverlay?.(true)
     latest.current.closePreview()
     suppress.current = true
     const families = latest.current.families
@@ -75,6 +77,7 @@ export function usePlateDrag(options: Options) {
   }
   function cancel() {
     finish()
+    latest.current.holdOverlay?.(false)
     announce('Cancelled')
   }
   function pointerTarget(item: DragItem, x: number, y: number) {
@@ -86,12 +89,12 @@ export function usePlateDrag(options: Options) {
   async function drop() {
     const drag = current.current
     finish()
-    if (!drag?.target) { announce('Cancelled'); return }
+    if (!drag?.target) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     const { item, target } = drag
     const { families, edits, ordering, reload } = latest.current
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
-    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { announce('Cancelled'); return }
+    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     setSaving(true)
     const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
@@ -127,6 +130,7 @@ export function usePlateDrag(options: Options) {
       setOptimisticOrder(null)
       setOptimisticEdit(null)
       setSaving(false)
+      latest.current.holdOverlay?.(false)
     }
   }
   const actions = useRef({ lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget })

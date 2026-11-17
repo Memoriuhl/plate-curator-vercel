@@ -24,7 +24,7 @@ const w = { ...v, id: 'AK.w' }
 const b = { ...a, id: 'AK.b', displayName: 'Navy' }
 const families = [{ template: a, variants: [v, w] }, { template: b, variants: [] }]
 const success = { ok: true, proposed: {} }
-vi.mock('next/navigation', () => ({ useRouter: () => ({ prefetch: vi.fn() }) }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn() }) }))
 vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
 vi.mock('next/image', () => ({ default: () => <span /> }))
 afterEach(cleanup)
