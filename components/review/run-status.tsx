@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
 import type { BatchRun } from '@/lib/client/hooks'
+import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { cn } from '@/components/utils'
 
 const steps = [
@@ -21,6 +22,9 @@ const phases = [
   'published',
 ]
 const failures: Record<string, string> = {
+  [BASELINE_ERRORS.stale]: 'The Catalog changed since this Batch was reviewed.',
+  [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
+  pointer_moved: 'The Catalog moved during Publish.',
   invalid_snapshot: 'The Snapshot could not pass validation.',
   superseded_revision: 'The Batch changed since approval.',
   version_taken: 'The Snapshot version is already taken.',
@@ -93,7 +97,8 @@ export function RunStatusView({ run }: { run: BatchRun }) {
                 <li key={index}>{reason}</li>
               ))}
             </ul>
-            <p>Fix the Batch and approve it again.</p>
+            {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
+            <p>{(isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (

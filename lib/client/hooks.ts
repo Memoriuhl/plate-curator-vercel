@@ -8,6 +8,7 @@ import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
+import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -62,7 +63,7 @@ export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
 export type BatchRun = {
   runId: string | null
   phase: 'waiting-for-approval' | 'waiting-for-publish' | 'publishing' | 'published' | 'failed' | 'superseded' | 'timed-out' | null
-  outcome: { version?: number; error?: string; reasons?: string[] } | null
+  outcome: { version?: number; error?: string; reasons?: string[]; reviewedVersion?: number; liveVersion?: number } | null
   updatedAt: string | null
 }
 
@@ -111,13 +112,20 @@ export function usePreloadPlateDetail() {
   }
 }
 
+export type PublishBaselineStatus = { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
+
+export function usePublishBaseline(id: string) {
+  const { user, api } = useSession()
+  return useSWR<PublishBaselineStatus>(user ? `/api/batches/${id}/publish` : null, api.get)
+}
+
 export function useReviewActions() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
   const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || key === `/api/batches/${batchId}`))
 
   return {
-    async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string }> {
+    async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; reviewedVersion?: number; liveVersion?: number }> {
       try {
         await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision })
         publishWindows.set(batchId, Date.now() + 30000)
@@ -126,6 +134,8 @@ export function useReviewActions() {
         return { ok: true }
       } catch (error) {
         const messages: Record<string, string> = {
+          [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
+          [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed since approval and must be re-approved.',
           not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',
@@ -133,8 +143,13 @@ export function useReviewActions() {
           not_found: 'This Batch could not be found.',
         }
         await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`)]).catch(() => undefined)
-        return { ok: false, message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
+        return { ok: false, ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
       }
+    },
+    async copy(batchId: string, revision: number, targetVersion: number) {
+      const batch = await api.send<ReviewBatch>('POST', `/api/batches/${batchId}/copy`, { revision, targetVersion })
+      await refresh().catch(() => undefined)
+      return batch
     },
     async create(name: string, plateIds: string[]) {
       const batch = await api.send<ReviewBatch>('POST', '/api/batches', { name, plateIds })

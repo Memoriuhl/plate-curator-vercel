@@ -130,6 +130,7 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   }
   return (
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
+      {batch.source && <p className="w-full">Copied from <Link className="underline" href={`/review?batch=${encodeURIComponent(batch.source.batchId)}`}>original Batch revision {batch.source.revision}</Link>. Review against Catalog v{batch.baselineVersion}.</p>}
       {batch.state === 'published' ? <p className="font-bold">Published · v{run.data?.outcome?.version ?? '?'}</p> : batch.state === 'approved' ? (
         <p>
           Approved by {approvedBy || 'an Owner'}
@@ -231,9 +232,9 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       (entry) =>
         entry.baseline.id === params.get('plate') &&
         (!params.get('batch') || entry.batch.id === params.get('batch')),
-    ) ?? (!params.get('plate') ? inState[0] : undefined)
+    ) ?? (!params.get('plate') ? inState.find(entry => !params.get('batch') || entry.batch.id === params.get('batch')) : undefined)
   useEffect(() => {
-    if (first && !params.has('view') && !params.get('state'))
+    if (first && (!params.get('batch') || first.batch.id === params.get('batch')) && !params.has('view') && !params.get('state'))
       router.replace(
         reviewHref(first.baseline.state, first.baseline.id, first.batch.id),
       )

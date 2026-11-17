@@ -9,7 +9,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn(), publishAllowed: () => true, start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', () => mocks)
@@ -23,6 +23,7 @@ function request(body: unknown) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.publishDeps.mockReturnValue({ pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
   mocks.start.mockResolvedValue({ runId: 'run' })
   mocks.resumeHook.mockResolvedValue({ runId: 'run' })
@@ -101,4 +102,14 @@ test('run metadata writes cannot overwrite edits or a newer submission', async (
   expect(await store.recordRun('batch', 1, 'old')).toBe(false)
   expect(await store.requestPublish('batch', 2, 'now')).toBe(false)
   expect(await store.getBatch('batch')).toMatchObject({ state: 'submitted', revision: 3, approvalRun: { runId: 'new', revision: 3 } })
+})
+
+test('a stale preflight returns reviewed and live versions without accepting a command', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2 }])
+  mocks.publishDeps.mockReturnValue({ pointer: { read: async () => ({ version: 8 }) }, records: { get: async () => null } })
+  const response = await publish(request({ revision: 2 }), ctx)
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({ error: 'stale_baseline', reviewedVersion: 7, liveVersion: 8 })
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+  expect((await mocks.reviewDeps().store.getBatch('batch')).publishRequestedAt).toBeUndefined()
 })

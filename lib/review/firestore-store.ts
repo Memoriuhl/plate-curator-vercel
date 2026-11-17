@@ -1,17 +1,44 @@
-import type { Firestore } from '@google-cloud/firestore'
+import type { Firestore, Transaction } from '@google-cloud/firestore'
 import { liveEnvKey, signalPath } from './live-signal'
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
 export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const batches = db.collection('reviewBatches')
   const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
+  const create = (transaction: Transaction, batch: ReviewBatch) => {
+    transaction.create(batches.doc(batch.id), { ...batch, env })
+    transaction.set(signal(batch.id), { revision: batch.revision })
+  }
 
   return {
+    async copy(input) {
+      return db.runTransaction(async transaction => {
+        const sourceRef = batches.doc(input.sourceId)
+        const targetRef = batches.doc(input.batch.id)
+        const [source, target, head, receipt] = await transaction.getAll(sourceRef, targetRef, db.doc('config/catalog'), db.doc(`publishRecords/${input.sourceId}@${input.sourceRevision}`))
+        if (target.exists) {
+          if (target.get('env') !== env) return { ok: false, error: 'not_found' }
+          const value = target.data()!
+          delete value.env
+          delete value.publishReservation
+          return { ok: true, value: value as ReviewBatch }
+        }
+        if (!source.exists || source.get('env') !== env) return { ok: false, error: 'not_found' }
+        if (source.get('revision') !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
+        if (source.get('state') !== 'approved') return { ok: false, error: 'invalid_state' }
+        if (source.get('publishReservation') || receipt.get('committedAt')) return { ok: false, error: 'invalid_state' }
+        const liveVersion = head.get('version')
+        if (typeof liveVersion !== 'number') throw new Error('Catalog head unavailable')
+        if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
+        create(transaction, input.batch)
+        for (const edit of input.edits) transaction.create(targetRef.collection('edits').doc(edit.plateId), edit)
+        return { ok: true, value: input.batch }
+      })
+    },
     async create(batch) {
       try {
         await db.runTransaction(async transaction => {
-          transaction.create(batches.doc(batch.id), { ...batch, env })
-          transaction.set(signal(batch.id), { revision: batch.revision })
+          create(transaction, batch)
         })
         return 'ok'
       } catch (error) {

@@ -2,12 +2,15 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
+import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
+import { CopyRecovery } from './copy-recovery'
 import {
   useBatch,
   useBatches,
   useBatchRun,
   useMe,
   usePlateDetail,
+  usePublishBaseline,
   useReviewActions,
 } from '@/lib/client/hooks'
 import type { ReviewBatch } from '@/lib/review/types'
@@ -80,11 +83,13 @@ function BatchSelection({
 }) {
   const detail = useBatch(id)
   const run = useBatchRun(id)
+  const baseline = usePublishBaseline(id)
   const actions = useReviewActions()
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [requested, setRequested] = useState(false)
+  const [rejectedLiveVersion, setRejectedLiveVersion] = useState<number | null>(null)
   if (detail.error) return <p role="alert">Could not load this Batch.</p>
   if (!detail.data) return <p role="status">Loading Batch…</p>
   const { batch, plates } = detail.data
@@ -93,10 +98,15 @@ function BatchSelection({
     .map(([name, entries]) => `${entries.length} ${name.toLowerCase()}`)
     .join(', ')
   const revision = batch.approval?.revision
+  const failed = run.data?.outcome
+  const receiptConflict = baseline.data?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
+  const blocked = baseline.data?.error || rejectedLiveVersion !== null || isBaselineError(failed?.error)
+  const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
   const canPublish =
     batch.state === 'approved' &&
     revision !== undefined &&
     !requested &&
+    !blocked &&
     !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(
       run.data?.phase ?? '',
     )
@@ -109,7 +119,10 @@ function BatchSelection({
       if (result.ok) {
         setRequested(true)
         setMessage('Publish requested. Waiting for the run…')
-      } else setMessage(result.message)
+      } else {
+        setMessage(result.message)
+        if (result.liveVersion !== undefined) setRejectedLiveVersion(result.liveVersion)
+      }
       dialog.current?.close()
     } finally {
       setBusy(false)
@@ -130,6 +143,9 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
+      {batch.state === 'approved' && blocked && liveVersion !== undefined && (
+        <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
+      )}
       {message &&
         (!requested ||
           !run.data?.phase ||

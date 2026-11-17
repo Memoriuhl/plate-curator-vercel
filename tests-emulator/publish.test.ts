@@ -130,3 +130,46 @@ test('lease expiry compares instants across equivalent timestamp formats', async
   const later = '2026-11-15T12:01:00.001Z'
   expect(await lock.claim({ ...lease, token: 'replacement', expiresAt: '2026-11-15T12:02:00Z' }, later)).toBe(true)
 })
+
+test('fresh stale Publish releases its lease and reservation without any release writes', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  await db.doc('config/catalog').set({ version: 2 })
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'stale_baseline', reviewedVersion: 1, liveVersion: 2 })
+  expect([...f.blobs.keys()]).toEqual([1])
+  expect(await records.get('batch@2')).toBeNull()
+  expect(await store.getBatch(batch.id)).toEqual(batch)
+  expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
+  expect((await db.doc('locks/publish').get()).exists).toBe(false)
+  expect(await lock.claim({ ...lease, token: 'next' }, now)).toBe(true)
+})
+
+test('legacy uncommitted mismatch stops safely and leaves the immutable receipt for triage', async () => {
+  const f = fixture()
+  const legacy = { ...record, fromVersion: 2, toVersion: 3 }
+  await db.doc('publishRecords/batch@2').set({ ...legacy, env })
+  const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: false, error: 'receipt_baseline_conflict' })
+  expect(await records.get('batch@2')).toEqual(legacy)
+  expect((await pointer.read()).version).toBe(1)
+  expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
+})
+
+test('a pointer change after upload is distinguished from an initially stale baseline', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  const upload = deps.snapshots.createOnly
+  deps.snapshots.createOnly = async (...args) => {
+    const result = await upload(...args)
+    await db.doc('config/catalog').set({ version: 3 })
+    return result
+  }
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'pointer_moved' })
+  expect([...f.blobs.keys()]).toEqual([1, 2])
+  expect((await pointer.read()).version).toBe(3)
+  expect(await records.get('batch@2')).toMatchObject({ state: 'failed', failure: 'pointer_moved' })
+  expect((await records.get('batch@2'))?.committedAt).toBeUndefined()
+  expect(await store.getBatch(batch.id)).toEqual(batch)
+  expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
+  expect((await db.doc('locks/publish').get()).exists).toBe(false)
+})
