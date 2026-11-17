@@ -51,12 +51,13 @@ export function BatchActions({
   const batchPlates =
     detail.data?.plates
       .map((entry) => ({ ...entry.proposed, revision: entry.revision }))
-      .map(({ id, state, displayName, revision, tags }) => ({
+      .map(({ id, state, displayName, revision, tags, funFacts }) => ({
         id,
         state,
         displayName,
         revision,
         tags,
+        hasStory: Array.isArray(funFacts) && funFacts.length > 0,
       })) ?? []
   const edits =
     detail.data?.plates.filter((plate) => plate.edit !== null || plate.order !== undefined).length ?? 0
@@ -113,7 +114,7 @@ export function BatchActions({
           disabledReason={run.disabledReason}
           disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
           modelError={run.modelError}
-          start={(plates, retry, modelId) => void run.start(plates, retry, modelId)}
+          start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
         />
         <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
         {batches.error || detail.error ? (

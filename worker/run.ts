@@ -1,8 +1,8 @@
 import type { ModelAdapter } from './model'
-import type { FieldSuggestion, PipelineStage } from '../lib/jobs/types'
+import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
 
 export type WorkerPlate = { image: string; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
-export type StageResult = { fieldSuggestion: FieldSuggestion; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
+export type StageResult = { fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
   apiBase: string
@@ -43,6 +43,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   let model = adapter.model
   let promptVersion = adapter.promptVersion
   let fieldSuggestion: FieldSuggestion | undefined
+  let stageError: StageError | undefined
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
   if (claim.stage) {
@@ -52,6 +53,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
     }
     const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model })
     fieldSuggestion = result.fieldSuggestion
+    stageError = result.stageError
     backend = result.backend
     model = result.model
     promptVersion = result.promptVersion
@@ -71,7 +73,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
       usage = result.usage
     }
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {

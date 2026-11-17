@@ -50,7 +50,7 @@ export function StoryEditor({ plate, pending, save }: {
         <legend className="label">Fact {index + 1}</legend>
         {(['text', 'sourceUrl', 'sourceTitle'] as const).map(key => <label key={key} className="grid gap-2">
           {key === 'text' ? 'Fact' : key === 'sourceUrl' ? 'Source URL' : 'Source title (optional)'}
-          <input aria-label={`Fact ${index + 1} ${key}`} required={key !== 'sourceTitle'} type={key === 'sourceUrl' ? 'url' : 'text'} maxLength={key === 'text' ? 500 : key === 'sourceUrl' ? 2048 : 200} className={input} value={fact[key] ?? ''} onChange={event => change({ funFacts: draft.funFacts!.map((item, at) => at === index ? { ...item, [key]: event.target.value || (key === 'sourceTitle' ? undefined : '') } : item) })} />
+          <input aria-label={`Fact ${index + 1} ${key}`} required={key !== 'sourceTitle'} type={key === 'sourceUrl' ? 'url' : 'text'} maxLength={key === 'text' ? 500 : key === 'sourceUrl' ? 2048 : 300} className={input} value={fact[key] ?? ''} onChange={event => change({ funFacts: draft.funFacts!.map((item, at) => at === index ? { ...item, [key]: event.target.value || (key === 'sourceTitle' ? undefined : '') } : item) })} />
         </label>)}
         <Button type="button" size="sm" variant="ghost" onClick={() => change({ funFacts: draft.funFacts!.filter((_, at) => at !== index) })}>Remove fact {index + 1}</Button>
       </fieldset>)}
@@ -62,7 +62,7 @@ export function StoryEditor({ plate, pending, save }: {
       {draft.readMore!.map((link, index) => <fieldset key={index} className="grid min-w-0 gap-2 rounded-[var(--radius-md)] bg-[var(--card)] p-3">
         <legend className="label">Link {index + 1}</legend>
         {(['title', 'site', 'url'] as const).map(key => <label key={key} className="grid gap-2">{key === 'url' ? 'URL' : key === 'title' ? 'Title' : 'Site'}
-          <input aria-label={`Link ${index + 1} ${key}`} type={key === 'url' ? 'url' : 'text'} required={key !== 'site'} maxLength={key === 'url' ? 2048 : 200} className={input} value={link[key]} onChange={event => change({ readMore: draft.readMore!.map((item, at) => at === index ? { ...item, [key]: event.target.value } : item) })} />
+          <input aria-label={`Link ${index + 1} ${key}`} type={key === 'url' ? 'url' : 'text'} required maxLength={key === 'url' ? 2048 : 200} className={input} value={link[key]} onChange={event => change({ readMore: draft.readMore!.map((item, at) => at === index ? { ...item, [key]: event.target.value } : item) })} />
         </label>)}
         <Button type="button" size="sm" variant="ghost" onClick={() => change({ readMore: draft.readMore!.filter((_, at) => at !== index) })}>Remove link {index + 1}</Button>
       </fieldset>)}
@@ -72,3 +72,4 @@ export function StoryEditor({ plate, pending, save }: {
     {saved ? <p role="status">Story saved to your Batch.</p> : null}
   </form>
 }
+

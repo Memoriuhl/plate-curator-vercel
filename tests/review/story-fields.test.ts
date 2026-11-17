@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { parseEditableFields } from '../../lib/review/fields'
+import { parseEditableFields, parseStoryFields } from '../../lib/review/fields'
 import { proposeEdit } from '../../lib/review/batch'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
@@ -30,6 +30,17 @@ test('supports explicit clearing and trims sourced text', () => {
   const cleared = { firstIssuedYear: null, funFacts: [], readMore: [], wikiUrl: null }
   expect(parseEditableFields(cleared)).toEqual(cleared)
   expect(parseEditableFields({ funFacts: [{ text: ' Fact ', sourceUrl: ' https://example.org/fact ' }] })).toEqual({ funFacts: [{ text: 'Fact', sourceUrl: 'https://example.org/fact' }] })
+})
+
+test('shared story validation uses the agreed bounds without the direct-input flag', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  const fields = { funFacts: [{ ...story.funFacts[0], sourceTitle: 's'.repeat(300) }], readMore: [{ title: 't'.repeat(200), site: 's'.repeat(200), url: 'https://example.org' }] }
+  expect(parseStoryFields(fields)).toEqual(fields)
+  expect(parseEditableFields(fields)).toBeNull()
+  expect(parseStoryFields({ funFacts: [{ ...fields.funFacts[0], sourceTitle: 's'.repeat(301) }] })).toBeNull()
+  expect(parseStoryFields({ readMore: [{ ...fields.readMore[0], site: 's'.repeat(201) }] })).toBeNull()
+  expect(parseStoryFields({ readMore: [{ title: 'Link', url: 'https://example.org' }] })).toBeNull()
+  expect(parseStoryFields({ readMore: [{ title: 'Link', site: ' ', url: 'https://example.org' }] })).toBeNull()
 })
 
 test.each([

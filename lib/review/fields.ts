@@ -48,7 +48,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
         if (!isRecord(fact) || Object.keys(fact).some(key => !['text', 'sourceUrl', 'sourceTitle'].includes(key))) return null
         const text = boundedText(fact.text, 500)
         const sourceUrl = storyUrl(fact.sourceUrl)
-        const sourceTitle = fact.sourceTitle === undefined ? undefined : boundedText(fact.sourceTitle, 200)
+        const sourceTitle = fact.sourceTitle === undefined ? undefined : boundedText(fact.sourceTitle, 300)
         if (!text || !sourceUrl || sourceTitle === null) return null
         facts.push({ text, sourceUrl, ...(sourceTitle ? { sourceTitle } : {}) })
       }
@@ -59,7 +59,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
       for (const link of value) {
         if (!isRecord(link) || Object.keys(link).some(key => !['title', 'site', 'url'].includes(key))) return null
         const title = boundedText(link.title, 200)
-        const site = typeof link.site === 'string' && link.site.trim().length <= 200 ? link.site.trim() : null
+        const site = boundedText(link.site, 200)
         const url = storyUrl(link.url)
         if (!title || site === null || !url) return null
         links.push({ title, site, url })

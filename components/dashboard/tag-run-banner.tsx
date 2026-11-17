@@ -90,8 +90,9 @@ export function TagRunBanner({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" aria-live="polite">
           {entries.some(entry => entry.job.stage) ? 'Running pipeline on' : 'Tagging'} {entries.length} plates · {counts('queued')} queued ·{' '}
-          {counts('claimed')} claimed · {counts('completed')} done ·{' '}
+          {counts('claimed')} claimed · {entries.filter(entry => entry.job.state === 'completed' && !entry.job.stageError).length} done ·{' '}
           {counts('expired')} expired
+          {entries.some(entry => entry.job.state === 'completed' && entry.job.stageError) ? ` · ${entries.filter(entry => entry.job.state === 'completed' && entry.job.stageError).length} no result` : ''}
           {entries.some((entry) => entry.error)
             ? ` · ${entries.filter((entry) => entry.error).length} failed`
             : ''}
@@ -137,7 +138,7 @@ export function TagRunBanner({
                   accepted={!!entry.job.inputHash && savedFields[entry.plate.id] === (entry.jobId ?? entry.job.inputHash)}
                   accept={() => void acceptFields(entry, fieldSuggestion)}
                 /> : null}
-                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">This stage result is unavailable or invalid.</p> : null}
+                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">{entry.job.stageError === 'no_sources' ? 'No usable Wikipedia source was found for this plate.' : entry.job.stageError === 'no_supported_fields' ? 'The sources do not support a suggestion for this plate.' : 'This stage result is unavailable or invalid.'}</p> : null}
                 {entry.job.state === 'completed' && !entry.error && !entry.job.stage ? (
                   <div className="flex flex-wrap gap-2">
                     {suggestions.map((tag) => (
@@ -165,7 +166,7 @@ export function TagRunBanner({
                     )}
                   </div>
                 ) : null}
-                {entry.job.state === 'expired' || entry.error ? (
+                {entry.job.state === 'expired' || entry.error || entry.job.stageError ? (
                   <div className="flex items-center gap-2">
                     {entry.job.state === 'expired' ? (
                       <span>Timed out; try again</span>

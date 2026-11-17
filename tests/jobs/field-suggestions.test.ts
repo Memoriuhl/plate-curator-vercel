@@ -12,6 +12,8 @@ test('field suggestions require the local flag and the requested stage', () => {
 })
 
 test.each([
+  { ...suggestion, fields: { firstIssuedYear: 1976 } },
+  { ...suggestion, fields: { firstIssuedYear: 1976, funFacts: [] } },
   { ...suggestion, kind: undefined },
   { ...suggestion, kind: 'group' },
   { ...suggestion, sources: [] },
@@ -30,6 +32,11 @@ test.each([
 test('Group stays unavailable until its multi-plate contract exists', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   expect(parseFieldSuggestion({ kind: 'fields', stage: 'group', fields: { templateFamily: 'one' }, sources: [] }, 'group')).toBeNull()
+})
+
+test.each(['describe', 'story', 'wiki-link', 'colors', 'find-image', 'group', 'order'] as const)('%s cannot overwrite image provenance', stage => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  expect(parseFieldSuggestion({ kind: 'fields', stage, fields: { sourceUrl: 'https://example.org/image' }, sources: ['https://example.org/image'] }, stage)).toBeNull()
 })
 
 test('canonicalizes object keys and source order for idempotent reports', () => {

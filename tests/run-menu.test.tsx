@@ -446,7 +446,7 @@ test('local unsupported stages name the missing integration', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  expect(screen.getByRole('checkbox', { name: 'Describe: Needs a sourced description job and draft result' }).closest('fieldset')?.disabled).toBe(true)
+  expect(screen.getByRole('checkbox', { name: 'Wiki link: Needs a reference-search job and draft result' }).closest('fieldset')?.disabled).toBe(true)
   expect(screen.queryByText('Coming soon')).toBeNull()
 })
 
@@ -461,6 +461,16 @@ test('a sourced field suggestion uses the reviewed input hash and the existing B
   fireEvent.click(screen.getByRole('button', { name: 'Accept describe suggestion' }))
   await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(plate, fields, { batchId: 'batch', baseRevision: 'reviewed-input' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to your Batch' }).hasAttribute('disabled')).toBe(true))
+})
+
+test('completed no-result jobs are counted separately from successful results', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  render(<TagRunBanner entries={[
+    { plate, job: { state: 'completed', suggestions: [], stage: 'story', stageError: 'no_supported_fields' } },
+    { plate: { ...plate, id: 'MD.two' }, job: { state: 'completed', suggestions: ['wildlife'] } },
+  ]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  expect(screen.getByRole('status').textContent).toContain('1 done')
+  expect(screen.getByRole('status').textContent).toContain('1 no result')
 })
 
 test('a stale field suggestion shows the conflict without claiming acceptance', async () => {
@@ -479,4 +489,37 @@ test.each([false, true])('field acceptance requires the local gate and a reviewe
   if (local) expect(button?.hasAttribute('disabled')).toBe(true)
   else expect(button).toBeNull()
   expect(mocks.edit).not.toHaveBeenCalled()
+})
+
+test('local Describe runs use the shared local model picker and typed stage request', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Describe' }))
+  expect((screen.getByRole('checkbox', { name: 'Tag' }) as HTMLInputElement).checked).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([plate], false, 'desktop-gemma4-12b', 'describe')
+})
+
+test('Story skips existing stories until Redo is enabled', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  const existing = { ...plate, hasStory: true }
+  render(<RunMenu underTagged={[existing]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Story' }))
+  expect(screen.getByRole('button', { name: 'Start run' }).hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Redo plates that already have a story' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([existing], false, 'desktop-gemma4-12b', 'story')
+})
+
+test('stage retries retain both the selected model and stage', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const { result } = renderHook(useTagRun)
+  await act(async () => { await result.current.start([plate], false, 'desktop-gemma4-12b', 'story') })
+  expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
+  await act(async () => { await result.current.start([plate], true) })
+  expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
 })

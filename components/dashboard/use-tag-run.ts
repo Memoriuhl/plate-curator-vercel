@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 import type { TaggingModelId } from '@/lib/tagging/models'
-import type { FieldSuggestion, PipelineStage } from '@/lib/jobs/types'
+import type { FieldSuggestion, PipelineStage, StageError } from '@/lib/jobs/types'
 
 export type RunPlate = {
   id: string
@@ -14,6 +14,8 @@ export type RunPlate = {
   displayName: string
   revision: string
   tags: string[]
+  hasStory?: boolean
+  checks?: { funFacts: { status: string } }
 }
 export type TagJob = {
   state: 'queued' | 'claimed' | 'completed' | 'expired'
@@ -21,6 +23,7 @@ export type TagJob = {
   inputHash?: string
   stage?: PipelineStage
   fieldSuggestion?: FieldSuggestion | null
+  stageError?: StageError | null
 }
 export type RunEntry = {
   plate: RunPlate
@@ -41,13 +44,13 @@ export const editErrors = {
   stale_plate: 'Someone changed this while you were editing.',
 }
 
-function reason(error: unknown) {
+function reason(error: unknown, stage?: PipelineStage) {
   if (error instanceof ApiError) {
     if (error.status === 403) return editErrors.forbidden
     if (error.status === 422) return editErrors.invalid_state
     if (error.status === 404) return editErrors.not_found
   }
-  return 'Could not request tags. Check your connection and try again.'
+  return stage ? 'Could not start this stage. Check your connection and try again.' : 'Could not request tags. Check your connection and try again.'
 }
 
 export function useTagRun() {
@@ -68,6 +71,7 @@ export function useTagRun() {
   const generation = useRef(0)
   const posting = useRef(false)
   const lastModel = useRef<TaggingModelId | undefined>(undefined)
+  const lastStage = useRef<PipelineStage | undefined>(undefined)
   const entriesRef = useRef(entries)
   useEffect(() => {
     entriesRef.current = entries
@@ -123,7 +127,7 @@ export function useTagRun() {
               Date.now() - entry.acceptedAt! < 10000
             )
               continue
-            update = { error: reason(error) }
+            update = { error: reason(error, entry.job.stage) }
           }
           if (!stopped && version === generation.current)
             setEntries((current) =>
@@ -142,9 +146,12 @@ export function useTagRun() {
     }
   }, [api, pollingNeeded])
 
-  async function start(plates: RunPlate[], retry = false, model?: TaggingModelId) {
-    if (!retry) lastModel.current = model
+  async function start(plates: RunPlate[], retry = false, model?: TaggingModelId, stage?: PipelineStage) {
+    if (stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
+    if (!retry) { lastModel.current = model; lastStage.current = stage }
     const chosen = retry ? lastModel.current : model
+    const chosenStage = retry ? lastStage.current : stage
+    if (chosenStage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
     if (!plates.length || posting.current || disabledReason) return
     posting.current = true
     setModelError(undefined)
@@ -154,7 +161,7 @@ export function useTagRun() {
       .slice(0, 25)
       .map((plate) => ({
         plate,
-        job: { state: 'queued' as const, suggestions: [] },
+        job: { state: 'queued' as const, suggestions: [], ...(chosenStage ? { stage: chosenStage } : {}) },
       }))
     setEntries((current) =>
       retry
@@ -181,8 +188,8 @@ export function useTagRun() {
         try {
           const result = await api.send<{ jobId: string; runId: string }>(
             'POST',
-            `/api/batches/${batchId}/plates/${encodeURIComponent(plate.id)}/tagging`,
-            chosen ? { model: chosen } : {},
+            `/api/batches/${batchId}/plates/${encodeURIComponent(plate.id)}/${chosenStage ? 'pipeline' : 'tagging'}`,
+            { ...(chosen ? { model: chosen } : {}), ...(chosenStage ? { stage: chosenStage } : {}) },
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
         } catch (error) {
@@ -190,12 +197,12 @@ export function useTagRun() {
             if (version === generation.current) setModelError('That model is no longer available. Choose another.')
             void mutate('/api/tagging/models').catch(() => undefined)
           }
-          update(plate.id, { error: reason(error) })
+          update(plate.id, { error: reason(error, chosenStage) })
         }
       }
     } catch (error) {
       for (const { plate } of initial)
-        update(plate.id, { error: reason(error) })
+        update(plate.id, { error: reason(error, chosenStage) })
     } finally {
       posting.current = false
       if (version === generation.current) setStarting(false)
