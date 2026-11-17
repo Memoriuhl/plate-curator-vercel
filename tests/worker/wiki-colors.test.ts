@@ -8,7 +8,7 @@ function suggestedFields(result: StageResult) {
   return result.fieldSuggestion?.kind === 'fields' ? result.fieldSuggestion.fields : undefined
 }
 
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 
 test('Wiki link selects a relevant Wikipedia search hit without any model request', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
@@ -44,6 +44,27 @@ test('missing local images return an explicit result without model inference', a
   const handler = createColorStageHandler({ url: 'http://localhost:11434', fetch, readImage: async () => { throw Object.assign(Error('Missing'), { code: 'ENOENT' }) } })
   expect(await handler({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'missing.webp', tags: [] } })).toMatchObject({ stageError: 'missing_image' })
   expect(fetch).not.toHaveBeenCalled()
+})
+
+test('Colors retries share one inference deadline and never restart it', async () => {
+  vi.useFakeTimers()
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const began = Date.now()
+  const signals: AbortSignal[] = []
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation((_url, init) => {
+    const signal = init!.signal!
+    signals.push(signal)
+    if (signals.length === 1) return new Promise(resolve => setTimeout(() => resolve(new Response('', { status: 500 })), 90000))
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+  })
+  const settled = createColorStageHandler({ url: 'http://localhost:11434', fetch, readImage: async () => 'base64' })({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'one.webp', tags: [] } }).catch(error => error)
+  await vi.advanceTimersByTimeAsync(121200)
+  expect(await settled).toMatchObject({ message: 'Local Colors inference deadline exceeded' })
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(signals[0]).toBe(signals[1])
+  expect(signals[1].aborted).toBe(true)
+  expect(Date.now() - began).toBeLessThan(125000)
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 test.each(['https://upload.wikimedia.org/example.webp', '', null])('Colors prefers a projected image URL and keeps provenance unchanged: %s', async imageUrl => {

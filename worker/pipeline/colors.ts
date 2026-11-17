@@ -18,8 +18,16 @@ export function createColorStageHandler(options: { url: string; fetch?: typeof f
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...metadata, stageError: 'missing_image' }
       throw error
     }
-    const request: typeof fetch = (url, init) => (options.fetch ?? fetch)(url, { ...init, signal: AbortSignal.timeout(120000) })
-    const result = await ollamaChat({ url: options.url, model, fetch: request }, { imageB64, plate })
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(new Error('Local Colors inference deadline exceeded')), 120000)
+    const request: typeof fetch = (url, init) => {
+      deadline.signal.throwIfAborted()
+      return (options.fetch ?? fetch)(url, { ...init, signal: deadline.signal })
+    }
+    const result = await (async () => {
+      try { return await ollamaChat({ url: options.url, model, fetch: request }, { imageB64, plate }) }
+      finally { clearTimeout(timer) }
+    })()
     const raw = extractJson(result.text)
     const background = color(raw.primaryColor)
     if (!background) return { ...metadata, stageError: 'no_supported_fields' }
