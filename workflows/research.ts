@@ -16,17 +16,14 @@ async function dispatchResearch(jobId: string) {
   'use step'
   const { researchDeps } = await import('../lib/server/research-context')
   const { dispatchEveResearch } = await import('../lib/research/hosted')
-  const { researchServiceToken } = await import('../lib/research/tokens')
-  const { researchRequestMessage } = await import('../lib/research/request')
+  const { createEveResearchDelivery } = await import('../lib/research/delivery')
   const deps = await researchDeps()
   return dispatchEveResearch(deps, jobId, async job => {
-    const base = process.env.RESEARCH_EVE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-    const token = await researchServiceToken(job, process.env.RESEARCH_SERVICE_SECRET ?? '')
-    const response = await fetch(`${base.replace(/\/$/, '')}/eve/v1/session`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? { 'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET } : {}) }, body: JSON.stringify({ operationId: job.id, message: researchRequestMessage(job.input) }), signal: AbortSignal.timeout(30000) })
-    if (!response.ok) throw new Error(`Eve research dispatch failed: ${response.status}`)
-    const receipt = await response.json()
-    if (typeof receipt.sessionId !== 'string' || typeof receipt.deliveryId !== 'string') throw new Error('Eve returned no session/delivery receipt')
-    return { sessionId: receipt.sessionId, deliveryId: receipt.deliveryId }
+    const baseUrl = process.env.RESEARCH_EVE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    return createEveResearchDelivery(job, { baseUrl, secret: process.env.RESEARCH_SERVICE_SECRET ?? '', deploymentHost: process.env.VERCEL_URL,
+      trustedOidc: process.env.VERCEL ? async () => (await import('@vercel/oidc')).getVercelOidcToken() : undefined,
+      protectionBypass: process.env.VERCEL_AUTOMATION_BYPASS_SECRET, fetch,
+    })
   })
 }
 

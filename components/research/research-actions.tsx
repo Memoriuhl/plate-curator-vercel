@@ -11,6 +11,7 @@ import type { ResearchDraft, ResearchExecutor, ResearchJob } from '@/lib/researc
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { ResearchResult } from './research-result'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 type Intent = { requestKey: string; batchId: string; executor: ResearchExecutor; jobId?: string; replaceJobId?: string }
 type Reply = { ok: true; value: ResearchJob }
@@ -82,7 +83,7 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
   return <section aria-label="Plate research" className="grid min-w-0 gap-3 border-t border-[var(--hairline)] pt-4">
     <h3 className="label">Research</h3>
     {me.data?.role === 'owner' ? <div className="flex flex-wrap items-end gap-2">
-      <label className="grid gap-1"><span className="caption">Research host</span><select aria-label="Research host" className="min-h-10 rounded-lg bg-[var(--fill)] px-3" value={executor} disabled={pending || !!intent && !intent.jobId} onChange={event => setExecutor(event.target.value as ResearchExecutor)}><option value="eve">Vercel / Eve</option><option value="desktop">Desktop / Ollama</option></select></label>
+      <label className="grid gap-1"><span className="caption">Research host</span><Select value={executor} disabled={pending || !!intent && !intent.jobId} onValueChange={value => setExecutor(value as ResearchExecutor)}><SelectTrigger aria-label="Research host" className="min-w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="eve">Vercel / Eve</SelectItem><SelectItem value="desktop">Desktop / Ollama</SelectItem></SelectContent></Select></label>
       <Button variant="outline" disabled={pending || blocked} onClick={() => void start(!!job)}>{pending ? 'Working…' : intent && !intent.jobId ? 'Retry research request' : job ? 'Start replacement run' : 'Research this plate'}</Button>
     </div> : <p className="caption">An Owner can start research.</p>}
     {job ? <p role="status" className="caption">{job.executor === 'desktop' ? 'Desktop / Ollama' : 'Vercel / Eve'} · {job.state}{job.executor === 'desktop' && job.state === 'queued' ? ' · Waiting for the desktop worker; it may be offline.' : ''}{job.error ? ` · ${job.error}` : ''}</p> : null}
