@@ -21,7 +21,7 @@ const defaults: LegacyDeps = {
   now: Date.now,
 }
 
-export async function runLegacyResearch(input: ResearchInput, options: { legacyRoot: string; model: string; expectedRevision: string }, deps: LegacyDeps = defaults): Promise<ResearchResult> {
+export async function runLegacyResearchArtifact(input: ResearchInput, options: { legacyRoot: string; model: string; expectedRevision: string }, deps: LegacyDeps = defaults): Promise<{ result: ResearchResult; raw: LegacyOutcome }> {
   const revision = await deps.revision(options.legacyRoot)
   if (revision !== options.expectedRevision) throw new Error('Legacy revision differs from the frozen baseline')
   const started = deps.now()
@@ -47,5 +47,9 @@ export async function runLegacyResearch(input: ResearchInput, options: { legacyR
   }
   result.draft.readMore = [...new Set(outcome.readMore.flatMap(link => sources.find(source => source.url === link.url)?.id ?? []))]
   result.draft.wikiSource = sources.find(source => source.kind === 'wikipedia')?.id ?? null
-  return result
+  return { result, raw: outcome }
+}
+
+export async function runLegacyResearch(input: ResearchInput, options: { legacyRoot: string; model: string; expectedRevision: string }, deps: LegacyDeps = defaults): Promise<ResearchResult> {
+  return (await runLegacyResearchArtifact(input, options, deps)).result
 }

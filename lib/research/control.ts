@@ -1,16 +1,10 @@
+import { reportedGatewayCost } from './cost'
 import { generateText, gateway, Output } from 'ai'
 import { guardedResearchModel } from './model'
 import { reserveResearchSpend, settleResearchModelSpend } from './budget'
 import { researchDraftSchema, validateResearchResult } from './validate'
 import type { EvidenceSource, ResearchInput } from './types'
 import type { ResearchStateStore } from './state'
-
-export function reportedGatewayCost(metadata: unknown): number | undefined {
-  const value = (metadata as { gateway?: { cost?: unknown } } | undefined)?.gateway?.cost
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined
-  const cost = Number(value)
-  return Number.isFinite(cost) && cost >= 0 ? cost : undefined
-}
 
 // A benchmark control: retrieval is frozen, and no discovery tools are available.
 export async function synthesizeCapturedEvidence(input: ResearchInput, sources: EvidenceSource[], state: ResearchStateStore, runId: string) {

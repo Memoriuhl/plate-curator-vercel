@@ -12,8 +12,10 @@ export function firestoreResearchStore(db: Firestore, env: string): ResearchStor
       return db.runTransaction(async transaction => run({
         review: firestoreReviewStore(db, env, transaction),
         async get(id) { const record = await transaction.get(jobs.doc(id)); return record.get('env') === env ? record.data() as ResearchJob : null },
-        async list() {
-          const records = await transaction.get(jobs.where('env', '==', env).where('state', 'in', ['queued', 'running']).limit(100))
+        async list(filter) {
+          let query = jobs.where('env', '==', env).where('state', 'in', ['queued', 'running'])
+          if (filter) query = query.where('executor', '==', filter.executor).where('deadline', '>', filter.now)
+          const records = await transaction.get(query)
           return records.docs.map(record => record.data() as ResearchJob)
         },
         set(job) { if (job.env !== env) throw new Error('Research environment mismatch'); transaction.set(jobs.doc(job.id), job) },

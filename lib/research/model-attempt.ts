@@ -1,0 +1,27 @@
+import type { ResearchStateStore } from './state'
+import { RESEARCH_LIMITS } from './limits'
+import { reserveResearchSpend, settleResearchModelSpend } from './budget'
+
+type Attempt = { id: string; costUsd?: number }
+export async function createResearchModelAttempt(store: ResearchStateStore, runId: string, options: { campaign: string; limitUsd: number; deadline: number }) {
+  const sequence = await store.update<Record<string, number>, number | null>(`limits/${runId}`, prior => {
+    const value = prior ?? {}
+    if (Date.now() >= options.deadline || (value.model ?? 0) >= RESEARCH_LIMITS.model) return { value, result: null }
+    return { value: { ...value, model: (value.model ?? 0) + 1 }, result: (value.model ?? 0) + 1 }
+  })
+  if (sequence === null) throw new Error('Research model limit exhausted')
+  const id = `${runId}/model/${sequence}`
+  if (!await reserveResearchSpend(store, options.campaign, id, 'model', 0.2, options.limitUsd)) throw new Error('Research campaign budget exhausted')
+  await store.update<Attempt[], null>(`model-attempts/${runId}`, prior => ({ value: [...(prior ?? []), { id }], result: null }))
+  return {
+    async settle(costUsd: number | undefined) {
+      await settleResearchModelSpend(store, options.campaign, id, costUsd)
+      if (costUsd !== undefined) await store.update<Attempt[], null>(`model-attempts/${runId}`, prior => ({ value: (prior ?? []).map(attempt => attempt.id === id ? { id, costUsd } : attempt), result: null }))
+    },
+  }
+}
+
+export async function researchModelCosts(store: ResearchStateStore, runId: string) {
+  const attempts = await store.read<Attempt[]>(`model-attempts/${runId}`) ?? []
+  return { costUsd: attempts.reduce((sum, attempt) => sum + (attempt.costUsd ?? 0), 0), missingModelCosts: attempts.filter(attempt => attempt.costUsd === undefined).length, modelAttempts: attempts.length }
+}

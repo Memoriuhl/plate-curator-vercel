@@ -4,6 +4,7 @@ import { saveEvidence } from './evidence'
 import type { EvidenceSource, ResearchInput, ResearchResult } from './types'
 import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
+import { createResearchModelAttempt } from './model-attempt'
 import { reserveResearchSpend } from './budget'
 
 type SessionContext = { session: { id: string; turn: { id: string }; auth?: { current: { principalId: string; authenticator: string } | null } } }
@@ -35,6 +36,7 @@ export async function researchTurn(ctx: SessionContext, providedStore?: Research
   })
   return {
     store, runId, deadline, binding,
+    modelAttempt: () => createResearchModelAttempt(store, runId, { campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'), deadline }),
     async reserve(kind: ResearchCall) {
       if (await reserveResearchCall(runId, kind, { store, now: Date.now, deadline }) !== 'reserved') return false
       if (kind !== 'model' && kind !== 'web-search') return true

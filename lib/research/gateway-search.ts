@@ -1,6 +1,6 @@
 import { generateText, gateway, isStepCount } from 'ai'
 import { guardedResearchModel } from './model'
-import { reportedGatewayCost } from './control'
+import { reportedGatewayCost } from './cost'
 import { reserveResearchSpend, settleResearchModelSpend } from './budget'
 import { reserveResearchCall } from './limits'
 import type { ResearchStateStore } from './state'

@@ -1,38 +1,37 @@
-import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises'
+import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ResearchInput, ResearchResult, ResearchDraft, EvidenceSource } from '../lib/research/types'
-import type { LegacyOutcome } from './research-legacy'
-type Saved = { input: ResearchInput & { split?: string }; durationMs?: number; raw?: LegacyOutcome; result?: ResearchResult; draft?: ResearchDraft; sources?: EvidenceSource[]; cost?: { usd: number | null; missing: number }; settled?: { costUsd?: number }; error?: string; skipped?: string }
+import { loadResearchArtifacts, type ResearchArtifact as Saved } from './research-artifact'
 
-type Row = { durationMs: number; description: boolean; facts: number; links: number; status: string; usd: number | null; missingCost: boolean }
+type Row = { durationMs: number | null; description: boolean; facts: number; links: number; status: string; usd: number | null; missingCost: boolean }
 export function summarizeResearch(rows: Row[]) {
-  const times = rows.map(row => row.durationMs).sort((a, b) => a - b)
+  const times = rows.flatMap(row => row.durationMs === null ? [] : [row.durationMs]).sort((a, b) => a - b)
   const percentile = (p: number) => times[Math.max(0, Math.ceil(times.length * p) - 1)] ?? null
-  return { plates: rows.length, descriptions: rows.filter(row => row.description).length, facts: rows.reduce((sum, row) => sum + row.facts, 0), fetchedLinks: rows.reduce((sum, row) => sum + row.links, 0), failures: rows.filter(row => ['failed', 'error', 'timeout'].includes(row.status)).length, statuses: Object.fromEntries([...new Set(rows.map(row => row.status))].map(status => [status, rows.filter(row => row.status === status).length])), p50Ms: percentile(0.5), p95Ms: percentile(0.95), knownUsd: rows.reduce((sum, row) => sum + (row.usd ?? 0), 0), missingCostPlates: rows.filter(row => row.missingCost).length, acceptedPlates: null, costPerAcceptedPlate: null }
+  return { plates: rows.length, descriptions: rows.filter(row => row.description).length, facts: rows.reduce((sum, row) => sum + row.facts, 0), fetchedLinks: rows.reduce((sum, row) => sum + row.links, 0), failures: rows.filter(row => ['failed', 'error', 'timeout', 'unrun'].includes(row.status)).length, statuses: Object.fromEntries([...new Set(rows.map(row => row.status))].map(status => [status, rows.filter(row => row.status === status).length])), p50Ms: percentile(0.5), p95Ms: percentile(0.95), knownUsd: rows.reduce((sum, row) => sum + (row.usd ?? 0), 0), missingCostPlates: rows.filter(row => row.missingCost).length, acceptedPlates: null, costPerAcceptedPlate: null }
 }
 const escape = (text: unknown) => String(text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 
+export function researchArtifactRow(row: Saved): Row {
+  const draft = row.result?.draft ?? row.draft ?? row.raw?.draft
+  return { durationMs: row.result?.durationMs ?? row.durationMs ?? null, description: !!draft?.description, facts: draft?.funFacts.length ?? 0, links: row.result?.draft.readMore.length ?? row.draft?.readMore.length ?? row.raw?.readMore.length ?? 0,
+    status: row.error === 'unrun_or_interrupted' ? 'unrun' : row.skipped ? 'no_sources' : row.result?.status ?? row.raw?.status ?? (row.error ? 'failed' : row.draft ? 'completed' : 'failed'),
+    usd: row.result?.cost.usd ?? row.cost?.usd ?? row.settled?.costUsd ?? null,
+    missingCost: row.result ? row.result.cost.missing > 0 : row.raw ? true : row.skipped ? false : !row.cost || row.cost.missing > 0 }
+}
+
 async function main() {
-  const baseline = JSON.parse(await readFile('eval-results/research-baseline/desktop-raw.json', 'utf8')) as Saved[]
   const manifest = JSON.parse(await readFile('eval-results/research-baseline/manifest.json', 'utf8')) as { inputs: Saved['input'][] }
-  const load = async (directory: string) => {
-    try {
-      const names = (await readdir(directory)).filter(name => /^[A-Z]{2}\..+(?<!receipt)\.json$/.test(name))
-      return await Promise.all(names.map(async name => JSON.parse(await readFile(resolve(directory, name), 'utf8')) as Saved))
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error }
-  }
-  const eve = await load('eval-results/research-eve-v1')
-  const control = await load('eval-results/research-control')
-  const parallel = await load('eval-results/research-eve-parallel-v1')
-  const hostedRow = (row: Saved): Row => ({ durationMs: row.result?.durationMs ?? row.durationMs ?? 0, description: !!row.result?.draft.description, facts: row.result?.draft.funFacts.length ?? 0, links: row.result?.draft.readMore.length ?? 0, status: row.result?.status ?? 'failed', usd: row.result?.cost.usd ?? row.cost?.usd ?? row.settled?.costUsd ?? null, missingCost: row.result ? row.result.cost.missing > 0 : !row.cost || row.cost.missing > 0 })
+  const baseline = await loadResearchArtifacts('eval-results/research-baseline', manifest.inputs)
+  const eve = await loadResearchArtifacts('eval-results/research-eve-v1', manifest.inputs)
+  const control = await loadResearchArtifacts('eval-results/research-control', manifest.inputs)
+  const parallel = await loadResearchArtifacts('eval-results/research-eve-parallel-v1', manifest.inputs)
   const summary = {
-    frozenVersion: 16, corpus: manifest.inputs.length, generatedAt: new Date().toISOString(),
-    desktop: summarizeResearch(baseline.map((row: Saved) => ({ durationMs: row.durationMs ?? 0, description: !!row.raw?.draft.description, facts: row.raw?.draft.funFacts.length ?? 0, links: row.raw?.readMore.length ?? 0, status: row.raw?.status ?? 'failed', usd: null, missingCost: true }))),
-    eve: summarizeResearch(eve.map(hostedRow)),
-    control: summarizeResearch(control.map((row: Saved) => ({ durationMs: row.durationMs ?? 0, description: !!row.draft?.description, facts: row.draft?.funFacts.length ?? 0, links: row.draft?.readMore.length ?? 0, status: row.skipped ? 'no_sources' : row.error ? 'failed' : 'completed', usd: row.cost?.usd ?? null, missingCost: !!row.error || !!row.cost?.missing }))),
-    gatewayParallel: summarizeResearch(parallel.map(hostedRow)),
+    frozenVersion: manifest.inputs[0]?.baselineVersion ?? null, corpus: manifest.inputs.length, generatedAt: new Date().toISOString(),
+    desktop: summarizeResearch(baseline.map(researchArtifactRow)),
+    eve: summarizeResearch(eve.map(researchArtifactRow)),
+    control: summarizeResearch(control.map(researchArtifactRow)),
+    gatewayParallel: summarizeResearch(parallel.map(researchArtifactRow)),
     limitations: ['Serper and Brave credentials absent on both executing hosts; this does not measure fully configured existing search.', 'Persistent retrieval caches were used; per-request cache attribution is unknown. Desktop first-run model warmup affects latency.', 'Operational coverage and pipeline status are not factual-quality scores. Blind curator acceptance, correction effort and cost per accepted plate are unmeasured.', 'The identical-evidence control uses the exact captured desktop passages and a separate synthesis-only prompt.', 'Gateway Parallel uses an extra Sol call to invoke provider search; its calls, cost and model-budget consumption are included separately.', 'Capped or failed runs remain in the denominator. Raw source text and model outputs remain ignored local artifacts. Local hardware and electricity costs are unmeasured.'],
   }
   const directory = 'eval-results/research-report'
@@ -40,13 +39,14 @@ async function main() {
   await writeFile(`${directory}/summary.json`, JSON.stringify(summary, null, 2))
   const header = 'executor,plates,descriptions,facts,fetched_links,failures,p50_ms,p95_ms,known_usd,missing_cost_plates'
   await writeFile(`${directory}/summary.csv`, [header, ...(['desktop', 'eve', 'control', 'gatewayParallel'] as const).map(name => { const row = summary[name]; return [name, row.plates, row.descriptions, row.facts, row.fetchedLinks, row.failures, row.p50Ms, row.p95Ms, row.knownUsd.toFixed(6), row.missingCostPlates].join(',') })].join('\n') + '\n')
-  await writeFile(`${directory}/summary.md`, `# Research comparison — Snapshot v16\n\n${header.split(',').join(' | ')}\n${header.split(',').map(() => '---').join(' | ')}\n${(['desktop', 'eve', 'control', 'gatewayParallel'] as const).map(name => { const r = summary[name]; return [name, r.plates, r.descriptions, r.facts, r.fetchedLinks, r.failures, r.p50Ms, r.p95Ms, r.knownUsd.toFixed(6), r.missingCostPlates].join(' | ') }).join('\n')}\n\n${summary.limitations.map(text => `- ${text}`).join('\n')}\n`)
+  await writeFile(`${directory}/summary.md`, `# Research comparison — Snapshot v${summary.frozenVersion}\n\n${header.split(',').join(' | ')}\n${header.split(',').map(() => '---').join(' | ')}\n${(['desktop', 'eve', 'control', 'gatewayParallel'] as const).map(name => { const r = summary[name]; return [name, r.plates, r.descriptions, r.facts, r.fetchedLinks, r.failures, r.p50Ms, r.p95Ms, r.knownUsd.toFixed(6), r.missingCostPlates].join(' | ') }).join('\n')}\n\n${summary.limitations.map(text => `- ${text}`).join('\n')}\n`)
   const blindKey: Record<string, unknown> = {}
   const html = manifest.inputs.map((input: Saved['input']) => {
-    const raw = baseline.find((row: Saved) => row.input.plateId === input.plateId)?.raw
+    const desktop = baseline.find((row: Saved) => row.input.plateId === input.plateId)!
+    const raw = desktop.raw
     const otherArms: [string, Saved[]][] = [['eve', eve], ['control', control], ['parallel', parallel]]
     const arms = [
-      { arm: 'desktop', draft: { description: raw?.draft.description, funFacts: raw?.draft.funFacts ?? [] }, sources: raw?.sources ?? [] },
+      { arm: 'desktop', draft: { description: desktop.result?.draft.description ?? raw?.draft.description, funFacts: desktop.result?.draft.funFacts ?? raw?.draft.funFacts ?? [] }, sources: desktop.result?.sources ?? raw?.sources ?? [] },
       ...otherArms.map(([arm, rows]) => { const row = rows.find(row => row.input.plateId === input.plateId); return { arm, draft: row?.result?.draft ?? row?.draft, sources: row?.result?.sources ?? row?.sources ?? [] } }),
     ].sort((a, b) => createHash('sha256').update(input.plateId + a.arm).digest('hex').localeCompare(createHash('sha256').update(input.plateId + b.arm).digest('hex')))
     return `<section><h2>${escape(input.state)} · ${escape(input.displayName)} <small>${escape(input.split)}</small></h2><div class="arms">${arms.map((entry, index) => {

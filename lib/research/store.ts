@@ -1,11 +1,11 @@
 import type { ReviewStore } from '../review/types'
-import type { ResearchJob } from './types'
+import type { ResearchExecutor, ResearchJob } from './types'
 
 export type ResearchToken = { hash: string; workerId: string; env: string; createdAt: number; revokedAt: number | null }
 export interface ResearchTransaction {
   review?: ReviewStore
   get(id: string): Promise<ResearchJob | null>
-  list(): Promise<ResearchJob[]>
+  list(filter?: { executor: ResearchExecutor; now: number }): Promise<ResearchJob[]>
   set(job: ResearchJob): void
 }
 export interface ResearchStore {

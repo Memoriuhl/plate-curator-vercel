@@ -18,7 +18,7 @@ export function createMemoryResearchStore(env = 'development') {
         const result = await run({
           review,
           async get(id) { const job = writes.get(id) ?? jobs.get(id); return job?.env === env ? structuredClone(job) : null },
-          async list() { return structuredClone([...jobs.values()].filter(job => job.env === env && ['queued', 'running'].includes(job.state))) },
+          async list(filter) { return structuredClone([...jobs.values()].filter(job => job.env === env && ['queued', 'running'].includes(job.state) && (!filter || job.executor === filter.executor && job.deadline > filter.now))) },
           set(job) { if (job.env !== env) throw new Error('Research environment mismatch'); writes.set(job.id, structuredClone(job)) },
         })
         for (const [id, job] of writes) jobs.set(id, job)

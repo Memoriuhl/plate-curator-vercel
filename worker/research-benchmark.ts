@@ -8,8 +8,9 @@ import { Client } from 'eve/client'
 import { fileResearchState } from '../lib/research/file-state'
 import { hostedResearchResult } from '../lib/research/runtime'
 import { researchRequestMessage } from '../lib/research/request'
-import { runLegacyResearch } from './research-legacy'
-import type { ResearchInput } from '../lib/research/types'
+import { runLegacyResearchArtifact } from './research-legacy'
+import { loadResearchArtifacts, capturedSources } from './research-artifact'
+import type { ResearchInput, ResearchResult, EvidenceSource } from '../lib/research/types'
 
 export function researchRunOptions(args: string[]) {
   const value = (key: string) => { const at = args.indexOf(key); return at < 0 ? undefined : args[at + 1] }
@@ -27,15 +28,19 @@ export function freezeResearchInputs(snapshot: Snapshot, corpus: { plateId: stri
   })
 }
 
-export async function executeResearchBenchmark(options: ReturnType<typeof researchRunOptions>) {
+type BenchmarkExecutors = {
+  desktop?: (input: ResearchInput) => Promise<{ result: ResearchResult; raw?: import('./research-legacy').LegacyOutcome }>
+  control?: (input: ResearchInput, sources: EvidenceSource[]) => Promise<Pick<ResearchResult, 'draft' | 'rejected' | 'durationMs' | 'cost'>>
+}
+export async function executeResearchBenchmark(options: Pick<ReturnType<typeof researchRunOptions>, 'run' | 'budgetUsd' | 'executor'> & Partial<ReturnType<typeof researchRunOptions>>, executors: BenchmarkExecutors = {}) {
   if (!options.manifest || !options.output?.startsWith('eval-results/research-')) throw new Error('A frozen --manifest and eval-results/research-* output directory are required')
   if (!['desktop', 'eve', 'control'].includes(options.executor)) throw new Error('Unknown benchmark executor')
   if (options.executor !== 'desktop' && process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true') throw new Error('Model calls are disabled')
   if (options.budgetUsd !== Number(process.env.RESEARCH_BUDGET_USD ?? '2')) throw new Error('--budget-usd must match the shared runtime campaign cap')
-  const baseline = options.executor === 'control' ? JSON.parse(await readFile(resolve(options.baseline ?? 'eval-results/research-baseline/desktop-raw.json'), 'utf8')) as { input: ResearchInput; raw?: { sources: import('../lib/research/types').EvidenceSource[] } }[] : []
   const manifestText = await readFile(resolve(options.manifest), 'utf8')
   const manifest = JSON.parse(manifestText) as { inputs: ResearchInput[] }
   if (!manifest.inputs.length || manifest.inputs.length > 20) throw new Error('Benchmark requires 1–20 frozen inputs')
+  const baseline = options.executor === 'control' ? await loadResearchArtifacts(options.baseline ?? 'eval-results/research-baseline', manifest.inputs) : []
   const hash = createHash('sha256').update(manifestText).digest('hex')
   await mkdir(options.output, { recursive: true })
   const config = { manifestSha256: hash, executor: options.executor, budgetUsd: options.budgetUsd, model: options.executor !== 'desktop' ? 'openai/gpt-6.1-sol' : 'gemma4:12b', promptVersion: 'research-v1', searchVariant: process.env.RESEARCH_SEARCH_PROVIDER ?? 'existing', searchProviders: { serper: !!process.env.SERPER_API_KEY, brave: !!process.env.BRAVE_API_KEY }, cache: 'persistent-cache-state-recorded-as-unknown', paidCampaign: process.env.RESEARCH_BUDGET_ID }
@@ -49,18 +54,22 @@ export async function executeResearchBenchmark(options: ReturnType<typeof resear
     const started = Date.now()
     try {
       if (options.executor === 'control') {
-        const sources = (baseline.find(row => row.input.plateId === input.plateId)?.raw?.sources ?? []).map(source => ({ ...source, fetchedAt: new Date().toISOString(), contentHash: createHash('sha256').update(source.text).digest('hex') }))
-        if (!sources.length) { await writeFile(output, JSON.stringify({ input, sources, skipped: 'no_captured_sources' }), { flag: 'wx' }); continue }
+        const captured = baseline.find(row => row.input.plateId === input.plateId)!
+        if (captured.error) throw new Error(`Baseline unavailable: ${captured.error}`)
+        const sources = capturedSources(captured)
+        if (!sources.length) { await writeFile(output, JSON.stringify({ schemaVersion: 1, input, result: null, sources, skipped: 'no_captured_sources' }), { flag: 'wx' }); continue }
         const { synthesizeCapturedEvidence } = await import('../lib/research/control')
-        const result = await synthesizeCapturedEvidence(input, sources, state, `control-v1/${input.plateId}`)
-        await writeFile(output, JSON.stringify({ input, sources, ...result }, null, 2), { flag: 'wx' })
+        const synthesis = executors.control ? await executors.control(input, sources) : await synthesizeCapturedEvidence(input, sources, state, `control-v1/${input.plateId}`)
+        const result = { ...hostedResearchResult(input, { draft: synthesis.draft, rejected: synthesis.rejected, sources }, { durationMs: synthesis.durationMs, counters: {} }), cost: synthesis.cost }
+        await writeFile(output, JSON.stringify({ schemaVersion: 1, input, result }, null, 2), { flag: 'wx' })
         console.log(JSON.stringify({ plateId: input.plateId, status: 'completed', usd: result.cost.usd }))
         continue
       }
       if (options.executor === 'desktop') {
-        if (!process.env.RESEARCH_LEGACY_ROOT || !process.env.RESEARCH_LEGACY_REVISION) throw new Error('Frozen legacy root/revision are required')
-        const result = await runLegacyResearch(input, { legacyRoot: process.env.RESEARCH_LEGACY_ROOT, expectedRevision: process.env.RESEARCH_LEGACY_REVISION, model: 'gemma4:12b' })
-        await writeFile(output, JSON.stringify({ input, result }, null, 2), { flag: 'wx' })
+        if (!executors.desktop && (!process.env.RESEARCH_LEGACY_ROOT || !process.env.RESEARCH_LEGACY_REVISION)) throw new Error('Frozen legacy root/revision are required')
+        const saved = executors.desktop ? await executors.desktop(input) : await runLegacyResearchArtifact(input, { legacyRoot: process.env.RESEARCH_LEGACY_ROOT!, expectedRevision: process.env.RESEARCH_LEGACY_REVISION!, model: 'gemma4:12b' })
+        const { result } = saved
+        await writeFile(output, JSON.stringify({ schemaVersion: 1, input, ...saved }, null, 2), { flag: 'wx' })
         console.log(JSON.stringify({ plateId: input.plateId, status: result.status }))
         continue
       }
@@ -76,7 +85,7 @@ export async function executeResearchBenchmark(options: ReturnType<typeof resear
         await writeFile(receiptFile, JSON.stringify(receipt), { flag: 'wx' })
       }
       const runId = `${receipt.sessionId}/turn_0`
-      let settled: { outcome: string; costUsd?: number } | null = null
+      let settled: { outcome: string; costUsd?: number; missingModelCosts?: number } | null = null
       while (Date.now() - started < 310000) {
         settled = await state.read(`eve-outcome/${runId}`)
         if (settled) break
@@ -87,11 +96,11 @@ export async function executeResearchBenchmark(options: ReturnType<typeof resear
       const events = (await client.sessions.attach(receipt.sessionId).snapshot()).events
       const result = draft ? hostedResearchResult(input, draft, { durationMs: Date.now() - started, counters }) : null
       const nativeCost = await state.read<{ usd: number; missing: number }>(`native-search-cost/${runId}`)
-      if (result && settled?.costUsd !== undefined) result.cost = { usd: settled.costUsd + (nativeCost?.usd ?? 0), missing: nativeCost ? nativeCost.missing : Number(!!counters['web-search']) }
-      await writeFile(output, JSON.stringify({ input, receipt, settled, result, durationMs: Date.now() - started, cost: { usd: settled?.costUsd === undefined ? null : settled.costUsd + (nativeCost?.usd ?? 0), missing: Number(!draft) + (nativeCost?.missing ?? 0) }, events, error: !draft ? settled?.outcome ?? 'timeout' : null }, null, 2), { flag: 'wx' })
+      if (result && settled?.costUsd !== undefined) result.cost = { usd: settled.costUsd + (nativeCost?.usd ?? 0), missing: (settled.missingModelCosts ?? 0) + (nativeCost ? nativeCost.missing : Number(!!counters['web-search'])) }
+      await writeFile(output, JSON.stringify({ schemaVersion: 1, input, receipt, settled, result, durationMs: Date.now() - started, cost: { usd: settled?.costUsd === undefined ? null : settled.costUsd + (nativeCost?.usd ?? 0), missing: Number(!draft) + (nativeCost?.missing ?? 0) }, events, error: !draft ? settled?.outcome ?? 'timeout' : null }, null, 2), { flag: 'wx' })
       console.log(JSON.stringify({ plateId: input.plateId, status: result?.status ?? settled?.outcome ?? 'timeout', usd: settled?.costUsd ?? null }))
     } catch (error) {
-      await writeFile(output, JSON.stringify({ input, error: error instanceof Error ? error.message : 'failed', durationMs: Date.now() - started }, null, 2), { flag: 'wx' })
+      await writeFile(output, JSON.stringify({ schemaVersion: 1, input, result: null, error: error instanceof Error ? error.message : 'failed', durationMs: Date.now() - started }, null, 2), { flag: 'wx' })
       console.log(JSON.stringify({ plateId: input.plateId, status: 'failed' }))
     }
   }

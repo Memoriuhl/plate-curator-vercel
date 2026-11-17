@@ -1,6 +1,6 @@
 # Research comparison, 2026-11-17
 
-This is an initial operational comparison, not evidence that the Eve output is more
+These outputs were captured before the final code-review fixes to cost accounting, queue selection, and report contracts. No paid rerun was made after those fixes. This is an initial operational comparison, not evidence that the Eve output is more
 factually accurate. The existing search keys were unavailable on both executing hosts.
 The 20 inputs were frozen from staging Snapshot v16 before measured execution, with
 six tuning plates and fourteen held-out plates. No prompts were tuned on the held-out
@@ -10,13 +10,14 @@ results. See `fixtures/research-eval-v16.json` for the identities and revisions.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Desktop / Ollama | 20 | 10 | 35 | 23 | 2 | 1.78s | Local hardware unmeasured |
 | Eve / existing retrieval | 20 | 6 | 57 | 38 | 1 | 18.09s | $0.353690 |
-| Gateway, identical desktop evidence | 20 | 5 | 40 | 18 | 0 | 4.27s | $0.070007 |
+| Gateway, identical desktop evidence | 20 | 5 | 40 | 18 | 0 | 5.20s | $0.070007 |
 | Eve / Gateway Parallel | 20 | 3 | 22 | 17 | 13 | 23.84s | $0.630697 known, incomplete |
 
 The desktop used unchanged legacy revision `b6f4ed51c0a17bd2aca03f33c21faac469673b35`,
 `gemma4:12b`, and `story-v2`. Eve and the control used `openai/gpt-6.1-sol`.
 The synthesis control skipped model calls for three source-empty plates, retaining
-those cases in its denominator. All other runs also remain in their denominators.
+those cases in its denominator. Its latency percentiles include only the seventeen
+measured calls; durations for those three skipped cases were not recorded. All other runs also remain in their denominators.
 Pipeline status and lexical screening are not factual-quality scores.
 
 Eve's standard path produced more facts and links but fewer plate descriptions, at
@@ -50,3 +51,10 @@ To finish the quality comparison: configure the existing search secrets, run a f
 named comparison with a separately authorized remaining budget, and score source
 support, relevance, duplicates, misleading dates/funding claims, acceptance, and actual
 corrections through the blind review. Do not infer those scores from the table above.
+
+
+Review follow-up: per-attempt cost settlement now retains unreported charges, desktop
+claiming queries live desktop work without a first-100 cutoff, baseline/control/report
+share per-plate artifacts, and reports retain unrun/interrupted manifest entries.
+Regression tests cover all four fixes. Exact fresh/cached attribution remains a deferred
+measurement improvement; the table does not imply a cold-cache comparison.

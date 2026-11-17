@@ -94,7 +94,7 @@ npm run research:baseline -- --input snapshot.json \
   --output eval-results/research-baseline/manifest.json
 ```
 
-This refuses missing plates and an existing output file. The draft corpus must be
+This refuses missing plates and an existing output file. Desktop runs write per-plate versioned artifacts that the control and reporter consume directly; the initial legacy aggregate remains readable for audit. The draft corpus must be
 reviewed and frozen before measured runs. Model and prompt identities, source text,
 cache use, rejections, raw outputs, and known/missing costs belong with the results.
 Raw artifacts under `eval-results/research-*` stay local and ignored.
@@ -141,7 +141,7 @@ npm run research:benchmark -- --run --budget-usd 2 --executor eve \
   --output eval-results/research-eve-v1
 npm run research:benchmark -- --run --budget-usd 2 --executor control \
   --manifest eval-results/research-baseline/manifest.json \
-  --baseline eval-results/research-baseline/desktop-raw.json \
+  --baseline eval-results/research-baseline \
   --output eval-results/research-control
 npm run research:report
 ```

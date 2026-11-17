@@ -64,7 +64,7 @@ export async function getResearch(deps: ResearchDeps, actor: Actor, id: string):
 
 export async function claimResearch(deps: ResearchDeps, workerId: string): Promise<ResearchClaim | null> {
   return deps.store.transaction(async tx => {
-    const jobs = (await tx.list()).filter(job => job.executor === 'desktop' && job.deadline > deps.now() && (job.state === 'queued' || job.state === 'running' && (job.claim?.expiresAt ?? 0) <= deps.now())).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+    const jobs = (await tx.list({ executor: 'desktop', now: deps.now() })).filter(job => job.executor === 'desktop' && job.deadline > deps.now() && (job.state === 'queued' || job.state === 'running' && (job.claim?.expiresAt ?? 0) <= deps.now())).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
     let job: ResearchJob | undefined
     for (const candidate of jobs) if (await deps.active(candidate.requestedBy)) { job = candidate; break }
     if (!job) return null

@@ -39,3 +39,19 @@ test('Firestore claim exclusivity, environment fencing and atomic Batch acceptan
   expect((await review.store.getEdit('batch', f.plate.id))?.fields.description).toContain('habitat protection')
   expect((await store.transaction(tx => tx.get(claim.job.id)))?.acceptedFields).toEqual(['description'])
 }, 30000)
+
+test('excluded records before the first hundred cannot starve a later desktop job', async () => {
+  await db.recursiveDelete(db.collection('researchJobs'))
+  const f = researchFixture()
+  const started = await f.start()
+  if (!started.ok) throw new Error('setup')
+  const batch = db.batch()
+  for (let index = 0; index < 105; index++) {
+    const id = `a${String(index).padStart(3, '0')}`
+    batch.set(db.doc(`researchJobs/${id}`), { ...started.value, id, deadline: 0 })
+  }
+  const eligible = { ...started.value, id: 'z-eligible' }
+  batch.set(db.doc('researchJobs/z-eligible'), eligible)
+  await batch.commit()
+  expect(await claimResearch({ ...f.deps, store: firestoreResearchStore(db, 'development') }, 'desktop')).toMatchObject({ job: { id: 'z-eligible' } })
+})
