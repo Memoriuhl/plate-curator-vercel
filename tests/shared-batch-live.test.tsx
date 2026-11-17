@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
 import { projectFamilyPlate } from '../components/dashboard/family-data'
-import { useEditPlate, useReorderState } from '../lib/client/hooks'
+import { useBatch, useEditPlate, useReorderState } from '../lib/client/hooks'
 import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
@@ -54,13 +54,15 @@ let reads: Map<string, number>
 let disposed: string[]
 let failures: Map<string, (error: { code?: string }) => void>
 let missingSignal: boolean
+let denySignal: boolean
 const source: LiveSignalSource = {
   subscribe(_env, id, next, error) {
     failures.set(id, error)
     const set = listeners.get(id) ?? new Set()
     listeners.set(id, set)
     set.add(next)
-    next(missingSignal ? null : signals.get(id) ?? null)
+    if (denySignal) queueMicrotask(() => error({ code: 'permission-denied' }))
+    else next(missingSignal ? null : signals.get(id) ?? null)
     return () => { set.delete(next); disposed.push(id) }
   },
 }
@@ -116,7 +118,7 @@ function targetRects(container: HTMLElement) {
   })
 }
 beforeEach(() => {
-  failures = new Map(); missingSignal = false
+  failures = new Map(); missingSignal = false; denySignal = false
   requests = []; listeners = new Map(); signals = new Map([['shared', 0], ['other', 0]]); reads = new Map(); disposed = []; hold = undefined; release = undefined
   const store = createMemoryStore([batch(), batch('other', owner)])
   const commit = store.commit.bind(store)
@@ -251,4 +253,34 @@ test('loading and a closed creator Batch reject every offered write', async () =
   fireEvent.click(closed.getByText('Attempt edit')); fireEvent.click(closed.getByText('Attempt order'))
   await act(async () => {})
   expect(requests.filter(r => r.path !== '/api/live-access')).toHaveLength(0)
+})
+
+
+test('undeployed rules deny twice without console errors or renewal loops, and Refresh reads only the selected Batch', async () => {
+  denySignal = true
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const value = session(owner)
+  const send = value.api.send
+  value.api.send = async (method, path, body) => {
+    const response = await send(method, path, body)
+    return path === '/api/live-access' ? { envKey: 'test', expiresAt: new Date(Date.now() + 61000).toISOString() } : response
+  }
+  function OtherBatch() {
+    useBatch('other')
+    return null
+  }
+  const view = render(<Workspace value={value}><OtherBatch /></Workspace>)
+  await waitFor(() => expect(view.getByText('Live updates unavailable')).toBeTruthy())
+  await waitFor(() => expect(requests.filter(r => r.path === '/api/live-access')).toHaveLength(2))
+  expect(listeners.get('shared')?.size).toBe(0)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)) })
+  expect(requests.filter(r => r.path === '/api/live-access')).toHaveLength(2)
+  const before = new Map(reads)
+  fireEvent.click(view.getByText('Refresh'))
+  const selectedKey = owner.uid + '/api/batches/shared'
+  await waitFor(() => expect(reads.get(selectedKey)).toBe(before.get(selectedKey)! + 1))
+  expect([...reads].filter(([key]) => key !== selectedKey)).toEqual([...before].filter(([key]) => key !== selectedKey))
+  expect(view.getByText('Live updates unavailable')).toBeTruthy()
+  expect(requests.filter(r => r.path === '/api/live-access')).toHaveLength(2)
+  expect(consoleError).not.toHaveBeenCalled()
 })

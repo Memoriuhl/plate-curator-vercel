@@ -19,7 +19,7 @@ export function SelectedBatchBar() {
   const back = new URLSearchParams(params.toString())
   back.delete('batch')
   return <div className="batch-actions" aria-label="Selected Batch" data-batch-id={workspace.id}>
-    <strong>{batch?.name ?? (workspace.status === 'unavailable' ? "This Batch isn't available" : 'Loading Batch?')}</strong>
+    <strong>{batch?.name ?? (workspace.status === 'unavailable' ? "This Batch isn't available" : 'Loading Batch...')}</strong>
     <span>{workspace.id}</span>
     {batch ? <><span>{batch.createdByName ?? batch.createdBy}</span><span>rev {batch.revision}</span><span>{batch.state}</span></> : null}
     {workspace.status === 'unavailable' && batch ? <span>{"This Batch isn't available"}</span> : null}

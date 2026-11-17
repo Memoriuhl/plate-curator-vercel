@@ -31,6 +31,7 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
   useEffect(() => {
     if (batchId === null || !user) return
     let disposed = false
+    let stopped = false
     let unsubscribe = () => {}
     let renewal: ReturnType<typeof setTimeout>
     let queued: ReturnType<typeof setTimeout>
@@ -40,27 +41,28 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
     const updateStatus = (text: string) => setStatus({ id: batchId, text })
     const unavailable = () => { if (!disposed) updateStatus('Live updates unavailable') }
     const refresh = async () => {
-      if (disposed || refreshing) return
+      if (disposed || stopped || refreshing) return
       refreshing = true
       const revision = seen
       try {
         await mutate(key => typeof key === 'string' && (key === '/api/batches/' + batchId || key === '/api/batches' || key.startsWith('/api/batches?')))
-        if (!disposed && seen === revision) updateStatus('Live')
+        if (!disposed && !stopped && seen === revision) updateStatus('Live')
       } catch { unavailable() }
       finally {
         refreshing = false
-        if (!disposed && seen > revision) queued = setTimeout(() => { void refresh() }, 25)
+        if (!disposed && !stopped && seen > revision) queued = setTimeout(() => { void refresh() }, 25)
       }
     }
     const connect = async () => {
+      if (disposed || stopped) return
       try {
         const grant = await api.send<{ envKey: string; expiresAt: string }>('POST', '/api/live-access', {})
-        if (disposed) return
+        if (disposed || stopped) return
         unsubscribe()
         clearTimeout(renewal)
         renewal = setTimeout(() => { void connect() }, Math.max(1000, Date.parse(grant.expiresAt) - Date.now() - 60000))
         unsubscribe = selectedSource.subscribe(grant.envKey, batchId, revision => {
-          if (disposed) return
+          if (disposed || stopped) return
           if (revision === null) { unavailable(); return }
           if (revision <= seen) return
           if (revision <= displayed.current) { seen = revision; if (!refreshing) updateStatus('Live'); return }
@@ -69,9 +71,12 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
           clearTimeout(queued)
           queued = setTimeout(() => { void refresh() }, 25)
         }, error => {
-          if (disposed) return
+          if (disposed || stopped) return
+          clearTimeout(renewal)
+          clearTimeout(queued)
+          unsubscribe()
           if (error.code === 'permission-denied' && !retried) { retried = true; void connect() }
-          else unavailable()
+          else { stopped = true; unavailable() }
         })
       } catch { unavailable() }
     }
