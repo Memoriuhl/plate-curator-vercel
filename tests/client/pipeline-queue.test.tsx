@@ -110,6 +110,19 @@ test('Preview hides every run Apply control and explains that a normal rerun is 
   expect(screen.getByText(/Run again without Preview only/)).toBeTruthy()
 })
 
+test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {
+  const missing = renderHook(() => usePipelineQueue(), { wrapper })
+  await act(async () => { await missing.result.current.enqueue([plate], ['tag'], undefined, {}, true) })
+  expect(mocks.ensure).not.toHaveBeenCalled()
+  expect(mocks.api.send).not.toHaveBeenCalled()
+  expect(missing.result.current.message).toBe('Preview requires an existing open Batch.')
+  missing.unmount()
+  const existing = renderHook(() => usePipelineQueue('existing-batch'), { wrapper })
+  await act(async () => { await existing.result.current.enqueue([plate], ['tag'], undefined, {}, true) })
+  expect(mocks.ensure).not.toHaveBeenCalled()
+  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ batchId: 'existing-batch', previewOnly: true }))
+})
+
 test('coherent facts and read-more links use readable text and cited links instead of raw JSON', () => {
   expect(pipelineFieldLabel('funFacts')).toBe('Fun facts')
   expect(pipelineFieldLabel('firstIssuedYear')).toBe('First issued')

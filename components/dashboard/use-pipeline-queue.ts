@@ -25,7 +25,7 @@ function queueError(error: unknown) {
   return 'Could not update the queue. Try again; your request will keep the same ID.'
 }
 
-export function usePipelineQueue() {
+export function usePipelineQueue(existingBatchId?: string | null) {
   const { user, api } = useSession()
   const { mutate } = useSWRConfig()
   const workspace = useWorkspaceBatch()
@@ -73,8 +73,9 @@ export function usePipelineQueue() {
 
   async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false) {
     if (!plates.length || disabledReason) return null
+    if (previewOnly && workspace.mode !== 'selected' && !existingBatchId) { setMessage('Preview requires an existing open Batch.'); return null }
     return perform('enqueue', async () => {
-      const batchId = workspace.mode === 'selected' ? workspace.id : await ensureBatch(plates[0])
+      const batchId = workspace.mode === 'selected' ? workspace.id : previewOnly ? existingBatchId! : await ensureBatch(plates[0])
       if (currentUser.current !== uid) throw Error('Session changed')
       const input: Omit<EnqueueInput, 'requestId'> = { batchId, plateIds: plates.map(plate => plate.id), stages, options, previewOnly,
         ...(modelId ? { modelId } : {}) }
