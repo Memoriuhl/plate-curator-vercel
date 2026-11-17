@@ -112,8 +112,16 @@ at its first check after takeover, including before receipt adoption.
 Before an uncommitted pointer advance, the publisher refreshes the object's current
 download URL. Recreated matching bytes can have a new download token; a lost
 metadata response must not leave a retry using the old object's URL.
-The object checksum is checked again after fetching that URL and before the pointer
-transaction, so a metadata lookup racing different bytes cannot commit that URL.
+The URL, storage generation, metageneration and md5Hash/crc32c come from one
+[GCS object metadata response](https://docs.cloud.google.com/storage/docs/json_api/v1/objects).
+The receipt stores that object identity separately from the publication-control
+generation. SHA256 verification downloads the exact selected storage generation.
+Inside the pointer transaction, after reading the lease, authority and receipt,
+the commit path checks current object metadata and the generation-selected bytes,
+then reads metadata again. A different generation, token, metageneration or hash
+returns `version_taken` without advancing the pointer, even when the bytes are
+identical. A recreation before metadata capture may instead refresh the receipt
+to the verified current generation and its current token.
 
 ## Known gap until #129
 
@@ -234,7 +242,7 @@ Focused behavior: `npx vitest run tests/publish tests/review/copy.test.ts tests/
 
 Transactions/concurrency: `npm run test:emulator` uses only Firestore at localhost
 and project `demo-plate-curator`. Snapshot storage in Publish tests is in memory.
-Run this suite alone. The two Owner-claim contention tests have scoped fifteen-second
+Run this suite alone. The claim-contention tests have scoped fifteen-second
 budgets for Firestore transaction retries; the global test timeout is unchanged.
 The suite checks copy atomicity, concurrent retries, source/head/environment races,
 initial live signals, and Publish reservation and receipt behavior. The screen

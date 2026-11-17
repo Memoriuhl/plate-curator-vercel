@@ -17,6 +17,7 @@ export interface PublishControl {
 }
 export type PublishError = PublishStop | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
+  object?: SnapshotObject
   supersededCommands?: PublishCommand[]
   requestedBy?: RequesterAuthority
   generation?: number
@@ -36,12 +37,14 @@ export type PublishRecord = {
 export type PublishLease = { token: string; batchId: string; revision: number; expiresAt: string }
 export interface PublishPointer {
   read(): Promise<CatalogPointer>
-  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
+  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'version_taken' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
 }
+export type SnapshotObject = { generation: string; metageneration: string; md5Hash?: string; crc32c?: string; url: string }
 export interface PublishSnapshots {
+  metadata(version: number): Promise<SnapshotObject | null>
   read(version: number): Promise<Snapshot>
   createOnly(version: number, bytes: Uint8Array): Promise<'created' | 'exists'>
-  checksum(version: number): Promise<string | null>
+  checksum(version: number, generation?: string): Promise<string | null>
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {

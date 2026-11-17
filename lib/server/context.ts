@@ -3,6 +3,7 @@ import type { Actor } from '../review/types'
 import 'server-only'
 import { resumeHook } from 'workflow/api'
 import { workflowPublishRunLookup } from './publish-runs'
+import { verifyPreparedObject } from '../publish/object'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
@@ -167,14 +168,15 @@ export function publishControl() { return firestorePublishControl(stagingFiresto
 export function publishDeps(): PublishDeps {
   const db = stagingFirestore()
   const env = reviewEnv()
+  const snapshots = gcsSnapshots(requireEnv('FIREBASE_STORAGE_BUCKET'), async () => (await gcpAuthClient().getAccessToken()).token ?? '')
   return {
     ...reviewDeps(),
     control: publishControl(),
     curator: firestorePublishCurator(db, env),
-    pointer: firestorePublishPointer(db, env),
+    pointer: firestorePublishPointer(db, env, record => verifyPreparedObject(snapshots, record)),
     records: firestorePublishRecords(db, env, workflowPublishRunLookup()),
     lock: firestorePublishLock(db, env),
-    snapshots: gcsSnapshots(requireEnv('FIREBASE_STORAGE_BUCKET'), async () => (await gcpAuthClient().getAccessToken()).token ?? ''),
+    snapshots,
   }
 }
 

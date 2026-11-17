@@ -4,6 +4,7 @@ import { POST, GET } from '../app/api/batches/[id]/publish/route'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { publishBatch } from '../lib/publish/publish'
+import { verifyPreparedObject } from '../lib/publish/object'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
 import { db } from './setup'
 
@@ -43,7 +44,7 @@ beforeEach(async () => {
     records: firestorePublishRecords(db, env, { runStatus: mocks.status, findRun: async commandId => {
       try { const run = await mocks.getHookByToken(`publish-command:${commandId}`); return { runId: run.runId, status: await mocks.status(run.runId) } } catch (error) { if (HookNotFoundError.is(error)) return null; throw error }
     } }), lock: firestorePublishLock(db, env),
-    pointer: firestorePublishPointer(db, env), curator: firestorePublishCurator(db, env) })
+    pointer: firestorePublishPointer(db, env, record => verifyPreparedObject(f.deps.snapshots, record)), curator: firestorePublishCurator(db, env) })
 })
 
 afterAll(async () => {

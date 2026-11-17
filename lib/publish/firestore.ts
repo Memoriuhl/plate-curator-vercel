@@ -3,6 +3,7 @@ import { batchApprovedFor, claimSupersedes, isSuperseded, receiptId } from './co
 import { CLAIM_TTL_MS, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from './eligibility'
 import { firestoreReviewStore, writePublishMetadata } from '../review/firestore-store'
 import { uploadError } from './upload'
+import { sameObject } from './object'
 import type { ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
@@ -240,7 +241,7 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
   }
 }
 
-export function firestorePublishPointer(db: Firestore, env: string): PublishPointer {
+export function firestorePublishPointer(db: Firestore, env: string, verifyObject: (record: PublishRecord) => Promise<boolean>): PublishPointer {
   const pointerRef = db.doc('config/catalog')
   return {
     async read() {
@@ -269,6 +270,8 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
         if (receipt.get('generation') !== record.generation || receipt.get('commandId') !== record.commandId) return PUBLISH_STOPS.superseded
         if (receipt.get('state') !== 'uploaded') return 'superseded_revision'
         if (pointer.get('version') !== record.fromVersion) return 'pointer_moved'
+        if (!sameObject(receipt.get('object'), record.object)) return 'version_taken'
+        if (!await verifyObject(record)) return 'version_taken'
         transaction.set(pointerRef, { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now })
         transaction.update(recordRef, { committedAt: now })
         return 'advanced'

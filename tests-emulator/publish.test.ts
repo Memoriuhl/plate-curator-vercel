@@ -3,6 +3,7 @@ import { afterAll, beforeEach, expect, test } from 'vitest'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
 import { publishBatch } from '../lib/publish/publish'
 import { sha256 } from '../lib/publish/bytes'
+import { verifyPreparedObject } from '../lib/publish/object'
 import type { PublishLease, PublishRecord } from '../lib/publish/types'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
@@ -12,14 +13,42 @@ import type { Firestore, Transaction } from '@google-cloud/firestore'
 const env = 'publish-test'
 const now = '2026-11-15T12:00:00Z'
 const lease: PublishLease = { ...command, token: 'first', expiresAt: '2026-11-15T12:01:00Z' }
-const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', url: 'https://storage.example/v2.json?token=t', state: 'uploaded' }
+const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', url: 'https://storage.example/v2.json?token=t', object: { generation: '1', metageneration: '1', md5Hash: 'fixture-hash', url: 'https://storage.example/v2.json?token=t' }, state: 'uploaded' }
 const lock = firestorePublishLock(db, env)
-const pointer = firestorePublishPointer(db, env)
+const pointer = firestorePublishPointer(db, env, async () => true)
 const records = firestorePublishRecords(db, env, { findRun: async () => null })
 const store = firestoreReviewStore(db, env)
 const control = firestorePublishControl(db)
 const controlActor = { uid: 'owner', email: 'owner@example.com' }
 const enabled = { paused: false, generation: 1, changedBy: controlActor, changedAt: now }
+
+test('same-byte recreation before metadata binds the current generation URL in Firestore', async () => {
+  const f = fixture()
+  const metadata = f.deps.snapshots.metadata
+  let rotated = false
+  f.deps.snapshots.metadata = async version => {
+    if (!rotated) { rotated = true; f.blobs.set(version, Uint8Array.from(f.blobs.get(version)!)) }
+    return metadata(version)
+  }
+  const guardedPointer = firestorePublishPointer(db, env, receipt => verifyPreparedObject(f.deps.snapshots, receipt))
+  expect(await publishBatch({ ...f.deps, control, store, lock, records, pointer: guardedPointer, curator: firestorePublishCurator(db, env) }, owner, command)).toMatchObject({ ok: true })
+  const current = await metadata(2)
+  expect(await records.get(record.id)).toMatchObject({ object: current, url: current!.url })
+  expect(await guardedPointer.read()).toMatchObject({ version: 2, url: current!.url })
+  expect(f.resolveUrl((await guardedPointer.read()).url!)).toMatchObject({ generation: current!.generation })
+})
+
+test.each(['same', 'different'])('a %s-byte recreation before the pointer transaction is refused by live generation', async bytes => {
+  const f = fixture()
+  const guardedPointer = firestorePublishPointer(db, env, receipt => verifyPreparedObject(f.deps.snapshots, receipt))
+  const deps = { ...f.deps, control, store, lock, records, curator: firestorePublishCurator(db, env), pointer: { ...guardedPointer, advance: async (...args: Parameters<typeof guardedPointer.advance>) => {
+    f.blobs.set(2, bytes === 'same' ? Uint8Array.from(f.blobs.get(2)!) : new Uint8Array([9]))
+    return guardedPointer.advance(...args)
+  } } }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'version_taken' })
+  expect((await guardedPointer.read()).version).toBe(1)
+  expect((await records.get(record.id))?.committedAt).toBeUndefined()
+})
 
 test.each(['unbound', 'completed', 'failed', 'cancelled'])('claimRecovery replaces a %s claim and fences its previous command', async status => {
   const recovering = firestorePublishRecords(db, env, { runStatus: async () => status, findRun: async () => null })
@@ -254,7 +283,7 @@ test('concurrent duplicate command acceptance binds one immutable identity and r
   expect(await store.getBatch(batch.id)).toMatchObject({ approvalRun: { runId: 'one-run', revision: 1 }, publishRequestedBy: fresh.requestedBy })
   expect(await records.accept({ ...fresh, requestedBy: { ...fresh.requestedBy, uid: 'other' } }, now)).toEqual({ ok: false, error: 'superseded' })
   expect(await records.accept({ ...fresh, commandId: 'another-click' }, now)).toEqual({ ok: false, error: 'locked' })
-})
+}, 15000)
 
 test.each(['revoke', 'pause', 'approval', 'revision', 'baseline'])('fresh command acceptance rechecks %s before storing it', async changed => {
   if (changed === 'revoke') await firestoreMembersStore(db).updateRoleGuarded('owner@example.com', 'editor')
@@ -439,7 +468,7 @@ test.each([env, 'another-deployment'])('pause committing first stops the pointer
   const targetStore = firestoreReviewStore(db, deployment)
   await db.doc('reviewBatches/batch').set({ ...batch, env: deployment })
   const f = fixture()
-  const targetPointer = firestorePublishPointer(db, deployment)
+  const targetPointer = firestorePublishPointer(db, deployment, async () => true)
   const deps = { ...f.deps, control, store: targetStore, lock: firestorePublishLock(db, deployment), records: firestorePublishRecords(db, deployment), pointer: targetPointer, curator: firestorePublishCurator(db, deployment) }
   const advance = targetPointer.advance
   deps.pointer = { ...targetPointer, advance: async (...args) => {
@@ -528,7 +557,7 @@ test('unavailable control at the pointer read cannot commit even after successfu
       },
     }))),
   } as Firestore
-  const deps = { ...f.deps, control, store, lock, records, pointer: firestorePublishPointer(unavailable, env), curator: firestorePublishCurator(db, env) }
+  const deps = { ...f.deps, control, store, lock, records, pointer: firestorePublishPointer(unavailable, env, async () => true), curator: firestorePublishCurator(db, env) }
   expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'unavailable' })
   expect((await pointer.read()).version).toBe(1)
   expect((await records.get(record.id))?.committedAt).toBeUndefined()

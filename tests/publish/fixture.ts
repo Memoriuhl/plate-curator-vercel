@@ -1,5 +1,6 @@
 import { publishRequesterStop, sameRequester } from '../../lib/publish/authority'
 import { uploadError } from '../../lib/publish/upload'
+import { sameObject, verifyPreparedObject } from '../../lib/publish/object'
 import { batchApprovedFor, claimSupersedes, isSuperseded, receiptId } from '../../lib/publish/command'
 import { CLAIM_TTL_MS, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from '../../lib/publish/eligibility'
 import type { PublishCommand } from '../../lib/publish/types'
@@ -26,6 +27,18 @@ export const snapshot: Snapshot = { version: 1, plates: [
 export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { findRun: async () => null, runStatus: async () => 'running' }) {
   const store = createMemoryStore([seed])
   const blobs = new Map<number, Uint8Array>([[1, Buffer.from(JSON.stringify(snapshot))]])
+  const objects = new Map<number, { bytes: Uint8Array; generation: string; token: string }>()
+  let generation = 0
+  const objectAt = (version: number) => {
+    const bytes = blobs.get(version)
+    if (!bytes) return null
+    let object = objects.get(version)
+    if (object?.bytes !== bytes) {
+      object = { bytes, generation: String(++generation), token: object ? `t${version}g${generation}` : `t${version}` }
+      objects.set(version, object)
+    }
+    return object
+  }
   const records = new Map<string, PublishRecord>()
   const commands = new Map<string, { command: PublishCommand; acceptedAt: string; runId?: string }>()
   let commandQueue = Promise.resolve()
@@ -104,20 +117,34 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
         if (saved?.generation !== record.generation || saved?.commandId !== record.commandId) return 'superseded'
         if (pointer.version !== record.fromVersion) return 'pointer_moved'
         if (!record.url) return 'superseded_revision'
+        if (!sameObject(saved?.object, record.object)) return 'version_taken'
+        if (!await verifyPreparedObject(deps.snapshots, record)) return 'version_taken'
         pointer = { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now }
         records.set(record.id, { ...record, committedAt: now })
         return 'advanced'
       },
     },
     snapshots: {
+      metadata: async version => {
+        const object = objectAt(version)
+        if (!object) return null
+        const url = await deps.snapshots.downloadUrl(version)
+        return url ? { generation: object.generation, metageneration: '1', md5Hash: createHash('md5').update(object.bytes).digest('base64'), url } : null
+      },
       read: async version => JSON.parse(Buffer.from(blobs.get(version)!).toString()) as Snapshot,
       createOnly: async (version, bytes) => {
         if (blobs.has(version)) return 'exists'
         blobs.set(version, Uint8Array.from(bytes))
         return 'created'
       },
-      checksum: async version => blobs.has(version) ? createHash('sha256').update(blobs.get(version)!).digest('hex') : null,
-      downloadUrl: async version => blobs.has(version) ? `https://storage.example/v${version}.json?token=t${version}` : null,
+      checksum: async (version, expectedGeneration) => {
+        const object = objectAt(version)
+        return object && (!expectedGeneration || object.generation === expectedGeneration) ? createHash('sha256').update(object.bytes).digest('hex') : null
+      },
+      downloadUrl: async version => {
+        const object = objectAt(version)
+        return object ? `https://storage.example/v${version}.json?token=${object.token}` : null
+      },
     },
     records: {
       checkUpload: async (record, cmd, checksum, token, now) => {
@@ -203,5 +230,11 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       },
     },
   }
-  return { commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  return { resolveUrl: (url: string) => {
+    for (const version of blobs.keys()) {
+      const object = objectAt(version)
+      if (object && url === `https://storage.example/v${version}.json?token=${object.token}`) return { generation: object.generation, bytes: object.bytes }
+    }
+    return null
+  }, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }

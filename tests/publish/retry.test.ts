@@ -155,3 +155,41 @@ test('URL lookup cannot race verified bytes into a mismatching pointer commit', 
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'version_taken' })
   expect(f.pointer().version).toBe(1)
 })
+
+test('same-byte recreation rotating the token cannot commit a dead URL', async () => {
+  const f = fixture()
+  let token = 'old-generation-token'
+  f.deps.snapshots.downloadUrl = async () => {
+    const url = `https://storage.example/v2.json?token=${token}`
+    token = 'new-generation-token'
+    return url
+  }
+  const result = await publishBatch(f.deps, owner, command)
+  expect(!result.ok || f.pointer().url === `https://storage.example/v2.json?token=${token}`).toBe(true)
+})
+
+test('same-byte recreation between checksum and metadata commits the current generation URL', async () => {
+  const f = fixture()
+  const metadata = f.deps.snapshots.metadata
+  let rotated = false
+  f.deps.snapshots.metadata = async version => {
+    if (!rotated) { rotated = true; f.blobs.set(version, Uint8Array.from(f.blobs.get(version)!)) }
+    return metadata(version)
+  }
+  const result = await publishBatch(f.deps, owner, command)
+  const current = await metadata(2)
+  expect(result).toMatchObject({ ok: true, value: { object: current, url: current!.url } })
+  expect(f.pointer().url).toBe(current!.url)
+  expect(f.resolveUrl(f.pointer().url!)).toMatchObject({ generation: current!.generation })
+})
+
+test.each(['same', 'different'])('a %s-byte object recreation at the commit seam is refused', async bytes => {
+  const f = fixture()
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (...args) => {
+    f.blobs.set(2, bytes === 'same' ? Uint8Array.from(f.blobs.get(2)!) : new Uint8Array([9]))
+    return advance(...args)
+  }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'version_taken' })
+  expect(f.pointer().version).toBe(1)
+})

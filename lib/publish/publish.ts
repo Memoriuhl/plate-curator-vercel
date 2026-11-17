@@ -121,10 +121,10 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
     }
     if (!await renew()) return { ok: false, error: 'lock_lost' }
     if (!record.committedAt) {
-      const url = await d.snapshots.downloadUrl(record.toVersion)
-      if (!url) return { ok: false, error: PUBLISH_ERRORS.unavailable }
-      if (await d.snapshots.checksum(record.toVersion) !== record.blobSha256) return await fail('version_taken')
-      record = { ...record, url, state: 'uploaded' }
+      const object = await d.snapshots.metadata(record.toVersion)
+      if (!object) return { ok: false, error: PUBLISH_ERRORS.unavailable }
+      if (await d.snapshots.checksum(record.toVersion, object.generation) !== record.blobSha256) return await fail('version_taken')
+      record = { ...record, url: object.url, object, state: 'uploaded' }
       if (!await d.records.save(record, lease.token, d.now())) return { ok: false, error: 'lock_lost' }
       const advanced = await d.pointer.advance(record, lease, d.now())
       if (isPublishStop(advanced)) {
