@@ -2,6 +2,7 @@ import { currentProjectionMatches, finishRun, localQueueEnabled, queuePermission
 import { plateRevision } from '../review/revision'
 import { projectJob } from './queue-projection'
 import type { Actor } from '../review/types'
+import { canEdit } from '../review/access'
 import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome } from './queue-types'
 
@@ -140,8 +141,9 @@ export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string
   return d.store.transaction(async tx => {
     const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
     if (!run) return { ok: false, error: 'not_found' }
-    const error = queuePermission(await tx.batch(run.batchId), actor)
-    if (error) return { ok: false, error }
+    const batch = await tx.batch(run.batchId)
+    if (!batch) return { ok: false, error: 'not_found' }
+    if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
     const job = await tx.get(jobId)
     const attempt = run.attempts.at(-1)!
     if (!job || job.queueRunId !== run.id || job.queueAttempt !== attempt.number || job.queueStep !== attempt.cursor || job.claimId !== claimId ||

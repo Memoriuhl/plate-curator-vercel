@@ -34,7 +34,7 @@ test('durable enqueue snapshots selected stages/options and deduplicates concurr
   const recovered = await { ...deps }.store.transaction(tx => tx.runs())
   expect(recovered).toHaveLength(1)
   expect(recovered[0]).toMatchObject({ id: first.value.id, stages: request.stages, requestedBy: editor.uid,
-    options: {}, previewOnly: false, attempts: [{ number: 1, status: 'queued', projection: { baselineVersion: 1 } }] })
+    options: { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, previewOnly: false, attempts: [{ number: 1, status: 'queued', projection: { baselineVersion: 1 } }] })
   expect(await deps.store.transaction(tx => tx.list())).toEqual([])
   expect(await review.listEdits('batch')).toEqual([])
   expect(await enqueueRun(deps, editor, { ...request, stages: ['tag'] })).toEqual({ ok: false, error: 'request_mismatch' })
@@ -85,4 +85,13 @@ test('option parser snapshots defaults, validates unknown keys and never coerces
   expect(parsePipelineOptions({ group: { colorSignal: 'false' } })).toBeNull()
   expect(parsePipelineOptions({ unknown: {} })).toBeNull()
   expect(parsePipelineOptions({ group: { method: 'vision' } })).toBeNull()
+})
+
+test('unchecked default Story option skips existing stories while preserving other selected stages and exact retry options', async () => {
+  const s = setup()
+  const deps = { ...s.deps, baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Already accepted', sourceUrl: 'https://example.org/source' }] }) }
+  const result = await enqueueRun(deps, editor, { ...request, stages: ['story', 'describe'] })
+  expect(result).toMatchObject({ ok: true, value: { options: { story: { redoExisting: false } }, attempts: [{ steps: [{ stage: 'describe' }] }] } })
+  const redo = await enqueueRun(deps, editor, { ...request, requestId: 'explicit-redo', stages: ['story', 'describe'], options: { story: { redoExisting: true } } })
+  expect(redo).toMatchObject({ ok: true, value: { options: { story: { redoExisting: true } }, attempts: [{ steps: [{ stage: 'describe' }, { stage: 'story' }] }] } })
 })

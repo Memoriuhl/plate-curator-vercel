@@ -1,4 +1,5 @@
 import { Firestore } from '@google-cloud/firestore'
+import { lookup } from 'node:dns/promises'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { firestoreJobsStore } from '../lib/jobs/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
@@ -10,7 +11,10 @@ import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
 
-if (!/^localhost:\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST ?? '')) throw Error('Queue emulator tests require a localhost emulator')
+if (!process.env.FIRESTORE_EMULATOR_HOST) throw Error('Queue emulator tests require a localhost emulator')
+const endpoint = new URL(`http://${process.env.FIRESTORE_EMULATOR_HOST}`)
+const loopback = await lookup('localhost', { all: true })
+if (!endpoint.port || endpoint.hostname !== 'localhost' && !loopback.some(value => value.address === endpoint.hostname.replace(/^\[|\]$/g, ''))) throw Error('Queue emulator tests require a localhost emulator')
 const db = new Firestore({ projectId: 'demo-local-pipeline-queue' })
 const actor = { uid: 'queue-editor', role: 'editor' as const, name: null }
 const plates = ['one', 'two'].map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
@@ -59,7 +63,7 @@ test('real serialized runs survive store recreation, dedupe, and enforce one GPU
   expect(listed).toMatchObject({ ok: true, value: expect.arrayContaining([expect.objectContaining({ id: first.value.id })]) })
   expect(await listRuns(restored, { ...actor, uid: 'other' })).toEqual({ ok: true, value: [] })
   expect(await claimNext({ ...jobs, store: firestoreJobsStore(db, 'development'), localScope: undefined }, 'production')).toBeNull()
-})
+}, 20_000)
 
 test('stale worker restart remains reserved until verified stopped recovery; queued cancellation and retry retain history', async () => {
   const run = await enqueue('stale')

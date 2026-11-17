@@ -19,6 +19,8 @@ function queueError(error: unknown) {
     if (error.code === 'stale_input') return 'The Batch changed. Start a new run to use your accepted edits.'
     if (error.status === 403) return "Only the Batch's creator or an Owner can change this queue."
     if (error.code === 'request_mismatch') return 'This request already exists with different options.'
+    if (error.code === 'attempt_limit') return 'This run reached five attempts. Start a new run with the current Batch inputs.'
+    if (error.code === 'payload_too_large') return 'This run is too large to save safely. Select fewer plates.'
   }
   return 'Could not update the queue. Try again; your request will keep the same ID.'
 }
@@ -38,6 +40,15 @@ export function usePipelineQueue() {
   const [selectedId, select] = useState<string | undefined>()
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
   const list = useSWR<{ runs: QueueRunView[]; selected?: QueueRunView; orphanJobs?: TaggingJob[] }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
+  useEffect(() => {
+    if (!uid || !list.data) return
+    try {
+      for (const run of list.data.runs) if (run.requestedBy === uid) {
+        confirmQueueRequest(localStorage, uid, 'enqueue', run.requestId)
+        for (const attempt of run.attempts) confirmQueueRequest(localStorage, uid, `retry:${run.id}`, attempt.requestId)
+      }
+    } catch { return }
+  }, [uid, list.data])
   const disabledReason = workspace.mode === 'selected'
     ? workspace.status !== 'ready' ? 'Selected Batch is unavailable'
       : workspace.detail?.batch.state !== 'open' ? 'Selected Batch is read-only' : undefined

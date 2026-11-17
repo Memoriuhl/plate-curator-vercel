@@ -8,8 +8,19 @@ export const stageDependencies: Record<LocalRunStage, readonly LocalRunStage[]> 
 }
 export type RunStep = { index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass }
 
+export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRunStage[] {
+  const result: LocalRunStage[] = []
+  const visit = (stage: LocalRunStage) => {
+    if (result.includes(stage)) return
+    for (const dependency of stageDependencies[stage]) if (stages.includes(dependency)) visit(dependency)
+    result.push(stage)
+  }
+  for (const stage of canonicalStages) if (stages.includes(stage)) visit(stage)
+  return result
+}
+
 export function planPipeline(plates: Plate[], stages: LocalRunStage[], options: PipelineOptions): RunStep[] {
-  const selected = canonicalStages.filter(stage => stages.includes(stage))
+  const selected = orderedPipelineStages(stages)
   const steps: Omit<RunStep, 'index'>[] = []
   for (const plate of plates) for (const stage of selected) {
     if (stage === 'group' || stage === 'find-image' && options['find-image']?.onlyMissingImage && (plate.image || plate.imageUrl) ||

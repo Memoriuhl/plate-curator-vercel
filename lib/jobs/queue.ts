@@ -4,7 +4,7 @@ import type { Actor, ReviewBatch } from '../review/types'
 import { localJobsEnvironment } from './local-scope'
 import { isPipelineStage } from './suggestions'
 import { canonicalStages, planPipeline } from './pipeline-plan'
-import { parsePipelineOptions } from './pipeline-options'
+import { parsePipelineOptions, snapshotPipelineOptions } from './pipeline-options'
 import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
 import type { JobsDeps, JobsTransaction } from './types'
 import type { EnqueueInput, PipelineRun, QueueOutcome, QueueRunView } from './queue-types'
@@ -33,7 +33,7 @@ export function parseEnqueue(input: unknown): EnqueueInput | null {
     value.stages.some(stage => stage !== 'tag' && (!isPipelineStage(stage) || stage === 'order')) || new Set(value.stages).size !== value.stages.length ||
     value.modelId !== undefined && (typeof value.modelId !== 'string' || !requestPattern.test(value.modelId))) return null
   return { requestId: value.requestId, batchId: value.batchId, plateIds: value.plateIds as string[],
-    stages: canonicalStages.filter(stage => (value.stages as unknown[]).includes(stage)), options, previewOnly: value.previewOnly === true,
+    stages: canonicalStages.filter(stage => (value.stages as unknown[]).includes(stage)), options: snapshotPipelineOptions(value.stages as string[], options), previewOnly: value.previewOnly === true,
     ...(value.modelId ? { modelId: value.modelId as string } : {}) }
 }
 
@@ -150,7 +150,8 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   if (!requestPattern.test(requestId)) return { ok: false, error: 'bad_request' }
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const runs = await tx.runs()
+    const run = runs.find(run => run.id === id && run.localScope === d.localScope)
     if (!run) return { ok: false, error: 'not_found' }
     const batch = await tx.batch(run.batchId)
     const error = queuePermission(batch, actor)
@@ -166,6 +167,7 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     run.attempts.push({ number: previous.number + 1, requestId, createdAt: now, jobIds: [...previous.completedJobIds], completedJobIds: [...previous.completedJobIds], status: 'queued',
       cursor: previous.cursor, steps: structuredClone(previous.steps), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
     run.status = 'queued'; run.queuedAt = now; run.updatedAt = now; run.waitReason = 'worker'
+    run.enqueueSequence = Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1
     delete run.cancelRequestedAt
     if (!queueRecordFits(run)) return { ok: false, error: 'payload_too_large' }
     tx.setRun(run)

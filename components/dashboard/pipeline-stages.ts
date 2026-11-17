@@ -1,5 +1,6 @@
 import type { PipelineStage } from '@/lib/jobs/types'
 import type { PipelineOptions } from '@/lib/jobs/pipeline-options'
+export { stageDependencies } from '@/lib/jobs/pipeline-plan'
 
 export type StageOption = {
   id: string
@@ -23,7 +24,7 @@ export type PipelineSelection = { selectedStages: (PipelineStage | 'tag')[]; opt
 
 export const pipelineStages: readonly StageDefinition[] = [
   { id: 'find-image', label: 'Find image', description: 'Search for a clean plate photo', duration: '0:20', jobKind: 'find-image', localEnabled: false,
-    disabledReason: 'Needs an image-search job and draft result', options: [{ id: 'onlyMissingImage', label: 'Only plates missing an image', kind: 'boolean', default: true }] },
+    disabledReason: 'Needs an image-search job and draft result', options: [{ id: 'onlyMissingImage', label: 'Only plates missing an image', kind: 'boolean', default: false }] },
   { id: 'wiki-link', label: 'Wiki link', description: 'Match a Wikipedia or DMV page', duration: '0:15', jobKind: 'wiki-link', localEnabled: false,
     disabledReason: 'Needs a reference-search job and draft result', options: [] },
   { id: 'colors', label: 'Colors', description: 'Background and text colours', duration: '0:05', jobKind: 'colors', localEnabled: false,
@@ -38,8 +39,8 @@ export const pipelineStages: readonly StageDefinition[] = [
       { id: 'colorSignal', label: 'Use colour signal', kind: 'boolean', default: true },
       { id: 'backgroundMask', label: 'Background mask', kind: 'boolean', default: false, disabledReason: 'Needs the local background-mask runtime' },
       { id: 'visionTiebreak', label: 'Vision tiebreak', kind: 'boolean', default: false },
-      { id: 'method', label: 'Method', kind: 'select', default: 'vision', choices: [
-        { value: 'vision', label: 'Vision' }, { value: 'embeddings', label: 'Embeddings', disabledReason: 'Needs the local embeddings runtime' },
+      { id: 'method', label: 'Method', kind: 'select', default: 'embeddings', choices: [
+        { value: 'embeddings', label: 'Embeddings', disabledReason: 'Needs the local embeddings runtime' },
       ] },
     ] },
   { id: 'order', label: 'Order', description: 'No automatic step yet', duration: '—', jobKind: null, localEnabled: false,

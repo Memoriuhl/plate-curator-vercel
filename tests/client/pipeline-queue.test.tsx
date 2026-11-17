@@ -5,11 +5,15 @@ import type { ReactNode } from 'react'
 import { usePipelineQueue } from '../../components/dashboard/use-pipeline-queue'
 import { PipelineQueuePanel } from '../../components/dashboard/pipeline-queue-panel'
 import type { QueueRunView } from '../../lib/jobs/queue-types'
+import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
+import { TAGGING_MODELS } from '../../lib/tagging/models'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
 vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace }))
+vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: TAGGING_MODELS }, modelId: 'desktop-gemma4-12b' }), TaggingModelPicker: () => <span>Local model</span> }))
+vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
   return { id: 'saved-run', requestId: 'request', fingerprint: 'input', batchId: 'batch', requestedBy: 'editor', env: 'preview:local-pipeline-test', localScope: 'test',
@@ -21,6 +25,7 @@ function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
 const plate = { id: 'AK.one', state: 'AK', displayName: 'One', revision: 'hash', tags: [] }
 const wrapper = ({ children }: { children: ReactNode }) => <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>{children}</SWRConfig>
 beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn()
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); localStorage.clear(); mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
   mocks.api.get.mockReset().mockResolvedValue({ runs: [saved()], selected: saved() })
@@ -70,7 +75,7 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   fireEvent.click(screen.getByRole('button', { name: 'Retry pending stages' })); expect(controls.retry).toHaveBeenCalledWith('failed')
   fireEvent.click(screen.getByRole('button', { name: 'Apply coherent run to your Batch' })); expect(controls.apply).toHaveBeenCalledWith('completed')
   fireEvent.click(screen.getByRole('button', { name: 'Hide results' })); expect(controls.select).toHaveBeenCalledWith('none')
-  const stale = saved({ status: 'running', waitReason: 'recovery', cancelRequestedAt: 100, jobs: [{ id: 'job', batchId: 'batch', plateId: 'AK.one', requestedBy: 'editor',
+  const stale = saved({ status: 'running', editable: false, waitReason: 'recovery', cancelRequestedAt: 100, jobs: [{ id: 'job', batchId: 'batch', plateId: 'AK.one', requestedBy: 'editor',
     env: 'preview:local-pipeline-test', inputHash: 'hash', state: 'claimed', createdAt: 100, claimId: 'claim', workerId: 'stopped-worker', queueAttempt: 1, queueStep: 0 }] })
   view.rerender(<PipelineQueuePanel queue={{ ...controls, runs: [stale], selected: stale }} />)
   expect(screen.getByText(/Cancellation requested/)).toBeTruthy()
@@ -81,4 +86,17 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   fireEvent.click(screen.getByLabelText('I verified this worker has stopped'))
   expect(button.disabled).toBe(false)
   fireEvent.click(button); expect(controls.recover).toHaveBeenCalledWith('saved-run', 'job', 'claim')
+})
+
+test('local controls select multiple stages, keep options snapshot, and permit Queue while Start is busy', async () => {
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  render(<PipelineRunControls underTagged={[plate]} batchPlates={[]} allPlates={[plate]} stateName="Alaska" queue={{ runs: [saved({ status: 'running' })], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Describe' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Story' }))
+  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(screen.getByLabelText(/Preview only/))
+  fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', {}, true))
 })

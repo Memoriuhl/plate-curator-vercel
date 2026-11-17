@@ -39,8 +39,9 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     if (Object.hasOwn(fields, 'sourceUrl') || Object.hasOwn(fields, 'imageUrl')) {
       fields.imageUrl = entry.executionPlate.imageUrl; fields.sourceUrl = entry.executionPlate.sourceUrl
     }
-    if (!parseEditableFields(fields)) return { ok: false, error: 'invalid_state' }
-    changes.set(before.id, fields)
+    const parsed = parseEditableFields(fields)
+    if (!parsed) return { ok: false, error: 'invalid_state' }
+    changes.set(before.id, parsed)
   }
   if (run.stages.includes('group')) {
     const selected = [...current.values()]

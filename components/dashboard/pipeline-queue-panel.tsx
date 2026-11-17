@@ -75,7 +75,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       {selected.waitReason === 'recovery' && currentJob?.claimId ? <details className="grid gap-2"><summary className="cursor-pointer">Recover a stopped worker</summary>
         <p className="caption">Verify that worker {currentJob.workerId} has stopped executing this stage. Releasing its slot cannot stop the worker.</p>
         <label className="caption flex items-center gap-2"><input type="checkbox" checked={verifiedClaim === currentJob.claimId} onChange={event => setVerifiedClaim(event.target.checked ? currentJob.claimId! : null)} />I verified this worker has stopped</label>
-        <Button size="sm" variant="outline" disabled={!selected.editable || !!queue.action || verifiedClaim !== currentJob.claimId} onClick={() => void queue.recover(selected.id, currentJob.id, currentJob.claimId!)}>Release verified stopped worker</Button>
+        <Button size="sm" variant="outline" disabled={!!queue.action || verifiedClaim !== currentJob.claimId} onClick={() => void queue.recover(selected.id, currentJob.id, currentJob.claimId!)}>Release verified stopped worker</Button>
       </details> : null}
       <details><summary className="caption cursor-pointer">Attempt history</summary><ol className="mt-[var(--stack-gap)] grid gap-[var(--stack-gap)]">
         {selected.attempts.map(attempt => <li key={attempt.number} className="caption">Attempt {attempt.number} · {attempt.status}{attempt.error ? ` · ${attempt.error.replaceAll('_', ' ')}` : ''} · {attempt.completedJobIds.length}/{attempt.steps.length} stages</li>)}

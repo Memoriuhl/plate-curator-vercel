@@ -26,3 +26,8 @@ export function parsePipelineOptions(input: unknown): PipelineOptions | null {
   }
   return result as PipelineOptions
 }
+
+export function snapshotPipelineOptions(stages: readonly string[], options: PipelineOptions): PipelineOptions {
+  return Object.fromEntries(Object.keys(defaultPipelineOptions).sort().filter(stage => stages.includes(stage)).map(stage =>
+    [stage, { ...defaultPipelineOptions[stage as keyof PipelineOptions], ...options[stage as keyof PipelineOptions] }]))
+}

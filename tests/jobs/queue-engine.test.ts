@@ -246,3 +246,21 @@ test('dead direct-stage jobs are visible and safely recoverable so old local API
   expect(await claimNext(s.deps, 'restarted-worker')).not.toBeNull()
   expect(await listLocalOrphanJobs(s.deps, actor)).toEqual([])
 })
+
+test('submitting a Batch cannot permanently reserve a dead managed worker; recovery writes no Batch fields and Retry stays forbidden', async () => {
+  const s = setup()
+  const run = await s.run('submitted-dead')
+  const claim = (await claimNext(s.deps, 'dead-worker'))!
+  await s.run('other-queue', ['tag'], other, 'other-batch')
+  const batch = (await s.review.getBatch('batch'))!
+  await s.review.commit('batch', 0, { batch: { ...batch, revision: 1, state: 'submitted' } })
+  const before = await s.review.readBatch('batch')
+  s.advance(11 * 60_000)
+  await observeQueueStage(s.deps, run.id, 1, 0)
+  expect(await claimNext(s.deps, 'replacement')).toBeNull()
+  expect(await confirmStoppedWorker(s.deps, actor, run.id, claim.job.id, claim.claimId)).toMatchObject({ ok: true })
+  await observeQueueStage(s.deps, run.id, 1, 0)
+  expect(await s.review.readBatch('batch')).toEqual(before)
+  expect(await retryRun(s.deps, actor, run.id, 'retry-submitted')).toMatchObject({ error: 'invalid_state' })
+  expect(await claimNext(s.deps, 'replacement')).not.toBeNull()
+})

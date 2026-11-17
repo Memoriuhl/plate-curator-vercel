@@ -43,7 +43,7 @@ export function projectJob(projection: RunProjection, job: TaggingJob): Projecti
     const suggestion = parseFieldSuggestion(job.result.fieldSuggestion, job.stage)
     if (!suggestion || !('fields' in suggestion) || Object.hasOwn(suggestion.fields, 'sourceUrl')) return { ok: false, error: 'invalid_result' }
     next = { ...next, ...suggestion.fields }
-  } else next = { ...next, tags: [...new Set([...next.tags, ...job.result.suggestions])] }
+  } else next = { ...next, tags: [...new Set([...next.tags, ...job.result.suggestions].map(tag => tag.trim().toLowerCase()).filter(Boolean))] }
   return { ok: true, value: { ...projection, plates: { ...projection.plates,
     [job.plateId]: { ...current, executionPlate: next, executionHash: plateRevision(next), sourceJobIds: [...current.sourceJobIds, job.id] },
   } } }
