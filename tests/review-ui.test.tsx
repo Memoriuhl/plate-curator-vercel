@@ -141,7 +141,7 @@ test('table renders every field kind, tags diff and unchanged values in order', 
     'success-tint',
   ])
     expect(html).toContain(value)
-  expect(html).toContain('Before · live v41')
+  expect(html).toContain('Before · Catalog v41')
   expect(html).toContain('After · rev 4')
 })
 test('owner can approve and editor cannot', () => {

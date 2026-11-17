@@ -161,7 +161,7 @@ export function DiffTable({
           : 'bg-[var(--success-tint)]'
         return (
           <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-13 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
-            <h3 className="font-semibold">{side === 'before' ? `Before · live v${version}` : `After · rev ${revision}`}</h3>
+            <h3 className="font-semibold">{side === 'before' ? `Before · Catalog v${version}` : `After · rev ${revision}`}</h3>
             {rows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
               const changed = JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '')
