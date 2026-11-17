@@ -227,7 +227,7 @@ it('Backspace with only Templates selected announces No Variants selected', asyn
 
 it('clears selection on an unmodified background click, preserving modified clicks, controls and navigation', () => {
   plateSelection.visible(plates)
-  render(<><SelectionPresence /><div>Background</div><nav><a href="/states/NJ">NJ</a></nav><button>Chip</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
+  render(<><SelectionPresence /><div>Background</div><nav><a href="#nj">NJ</a></nav><button>Chip</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
   act(() => plateSelection.add(plates))
   for (const modifiers of [{ ctrlKey: true }, { shiftKey: true }, { metaKey: true }]) {
     fireEvent.click(screen.getByText('Background'), modifiers)
