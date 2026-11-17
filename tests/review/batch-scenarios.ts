@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
 import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
@@ -12,7 +13,7 @@ const baseline: Plate[] = [
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png' },
 ]
 
-export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>) {
+export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>, concurrentEditTimeout?: number) {
   async function setup(overrides: Partial<ReviewBatch> = {}) {
     const batch: ReviewBatch = {
       stateOrders: {},
@@ -26,7 +27,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
       store, baselineAtVersion: async (_version, id) => baseline.find(plate => plate.id === id) ?? null, baseline: async id => baseline.find(plate => plate.id === id) ?? null,
       now: () => '2026-11-15T12:00:00Z',
     }
-    const input = { batchId: 'batch', plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
+    const input = { batchId: batch.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
     return { deps, store, input }
   }
 
@@ -188,11 +189,11 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
   })
 
   test('concurrent edits to the same plate reject the stale proposal', async () => {
-    const { deps, input } = await setup()
+    const { deps, input } = await setup({ id: `batch-pair-${randomUUID()}` })
     const results = await Promise.all([proposeEdit(deps, editor, input), proposeEdit(deps, owner, { ...input, fields: { tags: ['other'] } })])
     expect(results.filter(result => result.ok)).toHaveLength(1)
     expect(results.find(result => !result.ok)).toMatchObject({ error: 'stale_plate' })
-  })
+  }, concurrentEditTimeout)
 
   test.each(['published', 'conflict'] as const)('rejects editing a %s batch', async state => {
     const { deps, input } = await setup({ state })
