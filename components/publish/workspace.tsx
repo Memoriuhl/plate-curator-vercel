@@ -33,6 +33,7 @@ function BatchItem({
   onSelect: () => void
 }) {
   const run = useBatchRun(batch.state === 'published' ? batch.id : null)
+  const version = run.data?.outcome?.version
   const publishedAt = batch.state === 'published' ? run.data?.updatedAt : null
   const date = publishedAt ?? batch.approval?.at ?? batch.createdAt
   return (
@@ -43,7 +44,7 @@ function BatchItem({
         selected ? 'border-primary bg-muted' : 'border-transparent bg-card',
       )}
     >
-      {batch.state === 'published' ? <span className="mb-2 block text-4xl font-extrabold tracking-tight">v{run.data?.outcome?.version ?? '?'}</span> : <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">Approved &middot; waiting</span>}
+      {batch.state === 'published' ? (version == null ? <strong className="mb-2 block">Published</strong> : <span className="mb-2 block text-4xl font-extrabold tracking-tight">v{version}</span>) : <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">Approved &middot; waiting</span>}
       <strong className="block">{batch.name}</strong>
       <span className="block text-sm text-muted-foreground">
         {batch.createdByName || 'Curator'} · revision{' '}
@@ -146,7 +147,7 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
-      {batch.state !== 'published' && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
+      {batch.state !== 'published' && !canRetry && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
       {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
       {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
         <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>

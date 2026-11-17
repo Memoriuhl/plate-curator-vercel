@@ -5,8 +5,8 @@ import { BatchChanges, changesByState } from '../components/publish/batch-change
 import { PublishWorkspace } from '../components/publish/workspace'
 import type { BatchDetail } from '../lib/client/hooks'
 
-const status = vi.hoisted(() => ({ value: 'published' }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); status.value = 'published' })
+const status = vi.hoisted(() => ({ value: 'published', version: 16 as number | undefined, retry: false }))
+afterEach(() => { cleanup(); vi.restoreAllMocks(); status.value = 'published'; status.version = 16; status.retry = false })
 const baseline = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: 'one.webp', tags: [] }
 const entry = { baseline, proposed: { ...baseline, description: 'New' }, edit: null, revision: 'r', beforeImageUrl: '/one.webp', order: { before: 0, after: 1, total: 2 } }
 const batch = { baselineVersion: 1, revision: 2, stateOrders: {} } as BatchDetail['batch']
@@ -23,11 +23,18 @@ test('state and plate chevrons expand on demand with lazy thumbnails', () => {
   const view = render(<BatchChanges plates={[entry]} batch={batch} />)
   expect(screen.queryByRole('button', { name: /One/ })).toBeNull()
   expect(view.container.querySelector('img')?.getAttribute('loading')).toBe('lazy')
-  fireEvent.click(screen.getByRole('button', { name: /AK Alaska/ }))
+  const stateToggle = screen.getByRole('button', { name: /AK Alaska/ })
+  expect(stateToggle.hasAttribute('aria-controls')).toBe(false)
+  fireEvent.click(stateToggle)
+  expect(document.getElementById(stateToggle.getAttribute('aria-controls')!)).toBeTruthy()
   const row = screen.getByRole('button', { name: /One/ })
   expect(row.getAttribute('aria-expanded')).toBe('false')
+  expect(row.hasAttribute('aria-controls')).toBe(false)
+  expect(row.textContent).toContain('description')
+  expect(row.textContent).toContain('reordered: 1 \u2192 2')
   expect(screen.queryByText(/Before.*Catalog/)).toBeNull()
   fireEvent.click(row)
+  expect(document.getElementById(row.getAttribute('aria-controls')!)).toBeTruthy()
   expect(screen.getByText(/Before.*Catalog v1/)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /AK Alaska/ }))
   expect(screen.queryByText(/Before.*Catalog/)).toBeNull()
@@ -38,8 +45,8 @@ vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: vi.fn() }),
   useBatches: () => ({ data: [{ id: 'published', name: 'Autumn plates', state: status.value, createdAt: '2026-11-17', revision: 2, stateOrders: {} }] }),
   useBatch: () => ({ data: { batch: { id: 'published', name: 'Autumn plates', state: status.value, revision: 2, stateOrders: {} }, plates: [] } }),
-  useBatchRun: () => ({ data: { outcome: { version: 16 } } }),
-  usePublishBaseline: () => ({ data: {} }),
+  useBatchRun: () => ({ data: { outcome: { version: status.version } } }),
+  usePublishBaseline: () => ({ data: { canRetry: status.retry } }),
   useReviewActions: () => ({}),
 }))
 
@@ -69,3 +76,19 @@ test('missing approval remains a visible blocking message', () => {
   expect(screen.queryByRole('button', { name: /Publish revision/ })).toBeNull()
 })
 
+
+test('published batch without a version uses a normal Published title', () => {
+  status.version = undefined
+  render(<PublishWorkspace />)
+  const card = screen.getByRole('button', { name: /Published.*Autumn plates/ })
+  expect(card.querySelector('.text-4xl')).toBeNull()
+  expect(card.textContent).not.toContain('v?')
+})
+
+test('retry eligibility suppresses the current approval warning', () => {
+  status.value = 'approved'
+  status.retry = true
+  render(<PublishWorkspace />)
+  expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
+  expect(screen.queryByText(/needs current approval/)).toBeNull()
+})
