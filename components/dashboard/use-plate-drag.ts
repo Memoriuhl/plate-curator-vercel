@@ -276,7 +276,17 @@ export function usePlateDrag(options: Options) {
       if (pressed.current && pressed.current.pointerId !== event.pointerId) return
       actions.current.clearPress()
       if (current.current && !current.current.keyboard) void actions.current.drop()
-      if (suppress.current) setTimeout(() => { suppress.current = false })
+      if (suppress.current) {
+        const swallow = (click: MouseEvent) => { click.preventDefault(); click.stopPropagation() }
+        const release = () => window.removeEventListener('click', swallow, { capture: true })
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        window.addEventListener('pointerdown', release, { capture: true, once: true })
+        setTimeout(() => {
+          suppress.current = false
+          release()
+          window.removeEventListener('pointerdown', release, { capture: true })
+        })
+      }
     }
     function abort() { if (current.current) actions.current.cancel(); else actions.current.clearPress() }
     function key(event: globalThis.KeyboardEvent) {

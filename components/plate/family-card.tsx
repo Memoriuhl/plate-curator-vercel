@@ -255,12 +255,12 @@ export function FamilyCard({
       aria-label={template.displayName + ' family'}
       onClickCapture={event => drag?.suppressClick(event)}
       onPointerDown={event => {
-        if ((event.target as Element).closest('[data-plate-row], button, input, a')) return
+        if ((event.target as Element).closest('[data-plate-row], button, input, a') || (event.target as Element).hasAttribute('data-variant-scroll')) return
         onClosePreview?.()
         if (canEdit && !template.deleted && !entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'family', plate: template }, event)
       }}
       onClick={event => {
-        if ((event.target as Element).closest('[data-plate-row], button, input, a')) return
+        if ((event.target as Element).closest('[data-plate-row], button, input, a') || (event.target as Element).hasAttribute('data-variant-scroll')) return
         event.preventDefault()
         if (template.deleted || (matches && !matches(template))) return
         plateSelection.select(template.id, event)

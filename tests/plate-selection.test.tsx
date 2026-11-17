@@ -225,18 +225,20 @@ it('Backspace with only Templates selected announces No Variants selected', asyn
   expect(move).not.toHaveBeenCalled()
 })
 
-it('clears selection on an unmodified background click, preserving modified clicks and selection controls', () => {
+it('clears selection on an unmodified background click, preserving modified clicks, controls and navigation', () => {
   plateSelection.visible(plates)
-  render(<><SelectionPresence /><button>Background</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
+  render(<><SelectionPresence /><div>Background</div><nav><a href="/states/NJ">NJ</a></nav><button>Chip</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
   act(() => plateSelection.add(plates))
   for (const modifiers of [{ ctrlKey: true }, { shiftKey: true }, { metaKey: true }]) {
-    fireEvent.click(screen.getByRole('button', { name: 'Background' }), modifiers)
+    fireEvent.click(screen.getByText('Background'), modifiers)
     expect(plateSelection.snapshot()).toHaveLength(3)
   }
   fireEvent.click(screen.getByRole('button', { name: '3 selected' }))
+  fireEvent.click(screen.getByRole('link', { name: 'NJ' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Chip' }))
   expect(plateSelection.snapshot()).toHaveLength(3)
   fireEvent.click(screen.getByText('Plate a'))
   expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['b', 'c'])
-  fireEvent.click(screen.getByRole('button', { name: 'Background' }))
+  fireEvent.click(screen.getByText('Background'))
   expect(plateSelection.snapshot()).toHaveLength(0)
 })

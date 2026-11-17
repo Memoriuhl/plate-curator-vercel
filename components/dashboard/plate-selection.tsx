@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useId, useRef, useSyncExternalStore, type MouseEvent, type HTMLAttributes } from 'react'
-import { Button } from '@/components/ui/button'
 import { groupFamilies } from './family-data'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
@@ -104,7 +103,7 @@ export function SelectionPresence() {
     function dismiss(event: globalThis.MouseEvent) {
       if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
       const target = event.target
-      if (target instanceof Element && target.closest('[data-plate-selection], [data-selection-controls], [data-run-trigger], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]')) return
+      if (target instanceof Element && target.closest('a, button, input, textarea, select, label, nav, [role="button"], [role="tab"], [role="option"], [data-selection-controls], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], #plate-breakdown-preview')) return
       plateSelection.clear()
     }
     window.addEventListener('click', dismiss)

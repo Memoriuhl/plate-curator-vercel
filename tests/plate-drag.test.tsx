@@ -817,6 +817,16 @@ test('a background drop does not swallow the first row click while its save is p
   await act(async () => finish(success))
 })
 
+test('the click that ends a drop on the grid never reaches the window, so the selection survives', () => {
+  plateSelection.visible([a, v, w])
+  plateSelection.add([v, w])
+  const { handle } = setup({ rows: true, variant: true })
+  pointerDrag(handle, 110)
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+  document.body.dispatchEvent(click)
+  expect(click.defaultPrevented).toBe(true)
+})
+
 test('background drop suppression expires even without another pointerdown', async () => {
   plateSelection.visible([a, v, w])
   const { handle } = setup({ rows: true, variant: true })
