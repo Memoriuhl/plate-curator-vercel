@@ -22,6 +22,8 @@ export type Plate = StoryFields & {
   isStandard?: boolean
   sortOrder?: number
   description?: string | null
+  colorDetail?: string | null
+  lineageColor?: string | null
   [key: string]: unknown
 }
 

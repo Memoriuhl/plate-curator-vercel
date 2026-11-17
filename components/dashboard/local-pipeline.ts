@@ -2,8 +2,6 @@ import type { RunPlate } from './use-tag-run'
 
 export const localStageReasons: Record<string, string> = {
   'Find image': 'Run selection needs the connected run coordinator',
-  'Wiki link': 'Needs a reference-search job and draft result',
-  Colors: 'Needs a color job and editable color fields',
   Group: 'Run selection needs the connected run coordinator',
   Order: 'No automatic ordering implementation',
 }

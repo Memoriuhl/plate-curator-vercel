@@ -95,7 +95,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
         const edited = { ...plate, ...fields.get(plate.id) }
         delete edited.deleted
         if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
-        for (const key of ['firstIssuedYear', 'wikiUrl'] as const) {
+        for (const key of ['firstIssuedYear', 'wikiUrl', 'colorDetail', 'lineageColor'] as const) {
           if (fields.get(plate.id)?.[key] === null) delete edited[key]
         }
         const order = orders.get(plate.state)

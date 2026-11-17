@@ -162,7 +162,7 @@ export function TagRunBanner({
                   accepted={!!entry.jobId && savedFields[entry.plate.id] === entry.jobId}
                   accept={entry.job.previewOnly ? undefined : payload => acceptSpecialized(entry, payload)}
                 /> : null}
-                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">{entry.job.stageError === 'no_sources' ? 'No usable Wikipedia source was found for this plate.' : entry.job.stageError === 'no_supported_fields' ? 'The sources do not support a suggestion for this plate.' : 'This stage result is unavailable or invalid.'}</p> : null}
+                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">{entry.job.stageError === 'no_sources' ? 'No usable Wikipedia source was found for this plate.' : entry.job.stageError === 'missing_image' ? 'The local plate image could not be read.' : entry.job.stageError === 'no_supported_fields' ? 'The sources do not support a suggestion for this plate.' : 'This stage result is unavailable or invalid.'}</p> : null}
                 {entry.job.previewOnly && !entry.job.stage ? <p className="caption">Suggested tags: {entry.job.suggestions.join(', ') || 'None'}</p> : null}
                 {entry.job.state === 'completed' && !entry.error && !entry.job.stage && !entry.job.previewOnly ? (
                   <div className="flex flex-wrap gap-2">

@@ -448,7 +448,7 @@ test('local unsupported stages name the missing integration', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  expect(screen.getByRole('checkbox', { name: 'Wiki link: Needs a reference-search job and draft result' }).closest('fieldset')?.disabled).toBe(true)
+  expect(screen.getByRole('checkbox', { name: 'Group: Needs a grouping job and family draft results' }).closest('fieldset')?.disabled).toBe(true)
   expect(screen.queryByText('Coming soon')).toBeNull()
 })
 

@@ -7,7 +7,7 @@ const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
   describe: ['description'],
   story: ['funFacts', 'firstIssuedYear', 'readMore'],
   'wiki-link': ['wikiUrl'],
-  colors: [],
+  colors: ['colorDetail', 'lineageColor', 'tags'],
   'find-image': [],
   group: [],
   order: [],

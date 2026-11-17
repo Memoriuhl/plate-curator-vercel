@@ -29,15 +29,7 @@ export function relevantText(lines: string[], name: string) {
 }
 
 export async function gatherWikipedia(plate: WorkerPlate, request: typeof fetch = fetch): Promise<Source[]> {
-  async function query(params: Record<string, string>) {
-    const response = await request(`${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`, {
-      headers: { 'User-Agent': 'PlateCuratorLocal/1.0 (source-backed catalog drafts)' }, signal: AbortSignal.timeout(20000), redirect: 'error',
-    })
-    if (!response.ok) throw new Error(`Wikipedia request failed: ${response.status}`)
-    const text = await response.text()
-    if (text.length > 2_000_000) throw new Error('Wikipedia response exceeded the source limit')
-    return JSON.parse(text)
-  }
+  const query = (params: Record<string, string>) => wikipediaQuery(params, request)
   const titles = new Set<string>()
   const existing = wikiTitle(plate.wikiUrl)
   if (existing) titles.add(existing)
@@ -69,4 +61,14 @@ export async function gatherWikipedia(plate: WorkerPlate, request: typeof fetch 
     sources.push({ id: `S${sources.length + 1}`, kind: 'wikipedia', title: resolvedTitle.slice(0, 200), url: `https://en.wikipedia.org/wiki/${encodeURIComponent(resolvedTitle.replaceAll(' ', '_'))}`, text: text.slice(0, sources.length ? 1500 : 3000) })
   }
   return sources
+}
+
+export async function wikipediaQuery(params: Record<string, string>, request: typeof fetch = fetch) {
+  const response = await request(`${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`, {
+    headers: { 'User-Agent': 'PlateCuratorLocal/1.0 (source-backed catalog drafts)' }, signal: AbortSignal.timeout(20000), redirect: 'error',
+  })
+  if (!response.ok) throw new Error(`Wikipedia request failed: ${response.status}`)
+  const text = await response.text()
+  if (text.length > 2_000_000) throw new Error('Wikipedia response exceeded the source limit')
+  return JSON.parse(text)
 }

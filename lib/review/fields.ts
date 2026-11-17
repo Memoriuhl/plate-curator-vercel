@@ -4,8 +4,9 @@ import { commonsImageUrl, commonsSourceUrl } from '../jobs/image-options'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
 const storyKeys = storyFieldKeys
+export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
 const imageKeys = ['imageUrl', 'sourceUrl'] as const
-export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys] as const
+export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys, ...colorFieldKeys] as const
 export function editableFieldKeys() {
   return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys].some(localKey => localKey === key))
 }
@@ -36,7 +37,11 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
 
   const fields: EditableFields = {}
   for (const [key, value] of entries) {
-    if (key === 'imageUrl') {
+    if (key === 'colorDetail' || key === 'lineageColor') {
+      const text = boundedText(value, key === 'colorDetail' ? 120 : 60)
+      if (value !== null && !text) return null
+      fields[key] = text
+    } else if (key === 'imageUrl') {
       const url = commonsImageUrl(value)
       if (value !== null && !url) return null
       fields.imageUrl = url
@@ -107,6 +112,10 @@ export function parseEditableFields(input: unknown, candidate?: { imageUrl: stri
 
 export function parseStoryFields(input: unknown): EditableFields | null {
   return parseFields(input, new Set(storyKeys))
+}
+
+export function parseColorFields(input: unknown): EditableFields | null {
+  return parseFields(input, new Set(colorFieldKeys))
 }
 
 export function parseBatchInput(input: unknown): { name: string; plateIds: string[] } | null {
