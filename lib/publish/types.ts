@@ -1,8 +1,9 @@
+import type { BaselineError } from './baseline'
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
 
 export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
-export type PublishError = 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | 'stale_baseline' | 'receipt_baseline_conflict'
+export type PublishError = 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
   id: string
   batchId: string

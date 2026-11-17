@@ -51,3 +51,13 @@ test('a moved head is explicit and never silently retargets', async () => {
   expect(await response.json()).toMatchObject({ error: 'head_moved', liveVersion: 2 })
   expect(await mocks.reviewDeps().store.list({})).toHaveLength(1)
 })
+
+test.each(['head', 'snapshot'])('copy returns structured unavailable when the %s read fails', async failure => {
+  const deps = mocks.publishDeps()
+  if (failure === 'head') deps.pointer.read = async () => { throw new Error('head unavailable') }
+  else deps.snapshots.read = async () => { throw new Error('snapshot unavailable') }
+  const response = await POST(request({ revision: 2, targetVersion: 2 }), ctx)
+  expect(response.status).toBe(503)
+  expect(await response.json()).toEqual({ ok: false, error: 'unavailable' })
+  expect(await deps.store.list({})).toHaveLength(1)
+})

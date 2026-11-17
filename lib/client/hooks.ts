@@ -8,6 +8,7 @@ import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
+import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -111,7 +112,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { error: 'stale_baseline' | 'receipt_baseline_conflict' | null; reviewedVersion: number; liveVersion: number }
+export type PublishBaselineStatus = { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
 
 export function usePublishBaseline(id: string) {
   const { user, api } = useSession()
@@ -133,8 +134,8 @@ export function useReviewActions() {
         return { ok: true }
       } catch (error) {
         const messages: Record<string, string> = {
-          stale_baseline: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
-          receipt_baseline_conflict: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
+          [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
+          [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed since approval and must be re-approved.',
           not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',

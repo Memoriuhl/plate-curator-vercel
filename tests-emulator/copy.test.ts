@@ -66,3 +66,12 @@ test('incompatible inventory produces no Batch, edits or signal', async () => {
   expect((await db.doc(`reviewBatches/${targetId}`).get()).exists).toBe(false)
   expect((await db.doc(signalPath(liveEnvKey(env), targetId)).get()).exists).toBe(false)
 })
+
+test('a copy transaction replay survives source revision and state changes', async () => {
+  const copied = await copyBatch(d, owner, input)
+  expect(copied.ok).toBe(true)
+  if (!copied.ok) return
+  await db.doc('reviewBatches/batch').update({ state: 'open', revision: 3, approval: null })
+  expect(await copyBatch(d, owner, input)).toEqual(copied)
+  expect(await store.copy({ ...input, batch: copied.value, edits: [] })).toEqual(copied)
+})

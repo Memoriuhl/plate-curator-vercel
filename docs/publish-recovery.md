@@ -19,6 +19,12 @@ for triage and releasing the reservation. A committed legacy receipt may finish
 curator order and Batch bookkeeping. Never delete a committed receipt or retry
 it as a fresh release.
 
+If a legacy `receipt_baseline_conflict` has already uploaded a blob at
+`fromVersion + 1`, publishing a fresh copy on that same Catalog head will hit
+`version_taken`. Clearing that orphaned Snapshot belongs to Snapshot abandonment
+[#129](https://github.com/Memoriuhl/plate-curator-vercel/issues/129). Until that
+recovery is available, triage leaves both the pointer and the blob untouched.
+
 The Owner can select **Copy to new Batch** in Publish. POST
 `/api/batches/:id/copy` accepts the source revision and explicit target Catalog
 version; the environment comes from the server. The target identity is derived

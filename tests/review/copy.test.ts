@@ -109,3 +109,14 @@ test.each([
   expect(await f.store.readBatch(batch.id)).toEqual(original)
   expect(await f.store.list({})).toHaveLength(1)
 })
+
+test.each(['open', 'published'] as const)('replay returns the existing copy after the source becomes %s', async state => {
+  const f = setup()
+  const copied = await copyBatch(f.d, owner, f.input)
+  expect(copied.ok).toBe(true)
+  if (!copied.ok) return
+  await f.store.commit(batch.id, 2, { batch: { ...batch, state, revision: 3, approval: null } })
+  expect(await copyBatch(f.d, owner, f.input)).toEqual(copied)
+  expect(await f.store.copy({ ...f.input, batch: copied.value, edits: [] })).toEqual(copied)
+  expect(await f.store.list({})).toHaveLength(2)
+})

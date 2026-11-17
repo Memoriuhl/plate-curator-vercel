@@ -2,8 +2,8 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { ApiError } from '@/lib/client/api'
+import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
+import { CopyRecovery } from './copy-recovery'
 import {
   useBatch,
   useBatches,
@@ -84,14 +84,12 @@ function BatchSelection({
   const detail = useBatch(id)
   const run = useBatchRun(id)
   const baseline = usePublishBaseline(id)
-  const router = useRouter()
   const actions = useReviewActions()
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [requested, setRequested] = useState(false)
-  const [blockedVersion, setBlockedVersion] = useState<number | null>(null)
-  const [copyReasons, setCopyReasons] = useState<string[]>([])
+  const [rejectedLiveVersion, setRejectedLiveVersion] = useState<number | null>(null)
   if (detail.error) return <p role="alert">Could not load this Batch.</p>
   if (!detail.data) return <p role="status">Loading Batch…</p>
   const { batch, plates } = detail.data
@@ -101,9 +99,9 @@ function BatchSelection({
     .join(', ')
   const revision = batch.approval?.revision
   const failed = run.data?.outcome
-  const receiptConflict = baseline.data?.error === 'receipt_baseline_conflict' || failed?.error === 'receipt_baseline_conflict'
-  const blocked = baseline.data?.error || blockedVersion !== null || failed?.error === 'stale_baseline' || failed?.error === 'receipt_baseline_conflict'
-  const liveVersion = blockedVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
+  const receiptConflict = baseline.data?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
+  const blocked = baseline.data?.error || rejectedLiveVersion !== null || isBaselineError(failed?.error)
+  const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
   const canPublish =
     batch.state === 'approved' &&
     revision !== undefined &&
@@ -123,30 +121,12 @@ function BatchSelection({
         setMessage('Publish requested. Waiting for the run…')
       } else {
         setMessage(result.message)
-        if (result.liveVersion !== undefined) setBlockedVersion(result.liveVersion)
+        if (result.liveVersion !== undefined) setRejectedLiveVersion(result.liveVersion)
       }
       dialog.current?.close()
     } finally {
       setBusy(false)
     }
-  }
-  async function copy() {
-    if (liveVersion === undefined || liveVersion === null) return
-    setBusy(true)
-    setRequested(false)
-    setCopyReasons([])
-    try {
-      const copied = await actions.copy(id, batch.revision, liveVersion)
-      router.push(`/review?batch=${encodeURIComponent(copied.id)}`)
-    } catch (error) {
-      if (error instanceof ApiError && error.code === 'head_moved' && typeof error.body.liveVersion === 'number') {
-        setBlockedVersion(error.body.liveVersion)
-        setMessage(`The Catalog moved to v${error.body.liveVersion}. Choose Copy to new Batch again to review that version.`)
-      } else {
-        setMessage(error instanceof ApiError && error.code === 'incompatible' ? 'These proposals need manual recovery. The original Batch is preserved.' : 'Could not copy this Batch. Refresh and try again.')
-        if (error instanceof ApiError && Array.isArray(error.body.reasons)) setCopyReasons(error.body.reasons.filter((reason): reason is string => typeof reason === 'string'))
-      }
-    } finally { setBusy(false) }
   }
   return (
     <section className="min-w-0 space-y-6 rounded-3xl bg-card p-5">
@@ -164,13 +144,8 @@ function BatchSelection({
       </header>
       <RunStatus batchId={id} />
       {batch.state === 'approved' && blocked && liveVersion !== undefined && (
-        <div role="alert" className="space-y-3 rounded-2xl border border-border p-4">
-          <p>Reviewed Catalog v{batch.baselineVersion}; current Catalog v{liveVersion}. {receiptConflict ? 'The interrupted Publish used an unreviewed baseline; its receipt needs triage.' : 'Publish stopped because the baseline changed.'}</p>
-          <p>Copy the proposals for a fresh review. The new Batch requires Submit, Approve, and Publish.</p>
-          <Button disabled={busy} onClick={copy}>{busy ? 'Copying…' : 'Copy to new Batch'}</Button>
-        </div>
+        <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
       )}
-      {copyReasons.length > 0 && <ul>{copyReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
       {message &&
         (!requested ||
           !run.data?.phase ||

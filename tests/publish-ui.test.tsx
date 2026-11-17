@@ -132,3 +132,9 @@ test('an order field counts a selected move even when its numeric position stays
   expect(changeSummary(baseline, baseline, entry.order)).toContain('reordered: 2 → 2')
   expect(groupChanges([{ ...entry, order: undefined }]).Reordered).toEqual([])
 })
+
+test('pointer_moved directs the Owner to Copy instead of reapproving the old Batch', () => {
+  const html = renderToStaticMarkup(<RunStatusView run={{ runId: 'run', phase: 'failed', updatedAt: null, outcome: { error: 'pointer_moved' } }} />)
+  expect(html).toContain('Open Publish and copy to a new Batch for fresh review.')
+  expect(html).not.toContain('Fix the Batch and approve it again.')
+})

@@ -13,21 +13,19 @@ export type CopyDeps = {
 }
 export type CopyOutcome = CopyCommitResult | { ok: false; error: 'forbidden' | 'incompatible'; reasons?: string[] }
 
-// One identity per source revision and target head, across Owners and retries.
 export function copyBatchId(env: string, sourceId: string, revision: number, version: number) {
   return `copy-${createHash('sha256').update(JSON.stringify([env, sourceId, revision, version])).digest('hex')}`
 }
 
 export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: string; sourceRevision: number; targetVersion: number }): Promise<CopyOutcome> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
+  const id = copyBatchId(d.env, input.sourceId, input.sourceRevision, input.targetVersion)
+  const existing = await d.store.getBatch(id)
+  if (existing) return { ok: true, value: existing }
   const source = await d.store.readBatch(input.sourceId)
   if (!source) return { ok: false, error: 'not_found' }
   if (source.batch.revision !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
   if (source.batch.state !== 'approved') return { ok: false, error: 'invalid_state' }
-  const id = copyBatchId(d.env, input.sourceId, input.sourceRevision, input.targetVersion)
-  // Replays return the same copy, even if it has since been edited or the head moved.
-  const existing = await d.store.getBatch(id)
-  if (existing) return { ok: true, value: existing }
   const liveVersion = await d.head()
   if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
   const snapshot = await d.snapshot(input.targetVersion)

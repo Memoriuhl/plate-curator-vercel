@@ -1,3 +1,4 @@
+import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
 import { sha256, snapshotBytes } from './bytes'
@@ -40,10 +41,11 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
   }
   try {
     record = await d.records.get(id)
-    // A durable receipt owns the release identity. Never rebuild it on a new head.
-    if (record && !record.committedAt && record.fromVersion !== batch.baselineVersion) {
+    const liveVersion = record?.committedAt ? record.fromVersion : (await d.pointer.read()).version
+    const baselineError = publishBaselineError(batch.baselineVersion, liveVersion, record)
+    if (baselineError) {
       keepFrozen = false
-      return { ok: false, error: 'receipt_baseline_conflict', reviewedVersion: batch.baselineVersion, liveVersion: (await d.pointer.read()).version }
+      return { ok: false, error: baselineError, reviewedVersion: batch.baselineVersion, liveVersion }
     }
     if (record?.state === 'failed') {
       keepFrozen = false
@@ -54,11 +56,7 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
     if (record && existingChecksum !== null && existingChecksum !== record.blobSha256) return await fail('version_taken')
     if (record?.committedAt && existingChecksum === null) return { ok: false, error: 'unavailable' }
     if (!record || existingChecksum === null) {
-      const fromVersion = record?.fromVersion ?? (await d.pointer.read()).version
-      if (!record && fromVersion !== batch.baselineVersion) {
-        keepFrozen = false
-        return { ok: false, error: 'stale_baseline', reviewedVersion: batch.baselineVersion, liveVersion: fromVersion }
-      }
+      const fromVersion = record?.fromVersion ?? liveVersion
       const baseline = await d.snapshots.read(fromVersion)
       if (!baseline || baseline.version !== fromVersion || !Array.isArray(baseline.plates) || baseline.plates.some(plate => !plate || typeof plate !== 'object')) {
         keepFrozen = false

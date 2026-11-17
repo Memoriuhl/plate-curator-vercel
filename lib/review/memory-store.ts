@@ -7,12 +7,12 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
 
   return {
     async copy(input) {
+      const existing = batches.get(input.batch.id)
+      if (existing) return { ok: true, value: structuredClone(existing) }
       const source = batches.get(input.sourceId)
       if (!source) return { ok: false, error: 'not_found' }
       if (source.revision !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
       if (source.state !== 'approved') return { ok: false, error: 'invalid_state' }
-      const existing = batches.get(input.batch.id)
-      if (existing) return { ok: true, value: structuredClone(existing) }
       const liveVersion = head()
       if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
       batches.set(input.batch.id, structuredClone(input.batch))

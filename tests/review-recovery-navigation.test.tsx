@@ -25,7 +25,6 @@ test('a copied Batch link waits for its detail and opens its own fresh before va
   state.old = { batch: { ...batch, id: 'old', state: 'submitted' }, plates: [oldPlate] }
   const props = { states: [{ code: 'CA', name: 'California', plates: snapshot.plates.map(plate => ({ ...plate, imageUrl: null })) }] }
   const view = render(<ReviewWorkspace {...props} />)
-  // The unrelated Batch loads first; its auto-navigation must not replace the recovery link.
   await waitFor(() => expect(screen.getAllByText(/Tags/).length).toBeGreaterThan(0))
   expect(state.replace).not.toHaveBeenCalled()
   expect(screen.queryByText(/proposed: other pending proposal/)).toBeNull()

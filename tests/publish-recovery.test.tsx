@@ -3,20 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { PublishWorkspace } from '../components/publish/workspace'
 import { ApiError } from '../lib/client/api'
-import { batch } from './publish/fixture'
+import { batch, command, fixture } from './publish/fixture'
+import { publishBaselineStatus } from '../lib/publish/baseline-status'
 
-const mocks = vi.hoisted(() => ({ copy: vi.fn(), push: vi.fn(), live: 2, run: false }))
+const mocks = vi.hoisted(() => ({ copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
   useMe: () => ({ data: { role: 'owner' } }),
   useBatch: () => ({ data: { batch, plates: [] } }),
   useBatches: () => ({ data: [batch] }),
-  useBatchRun: () => ({ data: mocks.run ? { phase: 'failed', outcome: { error: 'stale_baseline', reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
-  usePublishBaseline: () => ({ data: { error: mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
+  useBatchRun: () => ({ data: mocks.run ? { phase: 'failed', outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
+  usePublishBaseline: () => ({ data: { error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
   usePlateDetail: () => ({}),
   useReviewActions: () => ({ copy: mocks.copy }),
 }))
-beforeEach(() => { vi.clearAllMocks(); mocks.live = 2; mocks.run = false; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
+beforeEach(() => { vi.clearAllMocks(); mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
 afterEach(cleanup)
 
 test.each([false, true])('Owner sees reviewed and live versions and opens a fresh review (Workflow failure: %s)', async failedRun => {
@@ -48,4 +49,26 @@ test('incompatible proposals display affected items and retain the original Batc
   expect(screen.getByText('State order no longer matches Jurisdiction: CA')).toBeTruthy()
   expect(screen.getByText(/The original Batch is preserved/)).toBeTruthy()
   expect(mocks.push).not.toHaveBeenCalled()
+})
+
+test('copy service unavailability gives a retry message without navigating away', async () => {
+  mocks.copy.mockRejectedValueOnce(new ApiError(503, 'unavailable', {}))
+  render(<PublishWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
+  await screen.findByText('The current Catalog is temporarily unavailable. Try Copy to new Batch again.')
+  expect(mocks.push).not.toHaveBeenCalled()
+})
+
+
+test('a pointer_moved failure with an effectively stale baseline offers Copy to new Batch', async () => {
+  const f = fixture()
+  f.records.set('batch@2', { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'old', state: 'failed', failure: 'pointer_moved' })
+  f.deps.pointer.read = async () => ({ version: 2 })
+  mocks.run = true
+  mocks.runError = 'pointer_moved'
+  mocks.baselineError = (await publishBaselineStatus(f.deps, batch)).error
+  render(<PublishWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
+  await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
+  await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh'))
 })
