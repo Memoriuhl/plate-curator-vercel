@@ -158,7 +158,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s prom
     const second = render(<Workspace actor={owner} />)
     await ready(first); await ready(second)
     targetRects(first.container)
-    const handle = within(first.container).getByRole('button', { name: 'Variant variant' })
+    const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
     if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540, 100) }
     else { fireEvent.keyDown(handle, { key: ' ', shiftKey: true }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
     const order = ['AK.b', 'AK.a', 'AK.v']
@@ -177,7 +177,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s prom
     expect(requests.filter(r => r.method === 'PUT').at(-1)?.body).toMatchObject({ batchRevision: revision, promotion: { plateId: 'AK.v' } })
     if (change === 'order') expect((await deps.store.getBatch('shared'))!.stateOrders.AK).toEqual(order)
     if (change === 'order') expect(Array.from(first.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.b', 'AK.a'])
-    if (mode === 'keyboard') await waitFor(() => expect(document.activeElement).toBe(within(first.container).getByRole('button', { name: 'Variant variant' })))
+    if (mode === 'keyboard') await waitFor(() => expect(document.activeElement).toBe(first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!))
     cleanup()
   }
 })
@@ -187,7 +187,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   const second = render(<Workspace actor={owner} />)
   await ready(first); await ready(second)
   targetRects(first.container)
-  const handle = within(first.container).getByRole('button', { name: 'Variant variant' })
+  const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540) }
   else { fireEvent.keyDown(handle, { key: ' ', shiftKey: true }); fireEvent.keyDown(window, { key: 'ArrowRight' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
   expect((await reorderState(deps, owner, { batchId: 'other', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })).ok).toBe(true)
@@ -233,7 +233,7 @@ test('remote update during an active drag is deferred, then applied with the ori
   const second = render(<Workspace actor={owner} page index={2} />)
   await ready(first); await ready(second)
   targetRects(first.container)
-  const handle = button(first, 'Variant variant')
+  const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 110)
   fireEvent.click(button(second, 'Add Variant to family'))
   await waitFor(() => expect(first.container.textContent).toContain('rev 1'))

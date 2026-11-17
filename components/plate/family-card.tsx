@@ -115,11 +115,12 @@ export function FamilyCard({
       <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}
         data-plate-row={plate.id}
         data-drag-handle-id={plate.id}
-        aria-label={plate.displayName + (small ? ' variant' : ' template')}
-        aria-keyshortcuts="Space Enter Shift+Space"
+        aria-keyshortcuts={drag?.enabled && !plate.deleted ? "Space Enter Shift+Space" : "Space Enter"}
         title={drag?.handleTitle}
         onKeyDown={event => {
-          if (event.target !== event.currentTarget || entranceRunning(event.currentTarget)) return
+          if (event.target !== event.currentTarget) return
+          if (event.key === ' ') event.preventDefault()
+          if (entranceRunning(event.currentTarget)) return
           if (drag?.active?.keyboard || (event.key === ' ' && event.shiftKey)) {
             drag?.onKeyDown(item, event)
           } else if (event.key === ' ') {
@@ -172,11 +173,12 @@ export function FamilyCard({
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
         {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="caption absolute -top-3 -left-3 rounded-[var(--radius-sm)] bg-[var(--fill)] px-1 text-[var(--ink-2)]">{number}</span> : null}
         <Link
           href={href}
           data-plate-open
+          tabIndex={-1}
+          aria-hidden="true"
           aria-label={'Open ' + plate.displayName}
           prefetch={false}
           className="shrink-0 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
@@ -234,6 +236,7 @@ export function FamilyCard({
             ) : null}
           </div>
           <CheckStrip checks={plate.checks} />
+          {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
         </div>
         {marker ? <span data-batch-marker>{marker}</span> : null}
       </SelectionPlate>

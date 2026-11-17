@@ -128,3 +128,9 @@ test('every plate keeps its title and checks together beside the image', () => {
   expect(html).toContain('hyphens-auto')
   expect(html).not.toContain('[overflow-wrap:anywhere]')
 })
+
+
+test('tight icon rules override narrow-card sizing', () => {
+  const css = readFileSync('app/globals.css', 'utf8')
+  expect(css.indexOf('@container plate-checks (width < 124px)')).toBeGreaterThan(css.indexOf('@container family-card (width < 328px)'))
+})

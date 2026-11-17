@@ -273,6 +273,7 @@ export function usePlateDrag(options: Options) {
       if (pressed.current && pressed.current.pointerId !== event.pointerId) return
       actions.current.clearPress()
       if (current.current && !current.current.keyboard) void actions.current.drop()
+      if (suppress.current) setTimeout(() => { suppress.current = false })
     }
     function abort() { if (current.current) actions.current.cancel(); else actions.current.clearPress() }
     function key(event: globalThis.KeyboardEvent) {
@@ -324,8 +325,8 @@ export function usePlateDrag(options: Options) {
   useEffect(() => { if (!enabled && current.current) actions.current.cancel() }, [enabled])
 
   function onPointerDown(item: DragItem, event: PointerEvent<HTMLElement>) {
-    if (!enabled || item.plate.deleted || event.button !== 0) return
     suppress.current = false
+    if (!enabled || item.plate.deleted || event.button !== 0) return
     clearPress()
     pressed.current = { item, x: event.clientX, y: event.clientY, geometry: measureDragGeometry(item, event.clientX, event.clientY, event.currentTarget), pointerId: event.pointerId, timer: null }
     if (event.pointerType === 'touch') pressed.current.timer = setTimeout(() => lift(item, event.clientX, event.clientY, false), 400)

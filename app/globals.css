@@ -628,10 +628,7 @@ body {
   .family-plate-details [data-check] svg { width: 16px; height: 16px; }
 }
 
-@container plate-checks (width < 124px) {
-  .family-plate-details [data-check] { width: 14px; height: 14px; }
-  .family-plate-details [data-check] svg { width: 14px; height: 14px; }
-}
+
 
 .family-card { container-name: family-card; }
 
@@ -644,4 +641,9 @@ body {
   .family-plate-details [data-check-strip] { gap: 2px; }
   .family-plate-details [data-check],
   .family-plate-details [data-check] svg { width: 16px; height: 16px; }
+}
+
+@container plate-checks (width < 124px) {
+  .family-plate-details [data-check] { width: 14px; height: 14px; }
+  .family-plate-details [data-check] svg { width: 14px; height: 14px; }
 }

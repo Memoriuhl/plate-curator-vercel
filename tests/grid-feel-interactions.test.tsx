@@ -24,7 +24,6 @@ test('plate pointer intent and focus prefetch each plate once', () => {
   fireEvent.pointerEnter(links[0])
   fireEvent.focus(links[0])
   fireEvent.focus(links[1])
-  fireEvent.focus(links[2])
   expect(prefetch.mock.calls).toEqual([['/plates/' + plateCards[0].id], ['/plates/' + plateCards[1].id]])
 })
 

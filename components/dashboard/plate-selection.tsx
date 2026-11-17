@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type HTMLAttributes } from 'react'
+import { useEffect, useId, useRef, useSyncExternalStore, type MouseEvent, type HTMLAttributes } from 'react'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
 export function createPlateSelection() {
@@ -60,6 +60,7 @@ export function selectionInput(target: EventTarget | null) {
 }
 export function SelectionPlate({ id, children, disabled = false, className = '', ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'id'> & { id: string; disabled?: boolean }) {
   const selected = usePlateSelected(id)
+  const statusId = useId()
   function select(event: MouseEvent) {
     const target = event.target as Element
     if (target.closest('button, input, [data-plate-open]')) return
@@ -68,9 +69,10 @@ export function SelectionPlate({ id, children, disabled = false, className = '',
     event.stopPropagation()
     if (!disabled) plateSelection.select(id, event)
   }
-  return <div {...props} role="button" tabIndex={0} aria-pressed={selected} aria-disabled={disabled} onClickCapture={select}
+  return <div {...props} tabIndex={0} data-selected={selected} aria-describedby={statusId} aria-disabled={disabled} onClickCapture={select}
     className={'relative select-none rounded-[var(--radius-sm)] transition-shadow focus-visible:outline-2 focus-visible:outline-[var(--primary)] ' + (selected ? 'bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ring-2 ring-[var(--primary)] ' : 'hover:ring-1 hover:ring-[var(--hairline)] ') + className}>
     {children}
+    <span id={statusId} className="sr-only">{selected ? 'Selected' : 'Not selected'}</span>
   </div>
 }
 
