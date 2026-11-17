@@ -47,9 +47,10 @@ function increasingSubsequence(values: number[]): Set<number> {
 }
 
 export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outcome<BatchDetail>> {
-  const batch = await d.store.getBatch(batchId)
-  if (!batch) return { ok: false, error: 'not_found' }
-  const edits = new Map((await d.store.listEdits(batchId)).map(edit => [edit.plateId, edit]))
+  const snapshot = await d.store.readBatch(batchId)
+  if (!snapshot) return { ok: false, error: 'not_found' }
+  const { batch } = snapshot
+  const edits = new Map(snapshot.edits.map(edit => [edit.plateId, edit]))
   const plates: BatchDetail['plates'] = []
   const orders = new Map<string, { before: number; after: number; total: number }>()
   const ids = new Set(batch.plateIds)

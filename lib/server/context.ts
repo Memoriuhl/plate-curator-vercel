@@ -18,6 +18,8 @@ import type { PublishDeps } from '../publish/types'
 import { requireEnv } from '../env'
 import { stagingFirestore } from '../gcp/firestore'
 import { loadSnapshot } from '../gcp/storage'
+import type { LiveAccessDeps } from '../live/access'
+import { firestoreLiveAccessWriter } from '../live/firestore-access'
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
@@ -52,6 +54,10 @@ export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> =
   const imageBase = PLATE_IMAGE_BASE || null
   if (catalogSourceKind({ CATALOG_SOURCE, VERCEL_ENV }) === 'fixture') return fixtureSource(imageBase)
   return firestoreCatalogSource(stagingFirestore(), snapshotLoader, imageBase)
+}
+
+export function liveAccessDeps(): LiveAccessDeps {
+  return { env: reviewEnv(), now: () => new Date(), write: firestoreLiveAccessWriter(stagingFirestore()) }
 }
 
 export function reviewDeps(): ReviewDeps {

@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from 'vitest'
-import { firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
+import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
 import { publishBatch } from '../lib/publish/publish'
 import type { PublishLease, PublishRecord } from '../lib/publish/types'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
@@ -90,9 +90,9 @@ test('pointer transaction refuses a superseded batch even with a matching pointe
   expect((await pointer.read()).version).toBe(1)
 })
 
-test('publishes and reconciles through all three adapters', async () => {
+test('publishes and reconciles through the Firestore adapters', async () => {
   const f = fixture()
-  const deps = { ...f.deps, store, lock, records, pointer }
+  const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
   const advance = pointer.advance
   deps.pointer = { ...pointer, advance: async (...args) => { await advance(...args); throw new Error('lost response') } }
   expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: false, error: 'unavailable' })
@@ -101,6 +101,7 @@ test('publishes and reconciles through all three adapters', async () => {
   deps.pointer = pointer
   expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { state: 'done', toVersion: 2 } })
   expect(await store.getBatch(batch.id)).toMatchObject({ state: 'published', revision: 3 })
+  expect((await db.doc('curatorLive/publish-test/batchRevisions/batch').get()).data()).toEqual({ revision: 3 })
   expect((await db.doc('locks/publish').get()).exists).toBe(false)
 })
 

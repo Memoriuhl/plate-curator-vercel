@@ -1,13 +1,16 @@
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
-export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'stateOrders'> & { createdByName?: string | null; stateOrders?: Record<string, string[]> })[]): ReviewStore {
+export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'stateOrders'> & { createdByName?: string | null; stateOrders?: Record<string, string[]> })[]): ReviewStore & { signalRevision(batchId: string): number | null } {
   const batches = new Map(seed.map(batch => [batch.id, structuredClone({ ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} })]))
+  const signals = new Map(seed.map(batch => [batch.id, batch.revision]))
   const edits = new Map<string, Map<string, ProposedEdit>>()
 
   return {
+    signalRevision: batchId => signals.get(batchId) ?? null,
     async create(batch) {
       if (batches.has(batch.id)) return 'exists'
       batches.set(batch.id, structuredClone(batch))
+      signals.set(batch.id, batch.revision)
       return 'ok'
     },
     async list(filter) {
@@ -17,6 +20,10 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
     },
     async listEdits(batchId) {
       return structuredClone([...edits.get(batchId)?.values() ?? []])
+    },
+    async readBatch(batchId) {
+      const batch = batches.get(batchId)
+      return batch ? structuredClone({ batch, edits: [...edits.get(batchId)?.values() ?? []] }) : null
     },
     async getBatch(id) {
       return structuredClone(batches.get(id) ?? null)
@@ -47,6 +54,7 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       if (saved.edit) batchEdits.set(saved.edit.plateId, saved.edit)
       edits.set(batchId, batchEdits)
       batches.set(batchId, saved.batch)
+      signals.set(batchId, saved.batch.revision)
       return 'ok'
     },
   }
