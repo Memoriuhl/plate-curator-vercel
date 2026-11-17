@@ -1,3 +1,9 @@
+vi.mock('../components/ui/tooltip', () => ({
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <span role="tooltip">{children}</span>,
+}))
 import { filterCounts } from '../components/dashboard/family-data'
 import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -80,7 +86,7 @@ test('filter bar renders fixture check counts and preserves query when selecting
   expect(html).toContain('Changed in a batch<span>3</span>')
   expect(html).toContain('No fun facts<span>44</span>')
   expect(html).toContain('Under-tagged<span>0</span>')
-  expect(html).toContain('Generic description<span>2</span>')
+  expect(html).toContain('Generic description<span>0</span>')
   toggles.get('Under-tagged')!.onPressedChange(true)
   expect(navigation.replace).toHaveBeenCalledWith(
     '/states/AK?q=gold&show=undertagged',
@@ -114,6 +120,6 @@ test('needs-work counts include weak and missing metadata', () => {
     <FilterBarControls counts={filterCounts(plates)} changedCount={0} />,
   )
   expect(html).toContain('Under-tagged<span>2</span>')
-  expect(html).toContain('Generic description<span>2</span>')
+  expect(html).toContain('Generic description<span>1</span>')
   expect(html).toContain('No fun facts<span>2</span>')
 })

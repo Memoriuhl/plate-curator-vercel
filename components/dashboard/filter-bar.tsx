@@ -1,22 +1,22 @@
 'use client'
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import {
-  IoBulbOutline,
-  IoPricetagOutline,
-  IoHappyOutline,
-} from 'react-icons/io5'
-import type { FilterCounts } from './family-data'
+import { NEEDS_WORK_CHECKS, type FilterCounts } from './family-data'
 import { useWorkspaceBatch, useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
-import { StatusIcon } from '@/components/plate/status-icon'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 
 export function FilterBar({
   counts,
   code,
+  resolveGroup,
+  onSelectGroup,
 }: {
   counts: FilterCounts
   code: string
+  resolveGroup?(key: string): string[]
+  onSelectGroup?(key: string, ids: string[]): void
 }) {
   const workspace = useWorkspaceBatch()
   const batches = useBatches(['open'], { mine: true })
@@ -24,15 +24,19 @@ export function FilterBar({
   const changedCount = new Set(
     batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
   ).size
-  return <FilterBarControls counts={counts} changedCount={changedCount} />
+  return <FilterBarControls counts={counts} changedCount={changedCount} resolveGroup={resolveGroup} onSelectGroup={onSelectGroup} />
 }
 
 export function FilterBarControls({
   counts,
   changedCount,
+  resolveGroup,
+  onSelectGroup,
 }: {
   counts: FilterCounts
   changedCount: number
+  resolveGroup?(key: string): string[]
+  onSelectGroup?(key: string, ids: string[]): void
 }) {
   const params = useSearchParams()
   const router = useRouter()
@@ -40,28 +44,15 @@ export function FilterBarControls({
   const filters = [
     { key: 'all', label: 'All plates', count: counts.all },
     { key: 'changed', label: 'Changed in a batch', count: changedCount },
-    {
-      key: 'nofunfacts',
-      label: 'No fun facts',
-      count: counts.nofunfacts,
-      icon: IoBulbOutline,
-    },
-    {
-      key: 'undertagged',
-      label: 'Under-tagged',
-      count: counts.undertagged,
-      icon: IoPricetagOutline,
-    },
-    {
-      key: 'generic',
-      label: 'Generic description',
-      count: counts.generic,
-      icon: IoHappyOutline,
-    },
+    ...NEEDS_WORK_CHECKS.map(({ key, label, checkKey }) => ({
+      key, label, icon: CHECK_META[checkKey].icon,
+      count: counts.groups[key].total,
+      detail: key === 'standardPlate'
+        ? 'Standard plates in states with several, or the first plate in states with none'
+        : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
+    })),
   ]
-  const selected = filters.some((filter) => filter.key === params.get('show'))
-    ? params.get('show')
-    : 'all'
+  const selected = filters.some(filter => filter.key === params.get('show')) ? params.get('show') : 'all'
   return (
     <div className="filter-bar">
       <div className="filter-chips" role="group" aria-label="Filter plates">
@@ -70,18 +61,34 @@ export function FilterBarControls({
             {index === 2 ? (
               <span className="needs-work">Needs work</span>
             ) : null}
-            <Toggle
-              count={filter.count}
-              pressed={selected === filter.key}
-              onPressedChange={() => {
-                const next = new URLSearchParams(params)
-                next.set('show', filter.key)
-                router.replace(`${pathname}?${next}`, { scroll: false })
-              }}
-            >
-              {filter.icon ? <filter.icon aria-hidden="true" /> : null}
-              {filter.label}
-            </Toggle>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  count={filter.count}
+                  onClick={event => {
+                    if (event.shiftKey && 'detail' in filter && (!filter.count || (onSelectGroup && resolveGroup))) {
+                      event.preventDefault()
+                      if (!filter.count || !onSelectGroup || !resolveGroup) return
+                      const ids = resolveGroup(filter.key)
+                      if (ids.length) onSelectGroup(filter.key, ids)
+                    }
+                  }}
+                  pressed={selected === filter.key}
+                  onPressedChange={() => {
+                    const next = new URLSearchParams(params)
+                    next.set('show', filter.key)
+                    router.replace(`${pathname}?${next}`, { scroll: false })
+                  }}
+                >
+                  {'icon' in filter ? <filter.icon aria-hidden="true" /> : null}
+                  {filter.label}
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {'detail' in filter ? filter.detail : filter.label}
+                {onSelectGroup && resolveGroup && filter.count > 0 && 'detail' in filter ? '; Shift-click to select group' : ''}
+              </TooltipContent>
+            </Tooltip>
           </span>
         ))}
       </div>

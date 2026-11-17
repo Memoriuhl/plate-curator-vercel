@@ -6,9 +6,8 @@ import { RegionPill } from '@/components/app/region-pill'
 import { summarizeRegions } from '@/components/app/regions'
 import { JurisdictionNav } from './jurisdiction-nav'
 import { StateHeader } from './state-header'
-import { FilterBar } from './filter-bar'
 import { FamilyGrid } from './family-grid'
-import { filterCounts, projectFamilyPlate } from './family-data'
+import { projectFamilyPlate } from './family-data'
 
 export async function JurisdictionStrip() {
   await connection()
@@ -29,20 +28,8 @@ export async function StateContent({ code }: { code: string }) {
   return (
     <>
       <StateHeader jurisdiction={jurisdiction} />
-      <Suspense
-        fallback={
-          <div className="filter-loading" role="status">
-            Loading filters…
-          </div>
-        }
-      >
-        <FilterBar
-          counts={filterCounts(jurisdiction.plates)}
-          code={jurisdiction.code}
-        />
-      </Suspense>
       <Suspense fallback={<p>Loading families...</p>}>
-        <FamilyGrid plates={jurisdiction.plates.map(projectFamilyPlate)} />
+        <FamilyGrid code={jurisdiction.code} plates={jurisdiction.plates.map(projectFamilyPlate)} />
       </Suspense>
       {jurisdiction.plates.length === 0 ? (
         <p>No plates in this jurisdiction yet.</p>
