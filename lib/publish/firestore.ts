@@ -1,4 +1,8 @@
 import { publishRequesterStop, sameRequester } from './authority'
+import { batchApprovedFor, isSuperseded, receiptId } from './command'
+import { retryEligibility, type EligibilityInput } from './eligibility'
+import { writePublishMetadata } from '../review/firestore-store'
+import type { ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
 import { parsePublishControl, publishCommandKey, publishControlStop } from './control'
@@ -38,7 +42,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
         const [lock, batch] = await transaction.getAll(lockRef, batchRef)
         if (lock.exists && unexpired(lock.get('expiresAt'), now)) return false
         const data = batch.data()
-        const recordId = `${lease.batchId}@${lease.revision}`
+        const recordId = receiptId(lease.batchId, lease.revision)
         if (data?.env !== env || data.state !== 'approved' || data.revision !== lease.revision) return false
         if (data.publishReservation && data.publishReservation.recordId !== recordId) return false
         transaction.set(lockRef, { ...lease, env })
@@ -70,8 +74,37 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
   }
 }
 
-export function firestorePublishRecords(db: Firestore, env: string): PublishRecords {
+export function firestorePublishRecords(db: Firestore, env: string, options: { runStatus?: (runId: string) => Promise<string>; claimTtlMs?: number } = {}): PublishRecords {
+  const inspect = async (transaction: Transaction, command: PublishCommand, now: string, replay = false) => {
+    const requesterRef = memberDocRef(db, command.requestedBy?.email)
+    const [batch, pointer, receipt, control, ownStop] = await transaction.getAll(
+      db.doc(`reviewBatches/${command.batchId}`), db.doc('config/catalog'), db.doc(`publishRecords/${receiptId(command.batchId, command.revision)}`),
+      db.doc('config/publishControl'), db.doc(`publishCommandStops/${publishCommandKey(command)}`))
+    const member = requesterRef ? await transaction.get(requesterRef) : null
+    const pending = batch.get('publishCommand')
+    const claimDoc = pending?.revision === command.revision ? await transaction.get(db.doc(`publishCommands/${pending.commandId}`)) : null
+    const claimStop = pending?.revision === command.revision ? await transaction.get(db.doc(`publishCommandStops/${pending.commandId}`)) : null
+    const receiptStop = receipt.exists ? await transaction.get(db.doc(`publishCommandStops/${publishCommandKey(receipt.data() as PublishRecord)}`)) : null
+    const claim = claimDoc?.get('env') === env ? claimDoc.data() as EligibilityInput['claim'] : undefined
+    const approvalRun = batch.get('approvalRun')
+    const runId = claim?.runId ?? (!claim && approvalRun?.revision === command.revision - 1 ? approvalRun.runId : undefined)
+    const status = runId ? await (options.runStatus?.(runId) ?? Promise.resolve('running')) : undefined
+    const input: EligibilityInput = {
+      command, batch: batch.get('env') === env ? batch.data() as ReviewBatch : null,
+      control: parsePublishControl(control.data()), member: member?.data(), liveVersion: pointer.get('version'),
+      receipt: receipt.get('env') === env ? receipt.data() as PublishRecord : null,
+      claim: claim ?? (pending?.revision === command.revision ? { command: { ...command, commandId: pending.commandId }, acceptedAt: '' } : undefined),
+      claimStop: isPublishStop(claimStop?.get('reason')) ? claimStop!.get('reason') : null,
+      receiptStop: isPublishStop(receiptStop?.get('reason')) ? receiptStop!.get('reason') : null,
+      ownStop: isPublishStop(ownStop.get('reason')) ? ownStop.get('reason') : null,
+      runStatus: status, now, claimTtlMs: options.claimTtlMs, replay,
+    }
+    return { eligibility: retryEligibility(input), batch, input, claimStop, receiptStop }
+  }
   return {
+    async eligibility(command, now) {
+      return db.runTransaction(async transaction => (await inspect(transaction, command, now)).eligibility)
+    },
     async command(commandId) {
       const saved = await db.doc(`publishCommands/${commandId}`).get()
       return saved.get('env') === env ? { command: saved.get('command') as PublishCommand, ...(saved.get('runId') ? { runId: saved.get('runId') as string } : {}) } : null
@@ -83,38 +116,37 @@ export function firestorePublishRecords(db: Firestore, env: string): PublishReco
     async accept(command, now) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(`publishCommands/${publishCommandKey(command)}`)
-        const requesterRef = memberDocRef(db, command.requestedBy?.email)
-        const [accepted, batch, pointer, receipt, control, member] = await transaction.getAll(ref,
-          db.doc(`reviewBatches/${command.batchId}`), db.doc('config/catalog'), db.doc(`publishRecords/${command.batchId}@${command.revision}`),
-          db.doc('config/publishControl'), ...(requesterRef ? [requesterRef] : []))
+        const accepted = await transaction.get(ref)
         if (accepted.exists) {
           const data = accepted.data()!
-          if (data.env !== env || data.command.batchId !== command.batchId || data.command.revision !== command.revision || !sameRequester(data.command.requestedBy, command.requestedBy)) return 'superseded'
-          return { command: data.command as PublishCommand, ...(data.runId ? { runId: data.runId as string } : {}) }
+          if (data.env !== env || data.command.batchId !== command.batchId || data.command.revision !== command.revision || !sameRequester(data.command.requestedBy, command.requestedBy)) return { ok: false, error: PUBLISH_STOPS.superseded }
+          command = data.command as PublishCommand
         }
-        const stop = publishControlStop(parsePublishControl(control.data()), command) ?? publishRequesterStop(command.requestedBy, member?.data())
-        if (stop) return stop
-        if (batch.get('env') !== env || batch.get('state') !== 'approved' || batch.get('revision') !== command.revision || batch.get('approval')?.revision !== command.revision - 1) return 'superseded_revision'
-        if (receipt.get('committedAt')) return 'superseded'
-        if (batch.get('baselineVersion') !== pointer.get('version') || receipt.exists && receipt.get('fromVersion') !== pointer.get('version')) return 'stale_baseline'
-        const pending = batch.get('publishCommand')
-        if (pending?.revision === command.revision && !isPublishStop((await transaction.get(db.doc(`publishCommandStops/${pending.commandId}`))).get('reason'))) return 'locked'
+        const { eligibility, batch, input, claimStop, receiptStop } = await inspect(transaction, command, now, accepted.exists)
+        if (!eligibility.canRetry) return { ok: false, error: eligibility.reason! }
+        if (accepted.exists) return { ok: true, command, ...(accepted.get('runId') ? { runId: accepted.get('runId') as string } : {}) }
+        if (input.claim && input.claim.command.commandId !== command.commandId && !claimStop?.exists) {
+          transaction.create(db.doc(`publishCommandStops/${publishCommandKey(input.claim.command)}`), { ...input.claim.command, reason: PUBLISH_STOPS.superseded, stoppedAt: now })
+        }
+        if (input.receipt && input.receipt.commandId !== command.commandId && !receiptStop?.exists && input.receipt.commandId !== input.claim?.command.commandId) {
+          transaction.create(db.doc(`publishCommandStops/${publishCommandKey(input.receipt)}`), { batchId: input.receipt.batchId, revision: input.receipt.revision, commandId: publishCommandKey(input.receipt), reason: PUBLISH_STOPS.superseded, stoppedAt: now })
+        }
         transaction.create(ref, { env, command, acceptedAt: now })
-        transaction.update(batch.ref, { publishCommand: { commandId: command.commandId, revision: command.revision } })
-        return { command }
+        writePublishMetadata(transaction, batch, { publishCommand: { commandId: command.commandId!, revision: command.revision } })
+        return { ok: true, command }
       })
     },
     async bindRun(command, runId, now) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(`publishCommands/${publishCommandKey(command)}`)
         const batchRef = db.doc(`reviewBatches/${command.batchId}`)
-        const [accepted, batch, receipt] = await transaction.getAll(ref, batchRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`))
+        const [accepted, batch, receipt] = await transaction.getAll(ref, batchRef, db.doc(`publishRecords/${receiptId(command.batchId, command.revision)}`))
         if (accepted.get('env') !== env || accepted.get('runId') && accepted.get('runId') !== runId) return false
         transaction.update(ref, { runId })
         const current = batch.get('publishCommand')
-        const eligible = batch.get('state') === 'approved' && batch.get('revision') === command.revision || batch.get('state') === 'published' && batch.get('revision') === command.revision + 1 && receipt.get('env') === env && receipt.get('commandId') === command.commandId && receipt.get('committedAt')
+        const eligible = batchApprovedFor(batch.data(), command) || batch.get('state') === 'published' && batch.get('revision') === command.revision + 1 && receipt.get('env') === env && receipt.get('commandId') === command.commandId && receipt.get('committedAt')
         if (batch.get('env') === env && eligible && current?.commandId === command.commandId && current.revision === command.revision) {
-          transaction.update(batchRef, { approvalRun: { runId, revision: command.revision - 1 }, publishRequestedAt: now, publishRequestedBy: command.requestedBy })
+          writePublishMetadata(transaction, batch, { approvalRun: { runId, revision: command.revision - 1 }, publishRequestedAt: accepted.get('acceptedAt') ?? now, publishRequestedBy: command.requestedBy })
         }
         return true
       })
@@ -129,17 +161,17 @@ export function firestorePublishRecords(db: Firestore, env: string): PublishReco
           db.doc(`publishCommandStops/${publishCommandKey(command)}`), ...(requesterRef ? [requesterRef] : []),
         )
         if (!active(lock.data(), token, env, now) || lock.get('batchId') !== command.batchId || lock.get('revision') !== command.revision) return 'lock_lost'
-        if (batch.get('env') !== env || batch.get('state') !== 'approved' || batch.get('revision') !== command.revision || batch.get('approval')?.revision !== command.revision - 1 || batch.get('publishReservation')?.token !== token) return 'superseded_revision'
+        if (batch.get('env') !== env || !batchApprovedFor(batch.data(), command) || batch.get('publishReservation')?.token !== token) return 'superseded_revision'
         const previous = saved.data()
-        if (!previous || previous.env !== env || previous.commandId !== record.commandId || previous.committedAt || !isPublishStop(previousStop.get('reason'))) return 'superseded'
-        if (previous.supersededCommands?.some((old: PublishCommand) => old.commandId === command.commandId)) return 'superseded'
-        if (previous.id !== `${command.batchId}@${command.revision}` || previous.batchId !== command.batchId || previous.revision !== command.revision || previous.toVersion !== previous.fromVersion + 1 || previous.blobSha256 !== checksum || previous.blobSha256 !== record.blobSha256 || previous.toVersion !== record.toVersion || previous.fromVersion !== record.fromVersion) return 'version_taken'
+        if (!previous || previous.env !== env || previous.commandId !== record.commandId || previous.committedAt || !isPublishStop(previousStop.get('reason'))) return PUBLISH_STOPS.superseded
+        if (isSuperseded(previous as PublishRecord, command)) return PUBLISH_STOPS.superseded
+        if (previous.id !== receiptId(command.batchId, command.revision) || previous.batchId !== command.batchId || previous.revision !== command.revision || previous.toVersion !== previous.fromVersion + 1 || previous.blobSha256 !== checksum || previous.blobSha256 !== record.blobSha256 || previous.toVersion !== record.toVersion || previous.fromVersion !== record.fromVersion) return 'version_taken'
         if (previous.fromVersion !== pointer.get('version') || previous.fromVersion !== batch.get('baselineVersion')) return 'stale_baseline'
         const stop = writePublishStop({ transaction, command, control, stopped, now, member })
         if (stop) return stop
         const { env: storedEnv, ...receipt } = previous
-        if (storedEnv !== env) return 'superseded'
-        const adopted = { ...receipt, ...command, supersededCommands: [...previous.supersededCommands ?? [], {
+        if (storedEnv !== env) return PUBLISH_STOPS.superseded
+        const adopted = { ...receipt, ...command, state: 'started', supersededCommands: [...previous.supersededCommands ?? [], {
           batchId: previous.batchId, revision: previous.revision, commandId: publishCommandKey(record),
           ...(previous.generation !== undefined ? { generation: previous.generation } : {}),
           ...(previous.requestedBy ? { requestedBy: previous.requestedBy } : {}),
@@ -159,7 +191,7 @@ export function firestorePublishRecords(db: Firestore, env: string): PublishReco
         const [lock, saved] = await transaction.getAll(db.doc('locks/publish'), ref)
         if (!active(lock.data(), token, env, now)) return false
         if (lock.get('batchId') !== record.batchId || lock.get('revision') !== record.revision) return false
-        if (record.id !== `${record.batchId}@${record.revision}` || record.toVersion !== record.fromVersion + 1) return false
+        if (record.id !== receiptId(record.batchId, record.revision) || record.toVersion !== record.fromVersion + 1) return false
         const previous = saved.data()
         if (previous) {
           if (previous.env !== env || ['id', 'batchId', 'revision', 'fromVersion', 'toVersion', 'blobSha256', 'generation', 'commandId'].some(key => previous[key] !== record[key as keyof PublishRecord])) return false
@@ -256,7 +288,7 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
       return db.runTransaction(async transaction => {
         const stopRef = db.doc(`publishCommandStops/${publishCommandKey(command)}`)
         const requesterRef = memberDocRef(db, command.requestedBy?.email)
-        const [control, stopped, receipt, member] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`), ...(requesterRef ? [requesterRef] : []))
+        const [control, stopped, receipt, member] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${receiptId(command.batchId, command.revision)}`), ...(requesterRef ? [requesterRef] : []))
         if (receipt.get('committedAt')) return null
         return writePublishStop({ transaction, command, control, stopped, now, member })
       })

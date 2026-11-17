@@ -7,10 +7,10 @@ import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
-import { HookConflictError } from 'workflow/errors'
+import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), getHookByToken: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/server/context')>(), ...mocks }))
@@ -26,7 +26,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5, role: 'owner' } })
   mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
-  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { command: async () => null, get: async () => null, accept: async (command: unknown) => ({ command }), bindRun: async () => true } })
+  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { eligibility: async () => ({ canRetry: false, reason: 'not_waiting' }), command: async () => null, get: async () => null, accept: async (command: unknown) => ({ ok: true, command }), bindRun: async () => true } })
+  mocks.getHookByToken.mockRejectedValue(new HookNotFoundError('missing'))
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
   mocks.start.mockResolvedValue({ runId: 'run' })
   mocks.resumeHook.mockResolvedValue({ runId: 'run' })
@@ -54,6 +55,7 @@ test('a rejected Publish command is not recorded as publishing', async () => {
 })
 
 test('a stopped approval run starts a new command run instead of resuming its ended hook', async () => {
+  mocks.publishDeps().records.eligibility = async () => ({ canRetry: true, reason: null })
   mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2, approval: { revision: 1, by: 'owner', at: '' }, approvalRun: { runId: 'old', revision: 1 } }])
   mocks.getRun.mockReturnValue({ status: Promise.resolve('completed'), returnValue: Promise.resolve({ outcome: 'publish_failed', error: 'paused' }) })
   expect((await publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)).status).toBe(202)

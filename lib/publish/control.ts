@@ -1,4 +1,5 @@
 import { hasRequesterAuthority } from './authority'
+import { receiptId } from './command'
 import { PUBLISH_STOPS } from './stop'
 import type { PublishCommand, PublishControlState, PublishStop } from './types'
 
@@ -21,5 +22,5 @@ export function publishControlStop(control: PublishControlState | null, command?
 }
 
 export function publishCommandKey(command: PublishCommand): string {
-  return command.commandId ?? `${command.batchId}@${command.revision}:legacy`
+  return command.commandId ?? `${receiptId(command.batchId, command.revision)}:legacy`
 }

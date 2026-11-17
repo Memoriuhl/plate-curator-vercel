@@ -91,9 +91,10 @@ export function fixture(seed: ReviewBatch = batch) {
       downloadUrl: async version => blobs.has(version) ? `https://storage.example/v${version}.json?token=t${version}` : null,
     },
     records: {
+      eligibility: async () => ({ canRetry: true, reason: null }),
       command: async () => null,
       stopped: async cmd => stops.get(publishCommandKey(cmd)) ?? null,
-      accept: async cmd => ({ command: cmd }),
+      accept: async cmd => ({ ok: true, command: cmd }),
       bindRun: async () => true,
       adopt: async (record, cmd, checksum, token, now) => {
         if (!active(token, now)) return 'lock_lost'
@@ -105,7 +106,7 @@ export function fixture(seed: ReviewBatch = batch) {
         if (current?.state !== 'approved' || current.revision !== cmd.revision || current.approval?.revision !== cmd.revision - 1) return 'superseded_revision'
         const stop = await check(cmd)
         if (stop) return stop
-        const adopted = { ...saved, ...cmd, supersededCommands: [...saved.supersededCommands ?? [], { batchId: saved.batchId, revision: saved.revision, commandId: saved.commandId, generation: saved.generation, requestedBy: saved.requestedBy }] }
+        const adopted: PublishRecord = { ...saved, ...cmd, state: 'started', supersededCommands: [...saved.supersededCommands ?? [], { batchId: saved.batchId, revision: saved.revision, commandId: saved.commandId, generation: saved.generation, requestedBy: saved.requestedBy }] }
         records.set(record.id, structuredClone(adopted))
         return adopted
       },

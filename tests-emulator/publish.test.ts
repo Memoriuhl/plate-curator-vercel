@@ -20,6 +20,60 @@ const control = firestorePublishControl(db)
 const controlActor = { uid: 'owner', email: 'owner@example.com' }
 const enabled = { paused: false, generation: 1, changedBy: controlActor, changedAt: now }
 
+test.each(['unbound', 'completed', 'failed', 'cancelled'])('claimRecovery replaces a %s claim and fences its previous command', async status => {
+  const recovering = firestorePublishRecords(db, env, { runStatus: async () => status })
+  const first = { ...command, commandId: 'abandoned' }
+  await recovering.accept(first, now)
+  if (status !== 'unbound') await recovering.bindRun(first, 'old-run', now)
+  const next = { ...command, commandId: 'next-click' }
+  const later = '2026-11-15T12:02:01Z'
+  expect(await recovering.accept(next, later)).toMatchObject({ ok: true, command: next })
+  expect((await db.doc('publishCommandStops/abandoned').get()).get('reason')).toBe('superseded')
+})
+
+test('two Owners racing through accept admit exactly one command and commit one Catalog version', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, control, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  const upload = deps.snapshots.createOnly
+  deps.snapshots.createOnly = async (...args) => {
+    const result = await upload(...args)
+    await control.change(true, controlActor, now)
+    return result
+  }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'paused' })
+  await control.change(false, controlActor, now)
+  const a = { ...command, generation: 3, commandId: 'owner-a-click' }
+  const b = { ...a, commandId: 'owner-b-click', requestedBy: { uid: 'backup', email: 'backup@example.com', authorityEpoch: 0 } }
+  const outcomes = await Promise.all([records.accept(a, now), records.accept(b, now)])
+  expect(outcomes.filter(result => result.ok)).toHaveLength(1)
+  expect(outcomes.filter(result => !result.ok)).toEqual([{ ok: false, error: 'locked' }])
+  const winner = outcomes.find(result => result.ok)!
+  if (!winner.ok) throw new Error('no winner')
+  await records.bindRun(winner.command, 'winner-run', now)
+  expect(await publishBatch(deps, { ...owner, uid: winner.command.requestedBy!.uid }, winner.command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+  expect(await publishBatch(deps, { ...owner, uid: winner.command.requestedBy!.uid }, winner.command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+  expect((await pointer.read()).version).toBe(2)
+  expect([...f.blobs.keys()]).toEqual([1, 2])
+})
+
+test.each([true, false])('missing blob adoption recomputes and uploads only identical bytes in Firestore: %s', async matching => {
+  const f = fixture()
+  const deps = { ...f.deps, control, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  const upload = deps.snapshots.createOnly
+  let writes = 0
+  deps.snapshots.createOnly = async () => { throw new Error('lost process before upload') }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  await control.change(true, controlActor, now)
+  expect(await control.check(command, now)).toBe('paused')
+  await control.change(false, controlActor, now)
+  if (!matching) await db.doc(`publishRecords/${record.id}`).update({ blobSha256: 'different' })
+  deps.snapshots.createOnly = async (...args) => { writes++; return upload(...args) }
+  const fresh = { ...command, generation: 3, commandId: 'missing-blob-click' }
+  expect(await publishBatch(deps, owner, fresh)).toMatchObject(matching ? { ok: true, value: { toVersion: 2 } } : { ok: false, error: 'version_taken' })
+  expect(writes).toBe(matching ? 1 : 0)
+  expect((await pointer.read()).version).toBe(matching ? 2 : 1)
+})
+
 beforeEach(async () => {
   await db.recursiveDelete(db.collection('publishCommands'))
   await db.doc('config/publishControl').set(enabled)
@@ -96,13 +150,13 @@ test.each(['bytes', 'head', 'approval', 'stop'])('Firestore adoption rechecks %s
 
 test('concurrent duplicate command acceptance binds one immutable identity and run', async () => {
   const fresh = { ...command, commandId: 'fresh-accepted' }
-  expect(await Promise.all([records.accept(fresh, now), records.accept(fresh, now)])).toEqual([{ command: fresh }, { command: fresh }])
+  expect(await Promise.all([records.accept(fresh, now), records.accept(fresh, now)])).toEqual([{ ok: true, command: fresh }, { ok: true, command: fresh }])
   expect(await records.bindRun(fresh, 'one-run', now)).toBe(true)
   expect(await records.bindRun(fresh, 'other-run', now)).toBe(false)
   expect(await records.command(fresh.commandId)).toEqual({ command: fresh, runId: 'one-run' })
   expect(await store.getBatch(batch.id)).toMatchObject({ approvalRun: { runId: 'one-run', revision: 1 }, publishRequestedBy: fresh.requestedBy })
-  expect(await records.accept({ ...fresh, requestedBy: { ...fresh.requestedBy, uid: 'other' } }, now)).toBe('superseded')
-  expect(await records.accept({ ...fresh, commandId: 'another-click' }, now)).toBe('locked')
+  expect(await records.accept({ ...fresh, requestedBy: { ...fresh.requestedBy, uid: 'other' } }, now)).toEqual({ ok: false, error: 'superseded' })
+  expect(await records.accept({ ...fresh, commandId: 'another-click' }, now)).toEqual({ ok: false, error: 'locked' })
 })
 
 test.each(['revoke', 'pause', 'approval', 'revision', 'baseline'])('fresh command acceptance rechecks %s before storing it', async changed => {
@@ -112,13 +166,13 @@ test.each(['revoke', 'pause', 'approval', 'revision', 'baseline'])('fresh comman
   if (changed === 'revision') await db.doc('reviewBatches/batch').update({ revision: 3 })
   if (changed === 'baseline') await db.doc('config/catalog').set({ version: 2 })
   const fresh = { ...command, commandId: 'fresh-acceptance' }
-  expect(await records.accept(fresh, now)).toBe(changed === 'revoke' ? 'revoked' : changed === 'pause' ? 'paused' : changed === 'baseline' ? 'stale_baseline' : 'superseded_revision')
+  expect(await records.accept(fresh, now)).toEqual({ ok: false, error: changed === 'revoke' ? 'revoked' : changed === 'pause' ? 'paused' : changed === 'baseline' ? 'stale_baseline' : 'superseded_revision' })
   expect(await records.command(fresh.commandId)).toBeNull()
 })
 
 test('run metadata still binds if the fresh workflow finished before start returned', async () => {
   const fresh = { ...command, commandId: 'fast-run' }
-  expect(await records.accept(fresh, now)).toEqual({ command: fresh })
+  expect(await records.accept(fresh, now)).toEqual({ ok: true, command: fresh })
   const f = fixture()
   expect(await publishBatch({ ...f.deps, control, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }, owner, fresh)).toMatchObject({ ok: true })
   expect(await records.bindRun(fresh, 'finished-run', now)).toBe(true)
@@ -128,15 +182,15 @@ test('run metadata still binds if the fresh workflow finished before start retur
 test('replaying a prior run cannot replace the latest retry metadata; a newer revision is independent', async () => {
   const first = { ...command, commandId: 'first-click' }
   const second = { ...command, commandId: 'second-click' }
-  expect(await records.accept(first, now)).toEqual({ command: first })
+  expect(await records.accept(first, now)).toEqual({ ok: true, command: first })
   await db.doc('publishCommandStops/first-click').set({ reason: 'paused' })
-  expect(await records.accept(second, now)).toEqual({ command: second })
+  expect(await records.accept(second, now)).toEqual({ ok: true, command: second })
   await records.bindRun(second, 'second-run', now)
   await records.bindRun(first, 'old-run', now)
   expect(await store.getBatch(batch.id)).toMatchObject({ approvalRun: { runId: 'second-run' } })
   await db.doc('reviewBatches/batch').update({ revision: 4, approval: { revision: 3, by: 'owner', at: now } })
   const revised = { ...command, revision: 4, commandId: 'revised' }
-  expect(await records.accept(revised, now)).toEqual({ command: revised })
+  expect(await records.accept(revised, now)).toEqual({ ok: true, command: revised })
 })
 
 test('conditional pointer advance refuses a moved pointer', async () => {

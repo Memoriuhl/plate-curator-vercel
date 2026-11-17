@@ -28,7 +28,7 @@ test.each(['pause', 'revoke'])('fresh click reuses stopped uploaded bytes after 
   expect(f.pointer().version).toBe(2)
 })
 
-test.each(['checksum', 'missing', 'moved', 'unstopped'])('receipt adoption refuses %s without uploading again', async kind => {
+test.each(['checksum', 'moved', 'unstopped'])('receipt adoption refuses %s without uploading again', async kind => {
   const f = fixture()
   const upload = vi.fn(f.deps.snapshots.createOnly)
   f.deps.snapshots.createOnly = async (...args) => {
@@ -46,6 +46,27 @@ test.each(['checksum', 'missing', 'moved', 'unstopped'])('receipt adoption refus
   expect(upload).toHaveBeenCalledTimes(1)
   expect(f.pointer().version).toBe(1)
   expect(f.records.get('batch@2')?.committedAt).toBeUndefined()
+})
+
+test.each([true, false])('missing prepared blob is recreated only from matching bytes: %s', async matching => {
+  const f = fixture()
+  const save = f.deps.records.save
+  f.deps.records.save = async (...args) => {
+    const result = await save(...args)
+    if (args[0].state === 'started') f.setControl({ ...enabled, paused: true, generation: 2 })
+    return result
+  }
+  f.deps.snapshots.createOnly = vi.fn(async () => { throw new Error('interrupted before upload') })
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  expect(await f.deps.control.check(command, f.deps.now())).toBe('paused')
+  f.setControl(enabled)
+  if (!matching) f.records.set('batch@2', { ...f.records.get('batch@2')!, blobSha256: 'mismatch' })
+  f.deps.records.save = save
+  const upload = vi.fn(async (version: number, bytes: Uint8Array) => { f.blobs.set(version, bytes); return 'created' as const })
+  f.deps.snapshots.createOnly = upload
+  const result = await publishBatch(f.deps, owner, { ...command, commandId: 'fresh', generation: 3 })
+  expect(result).toMatchObject(matching ? { ok: true, value: { toVersion: 2 } } : { ok: false, error: 'version_taken' })
+  expect(upload).toHaveBeenCalledTimes(matching ? 1 : 0)
 })
 
 test('an unrelated command cannot reconcile another command committed release', async () => {

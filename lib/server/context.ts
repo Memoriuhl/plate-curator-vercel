@@ -1,7 +1,7 @@
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
-import { resumeHook } from 'workflow/api'
+import { getRun, resumeHook } from 'workflow/api'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
@@ -171,7 +171,7 @@ export function publishDeps(): PublishDeps {
     control: publishControl(),
     curator: firestorePublishCurator(db, env),
     pointer: firestorePublishPointer(db, env),
-    records: firestorePublishRecords(db, env),
+    records: firestorePublishRecords(db, env, { runStatus: async runId => getRun(runId).status }),
     lock: firestorePublishLock(db, env),
     snapshots: gcsSnapshots(requireEnv('FIREBASE_STORAGE_BUCKET'), async () => (await gcpAuthClient().getAccessToken()).token ?? ''),
   }

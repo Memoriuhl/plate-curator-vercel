@@ -2,18 +2,20 @@ import type { BaselineError } from './baseline'
 import type { PublishStop } from './stop'
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
+import type { RetryEligibility } from './eligibility'
 
 export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
 export type { PublishStop } from './stop'
 export type RequesterAuthority = { uid: string; email: string; authorityEpoch: number }
 export type PublishRequester = { ownerUid: string; requestedBy?: RequesterAuthority; generation?: number; commandId?: string }
 export type PublishCommand = { batchId: string; revision: number } & Omit<PublishRequester, 'ownerUid'>
+export const validCommandId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(value)
 export type PublishControlState = { paused: boolean; generation: number; changedBy: { uid: string; email: string }; changedAt: string }
 export interface PublishControl {
   read(): Promise<PublishControlState | null>
   check(command: PublishCommand, now: string): Promise<PublishStop | null>
 }
-export type PublishError = PublishStop | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
+export type PublishError = PublishStop | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
   supersededCommands?: PublishCommand[]
   requestedBy?: RequesterAuthority
@@ -43,8 +45,9 @@ export interface PublishSnapshots {
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  eligibility(command: PublishCommand, now: string): Promise<RetryEligibility>
   command(commandId: string): Promise<{ command: PublishCommand; runId?: string } | null>
-  accept(command: PublishCommand, now: string): Promise<{ command: PublishCommand; runId?: string } | PublishError>
+  accept(command: PublishCommand, now: string): Promise<{ ok: true; command: PublishCommand; runId?: string } | { ok: false; error: PublishError }>
   bindRun(command: PublishCommand, runId: string, now: string): Promise<boolean>
   stopped(record: PublishCommand): Promise<PublishStop | null>
   adopt(record: PublishRecord, command: PublishCommand, checksum: string | null, token: string, now: string): Promise<PublishRecord | PublishError>

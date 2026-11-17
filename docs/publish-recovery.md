@@ -65,14 +65,28 @@ dedicated durable Publish run. Acceptance stores the requester and current
 generation transactionally with approval, revision and baseline checks. A retained
 start-hook token prevents concurrent starts for one command ID; the durable command
 record returns the same run on subsequent requests, including after completion.
-Retries do not create another release or silently change requester identity.
+The client keeps that ID after a lost response or service error until an accepted
+or terminal answer. A replay locates the retained start token and binds its run;
+if no run exists, it repeats the control, approval and baseline checks before
+starting. Retries do not create another release or silently change requester identity.
+
+Preflight and acceptance use the same server eligibility predicate. Publish again
+is driven by its `canRetry` result, including a locked response while a live run
+owns the claim. A fresh click can replace a claim with a durable stop, a bound run
+that is completed, failed or cancelled, or an unbound claim older than two minutes.
+The clock is supplied to the check. Replacement writes a durable superseded stop
+for a command without one in the same acceptance transaction. A live bound run
+stays locked even after two minutes. After a failed start, retry the same intent,
+or wait for the unbound claim to expire before submitting a fresh click.
 
 Under the Publish lease, the fresh command checks the existing immutable Snapshot
 checksum. One Firestore transaction checks the approved revision, live pointer,
 lease, current requester/control and the previous command’s durable stop before
 rebinding the uncommitted receipt. The receipt retains its version and checksum and
-appends the prior command identity to `supersededCommands`. Missing or mismatched
-bytes return `version_taken` for triage; nothing is re-uploaded over them. A moved
+appends the prior command identity to `supersededCommands`. If upload never happened,
+it recomputes bytes for the same revision and from-version and permits create-only
+upload only when their checksum matches the receipt. Mismatched bytes return
+`version_taken` for triage; nothing is uploaded over different bytes. A moved
 baseline offers Copy. Old work cannot save or commit the adopted receipt and
 returns `superseded`. Only the committed command reaches the existing per-version
 Catalog push claim.

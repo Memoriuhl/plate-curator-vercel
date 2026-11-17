@@ -35,6 +35,7 @@ export type ProposedEdit = {
 export type ReviewError = 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate }
 export interface ReviewStore {
+  updatePublishMetadata(batchId: string, revision: number, fields: PublishMetadata): Promise<boolean>
   copy(input: { sourceId: string; sourceRevision: number; targetVersion: number; batch: ReviewBatch; edits: ProposedEdit[] }): Promise<CopyCommitResult>
   create(batch: ReviewBatch): Promise<'ok' | 'exists'>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
@@ -46,6 +47,7 @@ export interface ReviewStore {
   requestPublish(batchId: string, revision: number, at: string, requestedBy?: RequesterAuthority): Promise<boolean>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
+export type PublishMetadata = Partial<Pick<ReviewBatch, 'publishCommand' | 'approvalRun' | 'publishRequestedAt' | 'publishRequestedBy'>>
 export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }
 export type ReviewDeps = {
   store: ReviewStore

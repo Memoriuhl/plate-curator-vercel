@@ -2,7 +2,7 @@
 
 import type { RunStatus } from '../review/run-status'
 
-import { PUBLISH_STOP_MESSAGES } from '../publish/stop'
+import { PUBLISH_ERRORS, PUBLISH_STOP_MESSAGES } from '../publish/stop'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
@@ -111,7 +111,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
+export type PublishBaselineStatus = { canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
@@ -135,24 +135,30 @@ export function usePublishBaseline(id: string) {
 export function useReviewActions() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
+  const publishIntents = useRef(new Map<string, string>())
   const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || key === `/api/batches/${batchId}`))
 
   return {
     async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; reviewedVersion?: number; liveVersion?: number }> {
+      const key = `${batchId}@${revision}`
+      const commandId = publishIntents.current.get(key) ?? crypto.randomUUID()
+      publishIntents.current.set(key, commandId)
       try {
-        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision, commandId: crypto.randomUUID() })
+        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision, commandId })
+        publishIntents.current.delete(key)
         publishWindows.set(batchId, Date.now() + 30000)
         window.dispatchEvent(new Event('batch-publish-requested'))
         await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
         return { ok: true }
       } catch (error) {
+        if (error instanceof ApiError && error.status < 500) publishIntents.current.delete(key)
         const messages: Record<string, string> = {
           [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
           [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
           ...PUBLISH_STOP_MESSAGES,
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed since approval and must be re-approved.',
-          not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',
+          [PUBLISH_ERRORS.notWaiting]: 'This run is no longer waiting for Publish. Refresh to see its status.',
           forbidden: 'Only the Owner can Publish.',
           not_found: 'This Batch could not be found.',
         }

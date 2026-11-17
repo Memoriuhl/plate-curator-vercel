@@ -103,22 +103,16 @@ function BatchSelection({
   const revision = batch.approval?.revision
   const failed = run.data?.outcome
   const stopped = isPublishStop(failed?.error) || !!baseline.data?.stopped
+  const canRetry = baseline.data?.canRetry === true
   const requested = requestedFrom !== undefined && (requestedFrom === (run.data?.runId ?? null) || !stopped)
   const receiptConflict = baseline.data?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
   const blocked = baseline.data?.error || rejectedLiveVersion !== null || isBaselineError(failed?.error)
   const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
   const canPublish =
-    batch.state === 'approved' &&
-    revision !== undefined &&
-    revision === batch.revision - 1 &&
     !requested &&
     !busy &&
-    !['publishing', 'published'].includes(run.data?.phase ?? '') &&
-    !blocked &&
     !!baseline.data && !baseline.error &&
-    (stopped || !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(
-      run.data?.phase ?? '',
-    ))
+    (canRetry || (!stopped && !blocked && batch.state === 'approved' && revision === batch.revision - 1 && !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(run.data?.phase ?? '')))
   async function publish() {
     if (revision === undefined) return
     onPublish()
@@ -147,7 +141,7 @@ function BatchSelection({
         </div>
         {canPublish && (
           <Button variant="publish" onClick={() => dialog.current?.showModal()}>
-            {stopped ? 'Publish again' : `Publish revision ${revision}`}
+            {canRetry ? 'Publish again' : `Publish revision ${revision}`}
           </Button>
         )}
       </header>

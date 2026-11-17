@@ -1,6 +1,11 @@
-import type { Firestore, Transaction } from '@google-cloud/firestore'
+import type { DocumentSnapshot, Firestore, Transaction } from '@google-cloud/firestore'
 import { liveEnvKey, signalPath } from './live-signal'
-import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
+import type { ProposedEdit, PublishMetadata, ReviewBatch, ReviewStore } from './types'
+import { receiptId } from '../publish/command'
+
+export function writePublishMetadata(transaction: Transaction, batch: DocumentSnapshot, fields: PublishMetadata) {
+  transaction.update(batch.ref, fields)
+}
 
 export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const batches = db.collection('reviewBatches')
@@ -11,11 +16,19 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   }
 
   return {
+    async updatePublishMetadata(batchId, revision, fields) {
+      return db.runTransaction(async transaction => {
+        const batch = await transaction.get(batches.doc(batchId))
+        if (batch.get('env') !== env || batch.get('revision') !== revision) return false
+        writePublishMetadata(transaction, batch, fields)
+        return true
+      })
+    },
     async copy(input) {
       return db.runTransaction(async transaction => {
         const sourceRef = batches.doc(input.sourceId)
         const targetRef = batches.doc(input.batch.id)
-        const [source, target, head, receipt] = await transaction.getAll(sourceRef, targetRef, db.doc('config/catalog'), db.doc(`publishRecords/${input.sourceId}@${input.sourceRevision}`))
+        const [source, target, head, receipt] = await transaction.getAll(sourceRef, targetRef, db.doc('config/catalog'), db.doc(`publishRecords/${receiptId(input.sourceId, input.sourceRevision)}`))
         if (target.exists) {
           if (target.get('env') !== env) return { ok: false, error: 'not_found' }
           const value = target.data()!
