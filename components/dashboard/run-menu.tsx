@@ -142,7 +142,7 @@ export function RunMenu({
               key={name}
               disabled={name !== 'Tag'}
               className={cn(
-                'rounded-xl p-3',
+                'rounded-[var(--radius-md)] p-4',
                 options.length > 0 && 'bg-[var(--fill)]',
                 name !== 'Tag' && 'text-[var(--ink-2)]',
               )}
@@ -168,7 +168,7 @@ export function RunMenu({
               {options.map((option) => (
                 <label
                   key={option}
-                  className="mt-2 flex items-center gap-2 pl-6 text-xs"
+                  className="mt-2 flex items-center gap-2 pr-1 pl-7 text-xs"
                 >
                   <input
                     type="checkbox"

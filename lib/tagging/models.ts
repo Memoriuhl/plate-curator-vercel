@@ -9,21 +9,21 @@ export type TaggingModel = {
 export const TAGGING_MODELS = [
   {
     id: 'desktop-gemma4-12b',
-    label: 'Gemma 4 12B · desktop GPU',
+    label: 'Gemma 4 12B',
     runsOn: 'desktop',
     model: 'gemma4:12b',
     measured: { f1: 0.669, p50Seconds: 53.5, costPerPlate: null, plates: 15, date: '2026-11-16' },
   },
   {
     id: 'desktop-gemma4-26b',
-    label: 'Gemma 4 26B · desktop GPU',
+    label: 'Gemma 4 26B',
     runsOn: 'desktop',
     model: 'gemma4:26b',
     measured: { f1: 0.664, p50Seconds: 97.5, costPerPlate: null, plates: 15, date: '2026-11-16' },
   },
   {
     id: 'gateway-gemma4-26b',
-    label: 'Gemma 4 26B · AI Gateway',
+    label: 'Gemma 4 26B',
     runsOn: 'gateway',
     model: 'google/gemma-4-26b-a4b-it',
     measured: { f1: 0.676, p50Seconds: 7.5, costPerPlate: 0.0003, plates: 15, date: '2026-11-16' },

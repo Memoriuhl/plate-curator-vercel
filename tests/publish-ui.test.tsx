@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { expect, test, vi } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 import { groupChanges, changeSummary } from '../components/review/diff'
 import { RunStatusView } from '../components/review/run-status'
 import { PublishWorkspace } from '../components/publish/workspace'
@@ -7,16 +7,18 @@ import { TooltipProvider } from '../components/ui/tooltip'
 import { WorkspaceTabs } from '../components/app/workspace-tabs'
 import type { BatchDetail } from '../lib/client/hooks'
 
-const state = vi.hoisted(() => ({ role: 'owner' }))
+const state = vi.hoisted(() => ({ role: 'owner', query: '', batches: [] as import('../lib/review/types').ReviewBatch[], selected: [] as string[] }))
+beforeEach(() => { state.role = 'owner'; state.query = ''; state.batches = []; state.selected = [] })
 vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
   useMe: () => ({ data: { role: state.role } }),
+  usePublishBaseline: () => ({}),
   useBatchRun: () => ({}),
-  useBatch: () => ({}),
-  useBatches: () => ({ data: [] }),
+  useBatch: (id: string) => { state.selected.push(id); return {} },
+  useBatches: () => ({ data: state.batches }),
   useReviewActions: () => ({}),
 }))
-vi.mock('next/navigation', () => ({ usePathname: () => '/publish' }))
+vi.mock('next/navigation', () => ({ usePathname: () => '/publish', useSearchParams: () => new URLSearchParams(state.query) }))
 
 test('groups field edits, cleared variants and reorders across States', () => {
   const baseline = {
@@ -153,4 +155,21 @@ test('revoked stop identifies requester and requires a fresh Publish by an activ
   expect(html).toContain('requester@example.com')
   expect(html).toContain('The Catalog did not advance.')
   expect(html).toContain('fresh Publish by an active Owner')
+})
+
+test.each([
+  ['batch=older', 'older'],
+  ['batch=missing', 'newest'],
+  ['batch=published', 'newest'],
+  ['', 'newest'],
+])('Publish selection honors only approved query batches: %s', (query, selected) => {
+  state.query = query
+  state.batches = [
+    { id: 'newest', state: 'approved' as const, createdAt: '2026-11-17' },
+    { id: 'older', state: 'approved' as const, createdAt: '2026-11-16' },
+    { id: 'published', state: 'published' as const, createdAt: '2026-11-15' },
+  ].map(batch => ({ ...batch, name: batch.id, createdBy: 'owner', createdByName: null, revision: 1, baselineVersion: 1, stateOrders: {}, plateIds: [], approval: null }))
+  renderToStaticMarkup(<PublishWorkspace />)
+  expect(state.selected).toContain(selected)
+  expect(state.selected).not.toContain(selected === 'older' ? 'newest' : 'older')
 })

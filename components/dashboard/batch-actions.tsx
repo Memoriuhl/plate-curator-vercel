@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { IoArrowUpOutline, IoPaperPlaneOutline } from 'react-icons/io5'
+import { IoPaperPlaneOutline } from 'react-icons/io5'
 import {
   useWorkspaceBatch,
   useBatch,
@@ -13,7 +13,7 @@ import {
 } from '@/lib/client/hooks'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { ComingSoon } from './coming-soon'
+import { PublishButton } from './publish-button'
 import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
@@ -111,12 +111,7 @@ export function BatchActions({
           modelError={run.modelError}
           start={(plates, retry, modelId) => void run.start(plates, retry, modelId)}
         />
-        {me.data?.role === 'owner' ? (
-          <ComingSoon label="Publish" variant="publish">
-            <IoArrowUpOutline aria-hidden="true" />
-            Publish
-          </ComingSoon>
-        ) : null}
+        <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
         {batches.error || detail.error ? (
           <span role="alert">Could not load your batch.</span>
         ) : null}

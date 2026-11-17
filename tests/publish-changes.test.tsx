@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BatchChanges, changesByState } from '../components/publish/batch-changes'
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }))
+
 import { PublishWorkspace } from '../components/publish/workspace'
 import type { BatchDetail } from '../lib/client/hooks'
 

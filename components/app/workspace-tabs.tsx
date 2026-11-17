@@ -5,7 +5,6 @@ import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function WorkspaceTabs() {
   return (
@@ -40,19 +39,6 @@ function TabsView({ active, owner = false }: { active: '' | '/' | '/review' | '/
             </Link>
           </TabsTrigger>
           {owner && <TabsTrigger value="/publish" asChild><Link href="/publish" aria-current={active === '/publish' ? 'page' : undefined}>Publish</Link></TabsTrigger>}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                role="link"
-                tabIndex={0}
-                aria-disabled="true"
-                className="parked-tab"
-              >
-                Strip Art
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Coming soon</TooltipContent>
-          </Tooltip>
         </TabsList>
       </Tabs>
     </nav>

@@ -601,17 +601,6 @@ body {
   }
 }
 
-.parked-tab {
-  display: inline-flex;
-  height: 34px;
-  align-items: center;
-  padding: 0 18px;
-  border-radius: var(--radius-pill);
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--ink-2);
-  cursor: default;
-}
 
 .family-plate-details {
   container: plate-checks / inline-size;
