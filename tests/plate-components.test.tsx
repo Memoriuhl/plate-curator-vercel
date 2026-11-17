@@ -111,13 +111,21 @@ test('plate images skip the optimizer because the source files are already pre-s
 })
 
 
-test('smallest check tier fits its lower container breakpoint', () => {
+test('every check tier fits seven icons and their gaps in its narrowest width', () => {
   const css = readFileSync('app/globals.css', 'utf8')
-  const tiers = [...css.matchAll(/@container plate-checks \(width < (\d+)px\) \{([\s\S]*?)\n\}/g)]
-  const smallest = tiers.at(-1)!
-  const icon = Number(smallest[2].match(/width: (\d+)px/)![1])
-  const gap = Number(tiers.flatMap(tier => [...tier[2].matchAll(/gap: (\d+)px/g)]).at(-1)![1])
-  expect(PLATE_CHECK_KEYS.length * icon + (PLATE_CHECK_KEYS.length - 1) * gap).toBeLessThanOrEqual(Number(smallest[1]))
+  const base = css.match(/\.family-plate-details \[data-check-strip\] \{\s*gap: (\d+)px;/)!
+  const tiers = [...css.matchAll(/@container plate-checks \(width < (\d+)px\) \{([\s\S]*?)\n\}/g)].map(([, below, body]) => ({ below: Number(below), icon: body.match(/width: (\d+)px/)?.[1], gap: body.match(/gap: (\d+)px/)?.[1] }))
+  const details = css.match(/\.family-plate-details \{[\s\S]*?min-width: (\d+)px;[\s\S]*?padding-right: (\d+)px;/)!
+  let icon = 20
+  let gap = Number(base[1])
+  const steps = [{ min: tiers[0].below, icon, gap }]
+  tiers.forEach((tier, index) => {
+    icon = tier.icon ? Number(tier.icon) : icon
+    gap = tier.gap ? Number(tier.gap) : gap
+    steps.push({ min: tiers[index + 1]?.below ?? Number(details[1]) - Number(details[2]), icon, gap })
+  })
+  for (const step of steps) expect(PLATE_CHECK_KEYS.length * step.icon + (PLATE_CHECK_KEYS.length - 1) * step.gap).toBeLessThanOrEqual(step.min)
+  expect(Math.min(...steps.map(step => step.gap))).toBeGreaterThanOrEqual(2)
 })
 
 test('every plate keeps its title and checks together beside the image', () => {
@@ -131,7 +139,10 @@ test('every plate keeps its title and checks together beside the image', () => {
 })
 
 
-test('tight icon rules override narrow-card sizing', () => {
+test('narrow cards shrink the image and leave icon sizing to the check tiers', () => {
   const css = readFileSync('app/globals.css', 'utf8')
-  expect(css.indexOf('@container plate-checks (width < 124px)')).toBeGreaterThan(css.indexOf('@container family-card (width < 328px)'))
+  const narrow = css.match(/@container family-card \(width < 328px\) \{([\s\S]*?)\n\}/)![1]
+  expect(narrow).toContain('--family-image-width')
+  expect(narrow).not.toContain('[data-check]')
+  expect(css).toMatch(/\[data-check\] \{\s*cursor: help;/)
 })

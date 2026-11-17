@@ -77,11 +77,14 @@ vi.mock('next/link', () => ({ useLinkStatus: () => ({ pending: false }), default
 
 it('groups cross-state selections and outlines the matching jurisdiction', () => {
   plateSelection.add([{ ...plateCards[0], id: 'NY.a', state: 'NY', displayName: 'New York' }, { ...plateCards[0], id: 'NJ.b', state: 'NJ', displayName: 'New Jersey' }])
-  render(<><SelectionBar promote={vi.fn()} disabled={false} /><JurisdictionCard jurisdiction={{ code: 'NJ', name: 'New Jersey', region: 'us', plateCount: 1, completeCount: 0, progress: null }} /></>)
+  render(<><SelectionBar /><JurisdictionCard jurisdiction={{ code: 'NJ', name: 'New Jersey', region: 'us', plateCount: 1, completeCount: 0, progress: null }} /></>)
   expect(screen.getByRole('link').className).toContain('outline-2')
   const bar = screen.getByLabelText('Plate selection')
   expect(bar.className).toContain('fixed')
   expect(bar.className).toContain('bottom-4')
+  expect(bar.className).toContain('selection-bar')
+  expect(screen.queryByRole('button', { name: 'Promote to Template' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Run pipeline on selection' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '2 selected' }))
   expect(screen.getByRole('heading', { name: 'NY (1)' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'NJ (1)' })).toBeTruthy()

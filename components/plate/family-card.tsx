@@ -1,6 +1,6 @@
 'use client'
 
-import { SelectionPlate, SelectionFamily, MoveSelectionHere, plateSelection } from '@/components/dashboard/plate-selection'
+import { SelectionPlate, SelectionFamily, plateSelection } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -241,7 +241,6 @@ export function FamilyCard({
             ) : null}
           </div>
           <CheckStrip checks={plate.checks} />
-          {!small && canEdit && drag ? <MoveSelectionHere template={template} variants={variants} disabled={drag.saving || !!drag.active} onMove={drag.moveSelectionTo} /> : null}
           {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
         </div>
         {marker ? <span data-batch-marker className="absolute top-0 right-0 size-5">{marker}</span> : null}
@@ -255,8 +254,18 @@ export function FamilyCard({
       data-reflow-key={'family:' + template.id}
       aria-label={template.displayName + ' family'}
       onClickCapture={event => drag?.suppressClick(event)}
+      onPointerDown={event => {
+        if ((event.target as Element).closest('[data-plate-row], button, input, a')) return
+        onClosePreview?.()
+        if (canEdit && !template.deleted && !entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'family', plate: template }, event)
+      }}
+      onClick={event => {
+        if ((event.target as Element).closest('[data-plate-row], button, input, a')) return
+        if (template.deleted || (matches && !matches(template))) return
+        plateSelection.select(template.id, event)
+      }}
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
-      className={cn('@container family-card relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
+      className={cn('@container family-card relative flex origin-top min-w-0 select-none flex-col', drag?.enabled && !template.deleted ? 'cursor-grab' : 'cursor-pointer', 'gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
       {plateContent(template, false)}
       {variants.length ? (

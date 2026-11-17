@@ -274,7 +274,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
         onSelectGroup?.(key, ids)
       }} /> : null}
       <SelectionPresence />
-      <SelectionBar promote={drag.promote} disabled={!canEdit || drag.saving || edits.pending} />
+      <SelectionBar />
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (

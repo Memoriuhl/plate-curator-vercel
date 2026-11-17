@@ -617,7 +617,7 @@ body {
 }
 
 .family-plate-details [data-check-strip] {
-  gap: 4px;
+  gap: 6px;
 }
 
 .family-plate-details [data-check] {
@@ -626,10 +626,24 @@ body {
   flex-shrink: 0;
 }
 
-@container plate-checks (width < 164px) {
-  .family-plate-details [data-check-strip] { gap: 2px; }
-  .family-plate-details [data-check] { width: 16px; height: 16px; }
+[data-check] {
+  cursor: help;
+}
+
+@container plate-checks (width < 176px) {
+  .family-plate-details [data-check-strip] { gap: 5px; }
+  .family-plate-details [data-check],
   .family-plate-details [data-check] svg { width: 16px; height: 16px; }
+}
+
+@container plate-checks (width < 142px) {
+  .family-plate-details [data-check-strip] { gap: 3px; }
+  .family-plate-details [data-check],
+  .family-plate-details [data-check] svg { width: 14px; height: 14px; }
+}
+
+@container plate-checks (width < 116px) {
+  .family-plate-details [data-check-strip] { gap: 2px; }
 }
 
 
@@ -642,14 +656,6 @@ body {
     --family-image-width: 112px;
     --family-image-height: 56px;
   }
-  .family-plate-details [data-check-strip] { gap: 2px; }
-  .family-plate-details [data-check],
-  .family-plate-details [data-check] svg { width: 16px; height: 16px; }
-}
-
-@container plate-checks (width < 124px) {
-  .family-plate-details [data-check] { width: 14px; height: 14px; }
-  .family-plate-details [data-check] svg { width: 14px; height: 14px; }
 }
 
 .family-card [data-batch-marker] > * { width: 20px; height: 20px; }
@@ -677,4 +683,13 @@ body {
   font-style: italic;
   color: var(--ink);
   filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.55));
+}
+
+.selection-bar {
+  background: color-mix(in srgb, black 45%, var(--card));
+  border: 1px solid var(--hairline);
+}
+
+.drag-stack {
+  box-shadow: 8px 8px 0 -2px color-mix(in srgb, var(--ink) 18%, var(--card)), 16px 16px 0 -4px color-mix(in srgb, var(--ink) 10%, var(--card)), 0 20px 40px rgb(0 0 0 / 0.35);
 }

@@ -113,16 +113,3 @@ export function SelectionFamily({ id, className = '', ...props }: Omit<HTMLAttri
   return <article {...props} data-selected={selected} className={className + (selected ? ' ring-2 ring-[var(--primary)]' : '')} />
 }
 
-export function MoveSelectionHere({ template, variants, disabled, onMove }: { template: PlateCardData; variants: PlateCardData[]; disabled: boolean; onMove(destination: PlateCardData): Promise<void> }) {
-  const count = useSyncExternalStore(plateSelection.subscribe, () => {
-    if (template.deleted || !plateSelection.snapshot().length) return 0
-    if (plateSelection.has(template.id) && variants.every(plate => plateSelection.has(plate.id))) return 0
-    return plateSelection.snapshot().filter(plate => !plate.deleted && plate.state === template.state && plate.id !== template.id && plate.variantOfPlateId !== template.id && !variants.some(variant => variant.id === plate.id) && !plateSelection.hasVariants(plate.id)).length
-  }, () => 0)
-  if (!count) return null
-  return <Button type="button" size="sm" variant="outline" disabled={disabled}
-    className="absolute -top-7 right-2 z-10 h-6 bg-[var(--card)] px-2.5 text-xs shadow-md"
-    onPointerDown={event => event.stopPropagation()}
-    onClick={event => { event.stopPropagation(); void onMove(template) }}
-  >Move {count} here</Button>
-}
