@@ -3,9 +3,11 @@ import { validateTagging } from '@/lib/review/tagging'
 import { chooseModel, currentActor, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson, respond } from '@/lib/server/respond'
 import { pipelineRun } from '@/workflows/pipeline'
+import { localPipelineScope } from '@/lib/jobs/local-scope'
 
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]/pipeline'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
+  try { if (!localPipelineScope()) return json({ error: 'not_found' }, 404) } catch { return json({ error: 'not_found' }, 404) }
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)

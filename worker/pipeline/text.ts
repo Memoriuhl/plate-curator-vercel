@@ -6,7 +6,7 @@ import { extractJson } from '../model'
 import type { WorkerDeps } from '../run'
 import { gatherWikipedia, type Source } from './sources'
 import { STORY_SCHEMA, STORY_SYSTEM, storyUserPrompt } from './prompt'
-import { readMoreFrom, validateStory } from './validate'
+import { readMoreFrom, sourceFor, validateStory } from './validate'
 
 export function createTextStageHandler(options: { url: string; fetch?: typeof fetch; gather?: typeof gatherWikipedia; onRejected?: (reasons: string[]) => void }): NonNullable<WorkerDeps['suggestFields']> {
   const request = options.fetch ?? fetch
@@ -28,11 +28,15 @@ export function createTextStageHandler(options: { url: string; fetch?: typeof fe
     if (!response.ok) throw new Error(`Local text model failed: ${response.status}`)
     const body = await response.json()
     if (typeof body.message?.content !== 'string') throw new Error('Local text model returned no result')
-    const { draft, rejected } = validateStory(extractJson(body.message.content), sources)
+    const raw = extractJson(body.message.content)
+    const { draft, rejected } = validateStory(raw, sources)
     if (rejected.length) options.onRejected?.(rejected.map(item => `${item.field}: ${item.reason}`))
+    const year = raw.firstIssuedYear
+    const yearSource = draft.firstIssuedYear !== null && year && typeof year === 'object' ? sourceFor((year as { source?: unknown }).source, sources) : null
+    const cited = sources.filter(source => draft.funFacts.some(fact => fact.sourceUrl === source.url) || source === yearSource)
     const fields = stage === 'describe'
       ? draft.description ? { description: draft.description } : null
-      : { ...(draft.funFacts.length ? { funFacts: draft.funFacts } : {}), ...(draft.firstIssuedYear !== null ? { firstIssuedYear: draft.firstIssuedYear } : {}), readMore: readMoreFrom(sources) }
+      : draft.funFacts.length || draft.firstIssuedYear !== null ? { ...(draft.funFacts.length ? { funFacts: draft.funFacts } : {}), ...(draft.firstIssuedYear !== null ? { firstIssuedYear: draft.firstIssuedYear } : {}), readMore: readMoreFrom(cited) } : null
     const fieldSuggestion = fields && parseFieldSuggestion({ kind: 'fields', stage, fields, sources: sources.map(source => source.url) }, stage)
     if (!fieldSuggestion) return { ...metadata, stageError: 'no_supported_fields' }
     const usage: Record<string, number> = {}

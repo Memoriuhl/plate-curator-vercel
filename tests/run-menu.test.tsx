@@ -463,6 +463,16 @@ test('a sourced field suggestion uses the reviewed input hash and the existing B
   await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to your Batch' }).hasAttribute('disabled')).toBe(true))
 })
 
+test('completed no-result jobs are counted separately from successful results', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  render(<TagRunBanner entries={[
+    { plate, job: { state: 'completed', suggestions: [], stage: 'story', stageError: 'no_supported_fields' } },
+    { plate: { ...plate, id: 'MD.two' }, job: { state: 'completed', suggestions: ['wildlife'] } },
+  ]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  expect(screen.getByRole('status').textContent).toContain('1 done')
+  expect(screen.getByRole('status').textContent).toContain('1 no result')
+})
+
 test('a stale field suggestion shows the conflict without claiming acceptance', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   mocks.edit.mockResolvedValueOnce({ ok: false, error: 'stale_plate' })

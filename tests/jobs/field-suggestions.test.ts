@@ -12,6 +12,8 @@ test('field suggestions require the local flag and the requested stage', () => {
 })
 
 test.each([
+  { ...suggestion, fields: { firstIssuedYear: 1976 } },
+  { ...suggestion, fields: { firstIssuedYear: 1976, funFacts: [] } },
   { ...suggestion, kind: undefined },
   { ...suggestion, kind: 'group' },
   { ...suggestion, sources: [] },

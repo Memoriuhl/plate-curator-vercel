@@ -8,12 +8,21 @@ const { POST } = await import('../../app/api/batches/[id]/plates/[plateId]/pipel
 const ctx = { params: Promise.resolve({ id: 'own-batch', plateId: 'AK.one' }) }
 const request = (body: unknown) => new Request('http://localhost/api/batches/own-batch/plates/AK.one/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 beforeEach(() => {
+  vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'route-test')
   mocks.actor.mockReset().mockResolvedValue({ ok: true, actor: { uid: 'editor', role: 'editor' } })
   mocks.choose.mockReset().mockReturnValue({ ok: true, model: { id: 'desktop-gemma4-12b', runsOn: 'desktop' } })
   mocks.validate.mockReset().mockResolvedValue({ ok: true })
   mocks.start.mockReset().mockResolvedValue({ runId: 'run' })
 })
 afterEach(() => vi.unstubAllEnvs())
+
+test.each([undefined, '', 'invalid/scope'])('missing or invalid local scope fails before any workflow starts: %s', async scope => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  vi.stubEnv('LOCAL_PIPELINE_SCOPE', scope)
+  expect((await POST(request({ stage: 'story' }), ctx)).status).toBe(404)
+  expect(mocks.start).not.toHaveBeenCalled()
+  expect(mocks.actor).not.toHaveBeenCalled()
+})
 
 test('pipeline route is absent without the local flag', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')

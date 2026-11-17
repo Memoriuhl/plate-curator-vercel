@@ -85,7 +85,7 @@ export function supportingWindow(claim: string, source: string): { text: string;
   return single.support >= MIN_SUPPORT ? single : bestOfWidth(2);
 }
 
-function sourceFor(id: unknown, sources: Source[]): Source | null {
+export function sourceFor(id: unknown, sources: Source[]): Source | null {
   if (typeof id !== 'string') return null;
   return sources.find((s) => s.id === id.trim().replace(/^\[|\]$/g, '')) ?? null;
 }

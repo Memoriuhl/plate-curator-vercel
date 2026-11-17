@@ -90,8 +90,9 @@ export function TagRunBanner({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" aria-live="polite">
           {entries.some(entry => entry.job.stage) ? 'Running pipeline on' : 'Tagging'} {entries.length} plates · {counts('queued')} queued ·{' '}
-          {counts('claimed')} claimed · {counts('completed')} done ·{' '}
+          {counts('claimed')} claimed · {entries.filter(entry => entry.job.state === 'completed' && !entry.job.stageError).length} done ·{' '}
           {counts('expired')} expired
+          {entries.some(entry => entry.job.state === 'completed' && entry.job.stageError) ? ` · ${entries.filter(entry => entry.job.state === 'completed' && entry.job.stageError).length} no result` : ''}
           {entries.some((entry) => entry.error)
             ? ` · ${entries.filter((entry) => entry.error).length} failed`
             : ''}
