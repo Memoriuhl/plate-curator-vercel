@@ -9,6 +9,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { cn } from '@/components/utils'
+import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
+import type { TaggingModelId } from '@/lib/tagging/models'
 import type { RunPlate } from './use-tag-run'
 
 const stages = [
@@ -32,7 +34,7 @@ const stages = [
   ],
   [
     'Tag',
-    'Suggest tags with the local model',
+    'Suggest tags with the selected model',
     '0:40',
     'Only under-tagged plates',
     'Escalate ambiguous plates',
@@ -56,20 +58,25 @@ export function RunMenu({
   disabled,
   disabledReason,
   start,
+  modelError,
 }: {
   underTagged: RunPlate[]
   batchPlates: RunPlate[]
   stateName: string
   disabledReason?: string
   disabled: boolean
-  start(plates: RunPlate[]): void
+  modelError?: string
+  start(plates: RunPlate[], retry: boolean, modelId?: TaggingModelId): void
 }) {
+  const choice = useTaggingModelChoice()
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
   const plates = scope === 'batch' ? batchPlates : underTagged
   const count = Math.min(25, plates.length)
+  const selectedModel = choice.data?.models.find(model => model.id === choice.modelId)
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button ref={trigger} disabled={disabled || !!disabledReason} title={disabledReason}>
@@ -157,6 +164,7 @@ export function RunMenu({
                 ) : null}
                 <span className="id">{duration}</span>
               </div>
+              {name === 'Tag' ? <TaggingModelPicker choice={choice} error={modelError} /> : null}
               {options.map((option) => (
                 <label
                   key={option}
@@ -182,8 +190,8 @@ export function RunMenu({
             Preview only · Coming soon
           </label>
           <p className="caption">
-            {count} plates · Tag · about {Math.ceil((count * 40) / 60)} min ·
-            free. Suggestions land here for you to accept.
+            {count} plates · Tag · about {Math.ceil((count * (selectedModel?.measured.p50Seconds ?? 40)) / 60)} min ·
+            Suggestions land here for you to accept.
           </p>
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -192,7 +200,7 @@ export function RunMenu({
             <Button
               disabled={disabled || count === 0}
               onClick={() => {
-                start(plates.slice(0, 25))
+                start(plates.slice(0, 25), false, choice.modelId)
                 setOpen(false)
               }}
             >
@@ -206,5 +214,7 @@ export function RunMenu({
         </footer>
       </PopoverContent>
     </Popover>
+    {modelError && !open ? <p role="alert" className="caption">{modelError}</p> : null}
+    </>
   )
 }

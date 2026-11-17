@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/client/hooks', () => ({
+  useTaggingModels: () => ({ data: undefined }),
   useWorkspaceBatch: () => state.selected ? ({ mode: 'selected', id: 'shared', detail: state.detail, status: state.readonly ? 'read-only' : 'ready' }) : ({ mode: 'personal' }),
   useEnsureBatch: () => vi.fn(),
   useEditPlate: () => ({ edit: vi.fn(), pending: false }),
