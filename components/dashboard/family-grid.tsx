@@ -1,5 +1,7 @@
 'use client'
 
+import { plateSelection, useSelectionKeyboard, SelectionPresence } from './plate-selection'
+import { SelectionBar } from './selection-bar'
 import dynamic from 'next/dynamic'
 import { FilterBar } from './filter-bar'
 import Link from 'next/link'
@@ -93,6 +95,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const { user } = useSession()
   const me = useMe()
   const edits = useEditPlate()
+  const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
@@ -100,6 +103,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const { mutate } = useSWRConfig()
   const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
+    bulkEdits,
     families: baselineFamilies, canEdit: canEdit && !issue, show, query, ordering,
     edits: { ...edits, edit: async (plate, fields, reviewed) => {
       const result = await edits.edit(plate, fields, reviewed)
@@ -141,18 +145,23 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     }
   }
   const families = useMemo(() => {
-    if (!drag.optimisticOrder && !drag.optimisticEdit) return baselineFamilies
+    if (!drag.optimisticOrder && !drag.optimisticEdit && !drag.optimisticEdits.size) return baselineFamilies
     const positions = new Map(drag.optimisticOrder?.map((id, index) => [id, index]))
     return groupFamilies(overlaid.map(plate => ({
       ...plate,
+      ...drag.optimisticEdits.get(plate.id),
       ...(drag.optimisticEdit?.plateId === plate.id ? drag.optimisticEdit.fields : {}),
       sortOrder: positions.get(plate.id) ?? plate.sortOrder,
     })))
-  }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdit])
+  }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdit, drag.optimisticEdits])
   const displayedFamilies = drag.reflow?.families ?? families
   const visible = displayedFamilies
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) => [family.template, ...family.variants].some(matches))
+  useEffect(() => {
+    plateSelection.register(overlaid)
+    plateSelection.visible(visible.flatMap(family => [family.template, ...family.variants]).filter(matches))
+  })
   useLayoutEffect(() => {
     const resize = () => {
       const bounds = container.current?.getBoundingClientRect()
@@ -173,9 +182,6 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     }
   }, [visible.length])
   useEffect(() => {
-    const dismiss = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close()
-    }
     const dismissPointer = (event: PointerEvent) => {
       if (
         !(event.target instanceof Element) ||
@@ -183,7 +189,6 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       )
         close()
     }
-    window.addEventListener('keydown', dismiss)
     const reposition = () => {
       const element = anchor.current
       if (!element?.isConnected) {
@@ -195,7 +200,6 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     window.addEventListener('pointerdown', dismissPointer)
     return () => {
       if (timer.current) clearTimeout(timer.current)
-      window.removeEventListener('keydown', dismiss)
       window.removeEventListener('scroll', reposition)
       window.removeEventListener('pointerdown', dismissPointer)
     }
@@ -226,6 +230,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     container.current?.querySelectorAll<HTMLElement>('[data-drag-row]').forEach(element => virtualizer.measureElement(element))
   }, [displayedFamilies, virtualizer])
   useDragFlip(container, reflowIdentity, !!drag.active)
+  useSelectionKeyboard({ close, promote: drag.promote, disabled: !canEdit || drag.saving || edits.pending || bulkEdits.pending, dragging: !!drag.active })
   const keyboardSource = useRef<string | null>(null)
   useEffect(() => {
     if (drag.active?.keyboard) keyboardSource.current = drag.active.item.plate.id
@@ -262,8 +267,14 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       )?.template.displayName
     : undefined
   return (
-    <section aria-label="Plate families" id="families">
-      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={onSelectGroup} /> : null}
+    <section aria-label="Plate families" id="families" className="pb-56 sm:pb-32">
+      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={(key, ids) => {
+        const selectedIds = new Set(ids)
+        plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
+        onSelectGroup?.(key, ids)
+      }} /> : null}
+      <SelectionPresence />
+      <SelectionBar promote={drag.promote} disabled={!canEdit || drag.saving || edits.pending} />
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (
@@ -355,7 +366,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       </Suspense>
       <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
       {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
-      {drag.active ? <DragPreview {...drag.active} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}
+      {drag.active ? <DragPreview {...drag.active} selectionCount={drag.selectionCount} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}
     </section>
   )
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import { useSelectedPlates } from './plate-selection'
 import { useRef, useState } from 'react'
 import { IoChevronDown, IoPlay } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
@@ -68,18 +69,19 @@ export function RunMenu({
   modelError?: string
   start(plates: RunPlate[], retry: boolean, modelId?: TaggingModelId): void
 }) {
+  const selectedPlates = useSelectedPlates()
   const choice = useTaggingModelChoice()
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
-  const plates = scope === 'batch' ? batchPlates : underTagged
+  const plates = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : underTagged
   const count = Math.min(25, plates.length)
   const selectedModel = choice.data?.models.find(model => model.id === choice.modelId)
   return (
     <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button ref={trigger} disabled={disabled || !!disabledReason} title={disabledReason}>
+        <Button data-run-trigger onClick={() => { if (selectedPlates.length) setScope('selected') }} ref={trigger} disabled={disabled || !!disabledReason} title={disabledReason}>
           <IoPlay aria-hidden="true" />
           Run pipeline
           <IoChevronDown
@@ -102,6 +104,7 @@ export function RunMenu({
         <fieldset className="grid gap-2">
           <legend className="label mb-2">Run on</legend>
           <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant={scope === 'selected' ? 'primary' : 'outline'} aria-pressed={scope === 'selected'} disabled={!selectedPlates.length} onClick={() => setScope('selected')}>Selected plates {selectedPlates.length}</Button>
             <Button
               size="sm"
               variant={scope === 'batch' ? 'primary' : 'outline'}

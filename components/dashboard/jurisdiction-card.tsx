@@ -2,6 +2,7 @@
 
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
+import { useStateSelected } from './plate-selection'
 import Link, { useLinkStatus } from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -25,6 +26,7 @@ function PendingIndicator() {
 }
 
 export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
+  const hasSelection = useStateSelected(jurisdiction.code)
   const batchId = useSelectedBatchId()
   const params = useParams<{ code: string }>()
   const selected = params.code === jurisdiction.code
@@ -62,7 +64,7 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
       onFocus={() => setPrefetch(true)}
       scroll={false}
       aria-current={selected ? 'page' : undefined}
-      className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected')}
+      className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected', hasSelection && 'outline-2 outline-offset-2 outline-[var(--primary)]')}
     >
       <strong>{jurisdiction.code}</strong>
       <PendingIndicator />

@@ -251,7 +251,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
 }
 
 export type EditResult<T = Plate | void> =
-  | ({ ok: true } & (T extends void ? object : { proposed: T }))
+  | ({ ok: true; revision?: string; batchId?: string } & (T extends void ? object : { proposed: T }))
   | { ok: false; error: 'stale_plate'; current: Plate; currentRevision: string; batchId: string; draft: EditableFields }
   | { ok: false; error: 'forbidden' | 'invalid_state' | 'not_found' | 'superseded_revision' }
 
@@ -284,7 +284,7 @@ export function useEnsureBatch(): (plate: { id: string; state: string }) => Prom
   }
 }
 
-export function useEditPlate() {
+export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
@@ -304,9 +304,11 @@ export function useEditPlate() {
       const baseRevision = reviewed?.baseRevision ?? (workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision)
       if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${key}/plates/${plate.id}`, { baseRevision, fields })
-      await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
+      const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(`${batchesKey()}?`)))
-      return { ok: true, proposed: result.plate }
+      const entry = saved?.plates.find(entry => entry.proposed.id === plate.id)
+      const unchanged = entry && Object.keys(fields).every(key => JSON.stringify(entry.proposed[key]) === JSON.stringify(result.plate[key]))
+      return { ok: true, proposed: result.plate, batchId: id, revision: unchanged ? entry.revision : undefined }
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 409 && error.code === 'stale_plate') {
@@ -323,7 +325,7 @@ export function useEditPlate() {
 
   function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }): Promise<EditResult<Plate>> {
     setPendingCount(count => count + 1)
-    const result = queue.current.then(() => save(plate, fields, reviewed))
+    const result = parallel ? save(plate, fields, reviewed) : queue.current.then(() => save(plate, fields, reviewed))
     queue.current = result.catch(() => undefined)
     return result.finally(() => setPendingCount(count => count - 1))
   }
@@ -382,7 +384,10 @@ export function useReorderState() {
   }
 
   function capture(): MoveOrigin {
-    return { batchId: workspace.mode === 'selected' ? workspace.id : displayed?.batch.id ?? null, revision: displayed?.batch.revision ?? null }
+    const cachedBatches = cache.get(batchesKey(['open'], { mine: true }))?.data as ReviewBatch[] | undefined
+    const id = workspace.mode === 'selected' ? workspace.id : displayed?.batch.id ?? mostRecentBatch(cachedBatches)?.id
+    const batch = id ? (cache.get('/api/batches/' + id)?.data as BatchDetail | undefined)?.batch ?? displayed?.batch : undefined
+    return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 
   async function move(state: string, order: string[], promotion: { plateId: string; templateFamily: string }, origin: MoveOrigin): Promise<EditResult> {
@@ -394,16 +399,18 @@ export function useReorderState() {
       const id = origin.batchId ?? await ensureBatch({ id: promotion.plateId, state })
       key = '/api/batches/' + id
       await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, promotion })
-      await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
+      const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))
-      return { ok: true }
+      const entry = saved?.plates.find(entry => entry.proposed.id === promotion.plateId)
+      return { ok: true, proposed: entry?.proposed, revision: entry?.proposed.templateRole === 'template' && entry.proposed.templateFamily === promotion.templateFamily && entry.proposed.variantOfPlateId === null ? entry.revision : undefined, batchId: id }
     } catch (error) {
       if (key) {
         const saved = await api.get<BatchDetail>(key)
         await mutate(key, saved, { revalidate: false })
-        const plate = saved.plates.find(entry => entry.proposed.id === promotion.plateId)?.proposed
+        const entry = saved.plates.find(entry => entry.proposed.id === promotion.plateId)
+        const plate = entry?.proposed
         if (!(error instanceof ApiError) && plate?.templateRole === 'template' && plate.variantOfPlateId === null &&
-          plate.templateFamily === promotion.templateFamily && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true }
+          plate.templateFamily === promotion.templateFamily && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true, proposed: plate, revision: entry?.revision, batchId: saved.batch.id }
       }
       if (error instanceof ApiError) {
         if (error.status === 409) return { ok: false, error: 'superseded_revision' }

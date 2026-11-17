@@ -1,5 +1,8 @@
 'use client'
 
+import { groupFamilies } from './family-data'
+import { plateSelection } from './plate-selection'
+import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import type { EditResult, MoveOrigin, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
@@ -14,6 +17,7 @@ type Options = {
   canEdit: boolean
   show: string
   query: string
+  bulkEdits?: ReturnType<typeof useEditPlate>
   edits: ReturnType<typeof useEditPlate>
   ordering: Pick<ReturnType<typeof useReorderState>, 'reorder' | 'pending'> & Partial<Pick<ReturnType<typeof useReorderState>, 'capture' | 'move'>>
   targets(): TargetRect[]
@@ -21,7 +25,7 @@ type Options = {
   closePreview(): void
   reload(): Promise<unknown>
 }
-type Active = { item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean; geometry: DragGeometry; origin?: MoveOrigin }
+type Active = { selection: readonly PlateCardData[]; item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean; geometry: DragGeometry; origin?: MoveOrigin }
 const errors = {
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
@@ -35,6 +39,7 @@ export function usePlateDrag(options: Options) {
   const [announcement, announce] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null)
   const [optimisticEdit, setOptimisticEdit] = useState<{ plateId: string; fields: EditableFields } | null>(null)
+  const [optimisticEdits, setOptimisticEdits] = useState<Map<string, EditableFields>>(new Map())
   const [saving, setSaving] = useState(false)
   const latest = useRef(options)
   const current = useRef(active)
@@ -70,7 +75,7 @@ export function usePlateDrag(options: Options) {
     const geometry = pressed.current?.geometry ?? measureDragGeometry(item, x, y)
     stableTargets.current = createStableDragTargets()
     stableTargets.current(latest.current.targets(), window.scrollX, window.scrollY)
-    update({ item, x, y, geometry, keyboard, origin: latest.current.ordering.capture?.(), target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
+    update({ selection: selectedFor(item), item, x, y, geometry, keyboard, origin: latest.current.ordering.capture?.(), target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
     document.body.classList.add('plate-dragging')
     announce(`Lifted ${item.plate.displayName} ${item.kind}, position ${index + 1} of ${families.length}`)
   }
@@ -89,18 +94,124 @@ export function usePlateDrag(options: Options) {
     const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
     const stable = stableTargets.current(targets(), window.scrollX, window.scrollY)
     return targetAt(x, y, stable.filter(({ target }) =>
-      (target.kind === 'family-slot' || !deletedFamilyIds.has(target.familyId))
+      (target.kind !== 'variant-slot' || !deletedFamilyIds.has(target.familyId))
       && (target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id))))
+  }
+  function actionFamilies(plates: readonly PlateCardData[]) {
+    const currentStates = new Set(latest.current.families.map(family => family.template.state))
+    return [...latest.current.families, ...[...new Set(plates.map(plate => plate.state))].filter(state => !currentStates.has(state)).flatMap(state => groupFamilies(plateSelection.statePlates(state)))]
+  }
+  function blockedTemplate(plate: PlateCardData, families: DragFamily[]) {
+    return plate.templateRole !== 'variant' && !!families.find(family => family.template.id === plate.id)?.variants.length
+  }
+  async function editSelection(plates: readonly PlateCardData[], destination?: PlateCardData) {
+    const { reload, ordering } = latest.current
+    const edits = latest.current.bulkEdits ?? latest.current.edits
+    if (!latest.current.canEdit || current.current || saving) return
+    let families = actionFamilies(plates)
+    const skipped = destination ? plates.filter(plate => !plate.deleted && plate.state === destination.state && blockedTemplate(plate, families)) : []
+    const otherStates = destination ? plates.filter(plate => !plate.deleted && plate.state !== destination.state) : []
+    const moving = plates.filter(plate => !plate.deleted && (destination
+      ? plate.state === destination.state && !skipped.includes(plate) && plate.id !== destination.id && plate.variantOfPlateId !== destination.id && !families.find(family => family.template.id === destination.id)?.variants.some(variant => variant.id === plate.id)
+      : plate.templateRole === 'variant'))
+    const skippedMessage = [skipped.length ? 'Skipped ' + skipped.length + ' Templates with Variants' : '', otherStates.length ? 'Skipped ' + otherStates.length + ' plates from other states' : ''].filter(Boolean).join('. ')
+    if (!moving.length) { latest.current.holdOverlay?.(false); announce(skippedMessage || (destination ? 'Dropped' : 'No Variants selected')); return }
+    setSaving(true)
+    const previousOrders = new Map([...new Set(moving.map(plate => plate.state))].map(state => [state, familyOrder(families.filter(family => family.template.state === state))]))
+    const planned = new Map<string, EditableFields>()
+    for (const plate of moving) {
+      const fields: EditableFields = destination
+        ? { templateRole: 'variant', variantOfPlateId: destination.id, templateFamily: destination.templateFamily || destination.id }
+        : { templateRole: 'template', variantOfPlateId: null, templateFamily: newFamilySlug(plate, families) }
+      planned.set(plate.id, fields)
+      if (!destination) families = groupFamilies(families.flatMap(family => [family.template, ...family.variants]).map(candidate => candidate.id === plate.id ? { ...candidate, ...fields } : candidate))
+    }
+    setOptimisticEdits(planned)
+    const succeeded: { plate: PlateCardData; result: Extract<EditResult, { ok: true }> }[] = []
+    let failed = false
+    try {
+      if (destination) {
+        for (let index = 0; index < moving.length; index += 3) {
+          const chunk = moving.slice(index, index + 3)
+          const results = await Promise.allSettled(chunk.map(plate => edits.edit(plate, planned.get(plate.id)!)))
+          results.forEach((result, index) => {
+            if (result.status === 'fulfilled' && result.value.ok) succeeded.push({ plate: chunk[index], result: result.value })
+            else failed = true
+          })
+          if (failed) break
+        }
+      } else {
+        if (!ordering.move || !ordering.capture) throw new Error('Reload before moving a Variant')
+        const orders = new Map(previousOrders)
+        for (const plate of moving) {
+          const order = [...orders.get(plate.state)!.filter(id => id !== plate.id), plate.id]
+          const result = await ordering.move(plate.state, order, { plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }, ordering.capture())
+          if (!result.ok) { failed = true; break }
+          orders.set(plate.state, order)
+          setOptimisticOrder(order)
+          succeeded.push({ plate, result })
+        }
+      }
+    } catch { failed = true }
+    try {
+      if (failed) {
+        let reverted = 0
+        const unreverted = new Set(succeeded.map(entry => entry.plate.id))
+        for (const { plate, result } of succeeded.toReversed()) {
+          try {
+            if (!result.revision || !result.batchId || plate.templateRole === null || plate.templateFamily === null) continue
+            const fields: EditableFields = { templateRole: plate.templateRole, templateFamily: plate.templateFamily, variantOfPlateId: plate.variantOfPlateId }
+            const restored = await edits.edit({ ...plate, revision: result.revision }, fields, { batchId: result.batchId, baseRevision: result.revision })
+            if (restored.ok) { reverted++; unreverted.delete(plate.id) }
+          } catch { continue }
+        }
+        let orderRestored = true
+        if (!destination && reverted === succeeded.length) {
+          for (const [state, order] of previousOrders) {
+            if (!succeeded.some(entry => entry.plate.state === state)) continue
+            try { if (!(await ordering.reorder(state, order)).ok) orderRestored = false } catch { orderRestored = false }
+          }
+        }
+        const saved = new Set(succeeded.map(entry => entry.plate.id))
+        plateSelection.replace(plates.filter(plate => !saved.has(plate.id) || unreverted.has(plate.id)))
+        const message = reverted === succeeded.length && orderRestored ? 'Saved ' + succeeded.length + ' of ' + moving.length + '; changes undone' : (succeeded.length - reverted) + ' of ' + moving.length + ' saved' + (orderRestored ? '' : '; order could not be restored')
+        announce([message, skippedMessage].filter(Boolean).join('. '))
+      } else {
+        plateSelection.replace([...skipped, ...otherStates])
+        const message = destination ? moving.length + (moving.length === 1 ? ' plate moved' : ' plates moved') : moving.length === 1 ? '1 plate is now a Template' : moving.length + ' plates are now Templates'
+        announce([message, skippedMessage].filter(Boolean).join('. '))
+      }
+      await reload()
+    } catch { announce('Could not check the saved Batch. Refresh before trying this move again.') }
+    finally {
+      setOptimisticEdits(new Map())
+      setOptimisticOrder(null)
+      setSaving(false)
+      latest.current.holdOverlay?.(false)
+    }
+  }
+  function selectedFor(item: DragItem) {
+    return plateSelection.has(item.plate.id) ? plateSelection.snapshot() : [item.plate]
   }
   async function drop() {
     const drag = current.current
     finish()
-    if (!drag?.target) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (!drag) return
+    if (drag.item.plate.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    const selected = drag.selection
+    if (!drag.target) {
+      if (!drag.keyboard) await editSelection(selected)
+      latest.current.holdOverlay?.(false)
+      return
+    }
     const { item, target } = drag
     const { families, edits, ordering, reload } = latest.current
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
-    if (!source || item.plate.deleted || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination.template.deleted || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (!source || item.plate.deleted || destination?.template.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (target.kind === 'family-slot' && item.kind === 'variant' && selected.length > 1) { await editSelection(selected); return }
+    if (destination && selected.length > 1) { await editSelection(selected, destination.template); return }
+    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     setSaving(true)
     const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
@@ -242,11 +353,11 @@ export function usePlateDrag(options: Options) {
       announce(`Moved to position ${index > sourceIndex ? index : index + 1}`)
     }
   }
-  const canMerge = active?.item.kind === 'variant' || options.families.find(family => family.template.id === active?.item.plate.id)?.variants.length === 0
+  const canMerge = active ? !active.selection.some(plate => blockedTemplate(plate, actionFamilies(active.selection))) : false
   const item = active?.item
   const target = active?.target
   const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])
-  return { active, reflow, announcement, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
+  return { active, reflow, announcement, optimisticEdits, promote: () => editSelection(plateSelection.snapshot()), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
     handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Space to reorder',
   }

@@ -1,5 +1,6 @@
 'use client'
 
+import { SelectionPlate, SelectionCheckbox } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -107,7 +108,7 @@ export function FamilyCard({
     const marker = badge?.(plate)
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <div
+      <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}><div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
@@ -135,6 +136,7 @@ export function FamilyCard({
         }}
         onPointerDown={small ? event => {
           event.stopPropagation()
+          if ((event.target as Element).closest('input')) return
           if ((event.target as Element).closest('button') && !(event.target as Element).closest('[data-variant-handle]')) return
           if (!entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'variant', plate }, event)
         } : undefined}
@@ -150,6 +152,7 @@ export function FamilyCard({
           aria-disabled={!drag?.enabled || !!plate.deleted} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !plate.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
+        <SelectionCheckbox id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))} imageOffset={small && canEdit ? 28 : 0} />
         <Link
           lang="en"
           title={plate.id}
@@ -171,7 +174,7 @@ export function FamilyCard({
             }}
             onMouseLeave={onClosePreview}
             style={{ width, height }}
-            className="flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
+            className="relative flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
             {plate.imageUrl ? (
               <Image
@@ -208,7 +211,7 @@ export function FamilyCard({
           {marker ? <span data-batch-marker>{marker}</span> : null}
           {small ? <div className="family-variant-checks family-plate-details basis-full"><CheckStrip checks={plate.checks} /></div> : null}
         </Link>
-      </div>
+      </div></SelectionPlate>
     )
   }
   if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
