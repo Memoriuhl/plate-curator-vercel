@@ -1,9 +1,8 @@
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
-import { getHookByToken, getRun, resumeHook } from 'workflow/api'
-import { HookNotFoundError } from 'workflow/errors'
-import { publishStartToken } from '../publish/command'
+import { resumeHook } from 'workflow/api'
+import { workflowPublishRunLookup } from './publish-runs'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { verifyIdToken } from '../auth/verify-id-token'
@@ -173,18 +172,7 @@ export function publishDeps(): PublishDeps {
     control: publishControl(),
     curator: firestorePublishCurator(db, env),
     pointer: firestorePublishPointer(db, env),
-    records: firestorePublishRecords(db, env, {
-      runStatus: async runId => getRun(runId).status,
-      findRun: async commandId => {
-        try {
-          const hook = await getHookByToken(publishStartToken(commandId))
-          return { runId: hook.runId, status: await getRun(hook.runId).status }
-        } catch (error) {
-          if (HookNotFoundError.is(error)) return null
-          throw error
-        }
-      },
-    }),
+    records: firestorePublishRecords(db, env, workflowPublishRunLookup()),
     lock: firestorePublishLock(db, env),
     snapshots: gcsSnapshots(requireEnv('FIREBASE_STORAGE_BUCKET'), async () => (await gcpAuthClient().getAccessToken()).token ?? ''),
   }

@@ -31,6 +31,20 @@ test('A: a missing token lookup cannot authorize TTL takeover', async () => {
   expect(retryEligibility({ ...input, claim: resolved.claim, runStatus: resolved.status })).toMatchObject({ canRetry: false, reason: 'locked' })
 })
 
+test('a bound run explicitly reported not found permits takeover after the claim TTL', async () => {
+  const resolved = await resolveClaimRun({ ...input.claim!, runId: 'purged-run' }, { runStatus: async () => 'not_found' })
+  expect(retryEligibility({ ...input, claim: resolved.claim, runStatus: resolved.status })).toMatchObject({ canRetry: true })
+})
+
+test('a transient run lookup stays locked and recovers when the next lookup works', async () => {
+  const lookup = { runStatus: vi.fn().mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce('completed') }
+  const claim = { ...input.claim!, runId: 'recoverable-run' }
+  const first = await resolveClaimRun(claim, lookup)
+  expect(retryEligibility({ ...input, claim: first.claim, runStatus: first.status })).toMatchObject({ canRetry: false, reason: 'locked' })
+  const second = await resolveClaimRun(claim, lookup)
+  expect(retryEligibility({ ...input, claim: second.claim, runStatus: second.status })).toMatchObject({ canRetry: true })
+})
+
 test.each(['failed', 'cancelled', 'completed'])('B2: terminal %s permits takeover while a live bound run stays locked', runStatus => {
   expect(retryEligibility({ ...input, claim: { ...input.claim!, runId: 'old-run' }, runStatus })).toMatchObject({ canRetry: true })
   expect(retryEligibility({ ...input, claim: { ...input.claim!, runId: 'old-run' }, runStatus: 'running' })).toMatchObject({ canRetry: false, reason: 'locked' })

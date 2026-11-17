@@ -78,6 +78,12 @@ Before applying the TTL, the server looks up the deterministic start token. If a
 live run exists, it binds that run to the claim and keeps the claim locked; TTL
 takeover requires an affirmative lookup showing no run. Unknown lookup state
 fails closed. A delayed start response cannot bind once its claim was replaced.
+`GET /api/batches/:id/publish` may idempotently write the recovered run binding
+and its Batch metadata while computing eligibility. It does not start a run or
+advance the Batch revision. A missing claim document is treated as expired and
+unbound, then checked through its deterministic token before takeover. An explicit
+Workflow run-not-found result permits takeover after the claim TTL; transient or
+unknown lookup errors stay locked and are retried on the next request.
 The clock is supplied to the check. Replacement writes a durable superseded stop
 for a command without one in the same acceptance transaction. A live bound run
 stays locked even after two minutes. After a failed start, retry the same intent,
@@ -106,6 +112,8 @@ at its first check after takeover, including before receipt adoption.
 Before an uncommitted pointer advance, the publisher refreshes the object's current
 download URL. Recreated matching bytes can have a new download token; a lost
 metadata response must not leave a retry using the old object's URL.
+The object checksum is checked again after fetching that URL and before the pointer
+transaction, so a metadata lookup racing different bytes cannot commit that URL.
 
 ## Known gap until #129
 

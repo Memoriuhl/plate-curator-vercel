@@ -33,10 +33,12 @@ export type PublishRunLookup = {
 
 export async function resolveClaimRun(claim: EligibilityInput['claim'], lookup: PublishRunLookup) {
   if (!claim) return { claim, status: undefined }
-  if (claim.runId) return { claim, status: await (lookup.runStatus?.(claim.runId) ?? Promise.resolve('running')) }
-  if (!lookup.findRun) return { claim, status: undefined }
-  const found = await lookup.findRun(claim.command.commandId!)
-  return found ? { claim: { ...claim, runId: found.runId }, status: found.status, recoveredRunId: found.runId } : { claim, status: null }
+  try {
+    if (claim.runId) return { claim, status: await (lookup.runStatus?.(claim.runId) ?? Promise.resolve('running')) }
+    if (!lookup.findRun) return { claim, status: undefined }
+    const found = await lookup.findRun(claim.command.commandId!)
+    return found ? { claim: { ...claim, runId: found.runId }, status: found.status, recoveredRunId: found.runId } : { claim, status: null }
+  } catch { return { claim, status: undefined } }
 }
 
 export function retryEligibility(input: EligibilityInput): RetryEligibility {
@@ -52,7 +54,8 @@ export function retryEligibility(input: EligibilityInput): RetryEligibility {
   if (receipt?.committedAt) return denied(PUBLISH_ERRORS.superseded)
   if (claim && claim.command.revision === command.revision) {
     if (input.replay && claim.command.commandId === command.commandId) return { canRetry: true, reason: null }
-    const expired = !claim.runId && input.runStatus === null && Number.isFinite(Date.parse(claim.acceptedAt)) && Date.parse(now) - Date.parse(claim.acceptedAt) >= (input.claimTtlMs ?? CLAIM_TTL_MS)
+    const absent = !claim.runId && input.runStatus === null || input.runStatus === 'not_found'
+    const expired = absent && Number.isFinite(Date.parse(claim.acceptedAt)) && Date.parse(now) - Date.parse(claim.acceptedAt) >= (input.claimTtlMs ?? CLAIM_TTL_MS)
     if (!input.claimStop && !terminalRun(input.runStatus) && !expired) return denied('locked')
     return { canRetry: true, reason: null }
   }

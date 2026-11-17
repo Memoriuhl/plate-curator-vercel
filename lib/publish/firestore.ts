@@ -1,7 +1,7 @@
 import { publishRequesterStop, sameRequester } from './authority'
 import { batchApprovedFor, claimSupersedes, isSuperseded, receiptId } from './command'
-import { resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from './eligibility'
-import { writePublishMetadata } from '../review/firestore-store'
+import { CLAIM_TTL_MS, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from './eligibility'
+import { firestoreReviewStore, writePublishMetadata } from '../review/firestore-store'
 import { uploadError } from './upload'
 import type { ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
@@ -87,6 +87,9 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
     const claimStop = pending?.revision === command.revision ? await transaction.get(db.doc(`publishCommandStops/${pending.commandId}`)) : null
     const receiptStop = receipt.exists ? await transaction.get(db.doc(`publishCommandStops/${publishCommandKey(receipt.data() as PublishRecord)}`)) : null
     let claim = claimDoc?.get('env') === env ? claimDoc.data() as EligibilityInput['claim'] : undefined
+    if (pending?.revision === command.revision && claimDoc && !claimDoc.exists) {
+      claim = { command: { batchId: command.batchId, revision: command.revision, commandId: pending.commandId }, acceptedAt: new Date(Date.parse(now) - (options.claimTtlMs ?? CLAIM_TTL_MS)).toISOString() }
+    }
     const approvalRun = batch.get('approvalRun')
     const resolved = isPublishStop(claimStop?.get('reason')) ? { claim, status: undefined } : await resolveClaimRun(claim, options)
     claim = resolved.claim
@@ -95,17 +98,18 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       command, batch: batch.get('env') === env ? batch.data() as ReviewBatch : null,
       control: parsePublishControl(control.data()), member: member?.data(), liveVersion: pointer.get('version'),
       receipt: receipt.get('env') === env ? receipt.data() as PublishRecord : null,
-      claim: claim ?? (pending?.revision === command.revision ? { command: { ...command, commandId: pending.commandId }, acceptedAt: '' } : undefined),
+      claim: claim ?? (pending?.revision === command.revision ? { command: { batchId: command.batchId, revision: command.revision, commandId: pending.commandId }, acceptedAt: now } : undefined),
       claimStop: isPublishStop(claimStop?.get('reason')) ? claimStop!.get('reason') : null,
       receiptStop: isPublishStop(receiptStop?.get('reason')) ? receiptStop!.get('reason') : null,
       ownStop: isPublishStop(ownStop.get('reason')) ? ownStop.get('reason') : null,
       runStatus: status, now, claimTtlMs: options.claimTtlMs, replay,
     }
     const eligibility = retryEligibility(input)
-    if ('recoveredRunId' in resolved && resolved.recoveredRunId && !terminalRun(status) && claimDoc && claim) {
-      transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
+    if ('recoveredRunId' in resolved && resolved.recoveredRunId && status !== 'not_found' && !terminalRun(status) && claimDoc && claim) {
+      if (claimDoc.exists) transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
+      else transaction.create(claimDoc.ref, { ...claim, env })
       if (batch.get('env') === env && batchApprovedFor(batch.data(), claim.command)) {
-        writePublishMetadata(transaction, batch, { approvalRun: { runId: resolved.recoveredRunId, revision: claim.command.revision - 1 }, publishRequestedAt: claim.acceptedAt, publishRequestedBy: claim.command.requestedBy })
+        writePublishMetadata(transaction, batch, { approvalRun: { runId: resolved.recoveredRunId, revision: claim.command.revision - 1 }, publishRequestedAt: claim.acceptedAt, ...(claim.command.requestedBy ? { publishRequestedBy: claim.command.requestedBy } : {}) })
       }
     }
     return { eligibility, batch, input, claimStop, receiptStop }
@@ -171,8 +175,8 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         const current = batch.get('publishCommand')
         const eligible = batchApprovedFor(batch.data(), command) || batch.get('state') === 'published' && batch.get('revision') === command.revision + 1 && receipt.get('env') === env && receipt.get('commandId') === command.commandId && receipt.get('committedAt')
         if (batch.get('env') !== env || !eligible || current?.commandId !== command.commandId || current.revision !== command.revision || stopped.exists) return false
+        if (!await firestoreReviewStore(db, env, transaction).updatePublishMetadata(command.batchId, batch.get('revision'), { approvalRun: { runId, revision: command.revision - 1 }, publishRequestedAt: accepted.get('acceptedAt') ?? now, publishRequestedBy: command.requestedBy })) return false
         transaction.update(ref, { runId })
-        writePublishMetadata(transaction, batch, { approvalRun: { runId, revision: command.revision - 1 }, publishRequestedAt: accepted.get('acceptedAt') ?? now, publishRequestedBy: command.requestedBy })
         return true
       })
     },

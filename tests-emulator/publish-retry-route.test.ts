@@ -168,3 +168,46 @@ test('C: a stale eligible preflight cannot override a newly live claim at accept
   expect((await db.collection('publishCommands').get()).size).toBe(1)
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })
+
+test('a purged bound run permits takeover after TTL while a transient lookup stays locked and recovers', async () => {
+  expect((await POST(request('old-bound'), ctx)).status).toBe(202)
+  time = '2026-11-15T12:10:00Z'
+  mocks.status.mockRejectedValueOnce(new Error('temporary lookup outage'))
+  expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: false, retryReason: 'locked' })
+  mocks.status.mockResolvedValue('not_found')
+  expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: true })
+  expect((await POST(request('replacement-after-purge'), ctx)).status).toBe(202)
+})
+
+test('a missing claim document is recovered through its token or superseded when no run exists', async () => {
+  const deps = mocks.deps()
+  await deps.records.accept({ ...command, commandId: 'missing-claim' }, time)
+  await db.doc('publishCommands/missing-claim').delete()
+  mocks.status.mockResolvedValue('running')
+  expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: true })
+  expect((await POST(request('replace-missing'), ctx)).status).toBe(202)
+  expect((await db.doc('publishCommandStops/missing-claim').get()).get('reason')).toBe('superseded')
+})
+
+test('a missing claim with a live token owner is reconstructed and remains locked', async () => {
+  const deps = mocks.deps()
+  await deps.records.accept({ ...command, commandId: 'missing-live-claim' }, time)
+  await db.doc('publishCommands/missing-live-claim').delete()
+  mocks.status.mockResolvedValue('running')
+  mocks.getHookByToken.mockResolvedValue({ runId: 'healthy-run' })
+  expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: false, retryReason: 'locked' })
+  expect(await deps.records.command('missing-live-claim')).toMatchObject({ runId: 'healthy-run' })
+})
+
+test('URL metadata racing different bytes cannot advance the emulator pointer', async () => {
+  const deps = mocks.deps()
+  const url = deps.snapshots.downloadUrl
+  const checksum = deps.snapshots.checksum
+  let changed = false
+  deps.snapshots.downloadUrl = async (version: number) => { const result = await url(version); changed = true; return result }
+  deps.snapshots.checksum = async (version: number) => changed ? 'different-bytes' : checksum(version)
+  expect((await POST(request('url-race'), ctx)).status).toBe(202)
+  const accepted = (await deps.records.command('url-race'))!.command
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({ error: 'version_taken' })
+  expect((await deps.pointer.read()).version).toBe(1)
+})

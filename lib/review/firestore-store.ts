@@ -7,7 +7,7 @@ export function writePublishMetadata(transaction: Transaction, batch: DocumentSn
   transaction.update(batch.ref, fields)
 }
 
-export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
+export function firestoreReviewStore(db: Firestore, env: string, scopedTransaction?: Transaction): ReviewStore {
   const batches = db.collection('reviewBatches')
   const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
   const create = (transaction: Transaction, batch: ReviewBatch) => {
@@ -17,12 +17,13 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
 
   return {
     async updatePublishMetadata(batchId, revision, fields) {
-      return db.runTransaction(async transaction => {
+      const write = async (transaction: Transaction) => {
         const batch = await transaction.get(batches.doc(batchId))
         if (batch.get('env') !== env || batch.get('revision') !== revision) return false
         writePublishMetadata(transaction, batch, fields)
         return true
-      })
+      }
+      return scopedTransaction ? write(scopedTransaction) : db.runTransaction(write)
     },
     async copy(input) {
       return db.runTransaction(async transaction => {

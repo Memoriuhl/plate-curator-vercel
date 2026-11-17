@@ -143,3 +143,15 @@ test.each([false, true])('D: recreating matching bytes refreshes the object URL 
   expect(await publishBatch(f.deps, owner, fresh)).toMatchObject({ ok: true, value: { url: 'https://storage.example/v2.json?token=recreated' } })
   expect(f.pointer().url).toBe('https://storage.example/v2.json?token=recreated')
 })
+
+test('URL lookup cannot race verified bytes into a mismatching pointer commit', async () => {
+  const f = fixture()
+  const url = f.deps.snapshots.downloadUrl
+  f.deps.snapshots.downloadUrl = async version => {
+    const result = await url(version)
+    f.blobs.set(version, new Uint8Array([9, 8, 7]))
+    return result
+  }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'version_taken' })
+  expect(f.pointer().version).toBe(1)
+})
