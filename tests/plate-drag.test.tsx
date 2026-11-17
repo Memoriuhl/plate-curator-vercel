@@ -473,7 +473,7 @@ test('handles expose grab and disabled cursors while image hover retains preview
   const view = render(<Harness />)
   for (const handle of view.container.querySelectorAll('[data-plate-row]')) expect(handle.className).toContain('cursor-grab!')
   expect(screen.queryByRole('button', { name: /^Preview / })).toBeNull()
-  fireEvent.mouseEnter(view.container.querySelector('[data-plate-image]')!)
+  fireEvent.pointerEnter(view.container.querySelector('[data-plate-image]')!)
   expect(preview).toHaveBeenCalledWith(a, expect.any(HTMLElement), false)
   view.rerender(<Harness query="army" />)
   for (const handle of view.container.querySelectorAll('[data-plate-row]')) expect(handle.className).toContain('cursor-pointer')
@@ -751,4 +751,46 @@ test('rows use Space for selection, Enter for opening and Shift+Space for keyboa
   fireEvent.keyDown(window, { key: 'ArrowDown' })
   fireEvent.keyDown(window, { key: ' ' })
   await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
+})
+
+
+test('preview opens only on image pointer hover and stays dismissed through pressing and dragging', async () => {
+  const preview = vi.fn(), close = vi.fn()
+  function Harness() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn().mockResolvedValue(success), pending: false }, reload: vi.fn(), closePreview: close, targets: () => [] })
+    return <><FamilyCard template={a} variants={[v]} canEdit drag={drag} onPreview={preview} onDismissPreview={close} /><output>{drag.announcement}</output></>
+  }
+  const view = render(<Harness />)
+  const row = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+  const image = row.querySelector<HTMLElement>('[data-plate-image]')!
+  const title = row.querySelector('h3 a')!
+  const enter = (element: Element, buttons = 0) => fireEvent(element, new MouseEvent('pointerover', { bubbles: true, buttons }))
+  const leave = (element: Element) => fireEvent(element, new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+  enter(row); enter(title)
+  fireEvent.focus(row); fireEvent.focus(title); fireEvent.focus(image.closest('a')!)
+  expect(preview).not.toHaveBeenCalled()
+  enter(image)
+  expect(preview).toHaveBeenCalledExactlyOnceWith(v, image, false)
+  preview.mockClear(); close.mockClear()
+  fireEvent.pointerDown(image)
+  expect(close).toHaveBeenCalledOnce()
+  fireEvent.click(row)
+  expect(preview).not.toHaveBeenCalled()
+  leave(image)
+  enter(image, 1)
+  expect(preview).not.toHaveBeenCalled()
+  leave(image)
+  enter(image)
+  expect(preview).toHaveBeenCalledOnce()
+  preview.mockClear()
+  pointerDrag(image, 110)
+  expect(close).toHaveBeenCalled()
+  await waitFor(() => expect(document.body.classList.contains('plate-dragging')).toBe(false))
+  expect(close.mock.calls.length).toBeGreaterThanOrEqual(3)
+  const restoredImage = view.container.querySelector('[data-plate-row="AK.v"] [data-plate-image]')!
+  enter(restoredImage)
+  expect(preview).not.toHaveBeenCalled()
+  leave(restoredImage)
+  enter(restoredImage)
+  expect(preview).toHaveBeenCalledOnce()
 })

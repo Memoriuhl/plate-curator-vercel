@@ -65,6 +65,7 @@ export function FamilyCard({
   const batchId = useSelectedBatchId()
   const router = useRouter()
   const prefetched = useRef(new Set<string>())
+  const previewBlocked = useRef(new Set<string>())
   function prefetch(id: string) {
     const ids = prefetchedIds ?? prefetched.current
     if (ids.has(id)) return
@@ -81,8 +82,10 @@ export function FamilyCard({
     return plate?.querySelector('[data-plate-image]')?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)
   }
   const pointerDragging = !!drag?.active && !drag.active.keyboard && (drag.active.item.plate.id === template.id || variants.some(plate => plate.id === drag.active?.item.plate.id))
+  const draggedId = pointerDragging ? drag?.active?.item.plate.id : undefined
   useEffect(() => {
-    if (!pointerDragging) return
+    if (!pointerDragging || !draggedId) return
+    previewBlocked.current.add(draggedId)
     const root = document.documentElement
     const previous = root.style.cursor
     root.style.cursor = 'grabbing'
@@ -93,7 +96,7 @@ export function FamilyCard({
       root.style.cursor = previous
       style.remove()
     }
-  }, [pointerDragging])
+  }, [pointerDragging, draggedId])
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
   const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
@@ -131,6 +134,7 @@ export function FamilyCard({
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
         onPointerEnter={() => onPreload?.(plate.id)}
         onPointerOver={event => {
+          if (event.buttons > 0) return
           const marker = (event.target as Element).closest<HTMLElement>('[data-batch-marker]')
           if (marker) {
             if (event.relatedTarget instanceof Node && marker.contains(event.relatedTarget)) return
@@ -150,6 +154,11 @@ export function FamilyCard({
         onPointerOut={event => {
           const icon = (event.target as Element).closest('[data-check], [data-batch-marker]')
           if (icon && !(event.relatedTarget instanceof Node && icon.contains(event.relatedTarget))) onLeaveCheck?.()
+        }}
+        onPointerDownCapture={event => {
+          if ((event.target as Element).closest('[data-plate-image]')) previewBlocked.current.add(plate.id)
+          if (onDismissPreview) onDismissPreview()
+          else onClosePreview?.()
         }}
         onPointerDown={event => {
           event.stopPropagation()
@@ -172,16 +181,24 @@ export function FamilyCard({
           prefetch={false}
           className="shrink-0 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
           onPointerEnter={() => prefetch(plate.id)}
-          onFocus={event => { prefetch(plate.id); preview(plate, event.currentTarget.querySelector('[data-plate-image]') as HTMLElement, true) }}
+          onFocus={() => prefetch(plate.id)}
           onBlur={onClosePreview}
         >
           <div
             data-plate-image
-            onMouseEnter={event => {
+            onPointerEnter={event => {
+              if (event.buttons > 0 || drag?.active || drag?.saving) {
+                previewBlocked.current.add(plate.id)
+                return
+              }
+              if (previewBlocked.current.has(plate.id)) return
               onLeaveCheck?.()
               preview(plate, event.currentTarget, false)
             }}
-            onMouseLeave={onClosePreview}
+            onPointerLeave={() => {
+              previewBlocked.current.delete(plate.id)
+              onClosePreview?.()
+            }}
             style={small ? { width, height } : { width: 'var(--family-image-width, 140px)', height: 'var(--family-image-height, 70px)' }}
             className="relative flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
@@ -201,24 +218,24 @@ export function FamilyCard({
             )}
           </div>
         </Link>
-          <div className="family-plate-details flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="plate-name min-w-0 whitespace-normal hyphens-auto [overflow-wrap:break-word]">
-                <Link lang="en" title={plate.id} prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
-              </h3>
-              {plate.isStandard ? (
-                <span
-                  aria-label="Standard plate"
-                  title="Standard plate"
-                  className="text-[var(--warning)]"
-                >
-                  <IoStar aria-hidden="true" />
-                </span>
-              ) : null}
-            </div>
-            <CheckStrip checks={plate.checks} />
+        <div className="family-plate-details flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="plate-name min-w-0 whitespace-normal hyphens-auto [overflow-wrap:break-word]">
+              <Link lang="en" title={plate.id} prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
+            </h3>
+            {plate.isStandard ? (
+              <span
+                aria-label="Standard plate"
+                title="Standard plate"
+                className="text-[var(--warning)]"
+              >
+                <IoStar aria-hidden="true" />
+              </span>
+            ) : null}
           </div>
-          {marker ? <span data-batch-marker>{marker}</span> : null}
+          <CheckStrip checks={plate.checks} />
+        </div>
+        {marker ? <span data-batch-marker>{marker}</span> : null}
       </SelectionPlate>
     )
   }
