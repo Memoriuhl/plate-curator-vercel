@@ -1,7 +1,9 @@
 import type { ModelAdapter } from './model'
 import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
+import type { GroupInput } from '../lib/jobs/specialized-suggestions'
+import type { ImageGroupOptions } from '../lib/jobs/image-options'
 
-export type WorkerPlate = { image: string; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
+export type WorkerPlate = { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
 export type StageResult = { fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
@@ -11,7 +13,7 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string }) => Promise<StageResult>
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; options?: ImageGroupOptions }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -24,6 +26,8 @@ interface Claim {
   leaseExpiresAt: string
   model?: string
   stage?: PipelineStage
+  groupScope?: GroupInput
+  stageOptions?: ImageGroupOptions
   plate: WorkerPlate
 }
 
@@ -51,7 +55,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
       deps.log('No handler is configured for this pipeline stage')
       return 'dropped'
     }
-    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model })
+    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}) })
     fieldSuggestion = result.fieldSuggestion
     stageError = result.stageError
     backend = result.backend
@@ -61,7 +65,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   } else {
     let imageB64: string
     try {
-      imageB64 = await deps.readImage(claim.plate.image)
+      imageB64 = await deps.readImage(claim.plate.imageUrl || claim.plate.image)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       backend = 'missing-image'

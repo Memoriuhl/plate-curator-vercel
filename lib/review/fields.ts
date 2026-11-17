@@ -1,11 +1,13 @@
 import type { EditableFields } from './types'
 import { storyFieldKeys } from './story'
+import { commonsImageUrl } from '../jobs/image-options'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
 const storyKeys = storyFieldKeys
-export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys] as const
+const imageKeys = ['imageUrl', 'sourceUrl'] as const
+export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys] as const
 export function editableFieldKeys() {
-  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || !storyKeys.some(storyKey => storyKey === key))
+  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys].some(localKey => localKey === key))
 }
 
 export function storyUrl(value: unknown): string | null {
@@ -34,7 +36,11 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
 
   const fields: EditableFields = {}
   for (const [key, value] of entries) {
-    if (key === 'firstIssuedYear') {
+    if (key === 'imageUrl') {
+      const url = commonsImageUrl(value)
+      if (value !== null && !url) return null
+      fields.imageUrl = url
+    } else if (key === 'firstIssuedYear') {
       if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1800 || value > 2100)) return null
       fields.firstIssuedYear = value as number | null
     } else if (key === 'wikiUrl') {
@@ -92,6 +98,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
 }
 
 export function parseEditableFields(input: unknown): EditableFields | null {
+  if (isRecord(input) && (Object.hasOwn(input, 'sourceUrl') !== Object.hasOwn(input, 'imageUrl'))) return null
   return parseFields(input, new Set(editableFieldKeys()))
 }
 

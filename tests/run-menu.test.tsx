@@ -23,6 +23,8 @@ import { PlateTagActions } from '../components/dashboard/plate-tag-actions'
 import { TAGGING_MODELS } from '../lib/tagging/models'
 import { formatTaggingModel } from '../lib/client/tagging-models'
 import { ApiError } from '../lib/client/api'
+import { SpecializedSuggestion } from '../components/dashboard/specialized-suggestion'
+import type { ImageSuggestion } from '../lib/jobs/specialized-suggestions'
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn().mockResolvedValue(undefined),
@@ -522,4 +524,19 @@ test('stage retries retain both the selected model and stage', async () => {
   expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
   await act(async () => { await result.current.start([plate], true) })
   expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/batch/plates/MD.one/pipeline', { model: 'desktop-gemma4-12b', stage: 'story' })
+})
+
+test('image candidate choice is explicit and projection-only until aggregate Apply', async () => {
+  const suggestion: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'photo', title: 'Alaska plate', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64), license: 'CC BY 4.0' }] }
+  const choose = vi.fn().mockResolvedValue(undefined)
+  render(<SpecializedSuggestion suggestion={suggestion} plates={[]} blocked={false} accepted={false} onSelectImage={choose} />)
+  const useImage = screen.getByRole('button', { name: 'Use selected image for this run' }) as HTMLButtonElement
+  expect(useImage.disabled).toBe(true)
+  expect(screen.getByRole('img', { name: 'Alaska plate' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: /Image provenance/ }).getAttribute('href')).toBe(suggestion.candidates[0].sourceUrl)
+  expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull()
+  fireEvent.click(screen.getByRole('radio', { name: 'Alaska plate' }))
+  fireEvent.click(useImage)
+  await waitFor(() => expect(choose).toHaveBeenCalledWith('photo'))
+  expect(mocks.edit).not.toHaveBeenCalled()
 })

@@ -1,6 +1,7 @@
 import type { Plate } from '../catalog/types'
 import type { EditableFields } from '../review/types'
-import type { GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
+import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
+import type { ImageGroupOptions } from './image-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
@@ -21,6 +22,8 @@ export type TaggingJob = {
   modelId?: string
   stage?: PipelineStage
   localScope?: string
+  groupScope?: GroupInput
+  stageOptions?: ImageGroupOptions
   createdAt: number
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   claimId?: string

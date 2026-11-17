@@ -14,10 +14,13 @@ export async function POST(request: Request) {
   return json({
     job: { id: claim.job.id, batchId: claim.job.batchId, plateId: claim.job.plateId, inputHash: claim.job.inputHash },
     ...(claim.job.stage ? { stage: claim.job.stage } : {}),
+    ...(claim.job.groupScope ? { groupScope: claim.job.groupScope } : {}),
+    ...(claim.job.stageOptions ? { stageOptions: claim.job.stageOptions } : {}),
     claimId: claim.claimId,
     leaseExpiresAt: new Date(claim.leaseExpiresAt).toISOString(),
     ...(taggingModel(claim.job.modelId)?.runsOn === 'desktop' ? { model: taggingModel(claim.job.modelId)!.model } : {}),
     plate: { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [],
+      ...(claim.job.localScope && typeof plate.imageUrl === 'string' ? { imageUrl: plate.imageUrl } : {}),
       ...(claim.job.stage ? { description: plate.description ?? null, sourceUrl: plate.sourceUrl ?? null, wikiUrl: plate.wikiUrl ?? null } : {}),
     },
   })

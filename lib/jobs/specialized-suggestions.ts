@@ -1,17 +1,19 @@
 import type { EditableFields } from '../review/types'
+import type { Plate } from '../catalog/types'
 import { commonsImageUrl, commonsSourceUrl } from './image-options'
 
 export type ImageCandidate = { id: string; imageUrl: string; sourceUrl: string; title: string; width: number; height: number; sha256: string; license?: string; author?: string }
 export type ImageSuggestion = { kind: 'image'; stage: 'find-image'; candidates: ImageCandidate[]; sources: string[] }
 export type GroupFields = Required<Pick<EditableFields, 'templateFamily' | 'templateRole' | 'variantOfPlateId'>>
 export type GroupMember = { plateId: string; baseRevision: string }
+export type GroupInput = { plate: Plate; baseRevision: string }[]
 export type GroupProposal = GroupMember & { fields: GroupFields }
 export type GroupSuggestion = { kind: 'group'; stage: 'group'; scope: GroupMember[]; proposals: GroupProposal[]; sources: string[] }
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const exact = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key))
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= max
-const member = (value: unknown): value is GroupMember => record(value) && text(value.plateId, 120) && /^[a-f0-9]{20}$/.test(String(value.baseRevision))
+const member = (value: unknown): value is GroupMember => record(value) && text(value.plateId, 120) && typeof value.baseRevision === 'string' && /^[a-f0-9]{20}$/.test(value.baseRevision)
 
 export function parseImageSuggestion(input: unknown): ImageSuggestion | null {
   if (!record(input) || !exact(input, ['kind', 'stage', 'candidates', 'sources']) || input.kind !== 'image' || input.stage !== 'find-image') return null
@@ -19,7 +21,7 @@ export function parseImageSuggestion(input: unknown): ImageSuggestion | null {
   const candidates: ImageCandidate[] = []
   for (const value of input.candidates) {
     if (!record(value) || Object.keys(value).some(key => !['id', 'imageUrl', 'sourceUrl', 'title', 'width', 'height', 'sha256', 'license', 'author'].includes(key)) || !text(value.id, 120) || !text(value.title, 300)) return null
-    if (!Number.isInteger(value.width) || !Number.isInteger(value.height) || Number(value.width) < 80 || Number(value.height) < 40 || Number(value.width) * Number(value.height) > 16000000 || !/^[a-f0-9]{64}$/.test(String(value.sha256))) return null
+    if (!Number.isInteger(value.width) || !Number.isInteger(value.height) || Number(value.width) < 80 || Number(value.height) < 40 || Number(value.width) * Number(value.height) > 16000000 || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) return null
     if (value.license !== undefined && !text(value.license, 500) || value.author !== undefined && !text(value.author, 500)) return null
     const imageUrl = commonsImageUrl(value.imageUrl)
     const sourceUrl = commonsSourceUrl(value.sourceUrl)

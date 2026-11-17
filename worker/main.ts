@@ -1,8 +1,10 @@
 import { gatewayAdapter, ollamaAdapter, type ModelAdapter } from './model'
 import { imageReader } from './images'
-import { runLoop } from './run'
+import { runLoop, type WorkerDeps } from './run'
 import { assertLocalWorker } from './local'
 import { createTextStageHandler } from './pipeline/text'
+import { createImageGroupRunner, localVisionTiebreak } from './image-group'
+import { legacyEmbeddingRunner } from './group-embedding'
 
 async function main() {
   const { API_BASE, GAME_REPO, VERCEL_PROTECTION_BYPASS } = process.env
@@ -20,8 +22,17 @@ async function main() {
   const ollamaUrl = process.env.OLLAMA_URL ?? 'http://localhost:11434'
   const adapters = new Map<string, ModelAdapter>([[adapter.model, adapter]])
   const adapterFor = backend === 'local' ? (model: string) => adapters.get(model) ?? adapters.set(model, ollamaAdapter({ url: ollamaUrl, model })).get(model)! : undefined
-  const suggestFields = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? createTextStageHandler({ url: ollamaUrl, onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) }) : undefined
-  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, fetch, adapter, adapterFor, suggestFields, readImage: imageReader(GAME_REPO), now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
+  const readImage = imageReader(GAME_REPO)
+  const textStages = createTextStageHandler({ url: ollamaUrl, onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) })
+  const { LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO, LOCAL_GROUP_CACHE } = process.env
+  const embed = LOCAL_GROUP_PYTHON && LOCAL_GROUP_LEGACY_REPO && LOCAL_GROUP_CACHE
+    ? legacyEmbeddingRunner({ python: LOCAL_GROUP_PYTHON, legacyRepo: LOCAL_GROUP_LEGACY_REPO, cache: LOCAL_GROUP_CACHE, readImage })
+    : async () => { throw new Error('Group needs LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO and LOCAL_GROUP_CACHE') }
+  const imageStages = createImageGroupRunner({ embed, tiebreak: localVisionTiebreak({ url: ollamaUrl, readImage }) })
+  const suggestFields: WorkerDeps['suggestFields'] = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+    ? input => ['find-image', 'group'].includes(input.stage) ? imageStages(input) : textStages(input)
+    : undefined
+  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
 }
 
 main().catch(() => { console.error('Worker stopped after a configuration or startup failure'); process.exitCode = 1 })

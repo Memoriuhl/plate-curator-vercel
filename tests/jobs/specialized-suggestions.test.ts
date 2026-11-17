@@ -28,6 +28,7 @@ test('specialized image results require local gate, raster allowlist and both pr
   }
   expect(parseImageSuggestion({ ...imageResult, sources: [imageResult.candidates[0].imageUrl] })).toBeNull()
   expect(parseImageSuggestion({ ...imageResult, candidates: [] })).toBeNull()
+  expect(parseImageSuggestion({ ...imageResult, candidates: [{ ...imageResult.candidates[0], sha256: ['a'.repeat(64)] }] })).toBeNull()
   expect(parseFieldSuggestion({ kind: 'fields', stage: 'find-image', fields: { sourceUrl: imageResult.candidates[0].sourceUrl }, sources: imageResult.sources }, 'find-image')).toBeNull()
 })
 
@@ -39,4 +40,5 @@ test('group results describe a complete bounded scope and one valid template per
   expect(parseGroupSuggestion({ ...groupResult, proposals: [groupResult.proposals[0], { ...groupResult.proposals[1], fields: { ...groupResult.proposals[1].fields, variantOfPlateId: 'AK.outside' } }] })).toBeNull()
   expect(parseGroupSuggestion({ ...groupResult, proposals: groupResult.proposals.map(value => ({ ...value, fields: { ...value.fields, isStandard: true } })) })).toBeNull()
   expect(parseGroupSuggestion({ ...groupResult, order: ['AK.b', 'AK.a'] })).toBeNull()
+  expect(parseGroupSuggestion({ ...groupResult, scope: [{ ...groupResult.scope[0], baseRevision: 12345678901234567890 }, groupResult.scope[1]] })).toBeNull()
 })
