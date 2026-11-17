@@ -59,7 +59,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
       for (const link of value) {
         if (!isRecord(link) || Object.keys(link).some(key => !['title', 'site', 'url'].includes(key))) return null
         const title = boundedText(link.title, 200)
-        const site = boundedText(link.site, 120)
+        const site = boundedText(link.site, 200)
         const url = storyUrl(link.url)
         if (!title || site === null || !url) return null
         links.push({ title, site, url })

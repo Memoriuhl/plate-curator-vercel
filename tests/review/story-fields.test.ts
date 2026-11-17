@@ -34,11 +34,11 @@ test('supports explicit clearing and trims sourced text', () => {
 
 test('shared story validation uses the agreed bounds without the direct-input flag', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
-  const fields = { funFacts: [{ ...story.funFacts[0], sourceTitle: 's'.repeat(300) }], readMore: [{ title: 't'.repeat(200), site: 's'.repeat(120), url: 'https://example.org' }] }
+  const fields = { funFacts: [{ ...story.funFacts[0], sourceTitle: 's'.repeat(300) }], readMore: [{ title: 't'.repeat(200), site: 's'.repeat(200), url: 'https://example.org' }] }
   expect(parseStoryFields(fields)).toEqual(fields)
   expect(parseEditableFields(fields)).toBeNull()
   expect(parseStoryFields({ funFacts: [{ ...fields.funFacts[0], sourceTitle: 's'.repeat(301) }] })).toBeNull()
-  expect(parseStoryFields({ readMore: [{ ...fields.readMore[0], site: 's'.repeat(121) }] })).toBeNull()
+  expect(parseStoryFields({ readMore: [{ ...fields.readMore[0], site: 's'.repeat(201) }] })).toBeNull()
   expect(parseStoryFields({ readMore: [{ title: 'Link', url: 'https://example.org' }] })).toBeNull()
   expect(parseStoryFields({ readMore: [{ title: 'Link', site: ' ', url: 'https://example.org' }] })).toBeNull()
 })
