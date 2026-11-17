@@ -148,15 +148,16 @@ test('touch lifts only after the long press and unmount cleans the cursor', () =
   } finally { vi.useRealTimers() }
 })
 
-test('a family cannot merge into another family', async () => {
+test('merging a template moves the template and all its variants into the destination family', async () => {
   const { handle, edit, reorder } = setup({ merge: true })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
-  expect(screen.getByText('Cancelled')).toBeTruthy()
-  expect(edit).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('3 plates moved')).toBeTruthy())
+  expect(edit).toHaveBeenCalledTimes(3)
+  for (const plate of [a, v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
   expect(reorder).not.toHaveBeenCalled()
 })
 
@@ -557,12 +558,13 @@ test('selected family-slot drags retain the family reorder path', async () => {
   expect(move).not.toHaveBeenCalled()
 })
 
-test('multi-merge skips templates with variants instead of moving their children', async () => {
+test('multi-merge includes a selected template and its unselected variants exactly once', async () => {
   plateSelection.add([a, v])
   const { handle, edit } = setup({ variant: true, merge: true })
   pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText(/Skipped 1 Templates with Variants/)).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+  await waitFor(() => expect(screen.getByText('3 plates moved')).toBeTruthy())
+  expect(edit).toHaveBeenCalledTimes(3)
+  for (const plate of [a, v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
 })
 
 test.each([false, true])('partial merge stops after its first failed chunk and compensates saved edits (revert failure: %s)', async revertFails => {
@@ -626,7 +628,7 @@ test('drag preview only adds an absolutely positioned count for multi-selection'
   expect(document.querySelector('[data-drag-lifted]')!.className).toContain('drag-stack')
 })
 
-test('multi-merge displays the invalid outline when selected templates still have variants', () => {
+test('multi-merge displays a valid target for selected templates with variants', () => {
   plateSelection.add([a, v])
   function Harness() {
     const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }], closePreview: vi.fn(), reload: vi.fn() })
@@ -639,7 +641,8 @@ test('multi-merge displays the invalid outline when selected templates still hav
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => (type === 'pointerdown' ? handle : window).dispatchEvent(event))
   }
-  expect(view.container.querySelector('article')?.className).toContain('outline-dashed')
+  expect(view.container.querySelector('article')?.className).toContain('outline-2')
+  expect(view.container.querySelector('article')?.className).not.toContain('outline-dashed')
 })
 
 test('multi-merge skips selected plates from other States', async () => {
