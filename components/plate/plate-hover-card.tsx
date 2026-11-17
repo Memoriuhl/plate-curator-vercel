@@ -122,13 +122,13 @@ export function PlateHoverContent({
             {plate.tags.slice(0, 3).map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-[var(--fill)] px-2 py-1 text-xs"
+                className="rounded-full bg-[var(--fill)] px-2 py-1 text-xs text-[var(--tag-ink)]"
               >
                 {tag}
               </span>
             ))}
             {plate.tags.length > 3 ? (
-              <span className="rounded-full bg-[var(--fill)] px-2 py-1 text-xs">
+              <span className="rounded-full bg-[var(--fill)] px-2 py-1 text-xs text-[var(--tag-ink)]">
                 +{plate.tags.length - 3}
               </span>
             ) : null}

@@ -332,7 +332,7 @@ test('other plates order variants first and preserve order within groups', () =>
 test('template confirmation cancellation does not save', () => {
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
-  expect(screen.getByRole('alertdialog').textContent).toContain('It stops being a Template')
+  expect(screen.getByRole('alertdialog').textContent).toBe('Add Standard Gold to this family?It stops being a Template.CancelAdd to family')
   expect(state.edit).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -347,14 +347,18 @@ test('variant adds immediately without confirmation', async () => {
   await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(1))
 })
 
-test('template confirmation counts explicit and legacy variant links', () => {
+test.each([1, 2])('templates with %i linked variants cannot be added', count => {
   const candidate = props.plates.find(plate => plate.id === 'AK.standard_gold')!
   const children = [
     { ...candidate, id: 'AK.explicit', displayName: 'Explicit child', templateRole: 'variant' as const, templateFamily: 'different', variantOfPlateId: candidate.id },
     { ...candidate, id: 'AK.legacy', displayName: 'Legacy child', templateRole: 'variant' as const, variantOfPlateId: null },
     { ...candidate, id: 'AK.unrelated', displayName: 'Unrelated child', templateRole: 'variant' as const, variantOfPlateId: 'AK.other' },
   ]
-  render(<PlatePage {...props} plates={[slimPlate(army), candidate, ...children, { ...candidate, id: 'AK.other', displayName: 'Other template', templateFamily: 'other' }]} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
-  expect(screen.getByRole('alertdialog').textContent).toContain('Its 2 Variants keep their existing family and template links')
+  render(<PlatePage {...props} plates={[slimPlate(army), candidate, ...children.slice(0, count), children[2], { ...candidate, id: 'AK.other', displayName: 'Other template', templateFamily: 'other' }]} />)
+  const add = screen.getByRole('button', { name: 'Add Standard Gold to family' }) as HTMLButtonElement
+  expect(add.disabled).toBe(true)
+  expect(document.getElementById(add.getAttribute('aria-describedby')!)?.textContent).toBe('Move or detach its ' + count + ' ' + (count === 1 ? 'Variant' : 'Variants') + ' first.')
+  fireEvent.click(add)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(state.edit).not.toHaveBeenCalled()
 })

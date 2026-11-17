@@ -209,9 +209,10 @@ export function PlatePage(props: PlatePageProps) {
       : member.id !== current.id)
     return [...outside.filter(member => member.templateRole !== 'template'), ...outside.filter(member => member.templateRole === 'template')]
   }, [plates, current.templateFamily, current.id])
-  const linkedVariantCount = useMemo(() => addingTemplate
-    ? groupFamilies(plates).find(family => family.template.id === addingTemplate.id)?.variants.length ?? 0
-    : 0, [plates, addingTemplate])
+  const linkedVariantCounts = useMemo(() => new Map(
+    groupFamilies(plates).map(family => [family.template.id, family.variants.length]),
+  ), [plates])
+  const linkedVariantCount = addingTemplate ? linkedVariantCounts.get(addingTemplate.id) ?? 0 : 0
   const filtered = others.filter((member) =>
     `${member.displayName} ${member.id}`
       .toLowerCase()
@@ -249,7 +250,7 @@ export function PlatePage(props: PlatePageProps) {
   }
 
   async function addToFamily(member: PlateCardData) {
-    if (blocked || !current.templateFamily) return
+    if (blocked || !current.templateFamily || (member.templateRole === 'template' && (linkedVariantCounts.get(member.id) ?? 0) > 0)) return
     await save(member, {
       templateFamily: current.templateFamily,
       templateRole: 'variant',
@@ -304,11 +305,11 @@ export function PlatePage(props: PlatePageProps) {
         <AlertDialogContent onCloseAutoFocus={event => { event.preventDefault(); addTrigger.current?.focus() }}>
           <AlertDialogTitle>Add {addingTemplate?.displayName} to this family?</AlertDialogTitle>
           <AlertDialogDescription>
-            It stops being a Template. Its {linkedVariantCount} Variants keep their existing family and template links; they are not moved with it.
+            It stops being a Template.
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={blocked || !current.templateFamily} onClick={() => { if (addingTemplate) void addToFamily(addingTemplate) }}>Add to family</AlertDialogAction>
+            <AlertDialogAction disabled={blocked || !current.templateFamily || linkedVariantCount > 0} onClick={() => { if (addingTemplate) void addToFamily(addingTemplate) }}>Add to family</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -618,28 +619,34 @@ export function PlatePage(props: PlatePageProps) {
               className={input}
             />
             <div className="max-h-[580px] overflow-y-auto">
-              {filtered.slice(0, 100).map((member) => (
-                <div key={member.id} className="grid gap-2">
-                  {fieldIssue('templateFamily', member.id)}
-                  <div className="flex items-center">
-                    <Member plate={member} href={plateHref(member.id)} />
-                    <Button
-                      aria-label={`Add ${member.displayName} to family`}
-                      variant="ghost"
-                      size="icon"
-                      disabled={blocked || !current.templateFamily}
-                      onClick={event => {
-                        if (member.templateRole === 'template') {
-                          addTrigger.current = event.currentTarget
-                          setAddingTemplate(member)
-                        } else void addToFamily(member)
-                      }}
-                    >
-                      <IoAdd />
-                    </Button>
+              {filtered.slice(0, 100).map((member) => {
+                const count = member.templateRole === 'template' ? linkedVariantCounts.get(member.id) ?? 0 : 0
+                const reasonId = 'family-move-' + member.id
+                return (
+                  <div key={member.id} className="grid gap-2">
+                    {fieldIssue('templateFamily', member.id)}
+                    <div className="flex items-center">
+                      <Member plate={member} href={plateHref(member.id)} />
+                      <Button
+                        aria-label={`Add ${member.displayName} to family`}
+                        variant="ghost"
+                        size="icon"
+                        disabled={blocked || !current.templateFamily || count > 0}
+                        aria-describedby={count > 0 ? reasonId : undefined}
+                        onClick={event => {
+                          if (member.templateRole === 'template') {
+                            addTrigger.current = event.currentTarget
+                            setAddingTemplate(member)
+                          } else void addToFamily(member)
+                        }}
+                      >
+                        <IoAdd />
+                      </Button>
+                    </div>
+                    {count > 0 ? <p id={reasonId} className="caption px-3 text-[var(--ink-2)]">Move or detach its {count} {count === 1 ? 'Variant' : 'Variants'} first.</p> : null}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             {filtered.length > 100 ? (
               <p className="caption">Filter to see more</p>
