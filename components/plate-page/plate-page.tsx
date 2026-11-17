@@ -15,6 +15,8 @@ import {
   IoPricetagOutline,
   IoStarOutline,
 } from 'react-icons/io5'
+import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
+import { PlateTagActions } from '@/components/dashboard/plate-tag-actions'
 import { Button } from '@/components/ui/button'
 import { RarityMark } from '@/components/plate/rarity-mark'
 import { cn } from '@/components/utils'
@@ -331,6 +333,7 @@ export function PlatePage(props: PlatePageProps) {
 
   return (
     <div className="grid min-w-0 gap-4">
+      <SelectedBatchBar />
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <Link
@@ -474,9 +477,7 @@ export function PlatePage(props: PlatePageProps) {
                 }}
               />
             </div>
-            <p className="caption text-[var(--ink-2)]">
-              Tag suggestions come from the Tag stage in Run pipeline.
-            </p>
+            <PlateTagActions key={current.id} plate={current} />
           </Card>
         </div>
         <div className="grid min-w-0 gap-4">

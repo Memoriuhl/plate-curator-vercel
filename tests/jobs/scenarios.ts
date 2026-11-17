@@ -46,6 +46,16 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     expect(await s.review.getBatch('batch')).toMatchObject({ plateIds: ['one', 'two'], revision: 0 })
   })
 
+  test('job input freezes the Batch draft and its reviewed revision before claim', async () => {
+    const s = await setup()
+    const batch = await s.review.getBatch('batch')
+    const draft = { ...s.plate, tags: ['draft'], templateFamily: 'navy' }
+    await s.review.commit('batch', 0, { batch: { ...batch!, revision: 1 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['draft'], templateFamily: 'navy' }, authorId: 'owner', updatedAt: 'now', resultRevision: plateRevision(draft) } })
+    expect(await s.create()).toMatchObject({ ok: true, value: { inputHash: plateRevision(draft), inputPlate: draft } })
+    await s.review.commit('batch', 1, { batch: { ...batch!, revision: 2 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['later'] }, authorId: 'owner', updatedAt: 'later', resultRevision: 'later' } })
+    expect(await s.claim()).toMatchObject({ job: { inputHash: plateRevision(draft), inputPlate: draft } })
+  })
+
   test('claims the oldest queued job with a lease', async () => {
     const s = await setup()
     await s.create('first')

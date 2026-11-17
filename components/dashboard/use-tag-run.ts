@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/lib/client/api'
-import { useEnsureBatch } from '@/lib/client/hooks'
+import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 
 export type RunPlate = {
@@ -15,6 +15,7 @@ export type RunPlate = {
 export type TagJob = {
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   suggestions: string[]
+  inputHash?: string
 }
 export type RunEntry = {
   plate: RunPlate
@@ -44,6 +45,14 @@ function reason(error: unknown) {
 export function useTagRun() {
   const { api } = useSession()
   const ensureBatch = useEnsureBatch()
+  const workspace = useWorkspaceBatch()
+  const selection = workspace.mode === 'selected' ? workspace.id : null
+  const disabledReason = workspace.mode === 'selected'
+    ? workspace.status === 'loading' ? 'Loading selected Batch'
+      : workspace.status === 'unavailable' ? 'Selected Batch is unavailable'
+        : workspace.status !== 'ready' || workspace.detail?.batch.state !== 'open' ? 'Selected Batch is read-only for Tag' : undefined
+    : undefined
+  const [batchId, setBatchId] = useState<string | null>(null)
   const [entries, setEntries] = useState<RunEntry[]>([])
   const [starting, setStarting] = useState(false)
   const generation = useRef(0)
@@ -59,11 +68,19 @@ export function useTagRun() {
       ['queued', 'claimed'].includes(entry.job.state),
   )
 
+  const [previousSelection, setPreviousSelection] = useState(selection)
+  if (previousSelection !== selection) {
+    setPreviousSelection(selection)
+    setEntries([])
+    setStarting(false)
+    setBatchId(null)
+  }
+
   useEffect(
     () => () => {
       generation.current++
     },
-    [],
+    [selection],
   )
 
   useEffect(() => {
@@ -114,7 +131,7 @@ export function useTagRun() {
   }, [api, pollingNeeded])
 
   async function start(plates: RunPlate[], retry = false) {
-    if (!plates.length || posting.current) return
+    if (!plates.length || posting.current || disabledReason) return
     posting.current = true
     setStarting(true)
     const version = retry ? generation.current : ++generation.current
@@ -141,7 +158,9 @@ export function useTagRun() {
         )
     }
     try {
-      const batchId = await ensureBatch(plates[0])
+      const batchId = workspace.mode === 'selected' ? workspace.id : await ensureBatch(plates[0])
+      if (version !== generation.current) return
+      setBatchId(batchId)
       for (const { plate } of initial) {
         if (version !== generation.current) break
         try {
@@ -169,5 +188,5 @@ export function useTagRun() {
     setEntries([])
     setStarting(false)
   }
-  return { entries, starting, start, dismiss }
+  return { entries, batchId, disabledReason, starting, start, dismiss }
 }

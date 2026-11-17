@@ -105,8 +105,8 @@ export function BatchActions({
           underTagged={underTagged}
           batchPlates={batchPlates}
           stateName={stateName}
-          shared={workspace.mode === 'selected'}
-          disabled={workspace.mode === 'selected' || run.entries.length > 0 || run.starting}
+          disabledReason={run.disabledReason}
+          disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
           start={(plates) => void run.start(plates)}
         />
         {me.data?.role === 'owner' ? (
@@ -120,13 +120,13 @@ export function BatchActions({
         ) : null}
         {message ? <span role="status">{message}</span> : null}
       </div>
-      {workspace.mode === 'personal' ? <TagRunBanner
+      <TagRunBanner
         entries={run.entries}
         starting={run.starting}
-        batchId={batch?.id ?? null}
+        batchId={run.batchId}
         dismiss={run.dismiss}
         retry={(plate) => void run.start([plate], true)}
-      /> : null}
+      />
     </>
   )
 }

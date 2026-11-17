@@ -9,6 +9,7 @@ export type TaggingJob = {
   batchId: string
   plateId: string
   requestedBy: string
+  inputPlate?: Plate
   inputHash: string
   env: Environment
   createdAt: number
@@ -24,7 +25,7 @@ export type WorkerToken = { hash: string; workerId: string; env: Environment; cr
 export interface JobsTransaction {
   get(id: string): Promise<TaggingJob | null>
   list(): Promise<TaggingJob[]>
-  review(batchId: string, plateId: string): Promise<{ fields: EditableFields } | null>
+  review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number } | null>
   create(job: TaggingJob): void
   set(job: TaggingJob): void
 }
@@ -35,6 +36,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; now(): number; id(): string; leaseMs: number }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; now(): number; id(): string; leaseMs: number }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

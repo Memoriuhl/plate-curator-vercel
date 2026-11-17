@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), send: vi.fn() },
   ensure: vi.fn(),
   edit: vi.fn(),
+  workspace: { mode: 'personal' } as { mode: 'personal' } | { mode: 'selected'; id: string; status: string; detail?: { batch: { state: string } } },
   detail: { plates: [] as { proposed: RunPlate }[] },
 }))
 vi.mock('../lib/client/session', () => ({
@@ -30,6 +31,7 @@ vi.mock('../lib/client/session', () => ({
 }))
 vi.mock('../lib/client/hooks', () => ({
   useEnsureBatch: () => mocks.ensure,
+  useWorkspaceBatch: () => mocks.workspace,
   useBatch: () => ({ data: mocks.detail }),
   useEditPlate: () => ({ edit: mocks.edit, pending: false }),
 }))
@@ -42,6 +44,7 @@ const plate: RunPlate = {
   tags: ['Blue'],
 }
 beforeEach(() => {
+  mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
   mocks.api.send.mockReset().mockImplementation(async (_method, path) => ({
     jobId: path.split('/')[5],
@@ -258,5 +261,53 @@ test('banner counts and accept merges overlay tags, normalizes and deduplicates 
   expect(mocks.edit).toHaveBeenCalledTimes(1)
   expect(mocks.edit).toHaveBeenCalledWith(plate, {
     tags: ['blue', 'earlier', 'bird'],
-  })
+  }, { batchId: 'batch', baseRevision: 'r1' })
+})
+
+test.each(['loading', 'unavailable', 'read-only'])('selected %s Batch cannot start Tag or accept a suggestion', async status => {
+  mocks.workspace = { mode: 'selected', id: 'shared', status }
+  const { result } = renderHook(useTagRun)
+  await act(async () => { await result.current.start([plate]) })
+  expect(result.current.disabledReason).toBeTruthy()
+  expect(mocks.ensure).not.toHaveBeenCalled()
+  expect(mocks.api.send).not.toHaveBeenCalled()
+  render(<TagRunBanner batchId="shared" entries={[{ plate, job: { state: 'completed', suggestions: ['bird'], inputHash: 'reviewed' } }]} starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  const accept = screen.getByRole('button', { name: 'Accept bird for Maryland one' })
+  expect(accept.hasAttribute('disabled')).toBe(true)
+  fireEvent.click(accept)
+  expect(mocks.edit).not.toHaveBeenCalled()
+})
+
+test('selected run uses its Batch and keeps polling, retry and dismiss behavior', async () => {
+  vi.useFakeTimers()
+  mocks.workspace = { mode: 'selected', id: 'shared', status: 'ready', detail: { batch: { state: 'open' } } }
+  mocks.api.get.mockResolvedValue({ state: 'expired', suggestions: [], inputHash: 'reviewed' })
+  const { result } = renderHook(useTagRun)
+  await act(async () => { await result.current.start([plate]) })
+  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/batches/shared/plates/MD.one/tagging', {})
+  expect(mocks.ensure).not.toHaveBeenCalled()
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  expect(result.current.entries[0].job.state).toBe('expired')
+  await act(async () => { await result.current.start([plate], true) })
+  expect(result.current.entries[0].job.state).toBe('queued')
+  expect(mocks.api.send).toHaveBeenCalledTimes(2)
+  act(() => result.current.dismiss())
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
+  expect(result.current.entries).toEqual([])
+  expect(mocks.api.get).toHaveBeenCalledTimes(1)
+})
+
+test('switching workspace clears proposals and ignores an in-flight start response', async () => {
+  mocks.workspace = { mode: 'selected', id: 'shared', status: 'ready', detail: { batch: { state: 'open' } } }
+  let finish!: (value: { jobId: string; runId: string }) => void
+  mocks.api.send.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const { result, rerender } = renderHook(useTagRun)
+  let start!: Promise<void>
+  act(() => { start = result.current.start([plate]) })
+  await act(async () => {})
+  mocks.workspace = { mode: 'personal' }
+  rerender()
+  await act(async () => { finish({ jobId: 'old', runId: 'old' }); await start })
+  expect(result.current.entries).toEqual([])
+  expect(result.current.batchId).toBeNull()
 })

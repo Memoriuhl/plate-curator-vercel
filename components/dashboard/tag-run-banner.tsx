@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { useBatch, useEditPlate } from '@/lib/client/hooks'
+import { useBatch, useEditPlate, useWorkspaceBatch } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
 import { editErrors, type RunEntry, type RunPlate } from './use-tag-run'
 
@@ -28,6 +28,8 @@ export function TagRunBanner({
   dismiss(): void
   retry(plate: RunPlate): void
 }) {
+  const workspace = useWorkspaceBatch()
+  const blocked = workspace.mode === 'selected' && (workspace.status !== 'ready' || workspace.id !== batchId || workspace.detail?.batch.state !== 'open')
   const detail = useBatch(batchId, { reuse: true })
   const { edit, pending } = useEditPlate()
   const [messages, setMessages] = useState<Record<string, string>>({})
@@ -36,8 +38,8 @@ export function TagRunBanner({
   const counts = (state: string) =>
     entries.filter((entry) => !entry.error && entry.job.state === state).length
   const active = starting || counts('queued') + counts('claimed') > 0
-  async function accept(plate: RunPlate, suggestions: string[]) {
-    if (saving.current) return
+  async function accept(plate: RunPlate, suggestions: string[], revision: string) {
+    if (saving.current || blocked || !batchId) return
     saving.current = true
     const currentTags =
       detail.data?.plates.find((entry) => entry.proposed.id === plate.id)
@@ -46,7 +48,7 @@ export function TagRunBanner({
       plate.tags
     const tags = mergeTags(currentTags, suggestions)
     try {
-      const result = await edit(plate as Parameters<typeof edit>[0], { tags })
+      const result = await edit(plate as Parameters<typeof edit>[0], { tags }, { batchId, baseRevision: revision })
       setMessages((current) => ({
         ...current,
         [plate.id]: result.ok
@@ -119,9 +121,9 @@ export function TagRunBanner({
                         key={tag}
                         size="sm"
                         variant="outline"
-                        disabled={pending}
+                        disabled={pending || blocked}
                         aria-label={`Accept ${tag} for ${entry.plate.displayName}`}
-                        onClick={() => void accept(entry.plate, [tag])}
+                        onClick={() => void accept(entry.plate, [tag], entry.job.inputHash ?? entry.plate.revision)}
                       >
                         {tag} +
                       </Button>
@@ -129,8 +131,8 @@ export function TagRunBanner({
                     {suggestions.length ? (
                       <Button
                         size="sm"
-                        disabled={pending}
-                        onClick={() => void accept(entry.plate, suggestions)}
+                        disabled={pending || blocked}
+                        onClick={() => void accept(entry.plate, suggestions, entry.job.inputHash ?? entry.plate.revision)}
                       >
                         Accept all
                       </Button>
@@ -147,7 +149,7 @@ export function TagRunBanner({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={starting}
+                      disabled={starting || blocked}
                       onClick={() => retry(entry.plate)}
                     >
                       Retry

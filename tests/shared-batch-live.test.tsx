@@ -2,6 +2,10 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { SWRConfig, type Cache } from 'swr'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { PlatePage } from '../components/plate-page/plate-page'
+import { slimPlate } from '../components/plate-page/types'
+import { BatchActions } from '../components/dashboard/batch-actions'
+import { useDraftOverlay } from '../lib/client/hooks'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
 import { projectFamilyPlate } from '../components/dashboard/family-data'
@@ -44,6 +48,7 @@ const gridPlates = cards.map(projectFamilyPlate)
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
 }
+let tagRevision: string
 let deps: ReviewDeps
 let listeners: Map<string, Set<(revision: number | null) => void>>
 let signals: Map<string, number>
@@ -77,6 +82,7 @@ function session(actor: Actor, id: string | null = 'shared') {
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return actor
+        if (path === '/api/jobs/tag-job') return { state: 'completed', suggestions: ['naval'], inputHash: tagRevision }
         if (path.startsWith('/api/batches?')) return (await deps.store.list({ states: ['open'] })).filter(b => b.createdBy === actor.uid)
         if (path.startsWith('/api/batches/')) {
           const result = await batchDetail(deps, path.split('/')[3])
@@ -88,6 +94,12 @@ function session(actor: Actor, id: string | null = 'shared') {
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
+        if (path.endsWith('/tagging')) {
+          const result = await batchDetail(deps, path.split('/')[3])
+          if (!result.ok) throw new Error('Missing Batch')
+          tagRevision = result.value.plates.find(p => p.proposed.id === 'AK.v')!.revision
+          return { jobId: 'tag-job', runId: 'tag-workflow' }
+        }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         await hold
         const [, , , batchId, , plateId] = path.split('/')
@@ -97,6 +109,15 @@ function session(actor: Actor, id: string | null = 'shared') {
       },
     },
   }
+}
+function TagActions() {
+  const overlaid = useDraftOverlay(cards)
+  return <><BatchActions underTagged={overlaid.filter(p => p.id === 'AK.v')} stateCode="AK" stateName="Alaska" /><output>{overlaid.find(p => p.id === 'AK.v')?.tags.join(', ')}</output></>
+}
+function EditTwice() {
+  const [plate] = useDraftOverlay([cards[1]])
+  const { edit } = useEditPlate()
+  return <><button onClick={() => void edit(plate, { tags: ['first'] })}>First save</button><button onClick={() => void edit(plate, { tags: ['second'] })}>Second save</button><output>{plate.tags.join(', ')}</output></>
 }
 function Probe() {
   const edits = useEditPlate()
@@ -131,8 +152,8 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test('Editor regroup is optimistic, commits only to the selected Batch, and reaches the Owner live', async () => {
-  const first = render(<Workspace value={session(editor)} />)
-  const second = render(<Workspace value={session(owner)} />)
+  const first = render(<Workspace value={session(editor)}><TagActions /></Workspace>)
+  const second = render(<Workspace value={session(owner)}><TagActions /></Workspace>)
   await waitFor(() => expect(within(first.container).getByRole('button', { name: 'Move Variant' })).toBeTruthy())
   await waitFor(() => expect(second.container.textContent).toContain('rev 0'))
   expect(canEdit(batch(), editor)).toBe(true)
@@ -152,6 +173,22 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   for (const view of [first, second]) expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-id')).toBe('shared')
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 1 })
   expect(requests.filter(r => r.path !== '/api/live-access')).toEqual([expect.objectContaining({ method: 'PATCH', path: '/api/batches/shared/plates/AK.v' })])
+  fireEvent.click(within(second.container).getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(within(document.body).getByRole('button', { name: 'Start run' }))
+  const accept = await within(second.container).findByRole('button', { name: 'Accept naval for Variant' }, { timeout: 5000 })
+  expect((await deps.store.getEdit('shared', 'AK.v'))?.fields.tags).toBeUndefined()
+  fireEvent.click(accept)
+  await waitFor(() => expect(first.container.querySelector('output')?.textContent).toBe('naval'))
+  await waitFor(() => expect(second.container.querySelector('output')?.textContent).toBe('naval'))
+  expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 2 })
+  expect((await deps.store.getEdit('shared', 'AK.v'))?.fields).toMatchObject({ templateFamily: 'navy', tags: ['naval'] })
+  expect(requests.filter(r => r.path !== '/api/live-access').map(r => [r.method, r.path])).toEqual([
+    ['PATCH', '/api/batches/shared/plates/AK.v'],
+    ['POST', '/api/batches/shared/plates/AK.v/tagging'],
+    ['PATCH', '/api/batches/shared/plates/AK.v'],
+  ])
+  expect(requests.filter(r => r.method === 'PATCH').at(-1)?.body).toMatchObject({ baseRevision: tagRevision })
+
 })
 
 test('unavailable and read-only selections cannot edit or reorder or fall back to personal drafts', async () => {
@@ -283,4 +320,59 @@ test('undeployed rules deny twice without console errors or renewal loops, and R
   expect(view.getByText('Live updates unavailable')).toBeTruthy()
   expect(requests.filter(r => r.path === '/api/live-access')).toHaveLength(2)
   expect(consoleError).not.toHaveBeenCalled()
+})
+
+test('second selected Plate save sends the draft revision and succeeds', async () => {
+  const view = render(<Workspace value={session(editor)}><EditTwice /></Workspace>)
+  await waitFor(() => expect(view.container.textContent).toContain('Live'))
+  fireEvent.click(view.getByText('First save'))
+  await waitFor(() => expect(view.container.querySelector('output')?.textContent).toBe('first'))
+  const first = await batchDetail(deps, 'shared')
+  if (!first.ok) throw new Error('Missing Batch')
+  const revision = first.value.plates.find(p => p.proposed.id === 'AK.v')!.revision
+  fireEvent.click(view.getByText('Second save'))
+  await waitFor(() => expect(view.container.querySelector('output')?.textContent).toBe('second'))
+  expect(requests.filter(r => r.method === 'PATCH').map(r => r.body)).toEqual([
+    { baseRevision: cards[1].revision, fields: { tags: ['first'] } },
+    { baseRevision: revision, fields: { tags: ['second'] } },
+  ])
+})
+
+test('stale Tag acceptance keeps the newer draft and reports stale_plate', async () => {
+  const view = render(<Workspace value={session(owner)}><TagActions /></Workspace>)
+  await waitFor(() => expect(view.container.textContent).toContain('Live'))
+  fireEvent.click(view.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(within(document.body).getByRole('button', { name: 'Start run' }))
+  const accept = await view.findByRole('button', { name: 'Accept naval for Variant' }, { timeout: 5000 })
+  await act(async () => { await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: cards[1].revision, fields: { tags: ['newer'] } }) })
+  await waitFor(() => expect(view.container.querySelector('output')?.textContent).toBe('newer'))
+  fireEvent.click(accept)
+  await view.findByText('Someone changed this while you were editing.')
+  expect((await deps.store.getEdit('shared', 'AK.v'))?.fields.tags).toEqual(['newer'])
+  expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 1 })
+  expect(requests.filter(r => r.method === 'PATCH').at(-1)?.body).toMatchObject({ baseRevision: tagRevision, fields: { tags: ['newer', 'naval'] } })
+})
+
+test('Plate page keeps selected Batch navigation, edits twice, and runs and accepts Tag in that Batch', async () => {
+  const value = session(owner)
+  const view = render(<Context.Provider value={value}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}><LiveSignalProvider value={source}><PlatePage plate={{ ...slimPlate(cards[1]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" /></LiveSignalProvider></SWRConfig></Context.Provider>)
+  expect(view.getByRole('link', { name: 'Alaska' }).getAttribute('href')).toBe('/states/AK?batch=shared')
+  expect(view.getByRole('link', { name: /Next/ }).getAttribute('href')).toBe('/plates/AK.b?batch=shared')
+  await waitFor(() => expect(view.container.textContent).toContain('Live'))
+  const input = view.getByRole('textbox', { name: 'Add tag' })
+  for (const tag of ['first', 'second']) {
+    fireEvent.change(input, { target: { value: tag } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await view.findByRole('button', { name: 'Remove tag ' + tag })
+    await waitFor(() => expect(input.hasAttribute('disabled')).toBe(false))
+  }
+  fireEvent.click(view.getByRole('button', { name: 'Run Tag' }))
+  const accept = await view.findByRole('button', { name: 'Accept naval for Variant' }, { timeout: 5000 })
+  fireEvent.click(accept)
+  await view.findByRole('button', { name: 'Remove tag naval' })
+  expect((await deps.store.getEdit('shared', 'AK.v'))?.fields.tags).toEqual(['first', 'second', 'naval'])
+  expect(requests.filter(r => r.path !== '/api/live-access').map(r => r.path)).toEqual([
+    '/api/batches/shared/plates/AK.v', '/api/batches/shared/plates/AK.v',
+    '/api/batches/shared/plates/AK.v/tagging', '/api/batches/shared/plates/AK.v',
+  ])
 })
