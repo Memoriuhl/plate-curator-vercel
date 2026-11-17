@@ -73,6 +73,7 @@ beforeEach(() => {
   mocks.detail.plates = []
 })
 afterEach(() => {
+  vi.unstubAllEnvs()
   plateSelection.clear()
   cleanup()
   vi.useRealTimers()
@@ -404,4 +405,47 @@ test('selection scope passes plates across states to the pipeline', () => {
   expect(screen.getByRole('button', { name: 'Selected plates 2' }).getAttribute('aria-pressed')).toBe('true')
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   expect(start).toHaveBeenCalledWith(selected, false, 'desktop-gemma4-12b')
+})
+
+test('local state scope, under-tagged predicate and limit use loaded plates', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  const all = [{ ...plate, tags: ['blue', 'bird', 'tree'] }, { ...plate, id: 'MD.two' }, { ...plate, id: 'MD.three' }]
+  render(<RunMenu underTagged={[all[1], all[2]]} allPlates={all} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('button', { name: 'All of Maryland 3' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Only under-tagged plates' }))
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Limit' }), { target: { value: '1' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([all[1]], false, 'desktop-gemma4-12b')
+})
+
+test('deployed menu does not enable local scope or limit', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  render(<RunMenu underTagged={[plate]} allPlates={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(screen.getByRole('button', { name: 'All of Maryland: Coming soon' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.queryByRole('spinbutton', { name: 'Limit' })).toBeNull()
+})
+
+test('local limit rejects blank and out-of-range values without starting a run', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  render(<RunMenu underTagged={[plate]} allPlates={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  for (const value of ['', '0', '26', '1.5']) {
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Limit' }), { target: { value } })
+    expect(screen.getByRole('button', { name: 'Start run' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  }
+  expect(start).not.toHaveBeenCalled()
+  expect(screen.getByText('Enter a whole number from 1 to 25.')).toBeTruthy()
+})
+
+test('local unsupported stages name the missing integration', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(screen.getByRole('checkbox', { name: 'Describe: Needs a sourced description job and draft result' }).closest('fieldset')?.disabled).toBe(true)
+  expect(screen.queryByText('Coming soon')).toBeNull()
 })

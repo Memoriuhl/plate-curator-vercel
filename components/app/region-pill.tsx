@@ -2,6 +2,7 @@
 
 import { useParams, usePathname, useRouter } from 'next/navigation'
 import { REGIONS, routeRegion, type JurisdictionRegion, type RegionSummary } from './regions'
+import { localPipelineReason } from '@/lib/local-pipeline'
 import {
   Select,
   SelectContent,
@@ -36,7 +37,7 @@ export function RegionPill({ regions, jurisdictions }: {
             <SelectItem key={option.region} value={option.region} disabled={!enabled}>
               <span aria-hidden="true">{option.flag}</span>
               {option.name}
-              {!enabled ? <span className="text-xs text-muted-foreground">Coming soon</span> : null}
+              {!enabled ? <span className="text-xs text-muted-foreground">{localPipelineReason('No plates loaded for this region')}</span> : null}
             </SelectItem>
           )
         })}

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
 import { changeSummary, DiffTable } from './diff'
 import { RunStatus } from './run-status'
+import { localPipelineReason } from '@/lib/local-pipeline'
 import { useBatchRun } from '@/lib/client/hooks'
 
 type State = {
@@ -145,10 +146,10 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
             ). Any later edit asks you to look again.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" disabled title="Coming soon">
+            <Button variant="outline" disabled title={localPipelineReason('No request-changes transition or comment delivery')}>
               Request changes
             </Button>
-            <span className="text-muted-foreground">Coming soon</span>
+            <span className="text-muted-foreground">{localPipelineReason('No request-changes transition or comment delivery')}</span>
             {approve || submit ? (
               <Button disabled={busy} onClick={act}>
                 {approve && <IoCheckmark aria-hidden="true" />}

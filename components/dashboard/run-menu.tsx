@@ -1,7 +1,7 @@
 'use client'
 
 import { useSelectedPlates } from './plate-selection'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { IoChevronDown, IoPlay } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,6 +13,7 @@ import { cn } from '@/components/utils'
 import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import type { RunPlate } from './use-tag-run'
+import { localStageReasons, planTagRun } from './local-pipeline'
 
 const stages = [
   [
@@ -54,6 +55,7 @@ const stages = [
 
 export function RunMenu({
   underTagged,
+  allPlates = [],
   batchPlates,
   stateName,
   disabled,
@@ -62,6 +64,7 @@ export function RunMenu({
   modelError,
 }: {
   underTagged: RunPlate[]
+  allPlates?: RunPlate[]
   batchPlates: RunPlate[]
   stateName: string
   disabledReason?: string
@@ -74,8 +77,13 @@ export function RunMenu({
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
-  const plates = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : underTagged
-  const count = Math.min(25, plates.length)
+  const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+  const [limit, setLimit] = useState('25')
+  const [onlyUnderTagged, setOnlyUnderTagged] = useState(false)
+  const validLimit = Number.isInteger(Number(limit)) && Number(limit) >= 1 && Number(limit) <= 25
+  const plates = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : local && scope === 'all' ? allPlates : underTagged
+  const planned = useMemo(() => planTagRun(plates, local && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit])
+  const count = planned.length
   const selectedModel = choice.data?.models.find(model => model.id === choice.modelId)
   return (
     <>
@@ -99,7 +107,7 @@ export function RunMenu({
           event.preventDefault()
           trigger.current?.focus()
         }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:shrink-0 max-[420px]:w-screen max-[420px]:rounded-none"
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-[var(--stack-gap)] overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:shrink-0 max-[420px]:w-screen max-[420px]:rounded-none"
       >
         <fieldset className="grid gap-2">
           <legend className="label mb-2">Run on</legend>
@@ -124,20 +132,32 @@ export function RunMenu({
             </Button>
             <Button
               size="sm"
-              variant="ghost"
-              disabled
-              aria-label={`All of ${stateName}: Coming soon`}
+              variant={scope === 'all' ? 'primary' : 'ghost'}
+              disabled={!local || !allPlates.length}
+              aria-pressed={scope === 'all'}
+              onClick={() => setScope('all')}
+              aria-label={local ? `All of ${stateName} ${allPlates.length}` : `All of ${stateName}: Coming soon`}
             >
-              All of {stateName} · Coming soon
+              All of {stateName} {local ? allPlates.length : '· Coming soon'}
             </Button>
             <Button size="sm" variant="ghost" disabled>
-              + Add plates from any state · Coming soon
+              + Add plates from any state · {local ? 'Use the existing cross-state selection' : 'Coming soon'}
             </Button>
           </div>
-          {plates.length > 25 ? (
+          {!local && plates.length > 25 ? (
             <p className="caption">First 25 of {plates.length}</p>
           ) : null}
         </fieldset>
+        {local ? <fieldset className="grid gap-2">
+          <legend className="label">Run options</legend>
+          <label className="caption flex items-center gap-2">
+            Limit
+            <input aria-label="Limit" type="number" min={1} max={25} step={1} value={limit} onChange={event => setLimit(event.target.value)} aria-invalid={!validLimit} className="w-20 rounded-[var(--radius-md)] bg-[var(--fill)] px-3 py-2 text-[var(--ink)]" />
+          </label>
+          <p className="caption">Up to 25 plates per run.</p>
+          <p className="caption">{count} of {plates.length} plates match this run.</p>
+          {!validLimit ? <p role="alert" className="caption">Enter a whole number from 1 to 25.</p> : null}
+        </fieldset> : null}
         <section aria-label="Stages and their options" className="grid gap-1">
           <h2 className="label mb-1">Stages and their options</h2>
           {stages.map(([name, description, duration, ...options]) => (
@@ -153,7 +173,7 @@ export function RunMenu({
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
-                  aria-label={name === 'Tag' ? 'Tag' : `${name}: Coming soon`}
+                  aria-label={name === 'Tag' ? 'Tag' : `${name}: ${local ? localStageReasons[name] : 'Coming soon'}`}
                   checked={name === 'Tag'}
                   onChange={() => {}}
                   className="accent-[var(--ink)]"
@@ -163,24 +183,26 @@ export function RunMenu({
                   <p className="caption">{description}</p>
                 </div>
                 {name !== 'Tag' ? (
-                  <span className="caption">Coming soon</span>
+                  <span className="caption">{local ? localStageReasons[name] : 'Coming soon'}</span>
                 ) : null}
                 <span className="id">{duration}</span>
               </div>
               {name === 'Tag' ? <TaggingModelPicker choice={choice} error={modelError} /> : null}
-              {options.map((option) => (
+              {options.filter(option => !local || !option.startsWith('Limit')).map((option) => (
                 <label
                   key={option}
                   className="mt-2 flex items-center gap-2 pr-1 pl-7 text-xs"
                 >
                   <input
                     type="checkbox"
-                    disabled
-                    aria-label={`${option}: Coming soon`}
+                    disabled={!local || option !== 'Only under-tagged plates'}
+                    checked={local && option === 'Only under-tagged plates' ? onlyUnderTagged : false}
+                    onChange={event => setOnlyUnderTagged(event.target.checked)}
+                    aria-label={local && option === 'Only under-tagged plates' ? option : `${option}: ${local ? name === 'Tag' ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}`}
                   />
                   {option}
                   <span className="ml-auto text-[var(--ink-2)]">
-                    Coming soon
+                    {local ? option === 'Only under-tagged plates' ? '' : name === 'Tag' ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}
                   </span>
                 </label>
               ))}
@@ -190,7 +212,7 @@ export function RunMenu({
         <footer className="sticky bottom-0 grid gap-3 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex gap-2">
             <input type="checkbox" disabled />
-            Preview only · Coming soon
+            Preview only · {local ? 'Needs a result-only run without Batch writes' : 'Coming soon'}
           </label>
           <p className="caption">
             {count} plates · Tag · about {Math.ceil((count * (selectedModel?.measured.p50Seconds ?? 40)) / 60)} min ·
@@ -201,9 +223,9 @@ export function RunMenu({
               Cancel
             </Button>
             <Button
-              disabled={disabled || count === 0}
+              disabled={disabled || count === 0 || (local && !validLimit)}
               onClick={() => {
-                start(plates.slice(0, 25), false, choice.modelId)
+                start(planned, false, choice.modelId)
                 setOpen(false)
               }}
             >
@@ -212,7 +234,7 @@ export function RunMenu({
             </Button>
           </div>
           <Button size="sm" variant="outline" disabled>
-            Queue · Coming soon
+            Queue · {local ? 'Needs a deferred run scheduler' : 'Coming soon'}
           </Button>
         </footer>
       </PopoverContent>

@@ -32,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { RarityMark } from '@/components/plate/rarity-mark'
 import { cn } from '@/components/utils'
+import { localPipelineReason } from '@/lib/local-pipeline'
 import type { EditableFields } from '@/lib/review/types'
 import {
   useDraftOverlay,
@@ -66,13 +67,13 @@ function Card({
   )
 }
 
-function Parked({ children }: { children: ReactNode }) {
+function Parked({ children, reason }: { children: ReactNode; reason: string }) {
   return (
-    <span title="Coming soon" className="inline-flex">
+    <span title={localPipelineReason(reason)} className="inline-flex">
       <Button disabled variant="outline" size="sm">
         {children}
       </Button>
-      <span className="sr-only">Coming soon</span>
+      <span className="sr-only">{localPipelineReason(reason)}</span>
     </span>
   )
 }
@@ -411,7 +412,7 @@ export function PlatePage(props: PlatePageProps) {
                   : 'No source file'}{' '}
                 · {props.plate.imageSize.width} px
               </p>
-              <Parked>Replace or crop</Parked>
+              <Parked reason="No image upload or crop draft endpoint">Replace or crop</Parked>
             </div>
             {fieldIssue('deleted')}
             {!current.deleted && deleteReason ? <p id="delete-plate-reason" className="caption text-[var(--ink-2)]">{deleteReason}</p> : null}
@@ -436,7 +437,7 @@ export function PlatePage(props: PlatePageProps) {
             <p className="caption text-[var(--ink-2)]">
               Rarity is not available for this plate.
             </p>
-            <Parked>Set by hand</Parked>
+            <Parked reason="Manual rarity is not an editable Batch field">Set by hand</Parked>
           </Card>
           <Card
             title={`Tags ${current.tags.length}`}
@@ -559,7 +560,7 @@ export function PlatePage(props: PlatePageProps) {
             />
             <label className="grid gap-2">
               <span className="label">First issued</span>
-              <span title="Coming soon">
+              <span title={localPipelineReason('First issued year is not an editable Batch field')}>
                 <input
                   aria-label="First issued year"
                   className={cn(input, 'max-w-40')}
@@ -567,11 +568,11 @@ export function PlatePage(props: PlatePageProps) {
                   disabled
                 />
               </span>
-              <span className="sr-only">Coming soon</span>
+              <span className="sr-only">{localPipelineReason('First issued year is not an editable Batch field')}</span>
             </label>
             <div className="flex items-center justify-between">
               <h3 className="label">Fun facts 0 / 4</h3>
-              <Parked>
+              <Parked reason="Fun facts are not editable Batch fields">
                 <IoAdd />
                 Add fact
               </Parked>
@@ -582,7 +583,7 @@ export function PlatePage(props: PlatePageProps) {
             </p>
             <div className="flex items-center justify-between">
               <h3 className="label">Sources and read-more</h3>
-              <Parked>
+              <Parked reason="Source links are not editable Batch fields">
                 <IoAdd />
                 Add link
               </Parked>

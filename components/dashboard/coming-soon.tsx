@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { localPipelineReason } from '@/lib/local-pipeline'
 import {
   Tooltip,
   TooltipContent,
@@ -26,7 +27,7 @@ export function ComingSoon({
         <TooltipTrigger asChild>
           <span
             tabIndex={0}
-            aria-label={`${label}: Coming soon`}
+            aria-label={`${label}: ${localPipelineReason('No action connected')}`}
             className="inline-flex"
           >
             <Button variant={variant} size={size} disabled>
@@ -34,7 +35,7 @@ export function ComingSoon({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>Coming soon</TooltipContent>
+        <TooltipContent>{localPipelineReason('No action connected')}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )
