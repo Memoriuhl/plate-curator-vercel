@@ -457,3 +457,14 @@ test('Cancel leaves Set as Standard unsaved', async () => {
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(state.edit).not.toHaveBeenCalled()
 })
+
+test('a stale Set as Standard retry retains the reviewed acknowledgement', async () => {
+  state.edit.mockResolvedValueOnce({ ok: false, error: 'stale_plate', batchId: 'current', currentRevision: 'fresh', current: { id: army.id, isStandard: false }, draft: { isStandard: true } })
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
+  await screen.findByText('Someone changed this while you were editing.')
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply mine' }))
+  await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(2))
+  expect(state.edit).toHaveBeenLastCalledWith(expect.objectContaining({ id: army.id }), { isStandard: true }, { batchId: 'current', baseRevision: 'fresh', standard: { from: 'AK.standard_gold', to: army.id } })
+})

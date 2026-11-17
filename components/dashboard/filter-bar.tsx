@@ -48,7 +48,7 @@ export function FilterBarControls({
       key, label, icon: CHECK_META[checkKey].icon,
       count: counts.groups[key].total,
       detail: key === 'standardPlate'
-        ? 'Standard plates in states with several, or the first plate in states with none'
+        ? 'States with missing or multiple Standards, or a Standard that is not the first plate'
         : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
     })),
   ]

@@ -392,27 +392,32 @@ export function useReorderState() {
     return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 
-  async function move(state: string, order: string[], promotion: { plateId: string; templateFamily: string }, origin: MoveOrigin, standard?: StandardChange): Promise<EditResult> {
+  async function move(state: string, order: string[], promotion: { plateId: string; templateFamily: string } | { plateId: string; templateFamily: string }[], origin: MoveOrigin, standard?: StandardChange): Promise<EditResult> {
     setPendingCount(count => count + 1)
     let key: string | undefined
+    const promotions = Array.isArray(promotion) ? promotion : [promotion]
+    const firstPromotion = promotions[0]
+    if (!firstPromotion) { setPendingCount(count => count - 1); return { ok: false, error: 'invalid_state' } }
     try {
       if (workspace.mode === 'selected' && (workspace.status !== 'ready' || origin.batchId !== workspace.id)) return { ok: false, error: 'not_found' }
       if (origin.batchId && origin.revision === null) return { ok: false, error: 'superseded_revision' }
-      const id = origin.batchId ?? await ensureBatch({ id: promotion.plateId, state })
+      const id = origin.batchId ?? await ensureBatch({ id: firstPromotion.plateId, state })
       key = '/api/batches/' + id
-      await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, promotion, ...(standard ? { standard } : {}) })
+      await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, ...(Array.isArray(promotion) ? { promotions } : { promotion }), ...(standard ? { standard } : {}) })
       const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))
-      const entry = saved?.plates.find(entry => entry.proposed.id === promotion.plateId)
-      return { ok: true, proposed: entry?.proposed, revision: entry?.proposed.templateRole === 'template' && entry.proposed.templateFamily === promotion.templateFamily && entry.proposed.variantOfPlateId === null ? entry.revision : undefined, batchId: id }
+      const entry = saved?.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
+      return { ok: true, revisions: Object.fromEntries(saved?.plates.map(entry => [entry.proposed.id, entry.revision]) ?? []), proposed: entry?.proposed, revision: entry?.proposed.templateRole === 'template' && entry.proposed.templateFamily === firstPromotion.templateFamily && entry.proposed.variantOfPlateId === null ? entry.revision : undefined, batchId: id }
     } catch (error) {
       if (key) {
         const saved = await api.get<BatchDetail>(key)
         await mutate(key, saved, { revalidate: false })
-        const entry = saved.plates.find(entry => entry.proposed.id === promotion.plateId)
+        const entry = saved.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
         const plate = entry?.proposed
-        if (!(error instanceof ApiError) && plate?.templateRole === 'template' && plate.variantOfPlateId === null &&
-          plate.templateFamily === promotion.templateFamily && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true, proposed: plate, revision: entry?.revision, batchId: saved.batch.id }
+        if (!(error instanceof ApiError) && promotions.every(promotion => {
+          const candidate = saved.plates.find(entry => entry.proposed.id === promotion.plateId)?.proposed
+          return candidate?.templateRole === 'template' && candidate.variantOfPlateId === null && candidate.templateFamily === promotion.templateFamily
+        }) && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true, proposed: plate, revision: entry?.revision, revisions: Object.fromEntries(saved.plates.map(entry => [entry.proposed.id, entry.revision])), batchId: saved.batch.id }
       }
       if (error instanceof ApiError) {
         if (['standard_change_unconfirmed', 'standard_required', 'standard_invalid_template'].includes(error.code)) return { ok: false, error: error.code as 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' }

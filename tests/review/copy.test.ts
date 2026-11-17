@@ -10,7 +10,7 @@ import { batch, fixture, owner, snapshot } from '../publish/fixture'
 function setup() {
   let head = 2
   const store = createMemoryStore([{ ...batch, stateOrders: { CA: ['two', 'one'] }, approvalRun: { runId: 'old', revision: 1 }, publishRequestedAt: 'old' }], () => head)
-  const fresh = { version: 2, plates: snapshot.plates.map(plate => ({ ...plate, tags: ['intervening'], variantOfPlateId: 'two' })) }
+  const fresh = { version: 2, plates: snapshot.plates.map(plate => ({ ...plate, tags: ['intervening'], variantOfPlateId: 'two', templateRole: 'template' as const, isStandard: plate.id === 'two' })) }
   const d: CopyDeps = { store, head: async () => head, snapshot: async () => fresh, env: 'test', now: () => '2026-11-16T12:00:00Z' }
   const input = { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 }
   return { d, store, input, fresh, setHead: (version: number) => { head = version } }
@@ -61,7 +61,7 @@ test('a copy needs fresh submission and approval, and replay never resets that a
   const result = await copyBatch(f.d, owner, f.input)
   expect(result.ok).toBe(true)
   if (!result.ok) return
-  const deps = { ...fixture().deps, store: f.store }
+  const deps = { ...fixture().deps, store: f.store, stateBaseline: async () => f.fresh.plates }
   expect(await approveBatch(deps, owner, result.value.id, 0)).toEqual({ ok: false, error: 'invalid_state' })
   expect(await submitBatch(deps, owner, result.value.id, 0)).toMatchObject({ ok: true, value: { state: 'submitted', revision: 1 } })
   const approved = await approveBatch(deps, owner, result.value.id, 1)

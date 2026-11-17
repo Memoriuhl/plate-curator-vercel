@@ -75,16 +75,28 @@ export function standardScenarios(create: (batch: ReviewBatch) => ReviewStore | 
   test('touching a legacy state normalizes duplicate Standards while leaving other states alone', async () => {
     const { deps, store } = await setup()
     deps.stateBaseline = async () => plates.map(plate => ({ ...plate, isStandard: plate.id !== 'three' }))
-    expect((await reorderState(deps, actor, { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['one', 'two', 'three'] })).ok).toBe(true)
+    expect((await reorderState(deps, actor, { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['one', 'two', 'three'], standard: { from: 'one', to: 'one' } })).ok).toBe(true)
     expect(await store.getEdit('standard-batch', 'two')).toMatchObject({ fields: { isStandard: false } })
     expect((await store.getBatch('standard-batch'))?.stateOrders).toEqual({ CA: ['one', 'two', 'three'] })
   })
   test('a state with no Standard requires an explicit null acknowledgement', async () => {
     const { deps } = await setup()
     deps.stateBaseline = async () => plates.map(plate => ({ ...plate, isStandard: false }))
-    const input = { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['one', 'two', 'three'] }
+    const input = { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['two', 'one', 'three'] }
     expect(await reorderState(deps, actor, input)).toMatchObject({ error: 'standard_change_unconfirmed' })
-    expect((await reorderState(deps, actor, { ...input, standard: { from: null, to: 'one' } })).ok).toBe(true)
+    expect((await reorderState(deps, actor, { ...input, standard: { from: null, to: 'two' } })).ok).toBe(true)
+  })
+
+  test('multiple promotions and a Standard switch commit atomically in one revision', async () => {
+    const { deps, store } = await setup()
+    const variants = plates.slice(1).map(plate => ({ ...plate, templateRole: 'variant' as const, templateFamily: 'one', variantOfPlateId: 'one' }))
+    deps.stateBaseline = async () => [plates[0], ...variants]
+    const commit = vi.spyOn(store, 'commit')
+    expect((await reorderState(deps, actor, { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['two', 'three', 'one'], promotions: variants.map(plate => ({ plateId: plate.id, templateFamily: plate.id })), standard: { from: 'one', to: 'two' } })).ok).toBe(true)
+    expect(commit).toHaveBeenCalledOnce()
+    expect(await store.getEdit('standard-batch', 'one')).toMatchObject({ fields: { isStandard: false } })
+    expect(await store.getEdit('standard-batch', 'two')).toMatchObject({ fields: { isStandard: true, templateRole: 'template' } })
+    expect(await store.getEdit('standard-batch', 'three')).toMatchObject({ fields: { templateRole: 'template' } })
   })
 
 }

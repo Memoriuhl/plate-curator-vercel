@@ -63,7 +63,21 @@ test.each([false, true])('promotion into first place confirms before any write, 
   expect(screen.getByRole('alertdialog').textContent).toContain('Make Variant the AK Standard?')
   expect(move).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
-  await waitFor(() => expect(move).toHaveBeenCalledTimes(multi ? 2 : 1))
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
   expect(move.mock.calls[0][1][0]).toBe(variant.id)
   expect(move.mock.calls[0][4]).toEqual({ from: first.id, to: variant.id })
+})
+
+test('dropping back in the same position never asks to repair a legacy mismatch', () => {
+  const reorder = vi.fn()
+  function Harness() {
+    const drag = usePlateDrag({ families: [{ template: { ...first, isStandard: false }, variants: [] }, { template: { ...second, isStandard: true }, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    return <><button onKeyDown={event => drag.onKeyDown({ kind: 'family', plate: first }, event)}>Move</button>{drag.standardDialog}</>
+  }
+  render(<Harness />)
+  const handle = screen.getByRole('button', { name: 'Move' })
+  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: ' ' })
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(reorder).not.toHaveBeenCalled()
 })

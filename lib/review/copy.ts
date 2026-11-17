@@ -1,3 +1,4 @@
+import { standardOrderProblems } from './standard'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../catalog/types'
 import { orderedStatePlates } from '../catalog/order'
@@ -46,6 +47,7 @@ export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: st
     if (order.length !== ids.size || new Set(order).size !== order.length || order.some(id => !ids.has(id))) reasons.push(`State order no longer matches Jurisdiction: ${state}`)
     baselineOrders[state] = current
   }
+  if (!reasons.length) reasons.push(...standardOrderProblems(snapshot.plates, source.edits, source.batch.stateOrders))
   if (reasons.length) return { ok: false, error: 'incompatible', reasons }
   const now = d.now()
   const edits: ProposedEdit[] = source.edits.map(edit => {

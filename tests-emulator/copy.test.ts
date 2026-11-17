@@ -9,7 +9,8 @@ const env = 'copy-test'
 const store = firestoreReviewStore(db, env)
 const input = { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 }
 const targetId = copyBatchId(env, batch.id, 2, 2)
-const d: CopyDeps = { env, store, now: () => '2026-11-16T12:00:00Z', head: async () => (await db.doc('config/catalog').get()).get('version'), snapshot: async () => ({ ...snapshot, version: 2 }) }
+const copySnapshot = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateRole: 'template' as const, isStandard: plate.id === 'two' })) }
+const d: CopyDeps = { env, store, now: () => '2026-11-16T12:00:00Z', head: async () => (await db.doc('config/catalog').get()).get('version'), snapshot: async () => ({ ...copySnapshot, version: 2 }) }
 beforeEach(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
   await db.recursiveDelete(db.collection('publishRecords'))
@@ -46,7 +47,7 @@ test.each(['head', 'revision', 'status', 'environment', 'reservation', 'committe
     if (kind === 'environment') await db.doc('reviewBatches/batch').update({ env: 'other' })
     if (kind === 'reservation') await db.doc('reviewBatches/batch').update({ publishReservation: { token: 'busy' } })
     if (kind === 'committed receipt') await db.doc('publishRecords/batch@2').set({ committedAt: 'now', env })
-    return { ...snapshot, version: 2 }
+    return { ...copySnapshot, version: 2 }
   } }
   const result = await copyBatch(raced, owner, input)
   expect(result).toMatchObject({ ok: false, error: kind === 'head' ? 'head_moved' : kind === 'revision' ? 'superseded_revision' : kind === 'environment' ? 'not_found' : 'invalid_state' })

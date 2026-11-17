@@ -11,8 +11,9 @@ export function useStandardConfirmation() {
   const restoreFocus = useRef<HTMLElement | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   async function confirm(plates: readonly Plate[], to: string): Promise<StandardChange | false | undefined> {
-    const old = plates.find(plate => plate.isStandard && !plate.deleted)
-    if (old?.id === to) return undefined
+    const standards = plates.filter(plate => plate.isStandard && !plate.deleted)
+    const old = standards.find(plate => plate.id !== to) ?? standards[0]
+    if (standards.length === 1 && old?.id === to) return undefined
     const next = plates.find(plate => plate.id === to)
     if (!next) return false
     restoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null

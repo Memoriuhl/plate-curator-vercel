@@ -139,7 +139,7 @@ export function usePlateDrag(options: Options) {
     if (!destination) {
       for (const [state, order] of orders) {
         const statePlates = initialFamilies.filter(family => family.template.state === state).flatMap(family => [family.template, ...family.variants])
-        const standard = statePlates.find(plate => plate.isStandard && !plate.deleted)?.id === order[0] ? undefined : await standardConfirmation.confirm(statePlates, order[0])
+        const standard = previousOrders.get(state)?.[0] === order[0] ? undefined : await standardConfirmation.confirm(statePlates, order[0])
         if (standard === false) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
         acknowledgements.set(state, standard)
       }
@@ -163,13 +163,17 @@ export function usePlateDrag(options: Options) {
         }
       } else {
         if (!ordering.move || !ordering.capture) throw new Error('Reload before moving a Variant')
-        for (const plate of moving) {
-          const order = orders.get(plate.state)!
+        const states = [...orders.keys()].sort((a, b) => Number(previousOrders.get(a)?.[0] !== orders.get(a)?.[0]) - Number(previousOrders.get(b)?.[0] !== orders.get(b)?.[0]))
+        for (const state of states) {
+          const members = moving.filter(plate => plate.state === state)
+          const order = orders.get(state)!
           const origin = succeeded.length === 0 && placement?.origin ? placement.origin : ordering.capture()
-          const standard = acknowledgements.get(plate.state)
-          const result = standard ? await ordering.move(plate.state, order, { plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }, origin, standard) : await ordering.move(plate.state, order, { plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }, origin)
+          const standard = acknowledgements.get(state)
+          const promotions = members.map(plate => ({ plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }))
+          const proposal = promotions.length === 1 ? promotions[0] : promotions
+          const result = standard ? await ordering.move(state, order, proposal, origin, standard) : await ordering.move(state, order, proposal, origin)
           if (!result.ok) { failed = true; break }
-          succeeded.push({ plate, result })
+          succeeded.push(...members.map(plate => ({ plate, result: { ...result, revision: result.revisions?.[plate.id] ?? (members.length === 1 ? result.revision : undefined) } })))
         }
       }
     } catch { failed = true }
@@ -241,8 +245,10 @@ export function usePlateDrag(options: Options) {
     if (destination && selected.length > 1) { await editSelection(selected, destination.template); return }
     if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
+    const promote = item.kind === 'variant' && target.kind === 'family-slot'
+    if (!destination && (!order || !promote && order.every((id, index) => id === familyOrder(families)[index]))) { latest.current.holdOverlay?.(false); announce('Dropped'); return }
     const statePlates = families.flatMap(family => [family.template, ...family.variants])
-    const changesStandard = order && !destination && statePlates.find(plate => plate.isStandard && !plate.deleted)?.id !== order[0]
+    const changesStandard = order && !destination && familyOrder(families)[0] !== order[0]
     const standard = changesStandard ? await standardConfirmation.confirm(statePlates, order[0]) : undefined
     if (standard === false) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     setSaving(true)
@@ -254,7 +260,6 @@ export function usePlateDrag(options: Options) {
         setOptimisticEdit({ plateId: item.plate.id, fields })
         result = await edits.edit(item.plate, fields)
       } else {
-        const promote = item.kind === 'variant' && target.kind === 'family-slot'
         if (!order || (!promote && order.every((id, index) => id === familyOrder(families)[index]))) { announce('Dropped'); return }
         if (promote) {
           const fields: EditableFields = { templateRole: 'template', variantOfPlateId: null, templateFamily: newFamilySlug(item.plate, families) }

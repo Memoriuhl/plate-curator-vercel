@@ -1,6 +1,6 @@
 import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import { reorderState } from '../../../../../../lib/review/batch'
-import { parseEditableFields } from '../../../../../../lib/review/fields'
+import { limits, parseEditableFields } from '../../../../../../lib/review/fields'
 import { catalogChanged } from '../../../../../../lib/server/catalog-head'
 import { currentActor, reviewDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../../lib/server/respond'
@@ -14,16 +14,17 @@ export async function PUT(request: Request, ctx: RouteContext<'/api/batches/[id]
   if (typeof body?.batchRevision !== 'number' || !Number.isSafeInteger(body.batchRevision) || body.batchRevision < 0 ||
     !Array.isArray(body.order) || !body.order.every((id: unknown) => typeof id === 'string')) return badRequest()
   const { id, state } = await ctx.params
-  let promotion: { plateId: string; templateFamily: string } | undefined
-  if (body.promotion !== undefined) {
-    if (!body.promotion || typeof body.promotion !== 'object' || Array.isArray(body.promotion)) return badRequest()
-    const value = body.promotion as Record<string, unknown>
+  const values = body.promotions ?? (body.promotion !== undefined ? [body.promotion] : [])
+  if (!Array.isArray(values) || values.length > limits.plates || body.promotions !== undefined && body.promotion !== undefined) return badRequest()
+  const promotions: { plateId: string; templateFamily: string }[] = []
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return badRequest()
     const fields = parseEditableFields({ templateFamily: value.templateFamily })
     if (typeof value.plateId !== 'string' || !value.plateId || !fields?.templateFamily) return badRequest()
-    promotion = { plateId: value.plateId, templateFamily: fields.templateFamily }
+    promotions.push({ plateId: value.plateId, templateFamily: fields.templateFamily })
   }
   const outcome = await reorderState(reviewDeps(), auth.actor, {
-    batchId: id, state, batchRevision: body.batchRevision, order: body.order, promotion, standard,
+    batchId: id, state, batchRevision: body.batchRevision, order: body.order, promotions, standard,
   })
   if (outcome.ok) catalogChanged()
   return respond(outcome)

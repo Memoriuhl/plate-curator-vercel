@@ -86,6 +86,11 @@ function session(actor: Actor, id: string | null = 'shared') {
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
+        if (method === 'PATCH') {
+          const result = await proposeEdit(deps, actor, { batchId: path.split('/')[3], plateId: path.split('/')[5], ...body as { baseRevision: string; fields: import('../lib/review/types').EditableFields; standard?: import('../lib/review/types').StandardChange } })
+          if (!result.ok) throw new ApiError(409, result.error, result)
+          return result.value
+        }
         if (path.endsWith('/state-order/AK') || path.endsWith('/submit')) {
           const result = path.endsWith('/state-order/AK')
             ? await reorderState(deps, actor, { batchId: path.split('/')[3], state: 'AK', ...body as { batchRevision: number; order: string[] } })
@@ -247,4 +252,19 @@ test('a burst of committed lifecycle signals fetches only the latest coherent Ba
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
   expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('approved')
+})
+
+test('Standard plate issues offers a confirmed repair for the first Template', async () => {
+  const original = (await deps.store.getBatch('shared'))!
+  await deps.store.commit('shared', 0, { batch: { ...original, revision: 1, stateOrders: { AK: ['AK.b', 'AK.a', 'AK.v'] } } })
+  const value = session(editor)
+  value.params.set('show', 'standardPlate')
+  const view = render(<Workspace value={value} />)
+  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  fireEvent.click(within(view.container).getByRole('button', { name: 'Make Navy the Standard' }))
+  expect(within(document.body).getByRole('alertdialog').textContent).toContain('Make Navy the AK Standard?')
+  expect((await deps.store.getBatch('shared'))?.revision).toBe(1)
+  fireEvent.click(within(document.body).getByRole('button', { name: 'Make Standard' }))
+  await waitFor(async () => expect((await deps.store.getEdit('shared', 'AK.b'))?.fields.isStandard).toBe(true))
+  expect((await deps.store.getEdit('shared', 'AK.a'))?.fields.isStandard).toBe(false)
 })

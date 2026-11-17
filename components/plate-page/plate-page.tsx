@@ -244,14 +244,14 @@ export function PlatePage(props: PlatePageProps) {
   async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }, standard?: StandardChange) {
     setStatus('Saving to your batch…')
     try {
-      const result = reviewed ? await edit(target, fields, reviewed) : standard ? await edit(target, fields, undefined, standard) : await edit(target, fields)
+      const result = reviewed ? await edit(target, fields, standard ? { ...reviewed, standard } : reviewed) : standard ? await edit(target, fields, undefined, standard) : await edit(target, fields)
       if (result.ok) {
         setStatus('Saved to your batch')
         setIssue(null)
         return true
       } else {
         setStatus('Could not save')
-        setIssue({ plate: target, fields, result })
+        setIssue({ plate: target, fields, result, standard })
       }
     } catch {
       setStatus('Could not save. Check your connection and try again.')
@@ -293,7 +293,7 @@ export function PlatePage(props: PlatePageProps) {
       const result = issue.result
       if (useMine) {
         if (!result.currentRevision) throw new Error('Missing conflict revision')
-        if (!await save(issue.plate, result.draft, { batchId: result.batchId, baseRevision: result.currentRevision })) return
+        if (!await save(issue.plate, result.draft, { batchId: result.batchId, baseRevision: result.currentRevision }, issue.standard)) return
       } else {
         await mutate(`/api/batches/${result.batchId}`)
         setIssue(null)
