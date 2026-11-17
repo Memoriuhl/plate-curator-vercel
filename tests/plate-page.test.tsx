@@ -149,6 +149,7 @@ test('family plus sends the destination family and its template id', async () =>
   fireEvent.click(
     screen.getByRole('button', { name: 'Add Standard Gold to family' }),
   )
+  fireEvent.click(screen.getByRole('button', { name: 'Add to family' }))
   await waitFor(() =>
     expect(state.edit).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'AK.standard_gold' }),
@@ -178,6 +179,7 @@ test('a family without a template allows a variant and omits its parent id', asy
   }) as HTMLButtonElement
   expect(add.disabled).toBe(false)
   fireEvent.click(add)
+  fireEvent.click(screen.getByRole('button', { name: 'Add to family' }))
   await waitFor(() =>
     expect(state.edit).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'AK.standard_gold' }),
@@ -295,7 +297,7 @@ test.each([
 test('navigation keeps state filters and parked actions are disabled', () => {
   render(<PlatePage {...props} />)
   expect(
-    screen.getByRole('link', { name: 'Alaska' }).getAttribute('href'),
+    screen.getByRole('link', { name: 'Back to Alaska' }).getAttribute('href'),
   ).toBe('/states/AK?show=tags&q=army')
   expect(
     (
@@ -313,4 +315,50 @@ test('selected Batch survives the way back and adjacent Plate navigation', () =>
   const links = Array.from(view.container.querySelectorAll('a')).map(link => link.getAttribute('href'))
   expect(links).toContain('/states/AK?show=tags&q=army&batch=shared')
   expect(links).toContain('/plates/AK.standard_gold?show=tags&q=army&batch=shared')
+})
+
+test('back link displays the jurisdiction code', () => {
+  render(<PlatePage {...props} />)
+  expect(screen.getByRole('link', { name: 'Back to Alaska' }).textContent).toBe('AK')
+})
+
+test('other plates order variants first and preserve order within groups', () => {
+  const outside = props.plates.filter(plate => plate.templateFamily !== army.templateFamily)
+  const ordered = [...outside.filter(plate => plate.templateRole !== 'template'), ...outside.filter(plate => plate.templateRole === 'template')]
+  render(<PlatePage {...props} />)
+  expect(screen.getAllByRole('button', { name: /^Add .+ to family$/ }).map(button => button.getAttribute('aria-label'))).toEqual(ordered.slice(0, 100).map(plate => 'Add ' + plate.displayName + ' to family'))
+})
+
+test('template confirmation cancellation does not save', () => {
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
+  expect(screen.getByRole('alertdialog').textContent).toBe('Add Standard Gold to this family?It stops being a Template.CancelAdd to family')
+  expect(state.edit).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(state.edit).not.toHaveBeenCalled()
+})
+
+test('variant adds immediately without confirmation', async () => {
+  const variant = { ...props.plates.find(plate => plate.id === 'AK.standard_gold')!, templateRole: 'variant' as const }
+  render(<PlatePage {...props} plates={[...props.plates.filter(plate => plate.id !== variant.id), variant]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(1))
+})
+
+test.each([1, 2])('templates with %i linked variants cannot be added', count => {
+  const candidate = props.plates.find(plate => plate.id === 'AK.standard_gold')!
+  const children = [
+    { ...candidate, id: 'AK.explicit', displayName: 'Explicit child', templateRole: 'variant' as const, templateFamily: 'different', variantOfPlateId: candidate.id },
+    { ...candidate, id: 'AK.legacy', displayName: 'Legacy child', templateRole: 'variant' as const, variantOfPlateId: null },
+    { ...candidate, id: 'AK.unrelated', displayName: 'Unrelated child', templateRole: 'variant' as const, variantOfPlateId: 'AK.other' },
+  ]
+  render(<PlatePage {...props} plates={[slimPlate(army), candidate, ...children.slice(0, count), children[2], { ...candidate, id: 'AK.other', displayName: 'Other template', templateFamily: 'other' }]} />)
+  const add = screen.getByRole('button', { name: 'Add Standard Gold to family' }) as HTMLButtonElement
+  expect(add.disabled).toBe(true)
+  expect(document.getElementById(add.getAttribute('aria-describedby')!)?.textContent).toBe('Move or detach its ' + count + ' ' + (count === 1 ? 'Variant' : 'Variants') + ' first.')
+  fireEvent.click(add)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(state.edit).not.toHaveBeenCalled()
 })

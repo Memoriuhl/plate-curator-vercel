@@ -356,7 +356,7 @@ test('stale Tag acceptance keeps the newer draft and reports stale_plate', async
 test('Plate page keeps selected Batch navigation, edits twice, and runs and accepts Tag in that Batch', async () => {
   const value = session(owner)
   const view = render(<Context.Provider value={value}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}><LiveSignalProvider value={source}><PlatePage plate={{ ...slimPlate(cards[1]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" /></LiveSignalProvider></SWRConfig></Context.Provider>)
-  expect(view.getByRole('link', { name: 'Alaska' }).getAttribute('href')).toBe('/states/AK?batch=shared')
+  expect(view.getByRole('link', { name: 'Back to Alaska' }).getAttribute('href')).toBe('/states/AK?batch=shared')
   expect(view.getByRole('link', { name: /Next/ }).getAttribute('href')).toBe('/plates/AK.b?batch=shared')
   await waitFor(() => expect(view.container.textContent).toContain('Live'))
   const input = view.getByRole('textbox', { name: 'Add tag' })
