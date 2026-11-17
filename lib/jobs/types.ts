@@ -31,6 +31,7 @@ export type TaggingJob = {
   standardId?: string
   stageOptions?: ImageGroupOptions
   queueRunId?: string
+  previewOnly?: boolean
   queueAttempt?: number
   enqueuedBy?: string
   queueStep?: number

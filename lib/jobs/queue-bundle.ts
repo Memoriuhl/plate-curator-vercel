@@ -11,6 +11,7 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
   if (!localQueueEnabled(jobs)) return { ok: false, error: 'forbidden' }
   const run = await jobs.store.transaction(async tx => (await tx.runs()).find(run => run.id === id && run.localScope === jobs.localScope))
   if (!run) return { ok: false, error: 'not_found' }
+  if (run.previewOnly) return { ok: false, error: 'forbidden' }
   const snapshot = await review.store.readBatch(run.batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
   const { batch, edits } = snapshot

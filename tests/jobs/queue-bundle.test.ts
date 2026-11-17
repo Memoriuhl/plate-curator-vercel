@@ -93,3 +93,13 @@ test('Apply permissions/read-only/local gates remain enforced, including after a
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
   expect(await applyQueueBundle(s.jobs, s.review, actor, s.id)).toMatchObject({ error: 'forbidden' })
 })
+
+test('Preview is strictly inspect-only: server refuses Apply and cannot convert the persisted mode', async () => {
+  const s = await setup()
+  await s.jobs.store.transaction(async tx => { const [run] = await tx.runs(); run.previewOnly = true; tx.setRun(run) })
+  const commit = vi.spyOn(s.review.store, 'commit')
+  expect(await applyQueueBundle(s.jobs, s.review, actor, s.id)).toMatchObject({ error: 'forbidden' })
+  expect(await applyQueueBundle(s.jobs, s.review, { ...actor, role: 'owner' }, s.id)).toMatchObject({ error: 'forbidden' })
+  expect(commit).not.toHaveBeenCalled()
+  expect(await s.review.store.listEdits('batch')).toEqual([])
+})

@@ -9,9 +9,9 @@ import { GET, POST } from '../../app/api/local-pipeline/runs/route'
 import { POST as cancel } from '../../app/api/local-pipeline/runs/[id]/cancel/route'
 import { POST as claim } from '../../app/api/worker/claim/route'
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn() }))
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn(), workflow: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}) }))
-vi.mock('workflow/api', () => ({ start: mocks.start, resumeHook: mocks.resume }))
+vi.mock('workflow/api', () => ({ start: mocks.start, resumeHook: mocks.resume, getRun: mocks.workflow }))
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 const body = { requestId: 'request', batchId: 'batch', plateIds: ['AK.one'], stages: ['tag'] }
 const post = () => new Request('https://example.org/api/local-pipeline/runs', { method: 'POST', body: JSON.stringify(body) })
@@ -28,6 +28,7 @@ beforeEach(() => {
   mocks.jobs.mockReset().mockReturnValue(deps)
   mocks.start.mockReset().mockResolvedValue({ runId: 'workflow' })
   mocks.resume.mockReset().mockResolvedValue(undefined)
+  mocks.workflow.mockReset().mockReturnValue({ status: Promise.resolve('running') })
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -78,7 +79,15 @@ test('authentication and other-owner visibility/mutations reject without exposin
   await POST(post())
   const [run] = await deps.store.transaction(tx => tx.runs())
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
-  expect(await (await GET(get())).json()).toEqual({ runs: [], orphanJobs: [] })
+  expect(await (await GET(get())).json()).toEqual({ runs: [], orphanJobs: [], observedAt: 100 })
   expect((await cancel(new Request('https://example.org', { method: 'POST' }), { params: Promise.resolve({ id: run.id }) })).status).toBe(403)
   expect(await claimNext({ ...deps, localScope: undefined }, 'production')).toBeNull()
+})
+
+test('GET records an actual exhausted Workflow failure as retryable failure when no physical stage is active', async () => {
+  await POST(post())
+  mocks.workflow.mockReturnValue({ status: Promise.resolve('failed') })
+  const restored = await (await GET(get())).json()
+  expect(restored.runs[0]).toMatchObject({ status: 'failed', attempts: [{ error: 'workflow_failed' }] })
+  expect(mocks.start).toHaveBeenCalledTimes(1)
 })

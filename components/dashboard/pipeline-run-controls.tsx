@@ -88,8 +88,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
         </section>
         <TaggingModelPicker choice={localChoice} />
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
-          <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · generate suggestions without changing the Batch</label>
-          <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. Suggestions wait for your explicit Apply.</p>
+          <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
+          <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>
           {active ? <p className="caption">A run is already active. You can queue these plates and stages; each resource slot is shared fairly between requesters.</p> : null}
           {queue.message ? <p role="alert">{queue.message}</p> : null}
           <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>

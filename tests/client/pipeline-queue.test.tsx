@@ -7,6 +7,7 @@ import { PipelineQueuePanel } from '../../components/dashboard/pipeline-queue-pa
 import type { QueueRunView } from '../../lib/jobs/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
 import { TAGGING_MODELS } from '../../lib/tagging/models'
+import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboard/pipeline-field-value'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
@@ -67,7 +68,7 @@ test('read-only Batch rejects enqueue and flag off disables list requests', asyn
 })
 
 test('history exposes coherent Apply, cancel/retry, durable hide, and explicit verified worker recovery', () => {
-  const completed = saved({ id: 'completed', status: 'completed' })
+  const completed = saved({ id: 'completed', status: 'completed', previewOnly: false })
   const controls = { runs: [saved(), completed, saved({ id: 'failed', status: 'failed' })], selected: completed, select: vi.fn(), loading: false, error: null,
     refresh: vi.fn(), action: null, message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }
   const view = render(<PipelineQueuePanel queue={controls} />)
@@ -99,4 +100,25 @@ test('local controls select multiple stages, keep options snapshot, and permit Q
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', {}, true))
+})
+
+test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
+  const run = saved({ status: 'completed', previewOnly: true })
+  render(<PipelineQueuePanel queue={{ runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(), action: null,
+    message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
+  expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull()
+  expect(screen.getByText(/Run again without Preview only/)).toBeTruthy()
+})
+
+test('coherent facts and read-more links use readable text and cited links instead of raw JSON', () => {
+  expect(pipelineFieldLabel('funFacts')).toBe('Fun facts')
+  expect(pipelineFieldLabel('firstIssuedYear')).toBe('First issued')
+  render(<><PipelineFieldValue field="funFacts" value={[{ text: 'This design was first issued in 1976.', sourceUrl: 'https://example.org/fact', sourceTitle: 'Issuing authority' }]} />
+    <PipelineFieldValue field="readMore" value={[{ title: 'Design history', site: 'Museum', url: 'https://example.org/history' }]} />
+    <PipelineFieldValue field="tags" value={['blue', 'graphic']} /></>)
+  expect(screen.getByText('This design was first issued in 1976.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Issuing authority' }).getAttribute('href')).toBe('https://example.org/fact')
+  expect(screen.getByRole('link', { name: 'Design history' }).getAttribute('href')).toBe('https://example.org/history')
+  expect(screen.getByText('Museum')).toBeTruthy()
+  expect(screen.queryByText(/"sourceUrl"/)).toBeNull()
 })

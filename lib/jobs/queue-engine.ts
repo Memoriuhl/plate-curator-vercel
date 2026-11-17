@@ -39,7 +39,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     }
     const projected = attempt.projection!.plates[step.plateId]
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
-      env: d.store.env, localScope: d.localScope!, queueRunId: id, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
+      env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
       completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId ? { modelId: run.modelId } : {}),
@@ -150,5 +150,27 @@ export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string
       job.state !== 'claimed' || job.leaseExpiresAt! > d.now()) return { ok: false, error: 'invalid_state' }
     tx.set({ ...job, state: run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', endedAt: d.now(), failure: 'worker_confirmed_stopped', recoveredBy: actor.uid })
     return { ok: true, value: run }
+  })
+}
+
+export async function recordQueueWorkflowFailure(d: JobsDeps, id: string, number: number, workflowId: string, status: 'failed' | 'cancelled' | 'completed'): Promise<boolean> {
+  if (!localQueueEnabled(d)) return false
+  return d.store.transaction(async tx => {
+    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const attempt = run?.attempts.at(-1)
+    if (!run || !attempt || attempt.number !== number || attempt.workflowId !== workflowId || !['queued', 'running'].includes(run.status)) return false
+    const currentId = attempt.jobIds.at(-1)
+    const current = currentId ? await tx.get(currentId) : null
+    const reason = status === 'completed' ? 'workflow_ended_early' : `workflow_${status}`
+    if (current?.state === 'claimed') {
+      if (run.waitReason === 'recovery' && attempt.error === reason) return false
+      run.status = 'running'; run.waitReason = 'recovery'; run.updatedAt = d.now(); attempt.error = reason
+      tx.set({ ...current, recoveryNeededAt: current.recoveryNeededAt ?? d.now() })
+    } else {
+      if (current?.state === 'queued') tx.set({ ...current, state: 'failed', endedAt: d.now(), failure: reason })
+      finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), reason)
+    }
+    tx.setRun(run)
+    return true
   })
 }

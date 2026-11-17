@@ -39,7 +39,7 @@ export function usePipelineQueue() {
   const [message, setMessage] = useState('')
   const [selectedId, select] = useState<string | undefined>()
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
-  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[] }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
+  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
   useEffect(() => {
     if (!uid || !list.data) return
     try {
@@ -119,6 +119,6 @@ export function usePipelineQueue() {
     return perform(`recover:${job.id}`, async () => api.send('POST', `/api/jobs/${job.id}/recover`, { claimId: job.claimId, workerStopped: true }))
   }
 
-  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected, select, loading: list.isLoading, error: list.error, refresh: list.mutate,
+  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected, observedAt: list.data?.observedAt, select, loading: list.isLoading, error: list.error, refresh: list.mutate,
     action, message, disabledReason, enqueue, cancel, retry, apply, chooseImage, recover, recoverOrphan }
 }

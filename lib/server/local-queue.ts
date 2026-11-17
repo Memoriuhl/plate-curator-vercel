@@ -1,7 +1,7 @@
-import { resumeHook, start } from 'workflow/api'
+import { getRun, resumeHook, start } from 'workflow/api'
 import { HookConflictError } from 'workflow/errors'
 import { localPipelineRun } from '../../workflows/local-pipeline'
-import { bindQueueWorkflow } from '../jobs/queue-engine'
+import { bindQueueWorkflow, recordQueueWorkflowFailure } from '../jobs/queue-engine'
 import type { PipelineRun, QueueOutcome } from '../jobs/queue-types'
 import type { TaggingJob } from '../jobs/types'
 import { jobsDeps } from './context'
@@ -30,4 +30,12 @@ export async function startQueueWorkflow(run: PipelineRun) {
 
 export async function wakeLocalJob(job: TaggingJob) {
   if (job.completionHook && job.queueRunId) await resumeHook(job.completionHook, { jobId: job.id }).catch(() => undefined)
+}
+
+export async function reconcileQueueWorkflow(run: PipelineRun) {
+  const attempt = run.attempts.at(-1)!
+  if (!attempt.workflowId || !['queued', 'running'].includes(run.status)) return false
+  const status = await getRun(attempt.workflowId).status
+  return status === 'failed' || status === 'cancelled' || status === 'completed'
+    ? recordQueueWorkflowFailure(jobsDeps(), run.id, attempt.number, attempt.workflowId, status) : false
 }

@@ -4,7 +4,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import { claimJob, claimNext, createJob, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
 import { enqueueRun, cancelRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
-import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
+import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage, recordQueueWorkflowFailure } from '../../lib/jobs/queue-engine'
 import { failLocalJob, listLocalOrphanJobs, recoverLocalOrphanJob } from '../../lib/jobs/queue-failure'
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
 import type { LocalRunStage } from '../../lib/jobs/queue-types'
@@ -262,5 +262,46 @@ test('submitting a Batch cannot permanently reserve a dead managed worker; recov
   await observeQueueStage(s.deps, run.id, 1, 0)
   expect(await s.review.readBatch('batch')).toEqual(before)
   expect(await retryRun(s.deps, actor, run.id, 'retry-submitted')).toMatchObject({ error: 'invalid_state' })
+  expect(await claimNext(s.deps, 'replacement')).not.toBeNull()
+})
+
+test('Preview flag is immutable on the run and persisted on every materialized job', async () => {
+  const s = setup()
+  const input = { requestId: 'strict-preview', batchId: 'batch', plateIds: ['AK.one'], stages: ['tag' as const], previewOnly: true }
+  const created = await enqueueRun(s.deps, actor, input)
+  if (!created.ok) throw Error(created.error)
+  await bindQueueWorkflow(s.deps, created.value.id, 1, 'preview-workflow')
+  const id = await dispatchQueueStage(s.deps, created.value.id, 1, 0, 'preview-hook')
+  expect((await getJob(s.deps, id!))?.previewOnly).toBe(true)
+  expect(await enqueueRun(s.deps, actor, { ...input, previewOnly: false })).toMatchObject({ error: 'request_mismatch' })
+})
+
+test('fatal/exhausted Workflow failure before dispatch becomes failed and safe Retry starts a new attempt', async () => {
+  const s = setup()
+  const created = await enqueueRun(s.deps, actor, { requestId: 'fatal-before-dispatch', batchId: 'batch', plateIds: ['AK.one'], stages: ['tag'] })
+  if (!created.ok) throw Error(created.error)
+  await bindQueueWorkflow(s.deps, created.value.id, 1, 'fatal-workflow')
+  expect(await recordQueueWorkflowFailure(s.deps, created.value.id, 1, 'fatal-workflow', 'failed')).toBe(true)
+  const retried = await retryRun(s.deps, actor, created.value.id, 'retry-fatal')
+  expect(retried).toMatchObject({ value: { status: 'queued', attempts: [{ status: 'failed', error: 'workflow_failed' }, { number: 2 }] } })
+  expect(await bindQueueWorkflow(s.deps, created.value.id, 2, 'new-workflow')).toBe(true)
+  await dispatchQueueStage(s.deps, created.value.id, 2, 0, 'new-hook')
+  expect(await recordQueueWorkflowFailure(s.deps, created.value.id, 1, 'fatal-workflow', 'failed')).toBe(false)
+  expect(await claimNext(s.deps, 'worker')).not.toBeNull()
+})
+
+test('fatal/exhausted Workflow failure with a live claim NEVER releases it; safe recovery then Retry remains possible', async () => {
+  const s = setup()
+  const run = await s.run('fatal-with-claim')
+  const claim = (await claimNext(s.deps, 'worker'))!
+  await s.run('waiting-after-fatal', ['tag'], other, 'other-batch')
+  expect(await recordQueueWorkflowFailure(s.deps, run.id, 1, 'workflow-fatal-with-claim', 'failed')).toBe(true)
+  expect((await getJob(s.deps, claim.job.id))?.state).toBe('claimed')
+  expect(await claimNext(s.deps, 'replacement')).toBeNull()
+  expect(await retryRun(s.deps, actor, run.id, 'too-soon')).toMatchObject({ error: 'invalid_state' })
+  s.advance(11 * 60_000)
+  await confirmStoppedWorker(s.deps, actor, run.id, claim.job.id, claim.claimId)
+  await recordQueueWorkflowFailure(s.deps, run.id, 1, 'workflow-fatal-with-claim', 'failed')
+  expect(await retryRun(s.deps, actor, run.id, 'safe-retry')).toMatchObject({ value: { attempts: [{ status: 'failed' }, { number: 2 }] } })
   expect(await claimNext(s.deps, 'replacement')).not.toBeNull()
 })

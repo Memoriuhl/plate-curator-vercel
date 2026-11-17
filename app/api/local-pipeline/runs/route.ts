@@ -1,15 +1,17 @@
 import { enqueueRun, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
-import { queueResponse, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
+import { queueResponse, reconcileQueueWorkflow, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
 
 export async function GET(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
-  const result = await listRuns(jobsDeps(), auth.actor)
+  let result = await listRuns(jobsDeps(), auth.actor)
   if (!result.ok) return queueResponse(result)
+  let reconciled = false
   for (const run of result.value) {
+    if (await reconcileQueueWorkflow(run).catch(() => false)) reconciled = true
     await startQueueWorkflow(run).catch(() => undefined)
     const attempt = run.attempts.at(-1)!
     if (['queued', 'running'].includes(run.status)) {
@@ -17,6 +19,7 @@ export async function GET(request: Request) {
       if (current && current.state !== 'queued' && (current.state !== 'claimed' || run.waitReason === 'resource')) await wakeLocalJob(current)
     }
   }
+  if (reconciled) { result = await listRuns(jobsDeps(), auth.actor); if (!result.ok) return queueResponse(result) }
   const selectedId = new URL(request.url).searchParams.get('detail')
   const selected = selectedId ? result.value.find(run => run.id === selectedId) : result.value.find(run => run.status === 'running') ?? result.value[0]
   const summaries = result.value.map(run => ({ ...run,
@@ -28,7 +31,7 @@ export async function GET(request: Request) {
   const detail = selected ? { ...selected, attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
     Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))) } : undefined
   const orphanJobs = await listLocalOrphanJobs(jobsDeps(), auth.actor)
-  return json({ runs: summaries, orphanJobs, ...(detail ? { selected: detail } : {}) })
+  return json({ runs: summaries, orphanJobs, observedAt: jobsDeps().now(), ...(detail ? { selected: detail } : {}) })
 }
 
 export async function POST(request: Request) {
