@@ -7,7 +7,7 @@ export function researchFixture() {
   let now = 1000
   let sequence = 0
   let active = true
-  const plate = { id: 'AZ.one', state: 'AZ', slug: 'one', displayName: 'Wildlife', tags: [], image: 'one.webp' }
+  const plate = { id: 'AZ.one', state: 'AZ', slug: 'one', displayName: 'Wildlife', tags: [], image: 'one.webp', sourceUrl: 'https://example.com/image', funFacts: [{ text: 'Existing curator fact', sourceUrl: 'https://example.com/old' }] }
   const owner = { uid: 'owner', role: 'owner' as const, name: 'Owner' }
   const review = { store: createMemoryStore([{ id: 'batch', name: 'Research', createdBy: 'owner', createdAt: 'now', state: 'open', revision: 0, baselineVersion: 14, plateIds: [plate.id], approval: null }]), baseline: async () => plate, baselineAtVersion: async () => plate, stateBaseline: async () => [plate], now: () => 'now' }
   const store = createMemoryResearchStore()

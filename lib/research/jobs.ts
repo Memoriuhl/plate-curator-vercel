@@ -98,7 +98,7 @@ export async function renewResearchClaim(deps: ResearchDeps, workerId: string, r
 const resultSchema = z.object({
   input: z.object({ plateId: z.string(), displayName: z.string(), state: z.string(), inputRevision: z.string(), baselineVersion: z.number().int() }),
   sources: z.array(z.object({ id: z.string().max(100), kind: z.enum(['wikipedia', 'web']), title: z.string().max(300), url: z.string().url().max(2000), text: z.string().max(30000), contentHash: z.string().length(64), fetchedAt: z.string().datetime() })).max(12),
-  draft: researchDraftSchema, rejected: z.array(z.unknown()).max(100),
+  draft: researchDraftSchema, rejected: z.array(z.object({ field: z.enum(['description', 'funFacts', 'readMore', 'wikiUrl', 'shape']), reason: z.string().max(200) })).max(100),
   provenance: z.object({ executor: z.enum(['desktop', 'eve']), model: z.string().max(200), promptVersion: z.string().min(1).max(100), codeRevision: z.string().min(1).max(100) }),
   attempts: z.array(z.unknown()).max(10), durationMs: z.number().min(0).max(86400000), status: z.enum(['ok', 'partial', 'failed', 'no_sources', 'exhausted']),
   cost: z.object({ usd: z.number().nonnegative().nullable(), missing: z.number().int().nonnegative() }), counters: z.record(z.string(), z.number().nonnegative()), cache: z.enum(['fresh', 'cached', 'mixed', 'unknown']),
@@ -111,7 +111,7 @@ export function normalizeResearchReport(raw: unknown, job: ResearchJob): Researc
   if (JSON.stringify(data.input) !== JSON.stringify(job.input) || data.provenance.executor !== job.executor || data.provenance.model !== job.model || job.legacyRevision && data.provenance.codeRevision !== job.legacyRevision) return null
   if (data.sources.some(source => !['https:', 'http:'].includes(new URL(source.url).protocol) || new URL(source.url).username || new URL(source.url).password || createHash('sha256').update(source.text).digest('hex') !== source.contentHash)) return null
   const screened = validateResearchResult(data.draft, data.sources)
-  return { ...data, ...screened, status: data.sources.length === 0 ? 'no_sources' : screened.draft.description && screened.draft.funFacts.length ? 'ok' : 'partial' }
+  return { ...data, ...screened, rejected: [...data.rejected, ...screened.rejected], status: ['failed', 'exhausted'].includes(data.status) ? data.status : data.sources.length === 0 ? 'no_sources' : screened.draft.description && screened.draft.funFacts.length ? 'ok' : 'partial' }
 }
 
 export async function reportResearch(deps: ResearchDeps, workerId: string, request: { jobId: string; claimId: string; result: unknown }): Promise<ResearchOutcome<ResearchJob>> {
@@ -126,7 +126,8 @@ export async function reportResearch(deps: ResearchDeps, workerId: string, reque
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result) ? { ok: true as const, value: job } : { ok: false as const, error: 'result_mismatch' as const }
     const current = await researchInput({ ...deps, review: { ...deps.review, store: tx.review ?? deps.review.store } }, job.batchId, job.input.plateId)
     if (!current || current.inputRevision !== job.input.inputRevision) { tx.set({ ...job, state: 'failed', error: 'stale_input', result }); return { ok: false as const, error: 'stale_input' as const } }
-    const next: ResearchJob = { ...job, state: 'completed', result, completedAt: deps.now() }
+    const failed = ['failed', 'exhausted'].includes(result.status)
+    const next: ResearchJob = { ...job, state: failed ? 'failed' : 'completed', ...(failed ? { error: `research_${result.status}` } : {}), result, completedAt: deps.now() }
     tx.set(next)
     return { ok: true as const, value: next }
   }, deps.review.store)

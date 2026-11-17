@@ -244,10 +244,8 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
         ...ordered, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
         templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
-        ...('funFacts' in card ? {
-          funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [],
-          firstIssuedYear: proposed.firstIssuedYear ?? null, wikiUrl: proposed.wikiUrl ?? null,
-        } : {}),
+        funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [], wikiUrl: proposed.wikiUrl ?? null,
+        ...('firstIssuedYear' in card ? { firstIssuedYear: proposed.firstIssuedYear ?? null } : {}),
         complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,
       }
     })

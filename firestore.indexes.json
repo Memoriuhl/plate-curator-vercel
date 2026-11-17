@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "researchJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "env", "order": "ASCENDING" },
+        { "fieldPath": "state", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

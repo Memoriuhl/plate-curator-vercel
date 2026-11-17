@@ -10,7 +10,8 @@ function client(uid?: string) {
   const app = initializeApp({ projectId: 'demo-plate-curator', apiKey: 'demo-key' }, randomUUID())
   clients.push(app)
   const firestore = getFirestore(app)
-  connectFirestoreEmulator(firestore, 'localhost', 8080, uid ? { mockUserToken: { sub: uid } } : undefined)
+  const emulator = new URL(`http://${process.env.FIRESTORE_EMULATOR_HOST}`)
+  connectFirestoreEmulator(firestore, emulator.hostname, Number(emulator.port), uid ? { mockUserToken: { sub: uid } } : undefined)
   return firestore
 }
 const path = 'curatorLive/preview%3Afeat%2Fx/batchRevisions/rules-batch'

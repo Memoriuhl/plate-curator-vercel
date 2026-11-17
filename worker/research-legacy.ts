@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { emptyResearchDraft, type ResearchInput, type ResearchResult } from '../lib/research/types'
 
 type LegacySource = { id: string; kind: string; title: string; url: string; text: string }
-type LegacyOutcome = {
+export type LegacyOutcome = {
   id: string; sources: LegacySource[]; attempts: unknown[]; model: string | null; promptVersion: string
   status: 'ok' | 'partial' | 'no_sources' | 'failed'
   draft: { description: string | null; descriptionSource: LegacySource | null; funFacts: { text: string; sourceUrl: string }[]; firstIssuedYear: number | null }
@@ -25,8 +25,8 @@ export async function runLegacyResearch(input: ResearchInput, options: { legacyR
   const revision = await deps.revision(options.legacyRoot)
   if (revision !== options.expectedRevision) throw new Error('Legacy revision differs from the frozen baseline')
   const started = deps.now()
-  const module = await deps.load(options.legacyRoot)
-  const outcome = await module.storyForPlate({ id: input.plateId, displayName: input.displayName, state: input.state }, { model: options.model })
+  const legacy = await deps.load(options.legacyRoot)
+  const outcome = await legacy.storyForPlate({ id: input.plateId, displayName: input.displayName, state: input.state }, { model: options.model })
   if (outcome.id !== input.plateId) throw new Error('Legacy result identity differs from the request')
   const sources = outcome.sources.map(source => ({ ...source, kind: source.kind === 'wikipedia' ? 'wikipedia' as const : 'web' as const, fetchedAt: new Date(started).toISOString(), contentHash: createHash('sha256').update(source.text).digest('hex') }))
   const result: ResearchResult = {

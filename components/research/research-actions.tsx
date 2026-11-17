@@ -1,0 +1,94 @@
+'use client'
+
+import { useRef, useState, useSyncExternalStore } from 'react'
+import useSWR, { useSWRConfig } from 'swr'
+import { useRouter } from 'next/navigation'
+import { useEnsureBatch, useMe, useWorkspaceBatch } from '@/lib/client/hooks'
+import { useSession } from '@/lib/client/session'
+import { ApiError } from '@/lib/client/api'
+import { researchMessage } from '@/lib/client/research'
+import type { ResearchDraft, ResearchExecutor, ResearchJob } from '@/lib/research/types'
+import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import { ResearchResult } from './research-result'
+import { Button } from '@/components/ui/button'
+
+type Intent = { requestKey: string; batchId: string; executor: ResearchExecutor; jobId?: string; replaceJobId?: string }
+type Reply = { ok: true; value: ResearchJob }
+const subscribeHydration = () => () => {}
+const clientSnapshot = () => true
+const serverSnapshot = () => false
+
+export function ResearchActions({ plate }: { plate: PlateCardData }) {
+  const { user } = useSession()
+  const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot)
+  const workspace = useWorkspaceBatch()
+  const scope = workspace.mode === 'selected' ? workspace.id : 'personal'
+  return user && hydrated ? <ResearchRun key={`${user.uid}/${scope}/${plate.id}`} plate={plate} storageKey={`research:v1:${user.uid}:${scope}:${plate.id}`} /> : null
+}
+
+function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: string }) {
+  const { api } = useSession()
+  const me = useMe()
+  const workspace = useWorkspaceBatch()
+  const ensureBatch = useEnsureBatch()
+  const router = useRouter()
+  const { mutate } = useSWRConfig()
+  const [intent, setIntent] = useState<Intent | null>(() => {
+    try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); return saved?.requestKey && saved.batchId && ['eve', 'desktop'].includes(saved.executor) ? saved : null } catch { return null }
+  })
+  const [executor, setExecutor] = useState<ResearchExecutor>(intent?.executor ?? 'eve')
+  const [pending, setPending] = useState(false)
+  const posting = useRef(false)
+  const [message, setMessage] = useState('')
+  const research = useSWR<Reply>(intent?.jobId ? `/api/research/${intent.jobId}` : null, api.get, { refreshInterval: reply => reply && ['queued', 'running'].includes(reply.value.state) ? 2000 : 0 })
+  const job = research.data?.value
+  const blocked = workspace.mode === 'selected' && workspace.status !== 'ready'
+  function remember(next: Intent) {
+    setIntent(next)
+    try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { setMessage('Browser storage is unavailable; keep this page open to retain the run link.') }
+  }
+  async function start(replace = false) {
+    if (posting.current || blocked) return
+    posting.current = true
+    setPending(true)
+    setMessage('')
+    try {
+      const next = intent && !intent.jobId ? intent : { requestKey: crypto.randomUUID(), batchId: workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate), executor, ...(replace && job ? { replaceJobId: job.id } : {}) }
+      remember(next)
+      const reply = await api.send<Reply>('POST', `/api/batches/${next.batchId}/plates/${encodeURIComponent(plate.id)}/research`, { requestKey: next.requestKey, executor: next.executor, ...(next.replaceJobId ? { replaceJobId: next.replaceJobId } : {}) })
+      remember({ ...next, jobId: reply.value.id })
+      await mutate(`/api/research/${reply.value.id}`, reply, { revalidate: false })
+    } catch (error) {
+      if (error instanceof ApiError && (error.status < 500 || error.code === 'unavailable')) {
+        setIntent(intent)
+        try { if (intent) localStorage.setItem(storageKey, JSON.stringify(intent)); else localStorage.removeItem(storageKey) } catch {}
+      }
+      setMessage(researchMessage(error))
+    }
+    finally { posting.current = false; setPending(false) }
+  }
+  async function accept(fields: string[], draft: ResearchDraft) {
+    if (!job || pending || blocked) return
+    setPending(true)
+    setMessage('')
+    try {
+      await api.send('POST', `/api/research/${job.id}/accept`, { fields, draft, baseRevision: plate.revision })
+      await Promise.all([mutate(`/api/batches/${job.batchId}`), research.mutate(), mutate(key => typeof key === 'string' && key.startsWith('/api/batches?'))])
+      router.refresh()
+      setMessage('Accepted selected fields into the Batch. Review and approval are still required.')
+    } catch (error) { setMessage(researchMessage(error)) }
+    finally { setPending(false) }
+  }
+  return <section aria-label="Plate research" className="grid min-w-0 gap-3 border-t border-[var(--hairline)] pt-4">
+    <h3 className="label">Research</h3>
+    {me.data?.role === 'owner' ? <div className="flex flex-wrap items-end gap-2">
+      <label className="grid gap-1"><span className="caption">Research host</span><select aria-label="Research host" className="min-h-10 rounded-lg bg-[var(--fill)] px-3" value={executor} disabled={pending || !!intent && !intent.jobId} onChange={event => setExecutor(event.target.value as ResearchExecutor)}><option value="eve">Vercel / Eve</option><option value="desktop">Desktop / Ollama</option></select></label>
+      <Button variant="outline" disabled={pending || blocked} onClick={() => void start(!!job)}>{pending ? 'Working…' : intent && !intent.jobId ? 'Retry research request' : job ? 'Start replacement run' : 'Research this plate'}</Button>
+    </div> : <p className="caption">An Owner can start research.</p>}
+    {job ? <p role="status" className="caption">{job.executor === 'desktop' ? 'Desktop / Ollama' : 'Vercel / Eve'} · {job.state}{job.executor === 'desktop' && job.state === 'queued' ? ' · Waiting for the desktop worker; it may be offline.' : ''}{job.error ? ` · ${job.error}` : ''}</p> : null}
+    {job?.eve ? <p className="id break-all">Agent session: {job.eve.sessionId}</p> : null}
+    {research.error ? <p role="alert">{researchMessage(research.error)}</p> : null}
+    {message ? <p role="status" className="text-sm">{message}</p> : null}
+    {job?.result ? <ResearchResult key={job.id} result={job.result} pending={pending || blocked || job.state !== 'completed'} onAccept={(fields, draft) => void accept(fields, draft)} /> : null}
+  </section>
+}

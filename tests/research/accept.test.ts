@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { parseEditableFields } from '../../lib/review/fields'
+import { proposeEdit } from '../../lib/review/batch'
 import { plateRevision } from '../../lib/review/revision'
 import { claimResearch, reportResearch } from '../../lib/research/jobs'
 import { acceptResearch } from '../../lib/research/accept'
@@ -37,4 +38,19 @@ test('replaced runs and absent draft fields cannot overwrite the plate', async (
   await f.start('replacement', 'eve', f.job.id)
   expect(await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['description'] })).toMatchObject({ ok: false, error: 'superseded' })
   expect((await f.review.store.getBatch('batch'))!.revision).toBe(0)
+})
+
+test('links-only acceptance preserves image provenance and facts, and own acceptance allows remaining fields', async () => {
+  const f = await completed()
+  const first = await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['readMore'] })
+  expect(first).toMatchObject({ ok: true, value: { plate: { image: 'one.webp', sourceUrl: 'https://example.com/image', funFacts: [{ text: 'Existing curator fact' }] } } })
+  if (!first.ok) throw new Error('setup')
+  expect(await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(first.value.plate), fields: ['description'] })).toMatchObject({ ok: true, value: { plate: { readMore: [{ url: 'https://example.com/wildlife' }] } } })
+})
+
+test('an intervening edit makes the completed draft inspectable but unacceptable', async () => {
+  const f = await completed()
+  await proposeEdit(f.review, f.owner, { batchId: 'batch', plateId: f.plate.id, baseRevision: plateRevision(f.plate), fields: { tags: ['changed'] } })
+  const current = { ...f.plate, tags: ['changed'] }
+  expect(await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(current), fields: ['description'] })).toMatchObject({ ok: false, error: 'stale_input' })
 })

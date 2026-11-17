@@ -56,3 +56,11 @@ test('removed requesters and cross-environment workers cannot receive new work',
   expect(await f.start('again')).toMatchObject({ ok: false, error: 'forbidden' })
   expect(await claimResearch(f.deps, 'worker')).toBeNull()
 })
+
+test('a failed synthesis remains a visible failure and retains screening reasons', async () => {
+  const f = researchFixture()
+  await f.start()
+  const claim = (await claimResearch(f.deps, 'desktop'))!
+  const result = { ...f.result(claim.job), status: 'failed' as const, rejected: [{ field: 'description' as const, reason: 'unsupported_claim' }] }
+  expect(await reportResearch(f.deps, 'desktop', { jobId: claim.job.id, claimId: claim.claimId, result })).toMatchObject({ ok: true, value: { state: 'failed', error: 'research_failed', result: { status: 'failed', rejected: result.rejected } } })
+})

@@ -33,3 +33,11 @@ test('a superseded hosted run cannot settle its draft as the active result', asy
   await state.update('draft/job', () => ({ value: { draft: { description: 'Late result' } }, result: null }))
   expect(await finishEveResearch(dependencies(store), 'job', state)).toMatchObject({ state: 'superseded' })
 })
+
+test('a submitted draft waits for turn settlement so reported usage is retained', async () => {
+  const store = createMemoryResearchStore()
+  await store.transaction(async tx => tx.set({ id: 'job', env: 'development', state: 'running', executor: 'eve', requestedBy: 'owner', deadline: 300000 } as ResearchJob))
+  const state = createResearchMemoryState()
+  await state.update('draft/job', () => ({ value: { draft: { description: null }, sources: [] }, result: null }))
+  expect(await finishEveResearch(dependencies(store), 'job', state)).toMatchObject({ state: 'running' })
+})

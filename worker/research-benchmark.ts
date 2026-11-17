@@ -1,16 +1,22 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises'
+import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { plateRevision } from '../lib/review/revision'
 import type { Snapshot } from '../lib/catalog/types'
+import { createHash } from 'node:crypto'
+import { Client } from 'eve/client'
+import { fileResearchState } from '../lib/research/file-state'
+import { hostedResearchResult } from '../lib/research/runtime'
+import { researchRequestMessage } from '../lib/research/request'
+import { runLegacyResearch } from './research-legacy'
 import type { ResearchInput } from '../lib/research/types'
 
 export function researchRunOptions(args: string[]) {
   const value = (key: string) => { const at = args.indexOf(key); return at < 0 ? undefined : args[at + 1] }
   const run = args.includes('--run')
   const budgetUsd = Number(value('--budget-usd') ?? 0)
-  if (run && (!Number.isFinite(budgetUsd) || budgetUsd <= 0)) throw new Error('Running requires a positive --budget-usd')
-  return { run, budgetUsd, input: value('--input'), output: value('--output'), manifest: value('--manifest'), executor: value('--executor') ?? 'eve' }
+  if (run && (!Number.isFinite(budgetUsd) || budgetUsd <= 0 || budgetUsd > 2)) throw new Error('Running requires a positive --budget-usd')
+  return { run, budgetUsd, input: value('--input'), output: value('--output'), manifest: value('--manifest'), executor: value('--executor') ?? 'eve', baseline: value('--baseline') }
 }
 
 export function freezeResearchInputs(snapshot: Snapshot, corpus: { plateId: string; split: string }[]): (ResearchInput & { split: string })[] {
@@ -21,10 +27,80 @@ export function freezeResearchInputs(snapshot: Snapshot, corpus: { plateId: stri
   })
 }
 
+export async function executeResearchBenchmark(options: ReturnType<typeof researchRunOptions>) {
+  if (!options.manifest || !options.output?.startsWith('eval-results/research-')) throw new Error('A frozen --manifest and eval-results/research-* output directory are required')
+  if (!['desktop', 'eve', 'control'].includes(options.executor)) throw new Error('Unknown benchmark executor')
+  if (options.executor !== 'desktop' && process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true') throw new Error('Model calls are disabled')
+  if (options.budgetUsd !== Number(process.env.RESEARCH_BUDGET_USD ?? '2')) throw new Error('--budget-usd must match the shared runtime campaign cap')
+  const baseline = options.executor === 'control' ? JSON.parse(await readFile(resolve(options.baseline ?? 'eval-results/research-baseline/desktop-raw.json'), 'utf8')) as { input: ResearchInput; raw?: { sources: import('../lib/research/types').EvidenceSource[] } }[] : []
+  const manifestText = await readFile(resolve(options.manifest), 'utf8')
+  const manifest = JSON.parse(manifestText) as { inputs: ResearchInput[] }
+  if (!manifest.inputs.length || manifest.inputs.length > 20) throw new Error('Benchmark requires 1–20 frozen inputs')
+  const hash = createHash('sha256').update(manifestText).digest('hex')
+  await mkdir(options.output, { recursive: true })
+  const config = { manifestSha256: hash, executor: options.executor, budgetUsd: options.budgetUsd, model: options.executor !== 'desktop' ? 'openai/gpt-6.1-sol' : 'gemma4:12b', promptVersion: 'research-v1', searchVariant: process.env.RESEARCH_SEARCH_PROVIDER ?? 'existing', searchProviders: { serper: !!process.env.SERPER_API_KEY, brave: !!process.env.BRAVE_API_KEY }, cache: 'persistent-cache-state-recorded-as-unknown', paidCampaign: process.env.RESEARCH_BUDGET_ID }
+  const configFile = resolve(options.output, 'configuration.json')
+  try { await writeFile(configFile, JSON.stringify(config, null, 2), { flag: 'wx' }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || await readFile(configFile, 'utf8') !== JSON.stringify(config, null, 2)) throw error }
+  const client = new Client({ baseUrl: process.env.RESEARCH_BENCHMARK_EVE_URL ?? 'http://localhost:4283' })
+  const state = fileResearchState('.eve/research')
+  for (const input of manifest.inputs) {
+    const output = resolve(options.output, `${input.plateId}.json`)
+    try { await access(output); continue } catch {}
+    const started = Date.now()
+    try {
+      if (options.executor === 'control') {
+        const sources = (baseline.find(row => row.input.plateId === input.plateId)?.raw?.sources ?? []).map(source => ({ ...source, fetchedAt: new Date().toISOString(), contentHash: createHash('sha256').update(source.text).digest('hex') }))
+        if (!sources.length) { await writeFile(output, JSON.stringify({ input, sources, skipped: 'no_captured_sources' }), { flag: 'wx' }); continue }
+        const { synthesizeCapturedEvidence } = await import('../lib/research/control')
+        const result = await synthesizeCapturedEvidence(input, sources, state, `control-v1/${input.plateId}`)
+        await writeFile(output, JSON.stringify({ input, sources, ...result }, null, 2), { flag: 'wx' })
+        console.log(JSON.stringify({ plateId: input.plateId, status: 'completed', usd: result.cost.usd }))
+        continue
+      }
+      if (options.executor === 'desktop') {
+        if (!process.env.RESEARCH_LEGACY_ROOT || !process.env.RESEARCH_LEGACY_REVISION) throw new Error('Frozen legacy root/revision are required')
+        const result = await runLegacyResearch(input, { legacyRoot: process.env.RESEARCH_LEGACY_ROOT, expectedRevision: process.env.RESEARCH_LEGACY_REVISION, model: 'gemma4:12b' })
+        await writeFile(output, JSON.stringify({ input, result }, null, 2), { flag: 'wx' })
+        console.log(JSON.stringify({ plateId: input.plateId, status: result.status }))
+        continue
+      }
+      const receiptFile = resolve(options.output, `${input.plateId}.receipt.json`)
+      let receipt: { sessionId: string; deliveryId: string }
+      try { receipt = JSON.parse(await readFile(receiptFile, 'utf8')) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        const operationId = createHash('sha256').update(hash + '/' + options.output + '/' + input.plateId).digest('hex')
+        const response = await client.fetch('/eve/v1/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operationId, message: researchRequestMessage(input) }) })
+        if (!response.ok) throw new Error(`Eve dispatch status ${response.status}`)
+        receipt = await response.json()
+        await writeFile(receiptFile, JSON.stringify(receipt), { flag: 'wx' })
+      }
+      const runId = `${receipt.sessionId}/turn_0`
+      let settled: { outcome: string; costUsd?: number } | null = null
+      while (Date.now() - started < 310000) {
+        settled = await state.read(`eve-outcome/${runId}`)
+        if (settled) break
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      const draft = await state.read<Pick<import('../lib/research/types').ResearchResult, 'draft' | 'sources' | 'rejected'>>(`draft/${runId}`)
+      const counters = await state.read<Record<string, number>>(`limits/${runId}`) ?? {}
+      const events = (await client.sessions.attach(receipt.sessionId).snapshot()).events
+      const result = draft ? hostedResearchResult(input, draft, { durationMs: Date.now() - started, counters }) : null
+      const nativeCost = await state.read<{ usd: number; missing: number }>(`native-search-cost/${runId}`)
+      if (result && settled?.costUsd !== undefined) result.cost = { usd: settled.costUsd + (nativeCost?.usd ?? 0), missing: nativeCost ? nativeCost.missing : Number(!!counters['web-search']) }
+      await writeFile(output, JSON.stringify({ input, receipt, settled, result, durationMs: Date.now() - started, cost: { usd: settled?.costUsd === undefined ? null : settled.costUsd + (nativeCost?.usd ?? 0), missing: Number(!draft) + (nativeCost?.missing ?? 0) }, events, error: !draft ? settled?.outcome ?? 'timeout' : null }, null, 2), { flag: 'wx' })
+      console.log(JSON.stringify({ plateId: input.plateId, status: result?.status ?? settled?.outcome ?? 'timeout', usd: settled?.costUsd ?? null }))
+    } catch (error) {
+      await writeFile(output, JSON.stringify({ input, error: error instanceof Error ? error.message : 'failed', durationMs: Date.now() - started }, null, 2), { flag: 'wx' })
+      console.log(JSON.stringify({ plateId: input.plateId, status: 'failed' }))
+    }
+  }
+}
+
 async function main() {
   const options = researchRunOptions(process.argv.slice(2))
   const corpus = JSON.parse(await readFile(resolve('fixtures/research-eval.json'), 'utf8'))
-  if (options.run) throw new Error('Measured execution is not configured yet; prepare the frozen manifest first')
+  if (options.run) { await executeResearchBenchmark(options); return }
   if (!options.input) {
     console.log(JSON.stringify({ mode: 'validate-only', plates: corpus.plates.length, next: 'Pass --input snapshot.json --output eval-results/research-baseline/manifest.json to freeze inputs. No external requests were sent.' }))
     return
