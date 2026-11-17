@@ -24,22 +24,14 @@ import type { EditableFields } from '@/lib/review/types'
 import {
   useDraftOverlay,
   useEditPlate,
-  type EditResult,
 } from '@/lib/client/hooks'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
+import { Conflict, type Issue } from '@/components/plate/edit-conflict'
 import { cardData } from './types'
 import type { FamilyPlate, PlatePageProps } from './types'
 
 const input =
   'w-full min-w-0 rounded-[var(--radius-md)] border-0 bg-[var(--fill)] px-3 py-2 text-[var(--ink)]'
-const errors = {
-  forbidden: "Only the batch's creator or an Owner can edit it.",
-  superseded_revision: 'This batch has a newer revision. Reload and try again.',
-  invalid_state: 'This batch is no longer open for editing.',
-  not_found: 'This plate or batch could not be found.',
-  stale_plate: 'Someone changed this while you were editing.',
-}
-
 function Card({
   title,
   children,
@@ -73,63 +65,6 @@ function Parked({ children }: { children: ReactNode }) {
   )
 }
 
-type Issue = {
-  plate: PlateCardData
-  fields: EditableFields
-  result: Extract<EditResult, { ok: false }>
-}
-
-export function Conflict({
-  issue,
-  pending,
-  onTheirs,
-  onMine,
-}: {
-  issue: Issue
-  pending: boolean
-  onTheirs(): void
-  onMine(): void
-}) {
-  if (issue.result.error !== 'stale_plate')
-    return (
-      <p role="alert" className="rounded-xl bg-[var(--danger-tint)] p-3">
-        {errors[issue.result.error]}
-      </p>
-    )
-  const result = issue.result
-  return (
-    <div
-      role="alert"
-      className="grid gap-3 rounded-xl border border-[var(--warning)] bg-[var(--warning-tint)] p-3 text-[var(--warning-ink)]"
-    >
-      <strong>Someone changed this while you were editing.</strong>
-      {Object.keys(issue.fields).map((key) => {
-        const field = key as keyof EditableFields
-        return (
-          <div key={key} className="grid gap-1 break-words">
-            <span className="label">{key}</span>
-            <p>Theirs: {format(result.current[field])}</p>
-            <p>Yours: {format(result.draft[field])}</p>
-          </div>
-        )
-      })}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={pending}
-          onClick={onTheirs}
-        >
-          Keep theirs
-        </Button>
-        <Button size="sm" disabled={pending} onClick={onMine}>
-          Use mine
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 function fileName(url: string) {
   const name = url.split('/').at(-1)!.split('?')[0]
   try {
@@ -139,44 +74,41 @@ function fileName(url: string) {
   }
 }
 
-function format(value: unknown) {
-  if (value == null || value === '') return '(empty)'
-  return Array.isArray(value) ? value.join(', ') : String(value)
-}
-
 function DraftText({
   value,
   label,
   multiline,
   pending,
   save,
+  plate,
 }: {
+  plate: PlateCardData
   value: string
   label: string
   multiline?: boolean
   pending: boolean
-  save(value: string): Promise<void>
+  save(value: string, target: PlateCardData): Promise<boolean>
 }) {
-  const [draft, setDraft] = useState(value)
-  const [base, setBase] = useState(value)
-  if (base !== value) {
-    setBase(value)
-    if (draft === base) setDraft(value)
-  }
+  const [local, setLocal] = useState<{ value: string; plate: PlateCardData; base: string } | null>(null)
+  const draft = local?.value ?? value
   const valid = !multiline || draft.length <= 2000
   async function commit() {
-    if (valid && draft !== value && !pending) await save(draft)
+    if (valid && local && draft !== local.base && !pending) {
+      if (await save(draft, local.plate)) setLocal(null)
+    }
   }
   const props = {
     'aria-label': label,
     'aria-invalid': !valid,
+    disabled: pending,
     className: input,
     value: draft,
     onChange: (
       event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ) => setDraft(event.target.value),
+    ) => setLocal(previous => ({ value: event.target.value, plate: previous?.plate ?? plate, base: previous?.base ?? value })),
     onBlur: () => void commit(),
     onKeyDown: (event: React.KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setLocal(null); return }
       if (
         event.key === 'Enter' &&
         (!multiline || event.metaKey || event.ctrlKey)
@@ -246,11 +178,13 @@ export function PlatePage(props: PlatePageProps) {
   const [plate] = useDraftOverlay(detailCard)
   const plates = useDraftOverlay(cards)
   const [tag, setTag] = useState('')
+  const [tagPlate, setTagPlate] = useState<PlateCardData | null>(null)
   const [filter, setFilter] = useState('')
   const [issue, setIssue] = useState<Issue | null>(null)
   const [status, setStatus] = useState('')
-  const [draftReset, setDraftReset] = useState(0)
+  const [draftReset, setDraftReset] = useState<Record<string, number>>({})
   const [resolving, setResolving] = useState(false)
+  const blocked = pending || resolving || issue?.result.error === 'stale_plate'
   const current = { ...plate, description: plate.checks.description.value }
   const family = plates.filter((member) =>
     current.templateFamily
@@ -277,13 +211,14 @@ export function PlatePage(props: PlatePageProps) {
   const stateHref = `/states/${plate.state}${suffix}`
   const plateHref = (id: string) => `/plates/${encodeURIComponent(id)}${suffix}`
 
-  async function save(target: PlateCardData, fields: EditableFields) {
+  async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }) {
     setStatus('Saving to your batch…')
     try {
-      const result = await edit(target, fields)
+      const result = reviewed ? await edit(target, fields, reviewed) : await edit(target, fields)
       if (result.ok) {
         setStatus('Saved to your batch')
         setIssue(null)
+        return true
       } else {
         setStatus('Could not save')
         setIssue({ plate: target, fields, result })
@@ -291,6 +226,7 @@ export function PlatePage(props: PlatePageProps) {
     } catch {
       setStatus('Could not save. Check your connection and try again.')
     }
+    return false
   }
 
   function fieldIssue(field: keyof EditableFields, id = current.id) {
@@ -315,15 +251,17 @@ export function PlatePage(props: PlatePageProps) {
       return
     setResolving(true)
     try {
-      await mutate(
-        (key) => typeof key === 'string' && key.startsWith('/api/batches/'),
-      )
-      if (useMine) await save(issue.plate, issue.result.draft)
-      else {
-        setDraftReset((value) => value + 1)
+      const result = issue.result
+      if (useMine) {
+        if (!result.currentRevision) throw new Error('Missing conflict revision')
+        if (!await save(issue.plate, result.draft, { batchId: result.batchId, baseRevision: result.currentRevision })) return
+      } else {
+        await mutate(`/api/batches/${result.batchId}`)
         setIssue(null)
-        setStatus('Kept the current value')
+        setStatus('Kept the saved value')
       }
+      setDraftReset(previous => ({ ...previous, ...Object.fromEntries(Object.keys(issue.fields).map(field => [field, (previous[field] ?? 0) + 1])) }))
+      if (Object.hasOwn(issue.fields, 'tags')) { setTag(''); setTagPlate(null) }
     } catch {
       setStatus('Could not refresh. Check your connection and try again.')
     } finally {
@@ -448,7 +386,7 @@ export function PlatePage(props: PlatePageProps) {
                   {value}
                   <button
                     aria-label={`Remove tag ${value}`}
-                    disabled={pending}
+                    disabled={blocked}
                     onClick={() =>
                       void save(current, {
                         tags: current.tags.filter((item) => item !== value),
@@ -463,16 +401,18 @@ export function PlatePage(props: PlatePageProps) {
                 aria-label="Add tag"
                 placeholder="Add tag…"
                 value={tag}
-                disabled={pending}
-                onChange={(event) => setTag(event.target.value)}
+                disabled={blocked}
+                onChange={(event) => { setTagPlate(previous => previous ?? current); setTag(event.target.value) }}
                 className="w-28 min-w-0 bg-transparent text-sm"
                 onKeyDown={(event) => {
+                  if (event.key === 'Escape') { setTag(''); setTagPlate(null) }
                   if (event.key === 'Enter') {
                     event.preventDefault()
                     const value = tag.trim().toLowerCase()
-                    if (value && !current.tags.includes(value))
-                      void save(current, { tags: [...current.tags, value] })
-                    setTag('')
+                    const target = tagPlate ?? current
+                    if (value && !target.tags.includes(value))
+                      void save(target, { tags: [...target.tags, value] }).then(ok => { if (ok) { setTag(''); setTagPlate(null) } })
+                    else { setTag(''); setTagPlate(null) }
                   }
                 }}
               />
@@ -490,7 +430,7 @@ export function PlatePage(props: PlatePageProps) {
               <Button
                 variant="outline"
                 aria-pressed={current.isStandard}
-                disabled={pending}
+                disabled={blocked}
                 onClick={() =>
                   void save(current, { isStandard: !current.isStandard })
                 }
@@ -517,7 +457,7 @@ export function PlatePage(props: PlatePageProps) {
                         current.templateRole === role ? 'primary' : 'ghost'
                       }
                       aria-pressed={current.templateRole === role}
-                      disabled={pending}
+                      disabled={blocked}
                       onClick={() => void save(current, { templateRole: role })}
                     >
                       {role === 'template' ? 'Template' : 'Variant'}
@@ -528,16 +468,13 @@ export function PlatePage(props: PlatePageProps) {
               <div className="grid gap-2">
                 {fieldIssue('templateFamily')}
                 <DraftText
-                  key={`family-${draftReset}`}
+                  key={`family-${draftReset.templateFamily ?? 0}`}
+                  plate={current}
                   label="Template family"
                   value={current.templateFamily ?? ''}
-                  pending={
-                    pending ||
-                    resolving ||
-                    issue?.result.error === 'stale_plate'
-                  }
-                  save={(value) =>
-                    save(current, { templateFamily: value.trim() })
+                  pending={blocked}
+                  save={(value, target) =>
+                    save(target, { templateFamily: value.trim() })
                   }
                 />
               </div>
@@ -546,14 +483,13 @@ export function PlatePage(props: PlatePageProps) {
           <Card title="Story" icon={<IoDocumentTextOutline />}>
             {fieldIssue('description')}
             <DraftText
-              key={`description-${draftReset}`}
+              key={`description-${draftReset.description ?? 0}`}
+              plate={current}
               label="Description"
               multiline
               value={current.description ?? ''}
-              pending={
-                pending || resolving || issue?.result.error === 'stale_plate'
-              }
-              save={(value) => save(current, { description: value || null })}
+              pending={blocked}
+              save={(value, target) => save(target, { description: value || null })}
             />
             <label className="grid gap-2">
               <span className="label">First issued</span>
@@ -650,7 +586,7 @@ export function PlatePage(props: PlatePageProps) {
                       aria-label={`Add ${member.displayName} to family`}
                       variant="ghost"
                       size="icon"
-                      disabled={pending || !current.templateFamily}
+                      disabled={blocked || !current.templateFamily}
                       onClick={() =>
                         void save(member, {
                           templateFamily: current.templateFamily!,

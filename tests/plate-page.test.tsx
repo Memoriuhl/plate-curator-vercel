@@ -218,6 +218,8 @@ async function conflict() {
   state.edit.mockResolvedValueOnce({
     ok: false,
     error: 'stale_plate',
+    batchId: 'current',
+    currentRevision: 'fresh',
     current: {
       id: army.id,
       state: army.state,
@@ -234,12 +236,12 @@ async function conflict() {
   await screen.findByText('Someone changed this while you were editing.')
 }
 
-test('Keep theirs compares both values and drops the local draft without another save', async () => {
+test('Keep saved compares both values and drops the local draft without another save', async () => {
   await conflict()
-  expect(screen.getByText('Theirs: Their story')).toBeTruthy()
-  expect(screen.getByText('Yours: My story')).toBeTruthy()
+  expect(screen.getByText('Saved: Their story')).toBeTruthy()
+  expect(screen.getByText('Proposed: My story')).toBeTruthy()
   fireEvent.blur(description())
-  fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Keep saved' }))
   await waitFor(() => expect(description().value).toBe('Their story'))
   expect(
     screen.queryByText('Someone changed this while you were editing.'),
@@ -247,22 +249,17 @@ test('Keep theirs compares both values and drops the local draft without another
   expect(state.edit).toHaveBeenCalledTimes(1)
 })
 
-test('Use mine refreshes the batch revision before retrying the draft', async () => {
+test('Reapply mine retries against the saved revision shown', async () => {
   await conflict()
   fireEvent.blur(description())
-  fireEvent.click(screen.getByRole('button', { name: 'Use mine' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply mine' }))
   await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(2))
   expect(state.edit).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: army.id }),
     { description: 'My story' },
+    { batchId: 'current', baseRevision: 'fresh' },
   )
-  expect(state.mutate).toHaveBeenCalledOnce()
-  const matches = state.mutate.mock.calls[0][0]
-  expect(matches('/api/batches/current')).toBe(true)
-  expect(matches('/api/plates/AK.army')).toBe(false)
-  expect(state.mutate.mock.invocationCallOrder[0]).toBeLessThan(
-    state.edit.mock.invocationCallOrder[1],
-  )
+  expect(state.mutate).not.toHaveBeenCalled()
   await screen.findByText('Saved to your batch')
 })
 

@@ -227,14 +227,14 @@ test('editing a plate outside the batch uses the card revision and fetches uncac
 test.each([
   [409, 'stale_plate'], [409, 'superseded_revision'], [403, 'forbidden'], [404, 'not_found'], [422, 'invalid_state'],
 ] as const)('editing maps HTTP %s %s to a result', async (status, error) => {
-  session.api.send.mockRejectedValue(new ApiError(status, error, { error, current: proposed }))
+  session.api.send.mockRejectedValue(new ApiError(status, error, { error, current: proposed, currentRevision: 'saved' }))
   const { result } = renderHook(() => useEditPlate(), harness())
   await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   const fields = { tags: ['mine'] }
   let response
   await act(async () => { response = await result.current.edit(card, fields) })
   expect(response).toEqual(error === 'stale_plate'
-    ? { ok: false, error, current: proposed, draft: fields }
+    ? { ok: false, error, current: proposed, currentRevision: 'saved', batchId: 'draft', draft: fields }
     : { ok: false, error })
   expect(result.current.pending).toBe(false)
 })
