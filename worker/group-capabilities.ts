@@ -8,7 +8,7 @@ type Settings = { [key: string]: string | undefined; LOCAL_GROUP_PYTHON?: string
 const execute = promisify(execFile)
 
 export async function detectGroupRuntime(settings: Settings): Promise<GroupRuntime> {
-  const result: GroupRuntime = { embeddings: false, backgroundMask: false, visionTiebreak: false, reason: 'Needs LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO and LOCAL_GROUP_CACHE' }
+  const result: GroupRuntime = { embeddings: false, backgroundMask: false, visionTiebreak: false, reason: 'Grouping is not configured on this worker' }
   if (settings.LOCAL_GROUP_PYTHON && settings.LOCAL_GROUP_LEGACY_REPO && settings.LOCAL_GROUP_CACHE) {
     try {
       await Promise.all([access(settings.LOCAL_GROUP_PYTHON), access(join(settings.LOCAL_GROUP_LEGACY_REPO, 'refiner', 'plate_match.py')), access(join(settings.LOCAL_GROUP_CACHE, 'hub', 'checkpoints', 'dinov2_vits14_pretrain.pth'))])
@@ -16,15 +16,15 @@ export async function detectGroupRuntime(settings: Settings): Promise<GroupRunti
       const value = JSON.parse(probe.stdout)
       result.embeddings = value.embeddings === true
       result.backgroundMask = value.mask === true
-      result.reason = result.embeddings ? undefined : 'Needs the Python PyTorch, NumPy and Pillow dependencies'
-      result.maskReason = result.backgroundMask ? undefined : 'Needs the Python OpenCV dependency'
-    } catch { result.reason = 'Local grouping runtime, legacy implementation or DINOv2 weights are unavailable' }
+      result.reason = result.embeddings ? undefined : 'Grouping is unavailable on this worker'
+      result.maskReason = result.backgroundMask ? undefined : 'Background mask is unavailable on this worker'
+    } catch { result.reason = 'Grouping is unavailable on this worker' }
   }
   try {
     const response = await fetch(`${(settings.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/+$/, '').replace(/\/v1$/, '')}/api/tags`, { signal: AbortSignal.timeout(1000) })
     const body = await response.json()
     result.visionTiebreak = response.ok && Array.isArray(body.models) && body.models.some((model: { name?: string }) => model.name === 'gemma4:12b')
-    result.visionReason = result.visionTiebreak ? undefined : 'Needs the configured local vision model'
-  } catch { result.visionReason = 'Needs a reachable local vision service' }
+    result.visionReason = result.visionTiebreak ? undefined : 'The local vision model is unavailable on this worker'
+  } catch { result.visionReason = 'The local vision service is unavailable on this worker' }
   return result
 }

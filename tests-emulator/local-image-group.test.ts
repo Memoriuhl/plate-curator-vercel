@@ -23,10 +23,19 @@ afterAll(async () => { vi.unstubAllEnvs(); await clear(); await db.terminate() }
 test('capability reports persist per scope with server freshness', async () => {
   let now = 1000
   const d: JobsDeps = { store: firestoreJobsStore(db, 'development'), baseline: async () => null, now: () => now, id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
-  await reportLocalWorkerCapabilities(d, 'worker', { group: { available: true }, embeddings: { available: true }, mask: { available: true }, vision: { available: false, reason: 'Offline' }, pollIntervalMs: 5000 })
+  const capabilities = { group: { available: true }, embeddings: { available: true }, mask: { available: true }, vision: { available: false, reason: 'Offline' }, pollIntervalMs: 5000 }
+  await reportLocalWorkerCapabilities(d, 'worker', capabilities)
+  const ref = db.collection('localPipelineCapabilities').doc('development--scope')
+  const initial = await ref.get()
+  now = 5999
+  await reportLocalWorkerCapabilities(d, 'worker', capabilities)
+  expect((await ref.get()).updateTime?.isEqual(initial.updateTime!)).toBe(true)
+  now = 6000
+  await reportLocalWorkerCapabilities(d, 'worker', capabilities)
+  expect((await ref.get()).updateTime?.isEqual(initial.updateTime!)).toBe(false)
   expect((await readLocalWorkerCapabilities(d)).group.available).toBe(true)
   expect((await readLocalWorkerCapabilities({ ...d, localScope: 'other' })).group.reason).toBe('Local worker not reporting')
-  now = 11001
+  now = 16001
   expect((await readLocalWorkerCapabilities(d)).group.available).toBe(false)
 })
 

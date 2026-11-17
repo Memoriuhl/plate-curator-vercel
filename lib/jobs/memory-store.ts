@@ -1,6 +1,6 @@
 import type { ReviewStore } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
-import type { WorkerCapabilityRecord } from './capabilities'
+import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 
 export function createMemoryJobsStore(review: ReviewStore, environment: Environment) {
   const jobs = new Map<string, TaggingJob>()
@@ -13,7 +13,7 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
       async readCapabilities(scope) { return structuredClone(capabilities.get(`${env}:${scope}`) ?? null) },
       async writeCapabilities(scope, record) {
         const key = `${env}:${scope}`
-        if ((capabilities.get(key)?.reportedAt ?? -1) <= record.reportedAt) capabilities.set(key, structuredClone(record))
+        if (shouldWriteCapabilities(capabilities.get(key) ?? null, record)) capabilities.set(key, structuredClone(record))
       },
       transaction(run) {
         const next = pending.then(async () => {

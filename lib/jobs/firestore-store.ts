@@ -1,6 +1,7 @@
 import type { Firestore } from '@google-cloud/firestore'
 import type { EditableFields } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
+import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 
 export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
@@ -16,7 +17,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
       await db.runTransaction(async transaction => {
         const ref = capabilities.doc(`${encodeURIComponent(env)}--${scope}`)
         const previous = await transaction.get(ref)
-        if (!previous.exists || previous.get('reportedAt') <= record.reportedAt) transaction.set(ref, record)
+        if (shouldWriteCapabilities(previous.exists ? previous.data() as WorkerCapabilityRecord : null, record)) transaction.set(ref, record)
       })
     },
     transaction(run) {

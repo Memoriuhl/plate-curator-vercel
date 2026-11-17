@@ -5,6 +5,15 @@ export type Availability = { available: boolean; reason?: string }
 export type LocalWorkerCapabilities = { group: Availability; embeddings: Availability; mask: Availability; vision: Availability; pollIntervalMs: number }
 export type WorkerCapabilityRecord = { workerId: string; reportedAt: number; capabilities: LocalWorkerCapabilities }
 
+export function shouldWriteCapabilities(previous: WorkerCapabilityRecord | null, record: WorkerCapabilityRecord): boolean {
+  if (!previous) return true
+  if (record.reportedAt < previous.reportedAt) return false
+  const unchanged = previous.workerId === record.workerId
+    && previous.capabilities.pollIntervalMs === record.capabilities.pollIntervalMs
+    && (['group', 'embeddings', 'mask', 'vision'] as const).every(key => previous.capabilities[key].available === record.capabilities[key].available && previous.capabilities[key].reason === record.capabilities[key].reason)
+  return !unchanged || record.reportedAt - previous.reportedAt >= record.capabilities.pollIntervalMs
+}
+
 export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>

@@ -9,9 +9,9 @@ test('missing runtime config disables actual unsupported options with reasons', 
   vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
   const runtime = await detectGroupRuntime({})
   const capabilities = imageGroupCapabilities(runtime)
-  expect(capabilities.group).toMatchObject({ available: false, reason: expect.stringContaining('LOCAL_GROUP_PYTHON') })
+  expect(capabilities.group).toMatchObject({ available: false, reason: 'Grouping is not configured on this worker' })
   expect(capabilities.backgroundMask.available).toBe(false)
-  expect(capabilities.visionTiebreak).toMatchObject({ available: false, reason: 'Needs a reachable local vision service' })
+  expect(capabilities.visionTiebreak).toMatchObject({ available: false, reason: 'The local vision service is unavailable on this worker' })
   expect(capabilities.previewOnly.available).toBe(false)
 })
 

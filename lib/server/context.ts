@@ -154,7 +154,7 @@ export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
     async plate(job) {
       const plate = job.inputPlate
       if (!plate) return null
-      const imageUrl = source.imageUrl({ ...plate, imageUrl: undefined })
+      const imageUrl = source.imageUrl(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { ...plate, imageUrl: undefined } : plate)
       return { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [], ...(imageUrl ? { imageUrl } : {}) }
     },
     async image(plate) {

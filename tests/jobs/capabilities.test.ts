@@ -29,6 +29,19 @@ test('worker reports are scoped, timestamped by the server and expire after two 
   expect(parseWorkerCapabilities({ ...capabilities, pollIntervalMs: 0 })).toBeNull()
 })
 
+test('unchanged memory reports retain their timestamp until the next poll interval', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  let now = 1000
+  const d: JobsDeps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), baseline: async () => null, now: () => now, id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
+  await reportLocalWorkerCapabilities(d, 'worker', capabilities)
+  now = 5999
+  expect(await reportLocalWorkerCapabilities(d, 'worker', capabilities)).toBe(true)
+  expect((await readLocalWorkerCapabilities(d)).reportedAt).toBe(1000)
+  now++
+  await reportLocalWorkerCapabilities(d, 'worker', capabilities)
+  expect((await readLocalWorkerCapabilities(d)).reportedAt).toBe(6000)
+})
+
 test('long inference sends bounded heartbeats and stops its timer on completion', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'scope')

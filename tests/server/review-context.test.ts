@@ -108,7 +108,7 @@ test('active Owner helper returns authenticated identity and current membership 
   expect(mocks.getByUid).not.toHaveBeenCalled()
 })
 
-test.each(['0', '1'])('hosted tagging ignores review image overrides with local flag %s', async local => {
+test.each(['0', '1'])('hosted tagging preserves catalog image behavior outside local mode %s', async local => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', local)
   vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'scope')
   vi.stubEnv('AI_GATEWAY_API_KEY', 'fixture')
@@ -117,6 +117,6 @@ test.each(['0', '1'])('hosted tagging ignores review image overrides with local 
   const deps = await hostedTaggingDeps('gateway-gemma4-26b')
   const inputPlate = { id: 'AK.a', state: 'AK', slug: 'a', displayName: 'A', tags: [], image: 'AK/a.webp', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Override.jpg' }
   const value = await deps.plate({ id: 'hosted', batchId: 'batch', plateId: inputPlate.id, requestedBy: 'editor', inputHash: 'base', env: 'development', createdAt: 0, state: 'queued', inputPlate })
-  expect(value?.imageUrl).toBe('https://assets.example/plates/AK/a.webp')
-  expect(mocks.imageUrl).toHaveBeenLastCalledWith({ ...inputPlate, imageUrl: undefined })
+  expect(value?.imageUrl).toBe(local === '1' ? 'https://assets.example/plates/AK/a.webp' : inputPlate.imageUrl)
+  expect(mocks.imageUrl).toHaveBeenLastCalledWith(local === '1' ? { ...inputPlate, imageUrl: undefined } : inputPlate)
 })
