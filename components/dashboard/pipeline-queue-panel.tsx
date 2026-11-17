@@ -4,13 +4,13 @@ import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { editableFieldKeys } from '@/lib/review/fields'
 import type { TaggingJob } from '@/lib/jobs/types'
-import type { QueueRunView } from '@/lib/jobs/queue-types'
+import type { QueueRunSummary, QueueRunView } from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
 
 type QueueControls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'selected' | 'select' | 'loading' | 'error' | 'refresh' | 'action' | 'message' | 'cancel' | 'retry' | 'apply' | 'chooseImage' | 'recover'> &
   Partial<Pick<ReturnType<typeof usePipelineQueue>, 'orphanJobs' | 'recoverOrphan'>>
 
-function label(run: QueueRunView) {
+function label(run: QueueRunSummary) {
   const attempt = run.attempts.at(-1)!
   if (run.cancelRequestedAt !== undefined && run.status === 'running') return 'Cancellation requested · waiting for the active stage to finish'
   if (run.waitReason === 'recovery') return 'Recovery needed · waiting for the worker to confirm it stopped'
@@ -48,7 +48,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       const unresolved = run.jobs.some(job => job.state === 'claimed')
       return <li key={run.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
         <p><strong>{run.plateIds.length} plates · {run.stages.join(' → ')}</strong></p>
-        <p className="caption" role="status">{label(run)} · {attempt.completedJobIds.length}/{attempt.steps.length} stages · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
+        <p className="caption" role="status">{label(run)} · {attempt.completedCount ?? attempt.completedJobIds?.length ?? 0}/{attempt.stepCount ?? attempt.steps?.length ?? 0} stages · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
         <p className="caption">Requested {new Date(run.createdAt).toLocaleString()} · Batch {run.batchId}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View run {run.id.slice(0, 8)}</Button>

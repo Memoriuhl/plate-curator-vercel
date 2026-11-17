@@ -20,7 +20,9 @@ export async function GET(request: Request) {
   const selectedId = new URL(request.url).searchParams.get('detail')
   const selected = selectedId ? result.value.find(run => run.id === selectedId) : result.value.find(run => run.status === 'running') ?? result.value[0]
   const summaries = result.value.map(run => ({ ...run,
-    attempts: run.attempts.map(attempt => Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))),
+    fingerprint: undefined,
+    attempts: run.attempts.map(attempt => ({ ...Object.fromEntries(Object.entries(attempt).filter(([key]) => !['projection', 'steps', 'completedJobIds', 'jobIds', 'choices'].includes(key))),
+      stepCount: attempt.steps.length, completedCount: attempt.completedJobIds.length })),
     jobs: run.jobs.filter(job => job.state === 'claimed').map(job => Object.fromEntries(Object.entries(job).filter(([key]) => key !== 'inputPlate' && key !== 'result'))),
   }))
   const detail = selected ? { ...selected, attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :

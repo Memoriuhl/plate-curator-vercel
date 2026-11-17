@@ -47,6 +47,14 @@ export type PipelineRun = {
   attempts: RunAttempt[]
 }
 export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean }
+export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
+  attempts: (Omit<RunAttempt, 'projection' | 'steps' | 'completedJobIds' | 'jobIds' | 'choices'> & {
+    stepCount?: number; completedCount?: number; steps?: RunStep[]; completedJobIds?: string[]
+  })[]
+  jobs: TaggingJob[]
+  editable: boolean
+  applied: boolean
+}
 export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; options?: PipelineOptions; previewOnly?: boolean }
 export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit'
 export type QueueOutcome<T> = { ok: true; value: T } | { ok: false; error: QueueError }

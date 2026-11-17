@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 import { confirmQueueRequest, enqueueIntent, queueRequestId } from '@/lib/client/queue-intents'
-import type { EnqueueInput, LocalRunStage, PipelineRun, QueueRunView } from '@/lib/jobs/queue-types'
+import type { EnqueueInput, LocalRunStage, PipelineRun, QueueRunSummary, QueueRunView } from '@/lib/jobs/queue-types'
 import type { PipelineOptions } from '@/lib/jobs/pipeline-options'
 import type { RunPlate } from './use-tag-run'
 import type { TaggingJob } from '@/lib/jobs/types'
@@ -39,7 +39,7 @@ export function usePipelineQueue() {
   const [message, setMessage] = useState('')
   const [selectedId, select] = useState<string | undefined>()
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
-  const list = useSWR<{ runs: QueueRunView[]; selected?: QueueRunView; orphanJobs?: TaggingJob[] }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
+  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[] }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
   useEffect(() => {
     if (!uid || !list.data) return
     try {

@@ -39,6 +39,8 @@ test('authenticated enqueue starts installed Workflow once with an attempt token
   const restored = await (await GET(get())).json()
   expect(restored.runs).toHaveLength(1)
   expect(restored.runs[0].attempts[0]).not.toHaveProperty('projection')
+  expect(restored.runs[0].attempts[0]).not.toHaveProperty('steps')
+  expect(restored.runs[0].attempts[0]).toMatchObject({ stepCount: 1, completedCount: 0 })
   expect(restored.selected.attempts[0].projection).toBeTruthy()
   expect(restored.selected.id).toBe(restored.runs[0].id)
 })
