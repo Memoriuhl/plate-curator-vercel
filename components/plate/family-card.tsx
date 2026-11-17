@@ -1,6 +1,6 @@
 'use client'
 
-import { SelectionPlate, plateSelection } from '@/components/dashboard/plate-selection'
+import { SelectionPlate, SelectionFamily, MoveSelectionHere, plateSelection } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -112,7 +112,7 @@ export function FamilyCard({
     const href = '/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}
+      <SelectionPlate key={plate.id} id={plate.id} highlight={small} disabled={!!plate.deleted || (!!matches && !matches(plate))}
         data-plate-row={plate.id}
         data-drag-handle-id={plate.id}
         aria-keyshortcuts={drag?.enabled && !plate.deleted ? "Space Enter Shift+Space" : "Space Enter"}
@@ -176,6 +176,8 @@ export function FamilyCard({
         {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="caption absolute -top-3 -left-3 rounded-[var(--radius-sm)] bg-[var(--fill)] px-1 text-[var(--ink-2)]">{number}</span> : null}
         <Link
           href={href}
+          draggable={false}
+          onDragStart={event => event.preventDefault()}
           data-plate-open
           tabIndex={-1}
           aria-hidden="true"
@@ -207,6 +209,8 @@ export function FamilyCard({
             {plate.imageUrl ? (
               <Image
                 src={plate.imageUrl}
+                draggable={false}
+                onDragStart={event => event.preventDefault()}
                 alt={plate.displayName + ' plate'}
                 width={width}
                 height={height}
@@ -236,15 +240,16 @@ export function FamilyCard({
             ) : null}
           </div>
           <CheckStrip checks={plate.checks} />
+          {!small && canEdit && drag ? <MoveSelectionHere template={template} variants={variants} disabled={drag.saving || !!drag.active} onMove={drag.moveSelectionTo} /> : null}
           {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
         </div>
-        {marker ? <span data-batch-marker>{marker}</span> : null}
+        {marker ? <span data-batch-marker className="absolute top-0 right-0 size-5">{marker}</span> : null}
       </SelectionPlate>
     )
   }
   if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
   return (
-    <article
+    <SelectionFamily id={template.id}
       data-drag-family={template.id}
       data-reflow-key={'family:' + template.id}
       aria-label={template.displayName + ' family'}
@@ -272,6 +277,6 @@ export function FamilyCard({
           {groupingNote}
         </p>
       ) : null}
-    </article>
+    </SelectionFamily>
   )
 }

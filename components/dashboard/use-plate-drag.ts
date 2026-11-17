@@ -6,7 +6,7 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import type { EditResult, MoveOrigin, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
-import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
+import { familyOrder, nearestFamilySlot, promotionOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
 import { reflowForDrop, sameDropTarget } from './drag-reflow'
 import { dragElement, measureDragGeometry, type DragGeometry } from './drag-geometry'
 import { createStableDragTargets } from './drag-target-elements'
@@ -104,11 +104,13 @@ export function usePlateDrag(options: Options) {
   function blockedTemplate(plate: PlateCardData, families: DragFamily[]) {
     return plate.templateRole !== 'variant' && !!families.find(family => family.template.id === plate.id)?.variants.length
   }
-  async function editSelection(plates: readonly PlateCardData[], destination?: PlateCardData) {
+  async function editSelection(plates: readonly PlateCardData[], destination?: PlateCardData, placement?: { index: number; origin?: MoveOrigin }) {
     const { reload, ordering } = latest.current
     const edits = latest.current.bulkEdits ?? latest.current.edits
     if (!latest.current.canEdit || current.current || saving) return
+    if (destination?.deleted) { announce('Cancelled'); return }
     let families = actionFamilies(plates)
+    const initialFamilies = families
     const skipped = destination ? plates.filter(plate => !plate.deleted && plate.state === destination.state && blockedTemplate(plate, families)) : []
     const otherStates = destination ? plates.filter(plate => !plate.deleted && plate.state !== destination.state) : []
     const moving = plates.filter(plate => !plate.deleted && (destination
@@ -116,6 +118,8 @@ export function usePlateDrag(options: Options) {
       : plate.templateRole === 'variant'))
     const skippedMessage = [skipped.length ? 'Skipped ' + skipped.length + ' Templates with Variants' : '', otherStates.length ? 'Skipped ' + otherStates.length + ' plates from other states' : ''].filter(Boolean).join('. ')
     if (!moving.length) { latest.current.holdOverlay?.(false); announce(skippedMessage || (destination ? 'Dropped' : 'No Variants selected')); return }
+    latest.current.closePreview()
+    latest.current.holdOverlay?.(true)
     setSaving(true)
     const previousOrders = new Map([...new Set(moving.map(plate => plate.state))].map(state => [state, familyOrder(families.filter(family => family.template.state === state))]))
     const planned = new Map<string, EditableFields>()
@@ -126,6 +130,8 @@ export function usePlateDrag(options: Options) {
       planned.set(plate.id, fields)
       if (!destination) families = groupFamilies(families.flatMap(family => [family.template, ...family.variants]).map(candidate => candidate.id === plate.id ? { ...candidate, ...fields } : candidate))
     }
+    const orders = new Map([...previousOrders.keys()].map(state => [state, promotionOrder(initialFamilies.filter(family => family.template.state === state), moving.filter(plate => plate.state === state).map(plate => plate.id), state === latest.current.families[0]?.template.state ? placement?.index : undefined)]))
+    if (!destination) setOptimisticOrder([...orders.values()].flat())
     setOptimisticEdits(planned)
     const succeeded: { plate: PlateCardData; result: Extract<EditResult, { ok: true }> }[] = []
     let failed = false
@@ -142,13 +148,10 @@ export function usePlateDrag(options: Options) {
         }
       } else {
         if (!ordering.move || !ordering.capture) throw new Error('Reload before moving a Variant')
-        const orders = new Map(previousOrders)
         for (const plate of moving) {
-          const order = [...orders.get(plate.state)!.filter(id => id !== plate.id), plate.id]
-          const result = await ordering.move(plate.state, order, { plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }, ordering.capture())
+          const order = orders.get(plate.state)!
+          const result = await ordering.move(plate.state, order, { plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }, succeeded.length === 0 && placement?.origin ? placement.origin : ordering.capture())
           if (!result.ok) { failed = true; break }
-          orders.set(plate.state, order)
-          setOptimisticOrder(order)
           succeeded.push({ plate, result })
         }
       }
@@ -200,7 +203,7 @@ export function usePlateDrag(options: Options) {
     if (drag.item.plate.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     const selected = drag.selection
     if (!drag.target) {
-      if (!drag.keyboard) await editSelection(selected)
+      if (!drag.keyboard) await editSelection(selected, undefined, { index: nearestFamilySlot(drag.x, drag.y, stableTargets.current(latest.current.targets(), window.scrollX, window.scrollY), latest.current.families.length), origin: drag.origin })
       latest.current.holdOverlay?.(false)
       return
     }
@@ -209,7 +212,7 @@ export function usePlateDrag(options: Options) {
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
     if (!source || item.plate.deleted || destination?.template.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
-    if (target.kind === 'family-slot' && item.kind === 'variant' && selected.length > 1) { await editSelection(selected); return }
+    if (target.kind === 'family-slot' && item.kind === 'variant' && selected.length > 1) { await editSelection(selected, undefined, { index: target.index, origin: drag.origin }); return }
     if (destination && selected.length > 1) { await editSelection(selected, destination.template); return }
     if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     setSaving(true)
@@ -281,7 +284,14 @@ export function usePlateDrag(options: Options) {
       if (current.current.keyboard) actions.current.onKeyDown(current.current.item, event)
       else if (event.key === 'Escape') { event.preventDefault(); actions.current.cancel() }
     }
+    function scrolled() {
+      const drag = current.current
+      if (!drag || drag.keyboard) return
+      const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
+      if (!sameDropTarget(target, drag.target)) actions.current.update({ ...drag, target })
+    }
     function preventNative(event: Event) { if (current.current && !current.current.keyboard) event.preventDefault() }
+    window.addEventListener('scroll', scrolled, true)
     window.addEventListener('pointermove', move, { passive: false })
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', abort)
@@ -292,6 +302,7 @@ export function usePlateDrag(options: Options) {
     return () => {
       actions.current.clearPress()
       document.body.classList.remove('plate-dragging')
+      window.removeEventListener('scroll', scrolled, true)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', abort)
@@ -358,7 +369,7 @@ export function usePlateDrag(options: Options) {
   const item = active?.item
   const target = active?.target
   const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])
-  return { active, reflow, announcement, optimisticEdits, promote: () => editSelection(plateSelection.snapshot()), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
+  return { active, reflow, announcement, optimisticEdits, promote: () => editSelection(plateSelection.snapshot()), moveSelectionTo: (destination: PlateCardData) => editSelection(plateSelection.snapshot(), destination), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMerge, onPointerDown, onKeyDown, cancel,
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
     handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Shift+Space to reorder',
   }

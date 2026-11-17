@@ -55,3 +55,26 @@ export function scrollVelocity(y: number, height: number) {
   if (y > height - 80) return Math.ceil(18 * Math.max(0, 1 - (height - y) / 80))
   return 0
 }
+
+export function nearestFamilySlot(x: number, y: number, targets: TargetRect[], familyCount: number) {
+  const slots = targets.filter(entry => entry.target.kind === 'family-slot')
+  if (!slots.length || y > Math.max(...slots.map(entry => entry.rect.bottom))) return familyCount
+  let nearest = familyCount
+  let distance = Infinity
+  for (const { target, rect } of slots) {
+    const dx = Math.max(rect.left - x, 0, x - rect.right)
+    const dy = Math.max(rect.top - y, 0, y - rect.bottom)
+    const next = dx * dx + dy * dy
+    if (next < distance && target.kind === 'family-slot') { distance = next; nearest = target.index }
+  }
+  return nearest
+}
+
+export function promotionOrder(families: DragFamily[], ids: readonly string[], index?: number) {
+  const promoted = new Set(ids)
+  if (index !== undefined) {
+    const insertion = families.slice(0, index).reduce((sum, family) => sum + family.variants.length + 1, 0)
+    return moveBlock(familyOrder(families), [...ids], insertion)
+  }
+  return families.flatMap(family => [family.template.id, ...family.variants.filter(plate => !promoted.has(plate.id)).map(plate => plate.id), ...family.variants.filter(plate => promoted.has(plate.id)).map(plate => plate.id)])
+}

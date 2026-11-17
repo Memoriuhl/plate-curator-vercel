@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, Profiler, useContext } from 'react'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { SWRConfig } from 'swr'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -342,4 +342,37 @@ test('an unresolved conflict keeps the proposal until an explicit resolution', a
   expect((button(second, 'Template') as HTMLButtonElement).disabled).toBe(true)
   expect(box(second, 'Add tag').disabled).toBe(true)
   expect(within(second.container).getByRole('alert').textContent).toContain('Proposed: My story')
+})
+
+
+test.each(['background', 'background gap', 'Backspace'] as const)('%s promotion never renders the new family first or logs a runtime issue', async mode => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const frames: string[][] = []
+  try {
+    const view = render(<Profiler id="promotion" onRender={() => {
+      frames.push(Array.from(document.querySelectorAll<HTMLElement>('[data-drag-family]')).map(element => element.dataset.dragFamily!))
+    }}><Workspace actor={editor} /></Profiler>)
+    await ready(view)
+    targetRects(view.container)
+    const row = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+    if (mode.startsWith('background')) {
+      const x = mode === 'background' ? 700 : 275
+      pointer(row.querySelector('[data-plate-image]')!, 'pointerdown', 100)
+      pointer(row, 'pointermove', x)
+      pointer(row, 'pointerup', x)
+    } else {
+      fireEvent.click(row)
+      fireEvent.keyDown(window, { key: 'Backspace' })
+    }
+    const expected = mode === 'background' ? ['AK.a', 'AK.b', 'AK.v'] : ['AK.a', 'AK.v', 'AK.b']
+    await waitFor(() => expect((view.container.querySelector('[data-drag-family="AK.v"]'))).not.toBeNull())
+    await waitFor(async () => expect((await deps.store.getBatch('shared'))?.stateOrders.AK).toEqual(expected))
+    await waitFor(() => expect(view.container.textContent).toContain('1 plate is now a Template'))
+    expect(frames.some(frame => frame.includes('AK.v'))).toBe(true)
+    expect(frames.filter(frame => frame.includes('AK.v')).every(frame => JSON.stringify(frame) === JSON.stringify(expected))).toBe(true)
+    expect(Array.from(view.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(element => element.dataset.dragFamily)).toEqual(expected)
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  } finally { error.mockRestore(); warn.mockRestore() }
 })

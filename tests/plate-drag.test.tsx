@@ -4,7 +4,7 @@ import { plateCards } from '../fixtures/plate-cards'
 import { plateSelection } from '../components/dashboard/plate-selection'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
 import { FamilyCard } from '../components/plate/family-card'
-import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
+import { familyOrder, moveBlock, nearestFamilySlot, promotionOrder, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
 import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-reflow'
 import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
 import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
@@ -531,7 +531,7 @@ test('background drop promotes selected variants and ignores selected templates'
   pointerDrag(handle, 700)
   await waitFor(() => expect(move).toHaveBeenCalledTimes(2))
   expect(edit).not.toHaveBeenCalled()
-  expect(move).toHaveBeenCalledWith(v.state, [a.id, w.id, b.id, v.id], { plateId: v.id, templateFamily: 'ak_v' }, expect.any(Object))
+  expect(move).toHaveBeenCalledWith(v.state, [a.id, b.id, v.id, w.id], { plateId: v.id, templateFamily: 'ak_v' }, expect.any(Object))
   expect(move).toHaveBeenCalledWith(w.state, [a.id, b.id, v.id, w.id], { plateId: w.id, templateFamily: 'ak_w' }, expect.any(Object))
   expect(reorder).not.toHaveBeenCalled()
   await waitFor(() => expect(screen.getByText('2 plates are now Templates')).toBeTruthy())
@@ -592,7 +592,7 @@ test('promotion de-duplicates slugs across the selection and advances full State
   render(<Harness />)
   fireEvent.click(screen.getByRole('button'))
   await waitFor(() => expect(move).toHaveBeenCalledTimes(2))
-  expect(move).toHaveBeenNthCalledWith(1, v.state, [a.id, second.id, v.id], { plateId: v.id, templateFamily: 'ak_v_2' }, { batchId: 'batch', revision: 1 })
+  expect(move).toHaveBeenNthCalledWith(1, v.state, [a.id, v.id, second.id], { plateId: v.id, templateFamily: 'ak_v_2' }, { batchId: 'batch', revision: 1 })
   expect(move).toHaveBeenNthCalledWith(2, second.state, [a.id, v.id, second.id], { plateId: second.id, templateFamily: 'ak_v_2_2' }, { batchId: 'batch', revision: 2 })
 })
 
@@ -846,4 +846,134 @@ test('Undo delete shares the details column instead of squeezing the image and c
   const row = view.container.querySelector('[data-plate-row="AK.v"]')!
   expect(row.querySelector('button')?.closest('.family-plate-details')).not.toBeNull()
   expect(row.querySelectorAll('.family-plate-details [data-check]')).toHaveLength(7)
+})
+
+
+test('background placement uses the nearest family slot or the end past the grid', () => {
+  const targets = [
+    { target: { kind: 'family-slot' as const, index: 1 }, rect: { left: 250, right: 280, top: 0, bottom: 200 } },
+    { target: { kind: 'family-slot' as const, index: 2 }, rect: { left: 550, right: 580, top: 0, bottom: 200 } },
+  ]
+  expect(nearestFamilySlot(290, 100, targets, 2)).toBe(1)
+  expect(nearestFamilySlot(900, 100, targets, 2)).toBe(2)
+  expect(nearestFamilySlot(10, 400, targets, 2)).toBe(2)
+  expect(promotionOrder(families, [v.id, w.id], 1)).toEqual([a.id, v.id, w.id, b.id])
+  expect(promotionOrder(families, [v.id], undefined)).toEqual([a.id, w.id, v.id, b.id])
+})
+
+test('Move N here shares the multi-move rules without rerendering the family on count changes', async () => {
+  plateSelection.register([a, v, w, b])
+  plateSelection.visible([a, v, w, b])
+  const edit = vi.fn().mockResolvedValue(success), badge = vi.fn(() => <span>Edited</span>)
+  function Harness() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+    return <><FamilyCard template={b} variants={[]} canEdit drag={drag} badge={badge} /><output>{drag.announcement}</output></>
+  }
+  render(<Harness />)
+  expect(screen.queryByRole('button', { name: /Move .* here/ })).toBeNull()
+  act(() => plateSelection.add([v]))
+  expect(screen.getByRole('button', { name: 'Move 1 here' })).toBeTruthy()
+  badge.mockClear()
+  act(() => plateSelection.add([w]))
+  expect(screen.getByRole('button', { name: 'Move 2 here' })).toBeTruthy()
+  expect(badge).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Move 2 here' }))
+  await waitFor(() => expect(screen.getByText('2 plates moved')).toBeTruthy())
+  expect(edit).toHaveBeenCalledTimes(2)
+  for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', variantOfPlateId: b.id, templateFamily: b.templateFamily || b.id })
+})
+
+test('move buttons exclude deleted, foreign, blocked and fully selected families', () => {
+  const foreign = { ...b, id: 'NY.b', state: 'NY' }
+  plateSelection.register([a, v, w, b, foreign])
+  plateSelection.visible([a, v, w, b, foreign])
+  function Harness() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    return <><FamilyCard template={a} variants={[v, w]} canEdit drag={drag} /><FamilyCard template={{ ...b, deleted: true }} variants={[]} canEdit drag={drag} /><FamilyCard template={foreign} variants={[]} canEdit drag={drag} /></>
+  }
+  const view = render(<Harness />)
+  act(() => plateSelection.add([a]))
+  expect(screen.queryByRole('button', { name: /Move .* here/ })).toBeNull()
+  expect(view.container.querySelector('[data-drag-family="AK.a"]')?.className).toContain('ring-2')
+  act(() => plateSelection.add([v, w]))
+  expect(screen.queryByRole('button', { name: /Move .* here/ })).toBeNull()
+})
+
+test('markers reserve the same details width and stay outside row flow in both sizes', () => {
+  const view = render(<FamilyCard template={a} variants={[v]} />)
+  const before = [...view.container.querySelectorAll('.family-plate-details')].map(element => element.className)
+  view.rerender(<FamilyCard template={a} variants={[v]} badge={() => <span>Edited</span>} />)
+  expect([...view.container.querySelectorAll('.family-plate-details')].map(element => element.className)).toEqual(before)
+  const markers = view.container.querySelectorAll('[data-batch-marker]')
+  expect(markers).toHaveLength(2)
+  markers.forEach(marker => {
+    expect(marker.className).toContain('absolute top-0 right-0 size-5')
+    expect(marker.closest('[data-plate-row]')).not.toBeNull()
+  })
+})
+
+test('image links prevent native dragging while remaining a row drag surface', () => {
+  const view = render(<FamilyCard template={a} variants={[v]} />)
+  const imageLink = view.container.querySelector('[data-plate-open]')!
+  expect(imageLink.getAttribute('draggable')).toBe('false')
+  const event = new MouseEvent('dragstart', { bubbles: true, cancelable: true })
+  fireEvent(imageLink, event)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+
+test('Move N here compensates a partially failed move with the same rollback as dragging', async () => {
+  plateSelection.register([a, v, w, b])
+  plateSelection.add([v, w])
+  const edit = vi.fn().mockResolvedValueOnce({ ok: true, revision: 'moved-v', batchId: 'batch' }).mockResolvedValueOnce({ ok: false, error: 'forbidden' }).mockResolvedValue(success)
+  function Harness() {
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+    return <><FamilyCard template={b} variants={[]} canEdit drag={drag} /><output>{drag.announcement}</output></>
+  }
+  render(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Move 2 here' }))
+  await waitFor(() => expect(screen.getByText('Saved 1 of 2; changes undone')).toBeTruthy())
+  expect(edit).toHaveBeenLastCalledWith({ ...v, revision: 'moved-v' }, { templateRole: v.templateRole, templateFamily: v.templateFamily, variantOfPlateId: v.variantOfPlateId }, { batchId: 'batch', baseRevision: 'moved-v' })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([w.id])
+})
+
+test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget a distant family', async () => {
+  const frames: FrameRequestCallback[] = []
+  const scrollBy = vi.fn()
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  vi.stubGlobal('scrollY', 0)
+  vi.stubGlobal('scrollBy', scrollBy)
+  vi.stubGlobal('innerHeight', 900)
+  plateSelection.add([v, w])
+  const edit = vi.fn().mockResolvedValue(success)
+  try {
+    function Harness() {
+      const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 50, right: 250, top: 1200 - window.scrollY, bottom: 1400 - window.scrollY } }], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+      return <><button onPointerDown={event => drag.onPointerDown({ kind: 'variant', plate: v }, event)}>Handle</button><output>{drag.announcement}</output>{drag.active ? <DragPreview {...drag.active} /> : null}</>
+    }
+    render(<Harness />)
+    const handle = screen.getByRole('button', { name: 'Handle' })
+    const pointer = (type: string, x: number, y: number) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })
+      Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+      act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+    }
+    pointer('pointerdown', 100, 890)
+    pointer('pointermove', 110, 899)
+    act(() => frames.shift()!(0))
+    expect(scrollBy).toHaveBeenCalledWith(0, expect.any(Number))
+    expect(scrollBy.mock.calls[0][1]).toBeGreaterThan(0)
+    pointer('pointermove', 110, 350)
+    const lifted = document.querySelector<HTMLElement>('[data-drag-lifted]')!
+    const position = lifted.style.transform
+    fireEvent.wheel(window, { deltaY: 900 })
+    vi.stubGlobal('scrollY', 900)
+    fireEvent.scroll(window)
+    expect(document.body.classList.contains('plate-dragging')).toBe(true)
+    expect(lifted.style.transform).toBe(position)
+    pointer('pointerup', 110, 350)
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
+    for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', variantOfPlateId: b.id, templateFamily: b.templateFamily || b.id })
+  } finally { cleanup(); vi.unstubAllGlobals() }
 })

@@ -609,7 +609,8 @@ body {
 
 .family-plate-details {
   container: plate-checks / inline-size;
-  min-width: 110px;
+  min-width: 134px;
+  padding-right: 24px;
 }
 
 .family-plate-details [data-check-strip] {
@@ -647,3 +648,5 @@ body {
   .family-plate-details [data-check] { width: 14px; height: 14px; }
   .family-plate-details [data-check] svg { width: 14px; height: 14px; }
 }
+
+.family-card [data-batch-marker] > * { width: 20px; height: 20px; }

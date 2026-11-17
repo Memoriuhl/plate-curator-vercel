@@ -69,12 +69,13 @@ describe('PlateRow', () => {
 })
 
 describe('FamilyCard', () => {
-  test('renders a singleton with Standard star and an inert handle', () => {
+  test('renders a singleton with Standard star and native image dragging disabled', () => {
     const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[]} />)
     expect(html).toContain('aria-label="Standard plate"')
     expect(html).toContain('width="140" height="70"')
     expect(html.match(/role="img"/g)).toHaveLength(7)
-    expect(html).not.toContain('draggable')
+    expect(html.match(/draggable="false"/g)).toHaveLength(2)
+    expect(html).not.toContain('draggable="true"')
   })
   test('renders all six family members and the grouping note', () => {
     const members = plateCards.slice(1, 7)
