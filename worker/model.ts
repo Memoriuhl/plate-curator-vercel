@@ -26,18 +26,10 @@ export const THEMES = [
   'veteran',
   'military',
   'education',
-  'university',
   'sports',
-  'automotive',
-  'commercial',
   'memorial',
-  'environmental',
   'charity',
   'religious',
-  'historical',
-  'occupational',
-  'fraternal',
-  'professional',
 ] as const;
 
 export const MOTIFS = [
@@ -60,7 +52,6 @@ export const MOTIFS = [
   'tree',
   'leaf',
   'arrow',
-  'circle',
 ] as const;
 
 const STOPWORDS = new Set([
@@ -130,6 +121,23 @@ function pickSubjects(input: unknown): string[] {
   return out;
 }
 
+type Scored = { tag: string; confidence: number; evidence?: string; plain?: true };
+
+function scored(input: unknown): Scored[] {
+  if (!Array.isArray(input)) return [];
+  const out: Scored[] = [];
+  for (const item of input) {
+    if (typeof item === 'string') out.push({ tag: item, confidence: 1, plain: true });
+    else if (item && typeof item === 'object' && typeof (item as Scored).tag === 'string') {
+      const { tag, confidence, evidence } = item as Scored;
+      out.push({ tag, confidence: typeof confidence === 'number' ? confidence : 0, evidence: typeof evidence === 'string' ? evidence : undefined });
+    }
+  }
+  return out;
+}
+
+const confident = (items: Scored[]) => items.filter((item) => item.confidence >= MIN_TAG_CONFIDENCE);
+
 export type StructuredTags = {
   primaryColor: string | null;
   colors: string[];
@@ -137,11 +145,6 @@ export type StructuredTags = {
   subjects: string[];
   themes: string[];
   motifs: string[];
-  tier: 'design' | 'variant' | 'issue';
-  isColorSplit: boolean;
-  perceivedColor: string | null;
-  contextTags: string[];
-  taxonomyConfidence: number;
   emblemText: string[];
 };
 
@@ -166,64 +169,41 @@ export function flattenStructuredTags(s: StructuredTags, displayName: string): s
   return out;
 }
 
-export const SYSTEM_PROMPT = `You are a license-plate analyst. You look at one image of a vehicle license plate and return
-both descriptive tags and a taxonomy judgment, using a strict controlled vocabulary. The same
-rules apply to plates from any country or jurisdiction — never assume a specific country.
+export const MIN_TAG_CONFIDENCE = 0.7;
+
+export const SYSTEM_PROMPT = `You tag one image of a vehicle license plate for a plate-spotting catalog. A searcher saw this
+plate on the road and types what they remember seeing; your tags are the words that searcher would
+type. The same rules apply to plates from any country or jurisdiction.
+
+Tag the plate's artwork: its background, pictures, emblems and printed words. The registration
+characters, mounting holes, border, rivets and stickers are the plate's hardware; leave them out.
 
 Output ONLY a single JSON object with these fields (no commentary, no markdown fence):
 {
   "primaryColor": one color from: ${COLORS.join(', ')},
   "colors": background colors covering more than 25% of the plate (a subset of the same list, ordered most-area to least),
-  "textColors": colors of legible LETTERING on the plate — the registration number/letters AND words such as the state name, motto, or slogan (subset of the same list). Non-text GRAPHICS (icons, symbols, emblems, seals, pictures, stickers) are NOT text — never put their colors here,
-  "subjects": singular lowercase common nouns naming visible objects. Max 6. Empty if none.
-  "emblemText": short letters or an acronym PRINTED on an emblem/seal/badge/logo on the plate (e.g. "CMU", "USN", "VFW"), copied exactly, 2-6 letters each, no spaces or punctuation. Max 3. Empty if none. NOT the jurisdiction name, NOT the slogan, NOT words from the title.
-  "themes": tags from: ${THEMES.join(', ')}. Max 3. Empty if none.
-  "motifs": tags from: ${MOTIFS.join(', ')}. Max 4. Empty if none.
-  "tier": one of "design" | "variant" | "issue",
-  "isColorSplit": true if this plate's PERCEIVED BACKGROUND COLOR is the thing that makes it
-                  distinguishable from an otherwise-identical design; otherwise false,
-  "perceivedColor": the SPECIFIC dominant background shade, named as precisely as the list allows
-                    (e.g. "navy", "maroon", "teal", not just "blue" or "red"), from:
-                    ${COLORS.join(', ')}. Null if no single color dominates. Name the exact shade
-                    you see — downstream code rolls it up to a broad color; that is NOT your job.
-  "contextTags": affiliation/context labels a CLOSE-UP viewer could read — org, cause, school,
-                 military branch, region, profession (e.g. "veteran", "university", "firefighter").
-                 Lowercase, single concept each. Max 5. Empty if none.
-  "taxonomyConfidence": your confidence 0..1 in the tier / isColorSplit / perceivedColor judgment.
+  "textColors": colors of legible LETTERING on the plate — the registration number/letters AND words such as the state name, motto, or slogan (subset of the same list),
+  "subjects": objects drawn in the artwork, as [{"tag": singular lowercase common noun, "confidence": 0..1}]. Max 6.
+  "motifs": visual patterns from: ${MOTIFS.join(', ')}, as [{"tag": ..., "confidence": 0..1}]. Max 4.
+  "themes": at most one theme from: ${THEMES.join(', ')}, as [{"tag": ..., "evidence": ..., "confidence": 0..1}].
+            "evidence" is the subject or motif tag above that shows the theme (a flag shows patriotic, an animal shows wildlife).
+  "emblemText": short letters or an acronym PRINTED on an emblem/seal/badge/logo on the plate (e.g. "CMU", "USN", "VFW"), copied exactly, 2-6 letters each, no spaces or punctuation. Max 3. NOT the jurisdiction name, NOT the slogan, NOT words from the title.
 }
 
-THE SPOTTER TEST (governs tier and isColorSplit):
-- A DESIGN is what a passenger in a moving car could distinguish at a glance: a distinct perceived
-  background color, or a clearly different scene/background. Designs are the only collectible.
-- Treat PERCEIVED COLOR as a design splitter. If two plates share the same artwork/scene but the
-  background color is the salient difference, set isColorSplit true and name the SPECIFIC shade in
-  perceivedColor. Downstream code groups shades into broad collectible colors (navy and royal blue
-  both become one "blue" Design) — you only flag THAT color is the axis and name the exact shade;
-  do NOT decide how shades group.
-- Affiliation distinctions a passenger CANNOT read at speed (a small org symbol, a school name, a
-  branch seal, a center medal/emblem/badge, a slogan/legend, a font change, header/footer wording)
-  are NOT design splits — they are FOREGROUND over the background. Emit them as contextTags and
-  set tier "design", isColorSplit false. These are VARIANT-tier facts riding on one design; never
-  make them a separate collectible (e.g. Colorado's "Bronze Star" vs "Medal Of Honor" vs "U.S. Navy"
-  share one mountains background — the differing center medal is foreground, not a new design).
-- "issue" (serial range / year / material) is archive only. Almost never your answer for a catalog
-  image — use "design" unless the image is explicitly an inventory/serial record.
-
-CONFIDENCE — set taxonomyConfidence at or below 0.5 (route to human) when ANY of:
-- you cannot tell whether a difference is a real perceived-color split or just a shade/lighting drift;
-- the dominant background color is ambiguous (two colors compete, gradient, washed-out/low-light image);
-- you are unsure whether a distinction is a design (scene/color) vs a variant (org/affiliation);
-- the image is angled, cropped, glared, or low-resolution enough to make the above uncertain.
-Otherwise set it above 0.5, higher the clearer the call.
+Confidence is how sure you are that a searcher who saw this plate would describe it with that tag:
+- 0.9 and up: plainly drawn and prominent;
+- 0.7 to 0.9: drawn, but small or partly hidden;
+- below 0.7: a guess. Tags below 0.7 are discarded, so report your real certainty.
 
 Rules:
-- Use ONLY listed values for the controlled-vocabulary fields. Better empty than guessed.
+- A subject is something a viewer can point at in the artwork: an animal, a building, a flag, a seal, a ribbon.
+- The plate's name and cause are added separately from its title. Tag what is drawn.
+- Use ONLY listed values for colors, motifs and themes. An empty list is a good answer.
 - Letters and words ARE text (the registration, the state name, a motto, a slogan); their colors go in textColors even when the lettering is small or covers little area.
-- A picture, icon, symbol, emblem, seal, or sticker is NOT text: never report its color as a textColor. If such a graphic contains readable letters, put those letters in emblemText.
-- Do NOT invent contextTags or emblemText you cannot actually read in the image.`;
+- A picture, icon, symbol, emblem, seal, or sticker is a graphic: its colors stay out of textColors. If such a graphic contains readable letters, put those letters in emblemText.`;
 
 function buildUserPrompt(displayName: string, state: string): string {
-  return `This plate is from ${state}, named "${displayName}". Identify its background colors, subjects, themes, motifs, and any acronym lettering on an emblem/seal/logo. For textColors, check EVERY piece of lettering separately — the registration number, the state name, and any motto or slogan (often a small word along the top or bottom) — and list each distinct lettering color, since they are frequently different colors. Respond with the JSON object only.`;
+  return `This plate is from ${state}, named "${displayName}". Identify its background colors, the objects drawn in its artwork, motifs, at most one theme an object shows, and any acronym lettering on an emblem/seal/logo. For textColors, check EVERY piece of lettering separately — the registration number, the state name, and any motto or slogan (often a small word along the top or bottom) — and list each distinct lettering color, since they are frequently different colors. Respond with the JSON object only.`;
 }
 
 export function repairLooseJson(s: string): string {
@@ -355,19 +335,18 @@ export async function callVLM(options: Options, input: Input) {
 export function normalizeCompletion(text: string, input: Input) {
   const parsed = extractJson(text)
   const primaryColor = pickFromVocab([parsed.primaryColor], COLORS)[0] ?? null
+  const subjects = pickSubjects(confident(scored(parsed.subjects)).map((item) => item.tag)).slice(0, 6)
+  const motifs = pickFromVocab(confident(scored(parsed.motifs)).map((item) => item.tag), MOTIFS).slice(0, 4)
+  const shown = new Set<string>([...subjects, ...motifs])
+  const themes = pickFromVocab(confident(scored(parsed.themes)).filter((item) => item.plain || pickSubjects([item.evidence]).some((tag) => shown.has(tag))).map((item) => item.tag), THEMES).slice(0, 1)
   const structured: StructuredTags = {
     primaryColor,
     colors: pickFromVocab(parsed.colors, COLORS).slice(0, 4),
     textColors: pickFromVocab(parsed.textColors, COLORS).slice(0, 2),
-    subjects: pickSubjects(parsed.subjects).slice(0, 6),
-    themes: pickFromVocab(parsed.themes, THEMES).slice(0, 3),
-    motifs: pickFromVocab(parsed.motifs, MOTIFS).slice(0, 4),
+    subjects,
+    themes,
+    motifs,
     emblemText: Array.isArray(parsed.emblemText) ? parsed.emblemText.filter((v): v is string => typeof v === 'string' && /^[a-z]{2,6}$/i.test(v)).slice(0, 3) : [],
-    tier: parsed.tier === 'variant' || parsed.tier === 'issue' ? parsed.tier : 'design',
-    isColorSplit: parsed.isColorSplit === true,
-    perceivedColor: pickFromVocab([parsed.perceivedColor], COLORS)[0] ?? null,
-    contextTags: [],
-    taxonomyConfidence: typeof parsed.taxonomyConfidence === 'number' ? Math.max(0, Math.min(1, parsed.taxonomyConfidence)) : 0,
   }
   return flattenStructuredTags(structured, input.plate.displayName)
 }

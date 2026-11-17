@@ -53,6 +53,27 @@ test('adapter flattens structured tags and dedupes', async () => {
   expect(await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Bear Plate', state: 'AK', tags: [] } })).toEqual({ tags: ['white', 'black text', 'wildlife', 'bear', 'usn'], usage: { eval_count: 4, prompt_eval_count: 7 } })
   expect(adapter.promptVersion).toMatch(/^[a-f0-9]{12}$/)
 })
+test('adapter keeps confident visual tags and themes an object shows', async () => {
+  const completion = {
+    primaryColor: 'white', colors: ['white'], textColors: ['black'],
+    subjects: [{ tag: 'miner', confidence: 0.6 }, { tag: 'flags', confidence: 0.95 }, { tag: 'eagle', confidence: 0.8 }],
+    motifs: [{ tag: 'circle', confidence: 0.9 }, { tag: 'stripe', confidence: 0.75 }],
+    themes: [{ tag: 'patriotic', evidence: 'flag', confidence: 0.9 }, { tag: 'military', evidence: 'flag', confidence: 0.9 }],
+    emblemText: [],
+  }
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify(completion) } }))
+  const adapter = ollamaAdapter({ url: 'http://localhost:11434', model: 'test', fetch })
+  expect((await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Support Our Troops', state: 'AL', tags: [] } })).tags).toEqual(['white', 'black text', 'patriotic', 'stripe', 'flag', 'eagle', 'support', 'our', 'troops'])
+})
+test('adapter drops themes whose evidence is missing or unconfident', async () => {
+  const completion = {
+    primaryColor: 'white', subjects: [{ tag: 'mountain', confidence: 0.5 }],
+    themes: [{ tag: 'agriculture', evidence: 'mountain', confidence: 0.9 }, { tag: 'wildlife', confidence: 0.9 }],
+  }
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify(completion) } }))
+  const adapter = ollamaAdapter({ url: 'http://localhost:11434', model: 'test', fetch })
+  expect((await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Friends of Coal', state: 'AL', tags: [] } })).tags).toEqual(['white', 'friends', 'coal'])
+})
 test('expired lease prevents report transmission', async () => {
   const { deps, fetch } = setup()
   deps.now = () => 60000
