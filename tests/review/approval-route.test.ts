@@ -23,7 +23,7 @@ function request(body: unknown) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', role: 'owner' } })
+  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5, role: 'owner' } })
   mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
   mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
@@ -39,8 +39,8 @@ test('submit stores the run, approve resumes approval, and Publish only resumes 
   expect((await approve(request({ revision: 1 }), ctx)).status).toBe(200)
   expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:1', { by: 'owner' })
   expect((await publish(request({ revision: 2 }), ctx)).status).toBe(202)
-  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner', generation: 1, commandId: expect.any(String) })
-  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ publishRequestedAt: '2026-11-16T12:00:00.000Z' })
+  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner', requestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 }, generation: 1, commandId: expect.any(String) })
+  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ publishRequestedAt: '2026-11-16T12:00:00.000Z', publishRequestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 } })
   expect(mocks.publishBatch).not.toHaveBeenCalled()
 })
 

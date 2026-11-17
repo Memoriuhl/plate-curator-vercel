@@ -5,7 +5,8 @@ import type { ReviewDeps } from '../review/types'
 
 export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
 export type { PublishStop } from './stop'
-export type PublishRequester = { ownerUid: string; generation?: number; commandId?: string }
+export type RequesterAuthority = { uid: string; email: string; authorityEpoch: number }
+export type PublishRequester = { ownerUid: string; requestedBy?: RequesterAuthority; generation?: number; commandId?: string }
 export type PublishCommand = { batchId: string; revision: number } & Omit<PublishRequester, 'ownerUid'>
 export type PublishControlState = { paused: boolean; generation: number; changedBy: { uid: string; email: string }; changedAt: string }
 export interface PublishControl {
@@ -14,6 +15,7 @@ export interface PublishControl {
 }
 export type PublishError = PublishStop | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
+  requestedBy?: RequesterAuthority
   generation?: number
   commandId?: string
   id: string

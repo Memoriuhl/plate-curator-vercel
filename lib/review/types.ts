@@ -1,3 +1,4 @@
+import type { RequesterAuthority } from '../publish/types'
 import type { Plate } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
@@ -16,6 +17,7 @@ export type ReviewBatch = {
   baselineOrders?: Record<string, string[]>
   plateIds: string[]
   approvalRun?: { runId: string; revision: number }
+  publishRequestedBy?: RequesterAuthority | null
   publishRequestedAt?: string | null
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
@@ -40,7 +42,7 @@ export interface ReviewStore {
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
   recordRun(batchId: string, revision: number, runId: string): Promise<boolean>
-  requestPublish(batchId: string, revision: number, at: string): Promise<boolean>
+  requestPublish(batchId: string, revision: number, at: string, requestedBy?: RequesterAuthority): Promise<boolean>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
 export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }

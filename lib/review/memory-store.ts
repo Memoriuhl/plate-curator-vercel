@@ -51,10 +51,11 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       batch.approvalRun = { runId, revision }
       return true
     },
-    async requestPublish(batchId, revision, at) {
+    async requestPublish(batchId, revision, at, requestedBy) {
       const batch = batches.get(batchId)
       if (!batch || batch.state !== 'approved' || batch.revision !== revision) return false
       batch.publishRequestedAt = at
+      if (requestedBy) batch.publishRequestedBy = structuredClone(requestedBy)
       return true
     },
     async commit(batchId, expectedRevision, next) {
@@ -62,7 +63,7 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       const saved = structuredClone(next)
       const current = batches.get(batchId)!
       if (current.approvalRun) saved.batch.approvalRun = structuredClone(current.approvalRun)
-      if (current.publishRequestedAt && ['approved', 'published'].includes(saved.batch.state)) saved.batch.publishRequestedAt = current.publishRequestedAt
+      if (current.publishRequestedAt && ['approved', 'published'].includes(saved.batch.state)) { saved.batch.publishRequestedAt = current.publishRequestedAt; if (current.publishRequestedBy) saved.batch.publishRequestedBy = structuredClone(current.publishRequestedBy) }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()
       if (saved.deleteEditFor !== undefined) batchEdits.delete(saved.deleteEditFor)
       if (saved.edit) batchEdits.set(saved.edit.plateId, saved.edit)

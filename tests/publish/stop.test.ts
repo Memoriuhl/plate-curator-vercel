@@ -6,5 +6,5 @@ test('only recognized terminal stops have shared messages', () => {
     expect(isPublishStop(stop)).toBe(true)
     expect(PUBLISH_STOP_MESSAGES[stop]).toEqual(expect.any(String))
   }
-  for (const value of [null, undefined, '', 'revoked', 'superseded_revision', {}]) expect(isPublishStop(value)).toBe(false)
+  for (const value of [null, undefined, '', 'unknown', 'superseded_revision', {}]) expect(isPublishStop(value)).toBe(false)
 })

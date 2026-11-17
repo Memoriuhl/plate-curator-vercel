@@ -146,3 +146,11 @@ test.each(['superseded', 'publish_not_enabled'])('terminal %s preserves approval
   expect(html).toContain('The Batch remains approved.')
   expect(html).not.toContain('Fix the Batch and approve it again.')
 })
+
+test('revoked stop identifies requester and requires a fresh Publish by an active Owner', () => {
+  const html = renderToStaticMarkup(<RunStatusView run={{ runId: 'run', phase: 'failed', updatedAt: null, outcome: { error: 'revoked', requestedBy: { uid: 'requester', email: 'requester@example.com', authorityEpoch: 2 } } }} />)
+  expect(html).toContain('revoked')
+  expect(html).toContain('requester@example.com')
+  expect(html).toContain('The Catalog did not advance.')
+  expect(html).toContain('fresh Publish by an active Owner')
+})

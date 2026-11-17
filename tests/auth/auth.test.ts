@@ -177,7 +177,7 @@ test('accepts the bound password uid and reads role changes and removal on the n
 test.each([googleMember.invite, null])('activates a pending Google Member by normalized email, including the seeded Owner', async invite => {
   const members = createMemoryMembersStore([{ ...googleMember, role: 'owner', invite }], () => instant)
   expect(await authorize(members, { ...googleClaims, email: ' USER@Example.com ' })).toMatchObject({ ok: true, actor: { role: 'owner', uid: 'user-one' } })
-  expect(await members.getByEmail(googleMember.email)).toEqual({ ...googleMember, role: 'owner', status: 'active', uid: 'user-one', invite: null })
+  expect(await members.getByEmail(googleMember.email)).toEqual({ ...googleMember, role: 'owner', status: 'active', uid: 'user-one', invite: null, authorityEpoch: 1 })
   expect(await authorize(members, googleClaims)).toMatchObject({ ok: true, actor: { role: 'owner' } })
 })
 

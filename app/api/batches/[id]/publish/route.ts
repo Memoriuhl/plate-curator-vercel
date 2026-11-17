@@ -29,13 +29,14 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (stop) return json({ error: stop }, 409)
   const baseline = await publishBaselineStatus(publishing, batch)
   if (baseline.error) return json(baseline, 409)
+  const requestedBy = { uid: auth.actor.uid, email: auth.actor.email, authorityEpoch: auth.actor.authorityEpoch }
   try {
-    const command: PublishRequester = { ownerUid: auth.actor.uid, generation: control.generation, commandId: randomUUID() }
+    const command: PublishRequester = { ownerUid: auth.actor.uid, requestedBy, generation: control.generation, commandId: randomUUID() }
     await resumeHook(`publish:${id}:${body.revision}`, command)
   } catch {
     return json({ error: 'not_waiting' }, 409)
   }
-  await deps.store.requestPublish(id, body.revision, deps.now())
+  await deps.store.requestPublish(id, body.revision, deps.now(), requestedBy)
   return json({ status: 'publishing' }, 202)
 }
 

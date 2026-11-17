@@ -82,6 +82,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
             </li>
           ))}
         </ol>
+        {run.outcome?.requestedBy && <p>Requested by {run.outcome.requestedBy.email} ({run.outcome.requestedBy.uid}).</p>}
         {run.phase === 'published' && (
           <p className="font-bold">
             Published as Snapshot{' '}
@@ -101,7 +102,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               ))}
             </ul>
             {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
-            <p>{isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish request is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
+            <p>{isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (

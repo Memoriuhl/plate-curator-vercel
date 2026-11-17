@@ -1,3 +1,4 @@
+import { publishRequesterStop, sameRequester } from './authority'
 import { normalizeEmail } from '../members/member'
 import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
 import { parsePublishControl, publishCommandKey, publishControlStop } from './control'
@@ -5,8 +6,8 @@ import type { PublishCommand, PublishControl, PublishControlState } from './type
 import { FieldValue, type DocumentData, type DocumentSnapshot, type Transaction, type Firestore } from '@google-cloud/firestore'
 import type { PublishCurator, PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
 
-function writePublishStop(transaction: Transaction, command: PublishCommand, control: DocumentSnapshot, stopped: DocumentSnapshot, now: string): PublishStop | null {
-  const reason: unknown = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), command)
+function writePublishStop(transaction: Transaction, command: PublishCommand, control: DocumentSnapshot, stopped: DocumentSnapshot, now: string, member?: DocumentSnapshot): PublishStop | null {
+  const reason: unknown = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), command) ?? publishRequesterStop(command.requestedBy, member?.data())
   if (reason === null) return null
   if (!isPublishStop(reason)) throw new Error('Malformed Publish stop')
   if (!stopped.exists) transaction.set(stopped.ref, { ...command, reason, stoppedAt: now })
@@ -80,6 +81,7 @@ export function firestorePublishRecords(db: Firestore, env: string): PublishReco
         const previous = saved.data()
         if (previous) {
           if (previous.env !== env || ['id', 'batchId', 'revision', 'fromVersion', 'toVersion', 'blobSha256', 'generation', 'commandId'].some(key => previous[key] !== record[key as keyof PublishRecord])) return false
+          if (!sameRequester(previous.requestedBy, record.requestedBy)) return false
           if (previous.state === 'done' && record.state !== 'done') return false
           if (previous.state === 'failed' && record.state !== 'failed') return false
           if (previous.state === 'uploaded' && record.state === 'started') return false
@@ -106,16 +108,17 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
     async advance(record, lease, now) {
       return db.runTransaction(async transaction => {
         const recordRef = db.doc(`publishRecords/${record.id}`)
-        const [lock, batch, receipt, pointer, control, stopped] = await transaction.getAll(
-          db.doc('locks/publish'), db.doc(`reviewBatches/${record.batchId}`), recordRef, pointerRef, db.doc('config/publishControl'), db.doc(`publishCommandStops/${publishCommandKey(record)}`),
+        const [lock, batch, receipt, pointer, control, stopped, member] = await transaction.getAll(
+          db.doc('locks/publish'), db.doc(`reviewBatches/${record.batchId}`), recordRef, pointerRef, db.doc('config/publishControl'), db.doc(`publishCommandStops/${publishCommandKey(record)}`), db.doc(`members/${encodeURIComponent(normalizeEmail(record.requestedBy?.email ?? 'legacy'))}`),
         )
         if (!active(lock.data(), lease.token, env, now) || lock.get('batchId') !== record.batchId || lock.get('revision') !== record.revision) return 'lock_lost'
         if (batch.get('env') !== env || batch.get('revision') !== record.revision || batch.get('state') !== 'approved' || batch.get('publishReservation')?.token !== lease.token) return 'superseded_revision'
+        if (receipt.get('committedAt')) return 'advanced'
+        const stop = writePublishStop(transaction, record, control, stopped, now, member)
+        if (stop) return stop
         if (typeof record.url !== 'string' || record.url.length === 0) return 'superseded_revision'
         if (receipt.get('env') !== env || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('url') !== record.url || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion) return 'superseded_revision'
-        if (receipt.get('committedAt')) return 'advanced'
-        const stop = writePublishStop(transaction, record, control, stopped, now)
-        if (stop) return stop
+        if (!sameRequester(receipt.get('requestedBy'), record.requestedBy)) return PUBLISH_STOPS.superseded
         if (receipt.get('generation') !== record.generation || receipt.get('commandId') !== record.commandId) return PUBLISH_STOPS.superseded
         if (receipt.get('state') !== 'uploaded') return 'superseded_revision'
         if (pointer.get('version') !== record.fromVersion) return 'pointer_moved'
@@ -166,9 +169,9 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
     async check(command: PublishCommand, now: string) {
       return db.runTransaction(async transaction => {
         const stopRef = db.doc(`publishCommandStops/${publishCommandKey(command)}`)
-        const [control, stopped, receipt] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`))
+        const [control, stopped, receipt, member] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`), db.doc(`members/${encodeURIComponent(normalizeEmail(command.requestedBy?.email ?? 'legacy'))}`))
         if (receipt.get('committedAt')) return null
-        return writePublishStop(transaction, command, control, stopped, now)
+        return writePublishStop(transaction, command, control, stopped, now, member)
       })
     },
   }

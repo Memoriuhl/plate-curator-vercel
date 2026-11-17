@@ -87,7 +87,7 @@ test('active Owner helper returns authenticated identity and current membership 
   vi.stubEnv('CATALOG_SOURCE', 'firestore')
   mocks.authenticate.mockResolvedValue({ ok: true, actor: { uid: 'owner', role: 'owner', name: null } })
   mocks.getByUid.mockResolvedValue({ uid: 'owner', role: 'owner', status: 'active', email: 'owner@example.com' })
-  expect(await currentActiveOwner(new Request('http://localhost'))).toEqual({ ok: true, actor: { uid: 'owner', role: 'owner', name: null, email: 'owner@example.com' } })
+  expect(await currentActiveOwner(new Request('http://localhost'))).toEqual({ ok: true, actor: { uid: 'owner', role: 'owner', name: null, email: 'owner@example.com', authorityEpoch: 0 } })
   for (const member of [null, { uid: 'owner', role: 'editor', status: 'active' }, { uid: 'owner', role: 'owner', status: 'pending' }]) {
     mocks.getByUid.mockResolvedValue(member)
     const result = await currentActiveOwner(new Request('http://localhost'))

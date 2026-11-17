@@ -1,5 +1,7 @@
 'use client'
 
+import type { RequesterAuthority } from '../publish/types'
+
 import { PUBLISH_STOP_MESSAGES } from '../publish/stop'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -65,7 +67,7 @@ export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
 export type BatchRun = {
   runId: string | null
   phase: 'waiting-for-approval' | 'waiting-for-publish' | 'publishing' | 'published' | 'failed' | 'superseded' | 'timed-out' | null
-  outcome: { version?: number; error?: string; reasons?: string[]; reviewedVersion?: number; liveVersion?: number } | null
+  outcome: { version?: number; error?: string; reasons?: string[]; requestedBy?: RequesterAuthority; reviewedVersion?: number; liveVersion?: number } | null
   updatedAt: string | null
 }
 

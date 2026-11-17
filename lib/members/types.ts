@@ -1,4 +1,6 @@
 export type Member = {
+  authorityEpoch?: number
+  removedAt?: string
   email: string
   role: 'editor' | 'owner'
   signIn: 'google' | 'password'

@@ -66,7 +66,7 @@ async function transitionBatch(
   if (batch.revision !== revision) return { ok: false, error: 'superseded_revision' }
   if (batch.state !== (state === 'submitted' ? 'open' : 'submitted')) return { ok: false, error: 'invalid_state' }
   const nextBatch: ReviewBatch = {
-    ...batch, ...(state === 'submitted' ? { publishRequestedAt: null } : {}), state, revision: revision + 1,
+    ...batch, ...(state === 'submitted' ? { publishRequestedAt: null, publishRequestedBy: null } : {}), state, revision: revision + 1,
     approval: state === 'approved' ? { revision, by: a.uid, at: d.now() } : null,
   }
   const result = await d.store.commit(batchId, revision, { batch: nextBatch })

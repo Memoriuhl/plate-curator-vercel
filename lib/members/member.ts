@@ -20,5 +20,11 @@ export function activationResult(member: Member, now: string, tokenHash?: string
 }
 
 export function isActiveOwner(member: Member): boolean {
-  return member.role === 'owner' && member.status === 'active' && member.uid !== null
+  return !member.removedAt && member.role === 'owner' && member.status === 'active' && typeof member.uid === 'string' && member.uid.length > 0
+}
+
+export function nextAuthorityEpoch(member: { authorityEpoch?: number } | null | undefined): number {
+  const epoch = (member?.authorityEpoch ?? 0) + 1
+  if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error('Member authority exhausted')
+  return epoch
 }

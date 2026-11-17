@@ -106,12 +106,12 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         return true
       })
     },
-    async requestPublish(batchId, revision, at) {
+    async requestPublish(batchId, revision, at, requestedBy) {
       return db.runTransaction(async transaction => {
         const ref = batches.doc(batchId)
         const batch = await transaction.get(ref)
         if (batch.get('env') !== env || batch.get('state') !== 'approved' || batch.get('revision') !== revision) return false
-        transaction.update(ref, { publishRequestedAt: at })
+        transaction.update(ref, { publishRequestedAt: at, ...(requestedBy ? { publishRequestedBy: requestedBy } : {}) })
         return true
       })
     },
@@ -131,7 +131,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         transaction.set(batchRef, {
           ...next.batch,
           ...(batch.get('approvalRun') ? { approvalRun: batch.get('approvalRun') } : {}),
-          ...(batch.get('publishRequestedAt') && ['approved', 'published'].includes(next.batch.state) ? { publishRequestedAt: batch.get('publishRequestedAt') } : {}),
+          ...(batch.get('publishRequestedAt') && ['approved', 'published'].includes(next.batch.state) ? { publishRequestedAt: batch.get('publishRequestedAt'), ...(batch.get('publishRequestedBy') ? { publishRequestedBy: batch.get('publishRequestedBy') } : {}) } : {}),
           env,
         })
         transaction.set(signal(batchId), { revision: next.batch.revision })

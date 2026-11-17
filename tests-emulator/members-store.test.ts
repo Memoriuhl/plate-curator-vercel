@@ -25,9 +25,9 @@ test.each(['remove', 'removeGuarded'] as const)('%s revokes a bound member grant
   const saved = await db.runTransaction(async tx => {
     const member = await tx.get(db.doc('members/member%40example.com'))
     const access = await tx.get(grant)
-    return { member: member.exists, access: access.exists }
+    return { removed: Boolean(member.get('removedAt')), epoch: member.get('authorityEpoch'), access: access.exists }
   }, { readOnly: true })
-  expect(saved).toEqual({ member: false, access: false })
+  expect(saved).toEqual({ removed: true, epoch: 2, access: false })
 })
 
 test('last Owner rejection keeps the live grant', async () => {
@@ -37,4 +37,19 @@ test('last Owner rejection keeps the live grant', async () => {
   await grant.set({ envs: { development: 'grant' } })
   expect(await store.removeGuarded('owner@example.com')).toBe('last_owner')
   expect((await grant.get()).exists).toBe(true)
+})
+
+
+test.each(['updateRole', 'updateRoleGuarded'] as const)('%s changes role and authority in one transaction', async method => {
+  const store = firestoreMembersStore(db)
+  const input = { email: 'one@example.com', uid: 'one', role: 'owner', signIn: 'google', status: 'active', invite: null, invitedBy: null, createdAt: '' } as const
+  await store.upsertSeed(input)
+  await store.upsertSeed({ ...input, email: 'two@example.com', uid: 'two' })
+  const [result, observed] = await Promise.all([
+    store[method](input.email, 'editor'),
+    db.runTransaction(async tx => (await tx.get(db.doc('members/one%40example.com'))).data(), { readOnly: true }),
+  ])
+  expect(result).toBe('ok')
+  expect(observed).toMatchObject(observed?.role === 'owner' ? { role: 'owner', authorityEpoch: 1 } : { role: 'editor', authorityEpoch: 2 })
+  expect(await store.getByEmail(input.email)).toMatchObject({ role: 'editor', authorityEpoch: 2 })
 })
