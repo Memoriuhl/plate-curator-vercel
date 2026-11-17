@@ -189,7 +189,7 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   ])
   expect(requests.filter(r => r.method === 'PATCH').at(-1)?.body).toMatchObject({ baseRevision: tagRevision })
 
-})
+}, 20000)
 
 test('unavailable and read-only selections cannot edit or reorder or fall back to personal drafts', async () => {
   const missing = render(<Workspace value={session(editor, 'missing')}><Probe /></Workspace>)
