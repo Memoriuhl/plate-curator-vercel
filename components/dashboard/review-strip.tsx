@@ -21,11 +21,12 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
           {batch.createdBy.slice(0, 1).toUpperCase()}
         </AvatarFallback>
       </Avatar>
-      <strong className="inline-block w-24 shrink-0 truncate" title={states || undefined}>
+      <strong className="review-states" title={states || undefined}>
         {states || (detail.error ? 'Unavailable' : '…')}
       </strong>
-      <span className="count">rev {batch.revision}</span>
-      <span>{batch.plateIds.length} plates</span>
+      <span className="review-plate-count">
+        {batch.plateIds.length} {batch.plateIds.length === 1 ? 'plate' : 'plates'}
+      </span>
       <span
         className={cn(
           'review-status',
@@ -34,16 +35,19 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
       >
         {batch.state === 'approved' ? 'Approved' : 'Submitted'}
       </span>
-      <Button asChild size="sm">
-        <Link href={`/review?batch=${encodeURIComponent(batch.id)}`}>
-          Review
-        </Link>
-      </Button>
-      {batch.state === 'approved' && owner ? (
-        <ComingSoon label="Publish" size="sm">
-          Publish
-        </ComingSoon>
-      ) : null}
+      <span className="review-revision">Rev {batch.revision}</span>
+      <div className="review-actions">
+        <Button asChild size="sm">
+          <Link href={`/review?batch=${encodeURIComponent(batch.id)}`}>
+            Review
+          </Link>
+        </Button>
+        {batch.state === 'approved' && owner ? (
+          <ComingSoon label="Publish" size="sm">
+            Publish
+          </ComingSoon>
+        ) : null}
+      </div>
     </div>
   )
 }
