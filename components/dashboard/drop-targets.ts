@@ -51,8 +51,8 @@ export function targetAt(x: number, y: number, targets: TargetRect[]): DropTarge
 }
 
 export function scrollVelocity(y: number, height: number) {
-  if (y < 80) return -Math.ceil(18 * Math.max(0, 1 - y / 80))
-  if (y > height - 80) return Math.ceil(18 * Math.max(0, 1 - (height - y) / 80))
+  if (y < 80) return -Math.ceil(18 * Math.min(1, Math.max(0, 1 - y / 80)))
+  if (y > height - 80) return Math.ceil(18 * Math.min(1, Math.max(0, 1 - (height - y) / 80)))
   return 0
 }
 

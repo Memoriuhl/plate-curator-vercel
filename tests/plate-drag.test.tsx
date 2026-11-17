@@ -43,6 +43,8 @@ test('threshold, hit targets and scroll edges', () => {
   expect(targetAt(4, 4, [{ target: { kind: 'family-slot', index: 1 }, rect: { left: 0, right: 10, top: 0, bottom: 10 } }])).toEqual({ kind: 'family-slot', index: 1 })
   expect(scrollVelocity(0, 900)).toBeLessThan(0)
   expect(scrollVelocity(899, 900)).toBeGreaterThan(0)
+  expect(scrollVelocity(-800, 900)).toBe(-18)
+  expect(scrollVelocity(2400, 900)).toBe(18)
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
@@ -460,8 +462,8 @@ test('family and variant ids remain available on hover without visible id lines'
   expect(container.querySelector('p.id')).toBeNull()
   expect(container.textContent).not.toContain(a.id)
   expect(container.textContent).not.toContain(v.id)
-  expect(container.querySelector('a[title="' + a.id + '"]')).toBeTruthy()
-  expect(container.querySelector('a[title="' + v.id + '"]')).toBeTruthy()
+  expect(container.querySelector('h3[title$="' + a.id + '"]')?.className).toContain('truncate')
+  expect(container.querySelector('h3[title$="' + v.id + '"]')?.getAttribute('title')).toBe(v.displayName + ' · ' + v.id)
 })
 
 test('handles expose grab and disabled cursors while image hover retains preview', () => {
@@ -670,7 +672,7 @@ test('deleted plate row and modifier selection are disabled', () => {
   plateSelection.visible([deleted])
   const view = render(<FamilyCard template={a} variants={[deleted]} matches={() => true} />)
   expect(view.container.querySelector('[data-plate-row="AK.v"]')?.getAttribute('aria-disabled')).toBe('true')
-  fireEvent.click(view.container.querySelector('a[title="' + v.id + '"]')!, { ctrlKey: true })
+  fireEvent.click(view.container.querySelector('h3[title$="' + v.id + '"] a')!, { ctrlKey: true })
   expect(plateSelection.snapshot()).toEqual([])
 })
 

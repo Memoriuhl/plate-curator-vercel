@@ -125,8 +125,8 @@ test('every plate keeps its title and checks together beside the image', () => {
   expect(html).not.toContain('flex-wrap')
   expect(html).not.toContain('flex-col @min-')
   expect(html).toContain('lang="en"')
-  expect(html).toContain('[overflow-wrap:break-word]')
-  expect(html).toContain('hyphens-auto')
+  expect(html).toContain('plate-name min-w-0 flex-1 truncate text-[15px]')
+  expect(html).toContain('plate-name min-w-0 flex-1 truncate text-[13px]')
   expect(html).not.toContain('[overflow-wrap:anywhere]')
 })
 

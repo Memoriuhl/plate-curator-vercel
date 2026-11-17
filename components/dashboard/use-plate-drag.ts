@@ -65,7 +65,7 @@ export function usePlateDrag(options: Options) {
     focusRoot.current = dragElement(item)?.closest('section') ?? null
     latest.current.holdOverlay?.(true)
     latest.current.closePreview()
-    suppress.current = true
+    suppress.current = !keyboard
     const families = latest.current.families
     const index = families.findIndex(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const source = families[index]
@@ -347,7 +347,7 @@ export function usePlateDrag(options: Options) {
     if (event.key === ' ') {
       event.preventDefault()
       if (current.current) void drop()
-      else { suppress.current = false; lift(item, 0, 0, true) }
+      else lift(item, 0, 0, true)
     } else if (event.key === 'Escape' && current.current) { event.preventDefault(); cancel() }
     else if (current.current?.keyboard && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
       event.preventDefault()

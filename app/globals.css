@@ -501,6 +501,7 @@ body {
   justify-content: flex-end;
   gap: var(--space-4);
   margin-left: auto;
+  margin-bottom: 12px;
   font-size: 12px;
   color: var(--ink-2);
 }
