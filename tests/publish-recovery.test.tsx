@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { PublishButton } from '../components/dashboard/publish-button'
 import { PublishWorkspace } from '../components/publish/workspace'
 import { ApiError } from '../lib/client/api'
 import { batch, command, fixture } from './publish/fixture'
 import { publishBaselineStatus } from '../lib/publish/baseline-status'
 
 const mocks = vi.hoisted(() => ({ healthy: false, abandon: vi.fn(), prepared: false, disposition: false, runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
   useMe: () => ({ data: { role: mocks.role } }),
@@ -163,4 +164,18 @@ test.each(['paused', 'stale_baseline', 'editor', 'unauthenticated', 'publishing'
   render(<PublishWorkspace />)
   expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull()
   if (condition === 'stale_baseline') expect(screen.getByRole('button', { name: 'Copy to new Batch' })).toBeTruthy()
+})
+
+test('unavailable Publish stays focusable and cancels clicks with an accessible reason', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  const view = render(<PublishButton batchId="batch" owner={false} approved />)
+  const button = screen.getByRole('button', { name: 'Publish to players: Only Owners can publish' }) as HTMLButtonElement
+  expect(button.disabled).toBe(false)
+  expect(button.getAttribute('aria-disabled')).toBe('true')
+  button.focus()
+  expect(document.activeElement).toBe(button)
+  expect(fireEvent.click(button)).toBe(false)
+  expect(view.container.querySelector('a')).toBeNull()
+  cleanup()
+  vi.unstubAllGlobals()
 })

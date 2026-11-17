@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/client/api'
 import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { PublishControlView } from './control'
 import { CopyRecovery } from './copy-recovery'
@@ -198,6 +199,7 @@ function BatchSelection({
 }
 
 function OwnerWorkspace() {
+  const requestedBatch = useSearchParams().get('batch')
   const control = usePublishControl()
   const batches = useBatches(['approved', 'published'])
   const [selection, setSelection] = useState<string | null>(null)
@@ -209,7 +211,7 @@ function OwnerWorkspace() {
   const approved = sorted.filter((batch) => batch.state === 'approved')
   const published = sorted.filter((batch) => batch.state === 'published')
   const firstId = approved[0]?.id ?? published[0]?.id
-  const selected = selection ?? firstId
+  const selected = selection ?? (approved.some(batch => batch.id === requestedBatch) ? requestedBatch : firstId)
   if (batches.error)
     return <p role="alert">Could not load Batches. Please refresh.</p>
   if (batches.isLoading) return <p role="status">Loading Batches…</p>

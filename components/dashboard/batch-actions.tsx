@@ -111,7 +111,7 @@ export function BatchActions({
           modelError={run.modelError}
           start={(plates, retry, modelId) => void run.start(plates, retry, modelId)}
         />
-        <PublishButton owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
+        <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
         {batches.error || detail.error ? (
           <span role="alert">Could not load your batch.</span>
         ) : null}

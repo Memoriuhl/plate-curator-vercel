@@ -42,7 +42,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
             Review
           </Link>
         </Button>
-        <PublishButton owner={owner} approved={batch.state === 'approved'} size="sm" />
+        <PublishButton batchId={batch.id} owner={owner} approved={batch.state === 'approved'} size="sm" />
       </div>
     </div>
   )

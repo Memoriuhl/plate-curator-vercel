@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   submit: vi.fn(),
   buttons: new Map<
     string,
-    { disabled?: boolean; onClick?: () => Promise<void> }
+    { disabled?: boolean; 'aria-disabled'?: boolean | 'true' | 'false'; onClick?: () => Promise<void> }
   >(),
 }))
 
@@ -52,7 +52,7 @@ vi.mock('../components/ui/button', () => ({
       label,
       props as { disabled?: boolean; onClick?: () => Promise<void> },
     )
-    return <button disabled={props.disabled} title={props.title}>{props.children}</button>
+    return <button disabled={props.disabled} aria-label={props['aria-label']} aria-disabled={props['aria-disabled']} title={props.title}>{props.children}</button>
   },
 }))
 
@@ -129,7 +129,7 @@ test('editors see disabled Publish and can open the pipeline menu', () => {
     <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
   )
   expect(html).toContain('Only Owners can publish')
-  expect(state.buttons.get('Publish to players')?.disabled).toBe(true)
+  expect(state.buttons.get('Publish to players')?.['aria-disabled']).toBe('true')
   expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })
 
@@ -138,7 +138,7 @@ test('owner Publish is disabled and empty batches cannot submit', () => {
   renderToStaticMarkup(
     <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
   )
-  expect(state.buttons.get('Publish to players')?.disabled).toBe(true)
+  expect(state.buttons.get('Publish to players')?.['aria-disabled']).toBe('true')
   expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
 })
 
@@ -159,7 +159,7 @@ test('review strip hides when empty and approved batches retain Review with enab
   expect(html).toContain('href="/review?batch=batch-one"')
   expect(html).toContain('Approved')
   expect(html).toContain('Rev 7')
-  expect(html).toContain('href="/publish"')
+  expect(html).toContain('href="/publish?batch=batch-one"')
   expect(state.buttons.get('Publish to players')?.disabled).not.toBe(true)
 })
 
