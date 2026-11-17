@@ -3,7 +3,7 @@ import type { EditableFields } from '../review/types'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
-export type FieldSuggestion = { stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
+export type FieldSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
 export type JobResult = { suggestions: string[]; fieldSuggestion?: FieldSuggestion; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
 export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion'> & { suggestions?: unknown; fieldSuggestion?: unknown }
 export type TaggingJob = {

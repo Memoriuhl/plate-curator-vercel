@@ -454,7 +454,7 @@ test('a sourced field suggestion uses the reviewed input hash and the existing B
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const fields = { description: 'Sourced description' }
   mocks.detail.plates = [{ proposed: Object.assign({}, plate, { description: 'Current description' }) }]
-  render(<TagRunBanner entries={[{ plate, jobId: 'field-job', job: { state: 'completed', suggestions: [], inputHash: 'reviewed-input', stage: 'describe', fieldSuggestion: { stage: 'describe', fields, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  render(<TagRunBanner entries={[{ plate, jobId: 'field-job', job: { state: 'completed', suggestions: [], inputHash: 'reviewed-input', stage: 'describe', fieldSuggestion: { kind: 'fields' as const, stage: 'describe', fields, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
   expect(screen.getByText('Current description')).toBeTruthy()
   expect(screen.getByText('Sourced description')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'https://example.org/source' }).getAttribute('href')).toBe('https://example.org/source')
@@ -466,7 +466,7 @@ test('a sourced field suggestion uses the reviewed input hash and the existing B
 test('a stale field suggestion shows the conflict without claiming acceptance', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   mocks.edit.mockResolvedValueOnce({ ok: false, error: 'stale_plate' })
-  render(<TagRunBanner entries={[{ plate, job: { state: 'completed', suggestions: [], inputHash: 'reviewed-input', stage: 'describe', fieldSuggestion: { stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  render(<TagRunBanner entries={[{ plate, job: { state: 'completed', suggestions: [], inputHash: 'reviewed-input', stage: 'describe', fieldSuggestion: { kind: 'fields' as const, stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Accept describe suggestion' }))
   await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Someone changed this while you were editing.'))
   expect(screen.queryByRole('button', { name: 'Saved to your Batch' })).toBeNull()
@@ -474,7 +474,7 @@ test('a stale field suggestion shows the conflict without claiming acceptance', 
 
 test.each([false, true])('field acceptance requires the local gate and a reviewed hash: %s', local => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', local ? '1' : '0')
-  render(<TagRunBanner entries={[{ plate, job: { state: 'completed', suggestions: [], stage: 'describe', fieldSuggestion: { stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  render(<TagRunBanner entries={[{ plate, job: { state: 'completed', suggestions: [], stage: 'describe', fieldSuggestion: { kind: 'fields' as const, stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] } } }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
   const button = screen.queryByRole('button', { name: 'Accept describe suggestion' })
   if (local) expect(button?.hasAttribute('disabled')).toBe(true)
   else expect(button).toBeNull()

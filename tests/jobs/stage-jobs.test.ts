@@ -17,7 +17,7 @@ function setup() {
   const jobs: JobsDeps = { store: createMemoryJobsStore(review, 'development'), baseline: async () => plate, now: () => 100, id: () => `claim-${++sequence}`, leaseMs: 1000 }
   const local = { ...jobs, localScope: 'scope-a' }
   const input = { id: 'stage', batchId: 'batch', plateId: plate.id, requestedBy: 'editor', stage: 'describe' as const }
-  const report = { fieldSuggestion: { stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] }, backend: 'local', model: 'test', promptVersion: 'v1', durationMs: 10 }
+  const report = { fieldSuggestion: { kind: 'fields' as const, stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] }, backend: 'local', model: 'test', promptVersion: 'v1', durationMs: 10 }
   return { jobs, local, input, report, review, plate }
 }
 

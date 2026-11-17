@@ -8,7 +8,7 @@ const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
   'wiki-link': ['wikiUrl'],
   colors: [],
   'find-image': [],
-  group: ['templateFamily', 'templateRole', 'variantOfPlateId'],
+  group: [],
   order: [],
 }
 
@@ -19,7 +19,7 @@ export function isPipelineStage(value: unknown): value is PipelineStage {
 export function parseFieldSuggestion(input: unknown, expected: PipelineStage): FieldSuggestion | null {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !input || typeof input !== 'object' || Array.isArray(input)) return null
   const value = input as Record<string, unknown>
-  if (value.stage !== expected || !isPipelineStage(value.stage) || Object.keys(value).some(key => !['stage', 'fields', 'sources'].includes(key))) return null
+  if (value.kind !== 'fields' || value.stage !== expected || !isPipelineStage(value.stage) || Object.keys(value).some(key => !['kind', 'stage', 'fields', 'sources'].includes(key))) return null
   const fields = parseEditableFields(value.fields)
   if (!fields || Object.keys(fields).some(key => !stageFields[expected].includes(key as keyof EditableFields))) return null
   if (!Array.isArray(value.sources) || value.sources.length > 16) return null
@@ -30,5 +30,5 @@ export function parseFieldSuggestion(input: unknown, expected: PipelineStage): F
   if (fields.funFacts?.some(fact => !normalizedSources.includes(fact.sourceUrl))) return null
   if (fields.readMore?.some(link => !normalizedSources.includes(link.url))) return null
   if (fields.wikiUrl && !normalizedSources.includes(fields.wikiUrl)) return null
-  return { stage: expected, fields: Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))), sources: normalizedSources }
+  return { kind: 'fields', stage: expected, fields: Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))), sources: normalizedSources }
 }
