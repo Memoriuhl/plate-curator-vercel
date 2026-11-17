@@ -53,6 +53,11 @@ test('adapter flattens structured tags and dedupes', async () => {
   expect(await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Bear Plate', state: 'AK', tags: [] } })).toEqual({ tags: ['white', 'black text', 'wildlife', 'bear', 'usn'], usage: { eval_count: 4, prompt_eval_count: 7 } })
   expect(adapter.promptVersion).toMatch(/^[a-f0-9]{12}$/)
 })
+test('adapter keeps only visual themes and motifs', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: '{"primaryColor":"white","colors":[],"textColors":[],"subjects":[],"themes":["occupational","environmental","veteran"],"motifs":["circle","seal"],"emblemText":[]}' } }))
+  const adapter = ollamaAdapter({ url: 'http://localhost:11434', model: 'test', fetch })
+  expect((await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Plate', state: 'AL', tags: [] } })).tags).toEqual(['white', 'veteran', 'seal'])
+})
 test('expired lease prevents report transmission', async () => {
   const { deps, fetch } = setup()
   deps.now = () => 60000

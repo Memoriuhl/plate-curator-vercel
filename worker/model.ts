@@ -26,18 +26,10 @@ export const THEMES = [
   'veteran',
   'military',
   'education',
-  'university',
   'sports',
-  'automotive',
-  'commercial',
   'memorial',
-  'environmental',
   'charity',
   'religious',
-  'historical',
-  'occupational',
-  'fraternal',
-  'professional',
 ] as const;
 
 export const MOTIFS = [
@@ -60,7 +52,6 @@ export const MOTIFS = [
   'tree',
   'leaf',
   'arrow',
-  'circle',
 ] as const;
 
 const STOPWORDS = new Set([
