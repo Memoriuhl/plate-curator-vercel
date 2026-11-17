@@ -1,10 +1,14 @@
-import type { Firestore } from '@google-cloud/firestore'
+import type { Firestore, Transaction } from '@google-cloud/firestore'
 import { liveEnvKey, signalPath } from './live-signal'
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
 export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const batches = db.collection('reviewBatches')
   const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
+  const create = (transaction: Transaction, batch: ReviewBatch) => {
+    transaction.create(batches.doc(batch.id), { ...batch, env })
+    transaction.set(signal(batch.id), { revision: batch.revision })
+  }
 
   return {
     async copy(input) {
@@ -26,17 +30,15 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         const liveVersion = head.get('version')
         if (typeof liveVersion !== 'number') throw new Error('Catalog head unavailable')
         if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
-        transaction.create(targetRef, { ...input.batch, env })
+        create(transaction, input.batch)
         for (const edit of input.edits) transaction.create(targetRef.collection('edits').doc(edit.plateId), edit)
-        transaction.set(signal(input.batch.id), { revision: input.batch.revision })
         return { ok: true, value: input.batch }
       })
     },
     async create(batch) {
       try {
         await db.runTransaction(async transaction => {
-          transaction.create(batches.doc(batch.id), { ...batch, env })
-          transaction.set(signal(batch.id), { revision: batch.revision })
+          create(transaction, batch)
         })
         return 'ok'
       } catch (error) {
