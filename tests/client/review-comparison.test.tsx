@@ -23,6 +23,6 @@ test('comparison buttons switch the selected pane without losing either revision
   fireEvent.click(beforeButton)
   expect(beforeButton.getAttribute('aria-pressed')).toBe('true')
   expect(afterButton.getAttribute('aria-pressed')).toBe('false')
-  expect(screen.getByRole('heading', { name: 'Before · live v11' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Before · Catalog v11' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'After · rev 4' })).toBeTruthy()
 })

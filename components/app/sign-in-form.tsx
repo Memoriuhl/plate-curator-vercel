@@ -28,21 +28,40 @@ export function SignInForm() {
   const googleControl = useRef<HTMLButtonElement>(null)
   const changeControl = useRef<HTMLButtonElement>(null)
   const focusedStep = useRef<Check | null | undefined>(undefined)
+  const submitFocus = useRef<{ step: Check | null; failed: boolean } | null>(null)
 
   useEffect(() => {
-    if (focusedStep.current === check) return
+    function cancelRestore(event: FocusEvent) {
+      if (event.target instanceof HTMLElement && event.target !== document.body && !event.target.matches(':disabled')) {
+        submitFocus.current = null
+      }
+    }
+    document.addEventListener('focusin', cancelRestore)
+    return () => document.removeEventListener('focusin', cancelRestore)
+  }, [])
+
+  useEffect(() => {
+    const sameStep = focusedStep.current === check
+    const restore = submitFocus.current?.failed && submitFocus.current.step === check && !pending
+    if (sameStep && !restore) return
     const control = !check ? emailControl.current
       : !check.invited || check.status === 'expired' ? changeControl.current
         : check.signIn === 'password' ? passwordControl.current : googleControl.current
     if (!control || control.disabled) return
+    submitFocus.current = null
+    if (sameStep && document.activeElement && document.activeElement !== document.body) return
     control.focus()
     focusedStep.current = check
-  }, [check, pending, ready])
+  }, [check, error, pending, ready])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (pending || !ready) return
     const password = new FormData(event.currentTarget).get('password')
+    const active = document.activeElement
+    const attempt = (active instanceof HTMLInputElement || active instanceof HTMLButtonElement)
+      && event.currentTarget.contains(active) && !active.disabled ? { step: check, failed: false } : null
+    submitFocus.current = attempt
     setPending(true)
     setError(null)
     try {
@@ -60,7 +79,9 @@ export function SignInForm() {
         if (check.signIn === 'google') await signInWithGoogle(email)
         else await signInWithEmail(email, String(password ?? ''))
       }
+      submitFocus.current = null
     } catch (nextError) {
+      if (attempt && submitFocus.current === attempt) attempt.failed = true
       setError(errorMessage(nextError))
     } finally {
       setPending(false)
