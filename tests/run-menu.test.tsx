@@ -17,19 +17,26 @@ import {
   type RunEntry,
   type RunPlate,
 } from '../components/dashboard/use-tag-run'
+import { PlateTagActions } from '../components/dashboard/plate-tag-actions'
+import { TAGGING_MODELS } from '../lib/tagging/models'
+import { formatTaggingModel } from '../lib/client/tagging-models'
 import { ApiError } from '../lib/client/api'
 
 const mocks = vi.hoisted(() => ({
+  mutate: vi.fn().mockResolvedValue(undefined),
+  models: { data: undefined } as { data: { models: typeof TAGGING_MODELS[number][]; default: string } | undefined },
   api: { get: vi.fn(), send: vi.fn() },
   ensure: vi.fn(),
   edit: vi.fn(),
   workspace: { mode: 'personal' } as { mode: 'personal' } | { mode: 'selected'; id: string; status: string; detail?: { batch: { state: string } } },
   detail: { plates: [] as { proposed: RunPlate }[] },
 }))
+vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), useSWRConfig: () => ({ mutate: mocks.mutate }) }))
 vi.mock('../lib/client/session', () => ({
   useSession: () => ({ api: mocks.api }),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  useTaggingModels: () => mocks.models,
   useEnsureBatch: () => mocks.ensure,
   useWorkspaceBatch: () => mocks.workspace,
   useBatch: () => ({ data: mocks.detail }),
@@ -44,6 +51,10 @@ const plate: RunPlate = {
   tags: ['Blue'],
 }
 beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn()
+  mocks.mutate.mockClear()
+  localStorage.clear()
+  mocks.models.data = { models: [...TAGGING_MODELS], default: 'desktop-gemma4-12b' }
   mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
   mocks.api.send.mockReset().mockImplementation(async (_method, path) => ({
@@ -113,7 +124,7 @@ test('scope counts, default scope, cap, disabled stages, and focus return', asyn
   await waitFor(() => expect(document.activeElement).toBe(trigger))
   fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  expect(start).toHaveBeenCalledWith(plates.slice(0, 25))
+  expect(start).toHaveBeenCalledWith(plates.slice(0, 25), false, 'desktop-gemma4-12b')
 })
 
 test('batch scope uses its own count and plates', () => {
@@ -132,7 +143,7 @@ test('batch scope uses its own count and plates', () => {
     screen.getByRole('button', { name: 'Plates in your batch 1' }),
   )
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  expect(start).toHaveBeenCalledWith([plate])
+  expect(start).toHaveBeenCalledWith([plate], false, 'desktop-gemma4-12b')
 })
 
 test('start ensures once, posts each plate, and treats initial 404 as queued then errors after ten seconds', async () => {
@@ -323,4 +334,60 @@ test('switching workspace clears proposals and ignores an in-flight start respon
   await act(async () => { finish({ jobId: 'old', runId: 'old' }); await start })
   expect(result.current.entries).toEqual([])
   expect(result.current.batchId).toBeNull()
+})
+
+
+test('formats measured labels', () => {
+  expect(formatTaggingModel(TAGGING_MODELS[2])).toBe('Gemma 4 26B \u00b7 AI Gateway \u2014 F1 0.68 \u00b7 ~8 s \u00b7 $0.0003/plate')
+  expect(formatTaggingModel(TAGGING_MODELS[0])).toContain('free, local GPU')
+})
+test.each([undefined, 'gateway-gemma4-26b', 'stale'])('Plate restores choice %s and sends selected model', async stored => {
+  if (stored) localStorage.setItem('tagging-model:v1', stored)
+  render(<PlateTagActions plate={plate} />)
+  expect(screen.getByRole('combobox').textContent).toContain(stored === 'gateway-gemma4-26b' ? 'AI Gateway' : '12B')
+  fireEvent.click(screen.getByRole('combobox'))
+  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run Tag' }))
+  await waitFor(() => expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/batches/batch/plates/MD.one/tagging', { model: 'gateway-gemma4-26b' }))
+  expect(localStorage.getItem('tagging-model:v1')).toBe('gateway-gemma4-26b')
+})
+test.each([true, false])('hides single or loading picker %s', single => {
+  mocks.models.data = single ? { models: [TAGGING_MODELS[0]], default: TAGGING_MODELS[0].id } : undefined
+  render(<PlateTagActions plate={plate} />)
+  expect(screen.queryByRole('combobox')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Run Tag' }).hasAttribute('disabled')).toBe(false)
+})
+test('storage failures allow rendering and selection', () => {
+  const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw Error('blocked') })
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw Error('blocked') })
+  try {
+    render(<PlateTagActions plate={plate} />)
+    fireEvent.click(screen.getByRole('combobox'))
+  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
+    expect(screen.getByRole('combobox').textContent).toContain('AI Gateway')
+  } finally { read.mockRestore(); write.mockRestore() }
+})
+test('disabled model error appears inline on Plate page', async () => {
+  mocks.api.send.mockRejectedValue(new ApiError(422, 'invalid_state', {}))
+  render(<PlateTagActions plate={plate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run Tag' }))
+  await waitFor(() => expect(screen.getByText('That model is no longer available. Choose another.')).toBeTruthy())
+  expect(mocks.mutate).toHaveBeenCalledWith('/api/tagging/models')
+})
+
+test('Run menu passes chosen model and shows availability error beside picker', () => {
+  const start = vi.fn()
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} modelError="That model is no longer available. Choose another." />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(screen.getByRole('alert').textContent).toBe('That model is no longer available. Choose another.')
+  fireEvent.click(screen.getByRole('combobox'))
+  fireEvent.click(screen.getByRole('option', { name: /AI Gateway/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([plate], false, 'gateway-gemma4-26b')
+})
+test('Run menu hides picker with one model', () => {
+  mocks.models.data = { models: [TAGGING_MODELS[0]], default: TAGGING_MODELS[0].id }
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(screen.queryByRole('combobox')).toBeNull()
 })

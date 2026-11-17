@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
@@ -45,6 +46,8 @@ function reason(error: unknown) {
 
 export function useTagRun() {
   const { api } = useSession()
+  const { mutate } = useSWRConfig()
+  const [modelError, setModelError] = useState<string>()
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
   const selection = workspace.mode === 'selected' ? workspace.id : null
@@ -73,6 +76,7 @@ export function useTagRun() {
   const [previousSelection, setPreviousSelection] = useState(selection)
   if (previousSelection !== selection) {
     setPreviousSelection(selection)
+    setModelError(undefined)
     setEntries([])
     setStarting(false)
     setBatchId(null)
@@ -137,6 +141,7 @@ export function useTagRun() {
     const chosen = retry ? lastModel.current : model
     if (!plates.length || posting.current || disabledReason) return
     posting.current = true
+    setModelError(undefined)
     setStarting(true)
     const version = retry ? generation.current : ++generation.current
     const initial = plates
@@ -175,6 +180,10 @@ export function useTagRun() {
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
         } catch (error) {
+          if (error instanceof ApiError && error.status === 422 && error.code === 'invalid_state') {
+            if (version === generation.current) setModelError('That model is no longer available. Choose another.')
+            void mutate('/api/tagging/models').catch(() => undefined)
+          }
           update(plate.id, { error: reason(error) })
         }
       }
@@ -192,5 +201,5 @@ export function useTagRun() {
     setEntries([])
     setStarting(false)
   }
-  return { entries, batchId, disabledReason, starting, start, dismiss }
+  return { modelError, entries, batchId, disabledReason, starting, start, dismiss }
 }

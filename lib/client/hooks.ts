@@ -336,3 +336,8 @@ export function useReorderState() {
 
   return { reorder, pending: pendingCount > 0 }
 }
+
+export function useTaggingModels() {
+  const { user, api } = useSession()
+  return useSWR<import('./tagging-models').TaggingModels>(user ? '/api/tagging/models' : null, api.get)
+}

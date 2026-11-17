@@ -108,7 +108,8 @@ export function BatchActions({
           stateName={stateName}
           disabledReason={run.disabledReason}
           disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
-          start={(plates) => void run.start(plates)}
+          modelError={run.modelError}
+          start={(plates, retry, modelId) => void run.start(plates, retry, modelId)}
         />
         {me.data?.role === 'owner' ? (
           <ComingSoon label="Publish" variant="publish">
