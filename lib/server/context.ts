@@ -19,6 +19,7 @@ import type { Environment, JobsDeps } from '../jobs/types'
 import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
 import type { PublishDeps } from '../publish/types'
+import { expoPushSender, firestoreCatalogPushStore, type CatalogPushDeps } from '../publish/catalog-push'
 import { requireEnv } from '../env'
 import { stagingFirestore } from '../gcp/firestore'
 import { loadSnapshot } from '../gcp/storage'
@@ -160,6 +161,16 @@ export function publishDeps(): PublishDeps {
 
 export function publishAllowed(): boolean {
   return process.env.VERCEL_ENV === 'production' || process.env.ALLOW_PUBLISH === 'true'
+}
+
+export function catalogPushDeps(): CatalogPushDeps {
+  const enabled = process.env.CATALOG_PUSH_ENABLED === 'true'
+  if (enabled && process.env.GCP_PROJECT_ID !== 'license-plate-game-staging') throw new Error('Catalog push requires staging')
+  return {
+    enabled,
+    get store() { return firestoreCatalogPushStore(stagingFirestore()) },
+    send: enabled ? expoPushSender(requireEnv('EXPO_ACCESS_TOKEN')) : async () => [],
+  }
 }
 
 export async function currentWorker(request: Request): Promise<{ ok: true; workerId: string } | { ok: false; response: Response }> {

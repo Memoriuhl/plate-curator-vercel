@@ -37,6 +37,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: tagCache.cacheTag, cacheLife: tagCache.cacheLife, revalidateTag: tagCache.revalidateTag }))
 vi.mock('workflow', () => ({ createHook: mocks.createHook, sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
+vi.mock('../../workflows/catalog-push', () => ({ catalogPush: async () => ({ status: 'disabled', sent: 0, failed: 0, pruned: 0 }) }))
 vi.mock('../../lib/server/context', () => ({
   catalog: () => ({
     readVersion: async () => firestore.version,
@@ -87,7 +88,7 @@ test('a Publish inside the approval run makes the next catalog read fresh', asyn
   mocks.reviewDeps.mockReturnValue({ store: { getBatch: async () => approved } })
   mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
   mocks.publishBatch.mockResolvedValue({ ok: true, value: { toVersion: 15 } })
-  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'published', version: 15 })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'published', version: 15, push: { status: 'disabled', sent: 0, failed: 0, pruned: 0 } })
   expect(tagCache.revalidations).toEqual([['catalog-head', { expire: 0 }]])
   expect((await head()).version).toBe(15)
 })
