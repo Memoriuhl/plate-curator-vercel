@@ -388,13 +388,24 @@ export function firestorePublishPointer(db: Firestore, env: string, verifyObject
 
 export function firestorePublishCurator(db: Firestore, env: string): PublishCurator {
   return {
-    async writeStateOrders(orders, lease, now) {
+    async writeStateOrders(orders, lease, now, record, live) {
       return db.runTransaction(async transaction => {
         const ref = db.doc('curator/workflow')
-        const [lock, workflow] = await transaction.getAll(db.doc('locks/publish'), ref)
+        const [lock, workflow, pointer, receipt] = await transaction.getAll(db.doc('locks/publish'), ref, db.doc('config/catalog'), db.doc('publishRecords/' + record.id))
         if (!active(lock.data(), lease.token, env, now) || lock.get('batchId') !== lease.batchId || lock.get('revision') !== lease.revision) return 'lock_lost'
-        if (Object.keys(orders).length > 0) {
-          transaction.set(ref, { stateOrder: { ...workflow.get('stateOrder'), ...orders } }, { mergeFields: ['stateOrder'] })
+        if (record.id !== receiptId(lease.batchId, lease.revision) || receipt.get('env') !== env || !receipt.get('committedAt') || receipt.get('batchId') !== lease.batchId || receipt.get('revision') !== lease.revision || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('commandId') !== record.commandId) return 'unavailable'
+        if (!Number.isSafeInteger(pointer.get('version'))) return 'unavailable'
+        const stateOrder = { ...workflow.get('stateOrder') }
+        const stateOrderVersion = { ...workflow.get('stateOrderVersion') }
+        const legacy = Object.keys(orders).filter(state => typeof stateOrderVersion[state] !== 'number' && Object.hasOwn(stateOrder, state) && pointer.get('version') > record.toVersion)
+        if (legacy.length && (!live || live.version !== pointer.get('version') || live.blobSha256 !== pointer.get('blobSha256'))) return 'reconcile'
+        const writes = Object.entries(orders).filter(([state]) => typeof stateOrderVersion[state] !== 'number' || stateOrderVersion[state] <= record.toVersion)
+        for (const [state, order] of writes) {
+          stateOrder[state] = legacy.includes(state) ? live!.orders[state] : order
+          stateOrderVersion[state] = legacy.includes(state) ? live!.version : record.toVersion
+        }
+        if (writes.length > 0) {
+          transaction.set(ref, { stateOrder, stateOrderVersion }, { mergeFields: ['stateOrder', 'stateOrderVersion'] })
         }
         return 'ok'
       })
