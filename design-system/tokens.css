@@ -11,6 +11,7 @@
   --primary: #202826;
   --on-primary: #FFFFFF;
   --success: #0E6B45;
+  --tag-ink: #0E6B45;
   --success-tint: #E3F1EA;
   --warning: #A86F00;
   --warning-ink: #6B4A00;
@@ -61,6 +62,7 @@
   --primary: #E2E7E4;
   --on-primary: #121715;
   --success: #64D9A0;
+  --tag-ink: #FFFFFF;
   --success-tint: #234B38;
   --warning: #E0A812;
   --warning-ink: #EBC067;
@@ -107,6 +109,7 @@
     --primary: #E2E7E4;
     --on-primary: #121715;
     --success: #64D9A0;
+    --tag-ink: #FFFFFF;
     --success-tint: #234B38;
     --warning: #E0A812;
     --warning-ink: #EBC067;

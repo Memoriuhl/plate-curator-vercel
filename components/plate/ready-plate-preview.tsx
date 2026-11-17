@@ -50,7 +50,7 @@ function shortenValue(value: string) {
 
 export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; checkKey: PlateCheckKey; parent?: string }) {
   const value = plate.checks[checkKey].value
-  if (checkKey === 'tags') return plate.tags.length ? <div className="flex flex-wrap gap-1">{plate.tags.map(tag => <span className="rounded-full bg-[var(--fill)] px-2 py-0.5" key={tag}>{tag}</span>)}</div> : <>None</>
+  if (checkKey === 'tags') return plate.tags.length ? <div className="flex flex-wrap gap-1">{plate.tags.map(tag => <span className="rounded-full bg-[var(--fill)] px-2 py-0.5 text-[var(--tag-ink)]" key={tag}>{tag}</span>)}</div> : <>None</>
   if (checkKey === 'family') return <>{plate.templateFamily ? `${plate.templateFamily}${plate.templateRole ? ` · ${plate.templateRole === 'variant' && parent ? `variant of ${parent}` : plate.templateRole}` : ''}` : 'Missing'}</>
   if (checkKey === 'image') {
     const filename = plate.imageUrl?.split(/[?#]/, 1)[0].split('/').at(-1)

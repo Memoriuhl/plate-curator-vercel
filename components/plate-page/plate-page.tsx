@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSWRConfig } from 'swr'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -15,8 +15,18 @@ import {
   IoPricetagOutline,
   IoStarOutline,
 } from 'react-icons/io5'
+import { groupFamilies } from '@/components/dashboard/family-data'
 import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
 import { PlateTagActions } from '@/components/dashboard/plate-tag-actions'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { RarityMark } from '@/components/plate/rarity-mark'
 import { cn } from '@/components/utils'
@@ -142,7 +152,7 @@ function Member({
     <Link
       href={href}
       className={cn(
-        'flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2',
+        'flex min-w-0 flex-1 items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 hover:bg-[var(--fill)] focus-visible:bg-[var(--fill)]',
         selected && 'bg-[var(--fill)]',
       )}
     >
@@ -162,7 +172,7 @@ function Member({
         {plate.displayName}
       </span>
       <span className="caption text-[var(--ink-2)]">
-        {plate.templateRole === 'template' ? 'TEMPLATE' : 'variant'}
+        {plate.templateRole === 'template' ? 'Template' : 'Variant'}
       </span>
     </Link>
   )
@@ -179,6 +189,8 @@ export function PlatePage(props: PlatePageProps) {
   const plates = useDraftOverlay(cards)
   const [tag, setTag] = useState('')
   const [tagPlate, setTagPlate] = useState<PlateCardData | null>(null)
+  const addTrigger = useRef<HTMLButtonElement | null>(null)
+  const [addingTemplate, setAddingTemplate] = useState<PlateCardData | null>(null)
   const [filter, setFilter] = useState('')
   const [issue, setIssue] = useState<Issue | null>(null)
   const [status, setStatus] = useState('')
@@ -191,8 +203,15 @@ export function PlatePage(props: PlatePageProps) {
       ? member.templateFamily === current.templateFamily
       : member.id === current.id,
   )
-  const familyIds = new Set(family.map((member) => member.id))
-  const others = plates.filter((member) => !familyIds.has(member.id))
+  const others = useMemo(() => {
+    const outside = plates.filter(member => current.templateFamily
+      ? member.templateFamily !== current.templateFamily
+      : member.id !== current.id)
+    return [...outside.filter(member => member.templateRole !== 'template'), ...outside.filter(member => member.templateRole === 'template')]
+  }, [plates, current.templateFamily, current.id])
+  const linkedVariantCount = useMemo(() => addingTemplate
+    ? groupFamilies(plates).find(family => family.template.id === addingTemplate.id)?.variants.length ?? 0
+    : 0, [plates, addingTemplate])
   const filtered = others.filter((member) =>
     `${member.displayName} ${member.id}`
       .toLowerCase()
@@ -227,6 +246,15 @@ export function PlatePage(props: PlatePageProps) {
       setStatus('Could not save. Check your connection and try again.')
     }
     return false
+  }
+
+  async function addToFamily(member: PlateCardData) {
+    if (blocked || !current.templateFamily) return
+    await save(member, {
+      templateFamily: current.templateFamily,
+      templateRole: 'variant',
+      ...(template ? { variantOfPlateId: template.id } : {}),
+    })
   }
 
   function fieldIssue(field: keyof EditableFields, id = current.id) {
@@ -272,10 +300,23 @@ export function PlatePage(props: PlatePageProps) {
   return (
     <div className="grid min-w-0 gap-4">
       <SelectedBatchBar />
+      <AlertDialog open={addingTemplate !== null} onOpenChange={open => { if (!open) setAddingTemplate(null) }}>
+        <AlertDialogContent onCloseAutoFocus={event => { event.preventDefault(); addTrigger.current?.focus() }}>
+          <AlertDialogTitle>Add {addingTemplate?.displayName} to this family?</AlertDialogTitle>
+          <AlertDialogDescription>
+            It stops being a Template. Its {linkedVariantCount} Variants keep their existing family and template links; they are not moved with it.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={blocked || !current.templateFamily} onClick={() => { if (addingTemplate) void addToFamily(addingTemplate) }}>Add to family</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <Link
             href={stateHref}
+            aria-label={`Back to ${props.stateName}`}
             onClick={(event) => {
               if (props.fromState) {
                 event.preventDefault()
@@ -285,7 +326,7 @@ export function PlatePage(props: PlatePageProps) {
             className="label flex items-center gap-2"
           >
             <IoChevronBack />
-            {props.stateName}
+            {plate.state}
           </Link>
           <h1 className="page-title">{current.displayName}</h1>
           <span className="id text-[var(--ink-2)]">
@@ -381,7 +422,7 @@ export function PlatePage(props: PlatePageProps) {
               {current.tags.map((value) => (
                 <span
                   key={value}
-                  className="label inline-flex items-center gap-2 rounded-full bg-[var(--fill)] px-3 py-1"
+                  className="label inline-flex items-center gap-2 rounded-full bg-[var(--fill)] px-3 py-1 text-[var(--tag-ink)]"
                 >
                   {value}
                   <button
@@ -587,15 +628,12 @@ export function PlatePage(props: PlatePageProps) {
                       variant="ghost"
                       size="icon"
                       disabled={blocked || !current.templateFamily}
-                      onClick={() =>
-                        void save(member, {
-                          templateFamily: current.templateFamily!,
-                          templateRole: 'variant',
-                          ...(template
-                            ? { variantOfPlateId: template.id }
-                            : {}),
-                        })
-                      }
+                      onClick={event => {
+                        if (member.templateRole === 'template') {
+                          addTrigger.current = event.currentTarget
+                          setAddingTemplate(member)
+                        } else void addToFamily(member)
+                      }}
                     >
                       <IoAdd />
                     </Button>
