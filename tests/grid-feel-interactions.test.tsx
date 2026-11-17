@@ -24,20 +24,21 @@ test('plate pointer intent and focus prefetch each plate once', () => {
   fireEvent.pointerEnter(links[0])
   fireEvent.focus(links[0])
   fireEvent.focus(links[1])
+  fireEvent.focus(links[2])
   expect(prefetch.mock.calls).toEqual([['/plates/' + plateCards[0].id], ['/plates/' + plateCards[1].id]])
 })
 
-test('image hover and plate focus anchor preview to the image', () => {
+test('image pointer hover anchors preview and focus leaves it closed', () => {
   const preview = vi.fn()
   const close = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} onClosePreview={close} />)
   const button = view.container.querySelector('[data-plate-image]')!
-  fireEvent.mouseEnter(button)
+  fireEvent.pointerEnter(button)
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], button, false)
-  fireEvent.mouseLeave(button)
+  fireEvent.pointerLeave(button)
   expect(close).toHaveBeenCalledOnce()
-  fireEvent.focus(view.getByRole('link'))
-  expect(preview).toHaveBeenLastCalledWith(plateCards[0], view.container.querySelector('[data-plate-image]'), true)
+  fireEvent.focus(view.getAllByRole('link')[0])
+  expect(preview).toHaveBeenCalledOnce()
 })
 
 function grid() {
@@ -90,18 +91,18 @@ test('preview stays closed while its plate image is dropping', () => {
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
   const image = view.container.querySelector('[data-plate-image]')!
   image.getAnimations = () => [{ playState: 'running', pending: false }] as Animation[]
-  fireEvent.mouseEnter(image)
-  fireEvent.focus(view.getByRole('link'))
+  fireEvent.pointerEnter(image)
+  fireEvent.focus(view.getAllByRole('link')[0])
   expect(preview).not.toHaveBeenCalled()
 })
 
 test('shared intent registry prevents repeated prefetch after virtualized remount', () => {
   const ids = new Set<string>()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} prefetchedIds={ids} />)
-  fireEvent.pointerEnter(view.getByRole('link'))
+  fireEvent.pointerEnter(view.getAllByRole('link')[0])
   view.unmount()
   const remounted = render(<FamilyCard template={plateCards[0]} variants={[]} prefetchedIds={ids} />)
-  fireEvent.pointerEnter(remounted.getByRole('link'))
+  fireEvent.pointerEnter(remounted.getAllByRole('link')[0])
   expect(prefetch).toHaveBeenCalledOnce()
 })
 
@@ -227,19 +228,19 @@ test('check strip suppresses breakdown while delegating unfocusable icon hover',
   expect(icon.tabIndex).toBe(-1)
 })
 
-test('only image hover and link focus open breakdown; text and container do not', () => {
+test('only image pointer hover opens breakdown; links, focus and container do not', () => {
   const preview = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
-  for (const element of [view.getByRole('article'), view.getByRole('link'), view.getByRole('heading')]) {
+  for (const element of [view.getByRole('article'), view.getAllByRole('link')[0], view.getByRole('heading')]) {
     fireEvent.mouseOver(element)
-    fireEvent.mouseEnter(element)
+    fireEvent.pointerEnter(element)
   }
   expect(preview).not.toHaveBeenCalled()
   const image = view.container.querySelector<HTMLElement>('[data-plate-image]')!
-  fireEvent.mouseEnter(image)
+  fireEvent.pointerEnter(image)
   expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, false)
-  fireEvent.focus(view.getByRole('link'))
-  expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, true)
+  fireEvent.focus(view.getAllByRole('link')[0])
+  expect(preview).toHaveBeenCalledOnce()
   expect(view.queryByRole('button', { name: 'Preview ' + plateCards[0].displayName })).toBeNull()
 })
 
