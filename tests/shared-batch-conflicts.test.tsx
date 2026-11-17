@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, Profiler, useContext } from 'react'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { SWRConfig } from 'swr'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -158,9 +158,9 @@ test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s prom
     const second = render(<Workspace actor={owner} />)
     await ready(first); await ready(second)
     targetRects(first.container)
-    const handle = within(first.container).getByRole('button', { name: 'Move Variant' })
+    const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
     if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540, 100) }
-    else { fireEvent.keyDown(handle, { key: ' ' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
+    else { fireEvent.keyDown(handle, { key: ' ', shiftKey: true }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
     const order = ['AK.b', 'AK.a', 'AK.v']
     const revision = (await deps.store.getBatch('shared'))!.revision
     await act(async () => {
@@ -177,7 +177,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s prom
     expect(requests.filter(r => r.method === 'PUT').at(-1)?.body).toMatchObject({ batchRevision: revision, promotion: { plateId: 'AK.v' } })
     if (change === 'order') expect((await deps.store.getBatch('shared'))!.stateOrders.AK).toEqual(order)
     if (change === 'order') expect(Array.from(first.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.b', 'AK.a'])
-    if (mode === 'keyboard') await waitFor(() => expect(document.activeElement).toBe(within(first.container).getByRole('button', { name: 'Move Variant' })))
+    if (mode === 'keyboard') await waitFor(() => expect(document.activeElement).toBe(first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!))
     cleanup()
   }
 })
@@ -187,9 +187,9 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   const second = render(<Workspace actor={owner} />)
   await ready(first); await ready(second)
   targetRects(first.container)
-  const handle = within(first.container).getByRole('button', { name: 'Move Variant' })
+  const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540) }
-  else { fireEvent.keyDown(handle, { key: ' ' }); fireEvent.keyDown(window, { key: 'ArrowRight' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
+  else { fireEvent.keyDown(handle, { key: ' ', shiftKey: true }); fireEvent.keyDown(window, { key: 'ArrowRight' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
   expect((await reorderState(deps, owner, { batchId: 'other', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })).ok).toBe(true)
   if (mode === 'pointer') pointer(handle, 'pointerup', 540)
   else fireEvent.keyDown(window, { key: ' ' })
@@ -233,7 +233,7 @@ test('remote update during an active drag is deferred, then applied with the ori
   const second = render(<Workspace actor={owner} page index={2} />)
   await ready(first); await ready(second)
   targetRects(first.container)
-  const handle = button(first, 'Move Variant')
+  const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 110)
   fireEvent.click(button(second, 'Add Variant to family'))
   await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
@@ -342,4 +342,37 @@ test('an unresolved conflict keeps the proposal until an explicit resolution', a
   expect((button(second, 'Template') as HTMLButtonElement).disabled).toBe(true)
   expect(box(second, 'Add tag').disabled).toBe(true)
   expect(within(second.container).getByRole('alert').textContent).toContain('Proposed: My story')
+})
+
+
+test.each(['background', 'background gap', 'Backspace'] as const)('%s promotion never renders the new family first or logs a runtime issue', async mode => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const frames: string[][] = []
+  try {
+    const view = render(<Profiler id="promotion" onRender={() => {
+      frames.push(Array.from(document.querySelectorAll<HTMLElement>('[data-drag-family]')).map(element => element.dataset.dragFamily!))
+    }}><Workspace actor={editor} /></Profiler>)
+    await ready(view)
+    targetRects(view.container)
+    const row = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+    if (mode.startsWith('background')) {
+      const x = mode === 'background' ? 700 : 275
+      pointer(row.querySelector('[data-plate-image]')!, 'pointerdown', 100)
+      pointer(row, 'pointermove', x)
+      pointer(row, 'pointerup', x)
+    } else {
+      fireEvent.click(row)
+      fireEvent.keyDown(window, { key: 'Backspace' })
+    }
+    const expected = mode === 'background' ? ['AK.a', 'AK.b', 'AK.v'] : ['AK.a', 'AK.v', 'AK.b']
+    await waitFor(() => expect((view.container.querySelector('[data-drag-family="AK.v"]'))).not.toBeNull())
+    await waitFor(async () => expect((await deps.store.getBatch('shared'))?.stateOrders.AK).toEqual(expected))
+    await waitFor(() => expect(view.container.textContent).toContain('1 plate is now a Template'))
+    expect(frames.some(frame => frame.includes('AK.v'))).toBe(true)
+    expect(frames.filter(frame => frame.includes('AK.v')).every(frame => JSON.stringify(frame) === JSON.stringify(expected))).toBe(true)
+    expect(Array.from(view.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(element => element.dataset.dragFamily)).toEqual(expected)
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  } finally { error.mockRestore(); warn.mockRestore() }
 })

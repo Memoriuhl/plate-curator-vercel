@@ -31,7 +31,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
       focusedIndex,
       gapIndex,
     ])].filter(index => index >= 0).sort((a, b) => a - b),
-    initialRect: { width: 240, height: 600 },
+    initialRect: { width: 240, height: 5.5 * VARIANT_ROW_HEIGHT + 5 * VARIANT_ROW_GAP },
     estimateSize: () => VARIANT_ROW_HEIGHT,
     gap: VARIANT_ROW_GAP,
     overscan: 2,
@@ -88,7 +88,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
       if (!event.currentTarget.contains(event.relatedTarget) && !keyboard) setFocusedId(null)
     }}
   >
-    <div className={virtualized ? 'relative' : 'flex flex-col gap-3'} style={virtualized ? { height: virtualizer.getTotalSize() } : undefined}>
+    <div className={virtualized ? 'relative' : 'flex flex-col gap-2'} style={virtualized ? { height: virtualizer.getTotalSize() } : undefined}>
       {virtualized ? items.map(item => row(item.index, item.start)) : plates.map((_, index) => row(index))}
     </div>
   </div>

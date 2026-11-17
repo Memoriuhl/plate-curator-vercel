@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useSyncExternalStore, type MouseEvent, type HTMLAttributes } from 'react'
+import { groupFamilies } from './family-data'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
 export function createPlateSelection() {
@@ -10,6 +11,7 @@ export function createPlateSelection() {
   let visible: PlateCardData[] = []
   let loaded: PlateCardData[] = []
   const states = new Map<string, PlateCardData[]>()
+  let templatesWithVariants = new Set<string>()
   const listeners = new Set<() => void>()
   const publish = (next: readonly PlateCardData[]) => { selected = next.filter(plate => !plate.deleted); ids = new Set(selected.map(plate => plate.id)); listeners.forEach(listener => listener()) }
   return {
@@ -17,12 +19,14 @@ export function createPlateSelection() {
     snapshot: () => selected,
     has: (id: string) => ids.has(id),
     loaded: () => loaded,
+    hasVariants: (id: string) => templatesWithVariants.has(id),
     statePlates: (state: string) => states.get(state) ?? [],
     replace(plates: readonly PlateCardData[]) { publish(plates) },
     register(plates: PlateCardData[]) {
       if (loaded === plates) return
       loaded = plates
       for (const [state, group] of Map.groupBy(plates, plate => plate.state)) states.set(state, group)
+      templatesWithVariants = new Set([...states.values()].flatMap(groupFamilies).filter(family => family.variants.length).map(family => family.template.id))
       const fresh = new Map(plates.map(plate => [plate.id, plate]))
       const next = selected.map(plate => fresh.get(plate.id) ?? plate)
       if (next.some((plate, index) => plate.deleted || plate !== selected[index])) publish(next)
@@ -58,28 +62,22 @@ export function usePlateSelected(id: string) { return useSyncExternalStore(plate
 export function selectionInput(target: EventTarget | null) {
   return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]')
 }
-export function SelectionPlate({ id, children, disabled = false }: { id: string; children: ReactNode; disabled?: boolean }) {
+export function SelectionPlate({ id, children, disabled = false, highlight = true, className = '', ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'id'> & { id: string; disabled?: boolean; highlight?: boolean }) {
   const selected = usePlateSelected(id)
+  const statusId = useId()
   function select(event: MouseEvent) {
-    if (!event.ctrlKey && !event.metaKey && !event.shiftKey) return
+    const target = event.target as Element
+    if (target.closest('button, input, [data-plate-open]')) return
+    if (target.closest('a') && !event.ctrlKey && !event.metaKey && !event.shiftKey) return
     event.preventDefault()
     event.stopPropagation()
     if (!disabled) plateSelection.select(id, event)
   }
-  return <div onClickCapture={select} className={'group/selection relative ' + (selected ? 'rounded-[var(--radius-sm)] ring-2 ring-[var(--primary)]' : '')}>
+  return <div {...props} tabIndex={0} data-selected={selected} aria-describedby={statusId} aria-disabled={disabled} onClickCapture={select}
+    className={'relative select-none rounded-[var(--radius-sm)] transition-shadow focus-visible:outline-2 focus-visible:outline-[var(--primary)] ' + (selected && highlight ? 'bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ring-2 ring-[var(--primary)] ' : 'hover:ring-1 hover:ring-[var(--hairline)] ') + className}>
     {children}
+    <span id={statusId} className="sr-only">{selected ? 'Selected' : 'Not selected'}</span>
   </div>
-}
-
-export function SelectionCheckbox({ id, disabled = false, imageOffset = 0 }: { id: string; disabled?: boolean; imageOffset?: number }) {
-  const selected = usePlateSelected(id)
-  return <input type="checkbox" aria-label={'Select ' + id} checked={selected} disabled={disabled}
-    title={disabled ? 'Does not match the current filters' : 'Select plate'}
-    data-plate-selection style={{ left: imageOffset + 4 }}
-    className="absolute top-1 left-1 z-10 size-4 accent-[var(--primary)] opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 in-data-[has-selection=true]:opacity-100"
-    onPointerDown={event => event.stopPropagation()}
-    onClick={event => { event.stopPropagation(); plateSelection.select(id, { ctrlKey: true }) }}
-    onChange={() => {}} />
 }
 
 export function useSelectionKeyboard({ close, promote, disabled, dragging = false }: { close(): void; promote(): Promise<void>; disabled: boolean; dragging?: boolean }) {
@@ -101,6 +99,16 @@ export function useSelectionKeyboard({ close, promote, disabled, dragging = fals
 }
 
 export function SelectionPresence() {
+  useEffect(() => {
+    function dismiss(event: globalThis.MouseEvent) {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
+      const target = event.target
+      if (target instanceof Element && target.closest('a, button, input, textarea, select, label, nav, [role="button"], [role="tab"], [role="option"], [data-selection-controls], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], #plate-breakdown-preview')) return
+      plateSelection.clear()
+    }
+    window.addEventListener('click', dismiss)
+    return () => window.removeEventListener('click', dismiss)
+  }, [])
   const any = useSyncExternalStore(plateSelection.subscribe, () => plateSelection.snapshot().length > 0, () => false)
   useEffect(() => {
     document.documentElement.dataset.hasSelection = String(any)
@@ -108,3 +116,9 @@ export function SelectionPresence() {
   }, [any])
   return null
 }
+
+export function SelectionFamily({ id, className = '', ...props }: Omit<HTMLAttributes<HTMLElement>, 'id'> & { id: string }) {
+  const selected = usePlateSelected(id)
+  return <article {...props} data-selected={selected} className={className + (selected ? ' ring-2 ring-[var(--primary)]' : '')} />
+}
+

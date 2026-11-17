@@ -6,7 +6,7 @@ import { JurisdictionCard } from '@/components/dashboard/jurisdiction-card'
 import { plateCards } from '../fixtures/plate-cards'
 import { Profiler } from 'react'
 import { afterEach, vi, describe, it, expect } from 'vitest'
-import { createPlateSelection, plateSelection, SelectionPlate, SelectionCheckbox, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
+import { createPlateSelection, plateSelection, SelectionPlate, SelectionPresence, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 const plates = ['a', 'b', 'c'].map(id => ({ id, state: 'NY' }) as PlateCardData)
 describe('dashboard selection', () => {
@@ -41,10 +41,10 @@ afterEach(() => { cleanup(); plateSelection.clear() })
 it('modifier clicks select without opening a plate and unrelated plates do not render', () => {
   plateSelection.visible(plates)
   const renderA = vi.fn(), renderB = vi.fn()
-  render(<><Profiler id="a" onRender={renderA}><SelectionPlate id="a"><SelectionCheckbox id="a" /><a href="/a">Open A</a></SelectionPlate></Profiler><Profiler id="b" onRender={renderB}><SelectionPlate id="b"><SelectionCheckbox id="b" />B</SelectionPlate></Profiler></>)
+  render(<><Profiler id="a" onRender={renderA}><SelectionPlate id="a"><a href="/a">Open A</a></SelectionPlate></Profiler><Profiler id="b" onRender={renderB}><SelectionPlate id="b">B</SelectionPlate></Profiler></>)
   renderA.mockClear(); renderB.mockClear()
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Select a' }))
-  expect((screen.getByRole('checkbox', { name: 'Select a' }) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(screen.getByText('Open A').closest('[tabindex="0"]')!)
+  expect(screen.getByText('Open A').closest('[tabindex="0"]')?.getAttribute('data-selected')).toBe('true')
   expect(renderA).toHaveBeenCalledTimes(1)
   expect(renderB).not.toHaveBeenCalled()
   fireEvent.click(screen.getByText('Open A'), { ctrlKey: true })
@@ -77,11 +77,14 @@ vi.mock('next/link', () => ({ useLinkStatus: () => ({ pending: false }), default
 
 it('groups cross-state selections and outlines the matching jurisdiction', () => {
   plateSelection.add([{ ...plateCards[0], id: 'NY.a', state: 'NY', displayName: 'New York' }, { ...plateCards[0], id: 'NJ.b', state: 'NJ', displayName: 'New Jersey' }])
-  render(<><SelectionBar promote={vi.fn()} disabled={false} /><JurisdictionCard jurisdiction={{ code: 'NJ', name: 'New Jersey', region: 'us', plateCount: 1, completeCount: 0, progress: null }} /></>)
+  render(<><SelectionBar /><JurisdictionCard jurisdiction={{ code: 'NJ', name: 'New Jersey', region: 'us', plateCount: 1, completeCount: 0, progress: null }} /></>)
   expect(screen.getByRole('link').className).toContain('outline-2')
   const bar = screen.getByLabelText('Plate selection')
   expect(bar.className).toContain('fixed')
   expect(bar.className).toContain('bottom-4')
+  expect(bar.className).toContain('selection-bar')
+  expect(screen.queryByRole('button', { name: 'Promote to Template' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Run pipeline on selection' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '2 selected' }))
   expect(screen.getByRole('heading', { name: 'NY (1)' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'NJ (1)' })).toBeTruthy()
@@ -141,11 +144,10 @@ it('preserves selection when Escape is handled, in a popover, in an input, or du
   expect(plateSelection.snapshot()).toHaveLength(3)
 })
 
-it('dimmed plates have disabled checkboxes and are excluded from ranges', () => {
+it('dimmed rows disable selection and are excluded from ranges', () => {
   plateSelection.visible([plates[0], plates[2]])
-  render(<SelectionPlate id="b" disabled><SelectionCheckbox id="b" disabled /><a href="/b">Dimmed</a></SelectionPlate>)
-  expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
-  expect(screen.getByRole('checkbox').title).toBe('Does not match the current filters')
+  render(<SelectionPlate id="b" disabled><a href="/b">Dimmed</a></SelectionPlate>)
+  expect(screen.getByText('Dimmed').closest('[tabindex="0"]')?.getAttribute('aria-disabled')).toBe('true')
   fireEvent.click(screen.getByRole('link'), { ctrlKey: true })
   expect(plateSelection.has('b')).toBe(false)
   act(() => { plateSelection.select('a'); plateSelection.select('c', { shiftKey: true }) })
@@ -221,4 +223,22 @@ it('Backspace with only Templates selected announces No Variants selected', asyn
   expect(screen.getByText('No Variants selected')).toBeTruthy()
   expect(edit).not.toHaveBeenCalled()
   expect(move).not.toHaveBeenCalled()
+})
+
+it('clears selection on an unmodified background click, preserving modified clicks, controls and navigation', () => {
+  plateSelection.visible(plates)
+  render(<><SelectionPresence /><div>Background</div><nav><a href="#nj">NJ</a></nav><button>Chip</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
+  act(() => plateSelection.add(plates))
+  for (const modifiers of [{ ctrlKey: true }, { shiftKey: true }, { metaKey: true }]) {
+    fireEvent.click(screen.getByText('Background'), modifiers)
+    expect(plateSelection.snapshot()).toHaveLength(3)
+  }
+  fireEvent.click(screen.getByRole('button', { name: '3 selected' }))
+  fireEvent.click(screen.getByRole('link', { name: 'NJ' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Chip' }))
+  expect(plateSelection.snapshot()).toHaveLength(3)
+  fireEvent.click(screen.getByText('Plate a'))
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['b', 'c'])
+  fireEvent.click(screen.getByText('Background'))
+  expect(plateSelection.snapshot()).toHaveLength(0)
 })

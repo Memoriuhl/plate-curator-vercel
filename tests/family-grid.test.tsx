@@ -80,7 +80,7 @@ describe('filters', () => {
   })
 })
 
-test('one link per plate with nonfocusable status glyphs and touch previews', () => {
+test('image and title links with nonfocusable status glyphs', () => {
   const html = renderToStaticMarkup(
     <FamilyCard
       template={head}
@@ -89,15 +89,15 @@ test('one link per plate with nonfocusable status glyphs and touch previews', ()
       onPreview={() => {}}
     />,
   )
-  expect(html.match(/<a /g)).toHaveLength(2)
+  expect(html.match(/<a /g)).toHaveLength(4)
   expect(html).toContain('href="/plates/head"')
   expect(html).not.toContain('aria-label="Preview ')
-  expect(html).not.toContain('tabindex="0"')
+  expect(html.match(/tabindex="0"/g)).toHaveLength(2)
   expect(html.match(/role="img"/g)).toHaveLength(14)
 })
 
-test('hover preview contains identity, description, all checks, chips and overflow', () => {
-  const plate = { ...base, tags: ['one', 'two', 'three', 'four'] }
+test('hover preview contains identity, full description and fun facts, all checks and every tag', () => {
+  const plate = { ...base, tags: ['one', 'two', 'three', 'four'], checks: { ...base.checks, funFacts: { status: 'good' as const, value: 'First fact\nSecond fact' } } }
   const html = renderToStaticMarkup(
     <PlateHoverContent plate={plate} parent="Parent" left={8} top={8} />,
   )
@@ -112,12 +112,16 @@ test('hover preview contains identity, description, all checks, chips and overfl
     'Family',
     'Image',
     'Rarity',
-    '+1',
+    'four',
+    '<li>First fact</li>',
+    '<li>Second fact</li>',
     'Click to open',
   ])
     expect(html).toContain(value)
   if (plate.checks.description.value)
     expect(html).toContain(plate.checks.description.value)
+  expect(html).not.toContain('h-[492px]')
+  expect(html).not.toContain('+1')
 })
 
 test('explicit parent references support legacy templates without a role', () => {
@@ -176,7 +180,7 @@ test('large families server-render only a bounded variant window and retain the 
   const html = renderToStaticMarkup(
     <FamilyCard template={head} variants={variants} />,
   )
-  const links = html.match(/<a /g) ?? []
+  const links = html.match(/data-plate-row=/g) ?? []
   expect(links.length).toBeGreaterThan(1)
   expect(links.length).toBeLessThan(15)
   expect(html).toContain('aria-setsize="990"')

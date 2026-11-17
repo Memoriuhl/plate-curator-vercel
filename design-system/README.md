@@ -37,7 +37,9 @@ Two families. **Overpass** (Google Fonts, 400–900 with italics) handles all in
 
 ### Spacing, radius and density
 
-- 4px base. Cards sit 16px apart, and page gutters are 24px on desktop and at least 16px at phone width.
+- 4px base. Page gutters are 24px on desktop and at least 16px at phone width.
+- **One stack gap.** Every component stacked on a page (review strip, search, state header with its batch actions, filter row, card grid) is separated by `--stack-gap` (16px), and cards in a grid sit the same 16px apart. Layout containers own that spacing with `gap`; components carry no outer margins, so the rhythm stays equal when one is added or removed.
+- Inside a component, use the smaller steps: 8px between controls or chips in a row, 12px between a thumbnail and its text or between groups in a bar.
 - Radius follows the game: pills for every control, `radius-lg` (20px) for floating surfaces, and `radius-xl` (28px) for dialogs.
 - The dashboard is meant to fit a state on screen: 140×70px plate thumbnails on template cards, 84×42px on variant rows, and three family cards per row at 1440px.
 

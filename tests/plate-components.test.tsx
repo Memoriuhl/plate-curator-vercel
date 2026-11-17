@@ -69,12 +69,13 @@ describe('PlateRow', () => {
 })
 
 describe('FamilyCard', () => {
-  test('renders a singleton with Standard star and an inert handle', () => {
+  test('renders a singleton with Standard star and native image dragging disabled', () => {
     const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[]} />)
     expect(html).toContain('aria-label="Standard plate"')
     expect(html).toContain('width="140" height="70"')
     expect(html.match(/role="img"/g)).toHaveLength(7)
-    expect(html).not.toContain('draggable')
+    expect(html.match(/draggable="false"/g)).toHaveLength(2)
+    expect(html).not.toContain('draggable="true"')
   })
   test('renders all six family members and the grouping note', () => {
     const members = plateCards.slice(1, 7)
@@ -110,20 +111,38 @@ test('plate images skip the optimizer because the source files are already pre-s
 })
 
 
-test('smallest check tier fits its lower container breakpoint', () => {
+test('every check tier fits seven icons and their gaps in its narrowest width', () => {
   const css = readFileSync('app/globals.css', 'utf8')
-  const tiers = [...css.matchAll(/@container plate-checks \(width < (\d+)px\) \{([\s\S]*?)\n\}/g)]
-  const smallest = tiers.at(-1)!
-  const icon = Number(smallest[2].match(/width: (\d+)px/)![1])
-  const gap = Number(tiers.flatMap(tier => [...tier[2].matchAll(/gap: (\d+)px/g)]).at(-1)![1])
-  expect(PLATE_CHECK_KEYS.length * icon + (PLATE_CHECK_KEYS.length - 1) * gap).toBeLessThanOrEqual(Number(smallest[1]))
+  const base = css.match(/\.family-plate-details \[data-check-strip\] \{\s*gap: (\d+)px;/)!
+  const tiers = [...css.matchAll(/@container plate-checks \(width < (\d+)px\) \{([\s\S]*?)\n\}/g)].map(([, below, body]) => ({ below: Number(below), icon: body.match(/width: (\d+)px/)?.[1], gap: body.match(/gap: (\d+)px/)?.[1] }))
+  const details = css.match(/\.family-plate-details \{[\s\S]*?min-width: (\d+)px;[\s\S]*?padding-right: (\d+)px;/)!
+  let icon = 20
+  let gap = Number(base[1])
+  const steps = [{ min: tiers[0].below, icon, gap }]
+  tiers.forEach((tier, index) => {
+    icon = tier.icon ? Number(tier.icon) : icon
+    gap = tier.gap ? Number(tier.gap) : gap
+    steps.push({ min: tiers[index + 1]?.below ?? Number(details[1]) - Number(details[2]), icon, gap })
+  })
+  for (const step of steps) expect(PLATE_CHECK_KEYS.length * step.icon + (PLATE_CHECK_KEYS.length - 1) * step.gap).toBeLessThanOrEqual(step.min)
+  expect(Math.min(...steps.map(step => step.gap))).toBeGreaterThanOrEqual(2)
 })
 
-test('variant checks span the link width and names use English word wrapping', () => {
+test('every plate keeps its title and checks together beside the image', () => {
   const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[plateCards[1]]} />)
-  expect(html).toContain('family-variant-checks family-plate-details basis-full')
+  expect(html).not.toContain('flex-wrap')
+  expect(html).not.toContain('flex-col @min-')
   expect(html).toContain('lang="en"')
-  expect(html).toContain('[overflow-wrap:break-word]')
-  expect(html).toContain('hyphens-auto')
+  expect(html).toContain('plate-name min-w-0 flex-1 truncate text-[15px]')
+  expect(html).toContain('plate-name min-w-0 flex-1 truncate text-[13px]')
   expect(html).not.toContain('[overflow-wrap:anywhere]')
+})
+
+
+test('narrow cards shrink the image and leave icon sizing to the check tiers', () => {
+  const css = readFileSync('app/globals.css', 'utf8')
+  const narrow = css.match(/@container family-card \(width < 328px\) \{([\s\S]*?)\n\}/)![1]
+  expect(narrow).toContain('--family-image-width')
+  expect(narrow).not.toContain('[data-check]')
+  expect(css).toMatch(/\[data-check\] \{\s*cursor: help;/)
 })
