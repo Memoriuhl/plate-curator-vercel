@@ -169,13 +169,17 @@ target. With no excluded slots, allocation remains `pointer + 1`. Adoption prove
 the receipt's reserved, unburned target and pointer at `fromVersion`, rather than
 requiring adjacency. The blob's internal version always equals its target.
 
-No Snapshot is deleted or overwritten. A delayed old create-only upload may still
+Disposition-only abandonment is a receipt audit record. It never touches committed
+receipts or objects. No Snapshot is deleted or overwritten. A delayed old create-only upload may still
 land in the burned slot, but pointer advancement rejects burned targets and
 abandoned receipts. Command stops also fence retries and late receipt writes.
 Version gaps are safe for consumers: the game requires a newer pointer and a blob
 whose internal version matches it; curator reads use committed versions. Never
-reuse burned numbers. Generation-preconditioned garbage collection of unreferenced
-objects is a separate follow-up, outside this recovery action.
+reuse burned numbers. Any future orphan-object garbage collection must check every
+committed reference across all receipts and the pointer history before deleting
+anything, even when an abandonment or burn marker exists. Deletion must also use
+the object's generation precondition. That work is a separate follow-up, outside
+this recovery action.
 
 Abandon before a fresh click permits a new attempt at the next available version.
 A fresh click that owns a live run wins the opposite order: abandonment is refused
