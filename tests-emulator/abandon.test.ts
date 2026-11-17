@@ -59,13 +59,15 @@ test('failure after staging the archive rolls back the burn, stops, receipt and 
   expect((await f.deps.store.getBatch(batch.id))?.publishAbandonment).toBeUndefined()
 })
 
-test('allocator excludes burned, held stopped, and committed targets across every environment', async () => {
+test('allocator excludes burns and legacy held/committed receipts in other environments without reservation documents', async () => {
   const f = releaseFixture()
   await db.doc('publishVersionBurns/2').set({ receiptId: 'old', object: null })
   const record = { id: 'held', ...command, fromVersion: 1, toVersion: 3, state: 'started', blobSha256: 'held', env: 'another-environment' }
   await db.doc('publishRecords/held').set(record)
   await db.doc('publishCommandStops/command').set({ reason: 'paused' })
   await db.doc('publishRecords/committed').set({ ...record, id: 'committed', toVersion: 4, state: 'done', committedAt: now })
+  expect((await db.doc('publishVersionReservations/3').get()).exists).toBe(false)
+  expect((await db.doc('publishVersionReservations/4').get()).exists).toBe(false)
   const lease = { ...command, token: 'allocation', expiresAt: '2026-11-15T12:01:00Z' }
   expect(await f.deps.lock.claim(lease, now)).toBe(true)
   expect(await f.deps.records.nextVersion(lease.token, now)).toBe(5)
