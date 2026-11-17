@@ -278,6 +278,19 @@ test.each(['loading', 'unavailable', 'read-only'])('selected %s Batch cannot sta
   expect(mocks.edit).not.toHaveBeenCalled()
 })
 
+test('a chosen model is sent with each Tag request and reused on retry', async () => {
+  vi.useFakeTimers()
+  mocks.workspace = { mode: 'selected', id: 'shared', status: 'ready', detail: { batch: { state: 'open' } } }
+  mocks.api.get.mockResolvedValue({ state: 'expired', suggestions: [], inputHash: 'reviewed' })
+  const { result } = renderHook(useTagRun)
+  await act(async () => { await result.current.start([plate], false, 'gateway-gemma4-26b') })
+  expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/shared/plates/MD.one/tagging', { model: 'gateway-gemma4-26b' })
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  await act(async () => { await result.current.start([plate], true) })
+  expect(mocks.api.send).toHaveBeenLastCalledWith('POST', '/api/batches/shared/plates/MD.one/tagging', { model: 'gateway-gemma4-26b' })
+  vi.useRealTimers()
+})
+
 test('selected run uses its Batch and keeps polling, retry and dismiss behavior', async () => {
   vi.useFakeTimers()
   mocks.workspace = { mode: 'selected', id: 'shared', status: 'ready', detail: { batch: { state: 'open' } } }

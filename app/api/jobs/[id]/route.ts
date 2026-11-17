@@ -10,5 +10,5 @@ export async function GET(request: Request, ctx: RouteContext<'/api/jobs/[id]'>)
   const outcome = await getJobForActor(jobsDeps(), auth.actor, id)
   if (!outcome.ok) return respond(outcome)
   const job = outcome.value
-  return json({ id: job.id, batchId: job.batchId, plateId: job.plateId, requestedBy: job.requestedBy, state: job.state, inputHash: job.inputHash, suggestions: job.result?.suggestions ?? [], model: job.result?.model ?? null })
+  return json({ id: job.id, batchId: job.batchId, plateId: job.plateId, requestedBy: job.requestedBy, state: job.state, inputHash: job.inputHash, suggestions: job.result?.suggestions ?? [], model: job.result?.model ?? null, modelId: job.modelId ?? null })
 }

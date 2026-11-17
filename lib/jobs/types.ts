@@ -13,6 +13,7 @@ export type TaggingJob = {
   inputHash: string
   env: Environment
   route?: 'local' | 'hosted'
+  modelId?: string
   createdAt: number
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   claimId?: string

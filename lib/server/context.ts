@@ -11,6 +11,7 @@ import { catalogSourceKind } from '../catalog/source-kind'
 import { getVercelOidcToken } from '@vercel/oidc'
 import { gcpAuthClient } from '../gcp/credentials'
 import type { HostedDeps } from '../jobs/hosted'
+import { DEFAULT_TAGGING_MODEL, taggingModel, type TaggingModel } from '../tagging/models'
 import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
@@ -112,15 +113,17 @@ export function jobsDeps(): JobsDeps {
   }
 }
 
-export function taggingBackend(): 'local' | 'hosted' {
-  return process.env.TAGGING_BACKEND === 'hosted' ? 'hosted' : 'local'
+export function defaultTaggingModel(): TaggingModel {
+  return taggingModel(process.env.TAGGING_DEFAULT_MODEL) ?? taggingModel(DEFAULT_TAGGING_MODEL)!
 }
 
-export async function hostedTaggingDeps(): Promise<HostedDeps> {
+export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
+  const choice = taggingModel(modelId)
+  if (choice?.runsOn !== 'gateway') throw new Error('Hosted tagging needs a gateway model')
   const source = catalog()
   return {
     jobs: jobsDeps(),
-    adapter: gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY || await getVercelOidcToken(), model: process.env.AI_GATEWAY_MODEL || undefined }),
+    adapter: gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY || await getVercelOidcToken(), model: choice.model }),
     async plate(job) {
       const plate = job.inputPlate
       if (!plate) return null

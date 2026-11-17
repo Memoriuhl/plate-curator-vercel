@@ -58,6 +58,16 @@ test('adapter keeps only visual themes and motifs', async () => {
   const adapter = ollamaAdapter({ url: 'http://localhost:11434', model: 'test', fetch })
   expect((await adapter.suggest({ imageB64: 'image', plate: { displayName: 'Plate', state: 'AL', tags: [] } })).tags).toEqual(['white', 'veteran', 'seal'])
 })
+test('a claim that names a model runs on that model', async () => {
+  const { deps, fetch } = setup()
+  fetch.mockReset().mockResolvedValueOnce(Response.json({ ...claim, model: 'gemma4:26b' })).mockResolvedValue(new Response(null, { status: 200 }))
+  const requested = { backend: 'ollama', model: 'gemma4:26b', promptVersion: 'abc', suggest: vi.fn(async () => ({ tags: ['moose'] })) }
+  deps.adapterFor = vi.fn(() => requested)
+  expect(await runOnce(deps)).toBe('reported')
+  expect(deps.adapterFor).toHaveBeenCalledWith('gemma4:26b')
+  expect(deps.adapter.suggest).not.toHaveBeenCalled()
+  expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toMatchObject({ suggestions: ['moose'], model: 'gemma4:26b' })
+})
 test('expired lease prevents report transmission', async () => {
   const { deps, fetch } = setup()
   deps.now = () => 60000

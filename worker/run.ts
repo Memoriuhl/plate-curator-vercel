@@ -6,6 +6,7 @@ export interface WorkerDeps {
   protectionBypass?: string
   fetch: typeof fetch
   adapter: ModelAdapter
+  adapterFor?: (model: string) => ModelAdapter
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -16,6 +17,7 @@ interface Claim {
   job: { id: string }
   claimId: string
   leaseExpiresAt: string
+  model?: string
   plate: { image: string; displayName: string; state: string; tags: string[] }
 }
 
@@ -29,8 +31,9 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   if (!response.ok) throw new Error(`Claim failed: ${response.status}`)
   const claim = await response.json() as Claim
   const deadline = Date.parse(claim.leaseExpiresAt)
+  const adapter = claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
   const start = deps.now()
-  let backend = deps.adapter.backend
+  let backend = adapter.backend
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
   let imageB64: string
@@ -42,11 +45,11 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
     imageB64 = ''
   }
   if (backend !== 'missing-image') {
-    const result = await deps.adapter.suggest({ imageB64, plate: claim.plate })
+    const result = await adapter.suggest({ imageB64, plate: claim.plate })
     suggestions = result.tags
     usage = result.usage
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, backend, model: deps.adapter.model, promptVersion: deps.adapter.promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({ claimId: claim.claimId, suggestions, backend, model: adapter.model, promptVersion: adapter.promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {

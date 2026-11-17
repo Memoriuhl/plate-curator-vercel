@@ -8,7 +8,7 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted' }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string }): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)

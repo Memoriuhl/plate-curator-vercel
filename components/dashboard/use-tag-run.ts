@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
+import type { TaggingModelId } from '@/lib/tagging/models'
 
 export type RunPlate = {
   id: string
@@ -57,6 +58,7 @@ export function useTagRun() {
   const [starting, setStarting] = useState(false)
   const generation = useRef(0)
   const posting = useRef(false)
+  const lastModel = useRef<TaggingModelId | undefined>(undefined)
   const entriesRef = useRef(entries)
   useEffect(() => {
     entriesRef.current = entries
@@ -130,7 +132,9 @@ export function useTagRun() {
     }
   }, [api, pollingNeeded])
 
-  async function start(plates: RunPlate[], retry = false) {
+  async function start(plates: RunPlate[], retry = false, model?: TaggingModelId) {
+    if (!retry) lastModel.current = model
+    const chosen = retry ? lastModel.current : model
     if (!plates.length || posting.current || disabledReason) return
     posting.current = true
     setStarting(true)
@@ -167,7 +171,7 @@ export function useTagRun() {
           const result = await api.send<{ jobId: string; runId: string }>(
             'POST',
             `/api/batches/${batchId}/plates/${encodeURIComponent(plate.id)}/tagging`,
-            {},
+            chosen ? { model: chosen } : {},
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
         } catch (error) {
