@@ -74,6 +74,20 @@ test('Colors and Tag compete for the same GPU slot while IO permits two workers'
   expect(await claimNext(s.deps, 'io-three')).toBeNull()
 })
 
+test('an unavailable worker capability fails the stage rather than counting it as a no-result or running dependants', async () => {
+  const s = setup()
+  const run = await s.run('unavailable', ['describe', 'story'])
+  const claim = (await claimNext(s.deps, 'worker'))!
+  expect(await reportResult(s.deps, 'worker', claim.job.id, claim.claimId, { ...base, stageError: 'unavailable' })).toMatchObject({ ok: true })
+  await observeQueueStage(s.deps, run.id, 1, 0)
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  expect(saved.status).toBe('failed')
+  expect(saved.attempts[0]).toMatchObject({ cursor: 0, error: 'unavailable' })
+  expect(saved.attempts[0].outcome).toBeUndefined()
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'downstream')).toBeNull()
+  expect(await retryRun(s.deps, actor, run.id, 'capability-fixed')).toMatchObject({ ok: true })
+})
+
 test('round robin gives another requester a stage boundary while preserving same-user FIFO', async () => {
   const s = setup()
   const first = await s.run('editor-first')

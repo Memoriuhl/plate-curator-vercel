@@ -59,7 +59,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
       </Button></PopoverTrigger>
       <PopoverContent align="end" collisionPadding={0} data-run-menu="" aria-label="Run pipeline"
         onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-[var(--stack-gap)] overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:shrink-0 max-[420px]:w-screen max-[420px]:rounded-none">
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-[var(--stack-gap)] overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0 [&_fieldset]:min-w-0 max-[420px]:w-screen max-[420px]:rounded-none">
         <fieldset className="grid gap-2"><legend className="label mb-2">Run on</legend>
           <div className="flex flex-wrap gap-2">{[
             ['selected', `Selected plates ${selected.length}`, selected.length], ['batch', `Plates in your batch ${batchPlates.length}`, batchPlates.length],
