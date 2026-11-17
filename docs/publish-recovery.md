@@ -107,23 +107,28 @@ Updating routes or promoting a deployment does not retrofit the new guard into
 those older steps. New route preflight alone is insufficient: an already accepted
 command can execute the older publisher.
 
-Before relying on Pause, inventory and drain older waiting or executing approval
-Workflows as well. They run their original deployment's code and carry no
-publication generation. Allow already committed receipts to finish bookkeeping.
-Supersede uncommitted waiting runs through the normal edit/resubmit flow, then
-Submit and Approve again on this deployment (or copy stale proposals for fresh
-review). Verify that no older waiting run can receive Publish. A route update or
-Resume alone does not retrofit this protection into those runs. Commands without
-a generation that reach the new publisher are treated as superseded once the
-control document exists; they never adopt the current generation. Missing control
-also fails closed. Hosted verification must use newly started runs before the
-control is relied on for a release.
+Before Resume, inventory older waiting or executing approval Workflows by Batch,
+revision and starting deployment. Runs are pinned to their starting deployment:
+older code never reads the publication control. Creating the control document
+does not supersede or stop those older runs. Fence their uncommitted Batches by
+moving them out of `approved` through the normal review edit flow before Resume.
+Verify the authoritative Batch state and that no older run can advance a pointer.
+Already committed receipts must finish bookkeeping instead of being fenced as
+uncommitted work. An in-flight pointer commit still determines which outcome won.
+
+After fencing older runs, Submit and Approve again on the fixed deployment (or
+copy stale proposals for fresh review). A redeploy, new route URL or Resume does
+not change the code of an old run. Only commands reaching the new publisher are
+checked for a missing generation and treated as superseded when the control
+exists; this does not protect runs executing older publisher code. Hosted proof
+with newly started runs and the legacy-run fence are release gates before relying
+on Pause.
 
 Before relying on this guard for a release, inventory waiting and executing
 approval runs by Batch, revision and deployment. Let already committed attempts
 finish bookkeeping from their receipts. Investigate uncommitted legacy mismatches
-without advancing their pointers. Supersede waiting pre-fix approval runs through
-the normal review edit/resubmit flow, then Submit and Approve again on the fixed
+without advancing their pointers. Fence waiting pre-fix approval runs by moving
+their Batches out of `approved` before Resume, then Submit and Approve on the fixed
 deployment; for a stale baseline, use the new copy flow instead. Do not assume a
 redeploy or a request sent to a new URL changes an old run's deployment. Verify
 that no waiting pre-fix run can still receive a Publish command before proceeding.
