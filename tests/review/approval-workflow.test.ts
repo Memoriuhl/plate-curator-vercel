@@ -68,3 +68,12 @@ test.each(['paused', 'superseded', 'publish_not_enabled'])('a generation-bound c
   expect(mocks.publishBatch).toHaveBeenCalledTimes(1)
   expect(mocks.catalogPush).not.toHaveBeenCalled()
 })
+
+test('paused and superseded Publish stops never reach catalogPush', async () => {
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner', generation: 3, commandId: 'stopped-command' })
+  for (const error of ['paused', 'superseded']) {
+    mocks.publishBatch.mockResolvedValue({ ok: false, error })
+    expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error, reasons: [] })
+    expect(mocks.catalogPush).not.toHaveBeenCalled()
+  }
+})
