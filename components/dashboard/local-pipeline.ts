@@ -3,7 +3,7 @@ import type { RunPlate } from './use-tag-run'
 export const localStageReasons: Record<string, string> = {
   'Find image': 'Run selection needs the connected run coordinator',
   Group: 'Run selection needs the connected run coordinator',
-  Order: 'No automatic ordering implementation',
+  Order: 'Order is manual: drag families to reorder',
 }
 
 export function planTagRun(plates: readonly RunPlate[], onlyUnderTagged: boolean, limit: number) {

@@ -8,7 +8,7 @@ export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
 const imageKeys = ['imageUrl', 'sourceUrl'] as const
 export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys, ...colorFieldKeys] as const
 export function editableFieldKeys() {
-  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys].some(localKey => localKey === key))
+  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys, ...colorFieldKeys].some(localKey => localKey === key))
 }
 
 export function storyUrl(value: unknown): string | null {

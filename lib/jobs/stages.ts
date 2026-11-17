@@ -7,4 +7,5 @@ export const LOCAL_STAGE_DEFINITIONS = [
 
 export function runnableLocalStage(stage: unknown) {
   return LOCAL_STAGE_DEFINITIONS.find(definition => definition.stage === stage)
+    ?? (stage === 'find-image' ? { stage: 'find-image' as const, needsModel: true } : undefined)
 }
