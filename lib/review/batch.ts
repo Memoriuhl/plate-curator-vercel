@@ -41,19 +41,18 @@ export async function proposeEdit(
     }
     if (plate.deleted) {
       if (plate.isStandard) return { ok: false, error: 'invalid_state' }
-      if (plate.templateRole === 'template') {
-        const [plates, edits] = await Promise.all([
-          d.stateBaseline(batch.baselineVersion, plate.state),
-          d.store.listEdits(batch.id),
-        ])
-        const fieldsById = new Map(edits.map(edit => [edit.plateId, edit.fields]))
-        const hasVariants = plates.some(baseline => {
-          const member = { ...baseline, ...fieldsById.get(baseline.id) }
-          return member.id !== plate.id && !member.deleted && member.templateRole === 'variant'
-            && (member.variantOfPlateId === plate.id || !!plate.templateFamily && member.templateFamily === plate.templateFamily)
-        })
-        if (hasVariants) return { ok: false, error: 'invalid_state' }
-      }
+      const [plates, edits] = await Promise.all([
+        d.stateBaseline(batch.baselineVersion, plate.state),
+        d.store.listEdits(batch.id),
+      ])
+      const fieldsById = new Map(edits.map(edit => [edit.plateId, edit.fields]))
+      const hasLinkedPlates = plates.some(baseline => {
+        const member = { ...baseline, ...fieldsById.get(baseline.id) }
+        return member.id !== plate.id && !member.deleted
+          && (member.variantOfPlateId === plate.id || plate.templateRole === 'template' && member.templateRole !== 'template'
+            && !!plate.templateFamily && member.templateFamily === plate.templateFamily)
+      })
+      if (hasLinkedPlates) return { ok: false, error: 'invalid_state' }
     }
     if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
     const fields: EditableFields = Object.fromEntries(editableKeys

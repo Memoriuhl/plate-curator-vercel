@@ -205,10 +205,11 @@ export function PlatePage(props: PlatePageProps) {
       ? member.templateFamily === current.templateFamily
       : member.id === current.id,
   )
-  const variantCount = plates.filter(member => member.id !== current.id && !member.deleted && member.templateRole === 'variant'
-    && (member.variantOfPlateId === current.id || !!current.templateFamily && member.templateFamily === current.templateFamily)).length
+  const linkedPlateCount = plates.filter(member => member.id !== current.id && !member.deleted
+    && (member.variantOfPlateId === current.id || current.templateRole === 'template' && member.templateRole !== 'template'
+      && !!current.templateFamily && member.templateFamily === current.templateFamily)).length
   const deleteReason = current.isStandard ? 'Set another Standard plate first.'
-    : current.templateRole === 'template' && variantCount > 0 ? `Move or promote its ${variantCount} Variants first.` : null
+    : linkedPlateCount > 0 ? `Move or detach its ${linkedPlateCount} linked plates first.` : null
   const others = useMemo(() => {
     const outside = plates.filter(member => current.templateFamily
       ? member.templateFamily !== current.templateFamily

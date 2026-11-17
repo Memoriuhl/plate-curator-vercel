@@ -80,7 +80,7 @@ test('a family move validates the destination as well as the old family', () => 
   const baseline = { ...snapshot, plates: snapshot.plates.map((plate, index) => ({ ...plate, templateFamily: index === 0 ? 'source' : 'destination', templateRole: 'template' as const })) }
   const next = { version: 2, plates: [{ ...baseline.plates[0], templateFamily: 'destination' }, baseline.plates[1]] }
   expect(validateSnapshot(baseline, next)).toContain('Family must have at most one template: destination')
-  expect(validateSnapshot(baseline, next)).toContain('Family must retain exactly one template: source')
+  expect(validateSnapshot(baseline, next)).not.toContain('Family must retain exactly one template: source')
 })
 
 test('a variant parent edit touches its family', () => {
@@ -89,11 +89,11 @@ test('a variant parent edit touches its family', () => {
   expect(validateSnapshot(baseline, next)).toContain('Family must have at most one template: family')
 })
 
-test('grouping edits cannot create or touch a family without templates', () => {
+test('new template-less families fail while baseline template-less families remain editable', () => {
   const next = { version: 2, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'new-family', templateRole: 'variant' as const })) }
   expect(validateSnapshot(snapshot, next)).toContain('Family must retain exactly one template: new-family')
   const baseline = { ...next, version: 1 }
-  expect(validateSnapshot(baseline, { version: 2, plates: [{ ...next.plates[0], variantOfPlateId: 'two' }, next.plates[1]] })).toContain('Family must retain exactly one template: new-family')
+  expect(validateSnapshot(baseline, { version: 2, plates: [{ ...next.plates[0], variantOfPlateId: 'two' }, next.plates[1]] })).toEqual([])
 })
 
 test('reordering plates does not touch their grouping', () => {
@@ -424,4 +424,10 @@ test('validation rejects a dangling variant link independently of family changes
 test.each([true, false])('validation rejects a new draft family without a Template, with explicit link %s', linked => {
   const next = { version: 2, plates: [{ ...snapshot.plates[1], templateRole: 'variant', templateFamily: 'new-family', ...(linked ? { variantOfPlateId: 'one' } : {}) }] }
   expect(validateSnapshot(snapshot, next, new Set(['one']))).toContain('Family must retain exactly one template: new-family')
+})
+
+test('moving a member out of a baseline template-less family still validates', () => {
+  const baseline = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateFamily: 'legacy', templateRole: 'variant' as const })) }
+  const next = { version: 2, plates: [{ ...baseline.plates[0], templateFamily: 'solo', templateRole: 'template' as const }, baseline.plates[1]] }
+  expect(validateSnapshot(baseline, next)).toEqual([])
 })

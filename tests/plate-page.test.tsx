@@ -396,7 +396,7 @@ test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion counts V
   const variant = { ...army, id: 'AK.variant', templateRole: 'variant' as const, templateFamily: 'test-family', variantOfPlateId: template.id }
   render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
   expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
-  expect(screen.getByText('Move or promote its 1 Variants first.')).toBeTruthy()
+  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(state.edit).not.toHaveBeenCalled()
@@ -406,7 +406,7 @@ test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion counts V
   state.refreshed = true
   render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
   expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
-  expect(screen.queryByText('Move or promote its 1 Variants first.')).toBeNull()
+  expect(screen.queryByText('Move or detach its 1 linked plates first.')).toBeNull()
 })
 
 test('delete rejections explain the deletion rules through the field issue', async () => {
@@ -414,6 +414,35 @@ test('delete rejections explain the deletion rules through the field issue', asy
   render(<PlatePage {...props} plates={[]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Cannot delete this plate. Set another Standard plate or move or promote its Variants first.'))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Cannot delete this plate. Set another Standard plate or move or detach its linked plates first.'))
   expect(screen.queryByText('This batch is no longer open for editing.')).toBeNull()
+})
+
+test.each(['template', 'variant', null] as const)('deletion counts explicit links regardless of parent or child role: %s', role => {
+  const parent = { ...props.plate, isStandard: false, templateRole: role, templateFamily: null }
+  const child = { ...army, id: 'AK.child', templateRole: 'template' as const, templateFamily: null, variantOfPlateId: parent.id }
+  render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
+  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
+})
+
+test('role-less family members block Template deletion until deleted in the draft', () => {
+  const parent = { ...props.plate, isStandard: false, templateRole: 'template' as const, templateFamily: 'family' }
+  const child = { ...army, id: 'AK.child', templateRole: null, templateFamily: 'family', variantOfPlateId: null }
+  render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
+  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
+  cleanup()
+  state.remote = { ...child, deleted: true }
+  state.refreshed = true
+  render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
+  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('rejected Undo delete explains that the parent must be restored first', async () => {
+  state.remote = { ...army, deleted: true }
+  state.refreshed = true
+  state.edit.mockResolvedValue({ ok: false, error: 'invalid_state' })
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe("Undo the parent's deletion first."))
 })

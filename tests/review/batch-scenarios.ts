@@ -59,6 +59,30 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     expect(await store.getBatch(input.batchId)).toMatchObject({ revision: 5 })
   })
 
+  test.each(['template', 'variant', undefined] as const)('deletion rejects live explicit links to a parent with role %s', async role => {
+    const { deps, input, store } = await setup()
+    const parent = { ...baseline[0], templateRole: role }
+    const child = { ...baseline[1], templateRole: 'template' as const, variantOfPlateId: parent.id }
+    deps.baselineAtVersion = async (_version, id) => id === parent.id ? parent : child
+    deps.stateBaseline = async () => [parent, child]
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } })).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getEdit(input.batchId, parent.id)).toBeNull()
+    expect(await proposeEdit(deps, editor, { ...input, plateId: child.id, baseRevision: plateRevision(child), fields: { variantOfPlateId: null } })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } })).toMatchObject({ ok: true })
+  })
+
+  test('Template deletion counts role-less family members and ignores their draft deletions', async () => {
+    const { deps, input } = await setup()
+    const parent = { ...baseline[0], templateRole: 'template' as const, templateFamily: 'family' }
+    const child = { ...baseline[1], templateFamily: 'family' }
+    deps.baselineAtVersion = async (_version, id) => id === parent.id ? parent : child
+    deps.stateBaseline = async () => [parent, child]
+    const deletion = { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, deletion)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await proposeEdit(deps, editor, { ...input, plateId: child.id, baseRevision: plateRevision(child), fields: { deleted: true } })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, deletion)).toMatchObject({ ok: true })
+  })
+
   test('Standard plates cannot be deleted until their draft Standard flag is cleared', async () => {
     const { deps, store, input } = await setup()
     const standard = { ...baseline[0], isStandard: true }

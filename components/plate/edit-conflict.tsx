@@ -34,7 +34,9 @@ export function Conflict({
     return (
       <p role="alert" className="rounded-xl bg-[var(--danger-tint)] p-3">
         {issue.result.error === 'invalid_state' && issue.fields.deleted === true
-          ? 'Cannot delete this plate. Set another Standard plate or move or promote its Variants first.'
+          ? 'Cannot delete this plate. Set another Standard plate or move or detach its linked plates first.'
+          : issue.result.error === 'invalid_state' && issue.fields.deleted === false
+          ? "Undo the parent's deletion first."
           : errors[issue.result.error]}
       </p>
     )

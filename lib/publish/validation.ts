@@ -14,6 +14,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
   const families = new Map<string, number>()
   const baselinePlates = new Map(baseline.plates.map(plate => [plate.id, plate]))
   const baselineTemplateCounts = new Map<string, number>()
+  const baselineFamilies = new Set(baseline.plates.flatMap(plate => typeof plate.templateFamily === 'string' ? [plate.templateFamily] : []))
   const touchedFamilies = new Set<string>()
   for (const plate of baseline.plates) {
     if (typeof plate.templateFamily === 'string' && plate.templateRole === 'template') {
@@ -57,7 +58,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
   for (const family of touchedFamilies) {
     const count = families.get(family) ?? 0
     if (count > 1) reasons.push(`Family must have at most one template: ${family}`)
-    else if ((families.has(family) || baselineTemplateCounts.get(family) === 1) && count === 0) reasons.push(`Family must retain exactly one template: ${family}`)
+    else if ((!baselineFamilies.has(family) || baselineTemplateCounts.get(family) === 1) && families.has(family) && count === 0) reasons.push(`Family must retain exactly one template: ${family}`)
   }
   return reasons
 }
