@@ -43,5 +43,5 @@ async function runPublish(batchId: string, revision: number, ownerUid: string) {
   }
   return outcome.ok
     ? { outcome: 'published' as const, version: outcome.value.toVersion }
-    : { outcome: 'publish_failed' as const, error: outcome.error, reasons: outcome.reasons ?? [] }
+    : { outcome: 'publish_failed' as const, error: outcome.error, reasons: outcome.reasons ?? [], ...(outcome.reviewedVersion !== undefined ? { reviewedVersion: outcome.reviewedVersion, liveVersion: outcome.liveVersion } : {}) }
 }

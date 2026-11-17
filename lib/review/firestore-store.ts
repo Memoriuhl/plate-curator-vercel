@@ -7,6 +7,31 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
 
   return {
+    async copy(input) {
+      return db.runTransaction(async transaction => {
+        const sourceRef = batches.doc(input.sourceId)
+        const targetRef = batches.doc(input.batch.id)
+        const [source, target, head, receipt] = await transaction.getAll(sourceRef, targetRef, db.doc('config/catalog'), db.doc(`publishRecords/${input.sourceId}@${input.sourceRevision}`))
+        if (!source.exists || source.get('env') !== env) return { ok: false, error: 'not_found' }
+        if (source.get('revision') !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
+        if (source.get('state') !== 'approved') return { ok: false, error: 'invalid_state' }
+        if (target.exists) {
+          if (target.get('env') !== env) return { ok: false, error: 'not_found' }
+          const value = target.data()!
+          delete value.env
+          delete value.publishReservation
+          return { ok: true, value: value as ReviewBatch }
+        }
+        if (source.get('publishReservation') || receipt.get('committedAt')) return { ok: false, error: 'invalid_state' }
+        const liveVersion = head.get('version')
+        if (typeof liveVersion !== 'number') throw new Error('Catalog head unavailable')
+        if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
+        transaction.create(targetRef, { ...input.batch, env })
+        for (const edit of input.edits) transaction.create(targetRef.collection('edits').doc(edit.plateId), edit)
+        transaction.set(signal(input.batch.id), { revision: input.batch.revision })
+        return { ok: true, value: input.batch }
+      })
+    },
     async create(batch) {
       try {
         await db.runTransaction(async transaction => {

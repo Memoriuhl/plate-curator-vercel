@@ -40,6 +40,11 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
   }
   try {
     record = await d.records.get(id)
+    // A durable receipt owns the release identity. Never rebuild it on a new head.
+    if (record && !record.committedAt && record.fromVersion !== batch.baselineVersion) {
+      keepFrozen = false
+      return { ok: false, error: 'receipt_baseline_conflict', reviewedVersion: batch.baselineVersion, liveVersion: (await d.pointer.read()).version }
+    }
     if (record?.state === 'failed') {
       keepFrozen = false
       return { ok: false, error: record.failure ?? 'invalid_state' }
@@ -50,6 +55,10 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
     if (record?.committedAt && existingChecksum === null) return { ok: false, error: 'unavailable' }
     if (!record || existingChecksum === null) {
       const fromVersion = record?.fromVersion ?? (await d.pointer.read()).version
+      if (!record && fromVersion !== batch.baselineVersion) {
+        keepFrozen = false
+        return { ok: false, error: 'stale_baseline', reviewedVersion: batch.baselineVersion, liveVersion: fromVersion }
+      }
       const baseline = await d.snapshots.read(fromVersion)
       if (!baseline || baseline.version !== fromVersion || !Array.isArray(baseline.plates) || baseline.plates.some(plate => !plate || typeof plate !== 'object')) {
         keepFrozen = false

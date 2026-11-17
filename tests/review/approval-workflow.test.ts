@@ -42,3 +42,9 @@ test('an approved command publishes inside the run and returns the version', asy
   expect(await approvalRun('batch', 1)).toEqual({ outcome: 'published', version: 8 })
   expect(mocks.publishBatch).toHaveBeenCalledWith({}, { uid: 'owner', name: null, role: 'owner' }, { batchId: 'batch', revision: 2 })
 })
+
+test('the step exposes both versions if the Catalog changed after accepting Publish', async () => {
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  mocks.publishBatch.mockResolvedValue({ ok: false, error: 'stale_baseline', reviewedVersion: 7, liveVersion: 8 })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error: 'stale_baseline', reasons: [], reviewedVersion: 7, liveVersion: 8 })
+})

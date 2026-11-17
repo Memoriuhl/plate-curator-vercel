@@ -18,6 +18,7 @@ export type ReviewBatch = {
   approvalRun?: { runId: string; revision: number }
   publishRequestedAt?: string | null
   approval: { revision: number; by: string; at: string } | null
+  source?: { batchId: string; revision: number }
 }
 export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & { variantOfPlateId?: string | null }
 export type ProposedEdit = {
@@ -31,6 +32,7 @@ export type ProposedEdit = {
 export type ReviewError = 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate }
 export interface ReviewStore {
+  copy(input: { sourceId: string; sourceRevision: number; targetVersion: number; batch: ReviewBatch; edits: ProposedEdit[] }): Promise<CopyCommitResult>
   create(batch: ReviewBatch): Promise<'ok' | 'exists'>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
@@ -41,6 +43,7 @@ export interface ReviewStore {
   requestPublish(batchId: string, revision: number, at: string): Promise<boolean>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
+export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }
 export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>

@@ -2,7 +2,7 @@ import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
 
 export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
-export type PublishError = 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable'
+export type PublishError = 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | 'stale_baseline' | 'receipt_baseline_conflict'
 export type PublishRecord = {
   id: string
   batchId: string
@@ -47,4 +47,4 @@ export type PublishDeps = ReviewDeps & {
   lock: PublishLock
   leaseMs?: number
 }
-export type PublishOutcome = { ok: true; value: PublishRecord } | { ok: false; error: PublishError; reasons?: string[] }
+export type PublishOutcome = { ok: true; value: PublishRecord } | { ok: false; error: PublishError; reasons?: string[]; reviewedVersion?: number; liveVersion?: number }
