@@ -57,16 +57,16 @@ export function RunStatusView({ run }: { run: BatchRun }) {
   return (
     <section
       aria-label="Approval run"
-      className="space-y-4 rounded-2xl border border-border p-4"
+      className="space-y-3 rounded-2xl bg-[var(--fill)] p-3"
     >
       <div aria-live="polite" aria-atomic="true" className="space-y-3">
-        <ol className="flex flex-wrap gap-3 text-xs">
+        <ol className="flex flex-wrap gap-1 text-xs">
           {steps.map((step, index) => (
             <li
               key={step}
               aria-current={index === current ? 'step' : undefined}
               className={cn(
-                'flex items-center gap-2 rounded-full px-3 py-2',
+                'flex items-center gap-1 rounded-full px-2 py-1',
                 index === current
                   ? 'bg-primary font-bold text-primary-foreground'
                   : 'bg-muted text-muted-foreground',
@@ -82,7 +82,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
             </li>
           ))}
         </ol>
-        {run.outcome?.requestedBy && <p>Requested by {run.outcome.requestedBy.email} ({run.outcome.requestedBy.uid}).</p>}
+        {run.outcome?.requestedBy && <p className="text-xs text-muted-foreground">Requested by {run.outcome.requestedBy.email} ({run.outcome.requestedBy.uid}).</p>}
         {run.phase === 'published' && (
           <p className="font-bold">
             Published as Snapshot{' '}

@@ -74,3 +74,13 @@ test('PATCH persists a null variant link and detail exposes the detached templat
   const detail = await GET(new Request('https://example.com/api/batches/batch'), { params: Promise.resolve({ id: 'batch' }) })
   expect(await detail.json()).toMatchObject({ plates: [{ proposed: fields, edit: { fields }, revision: plateRevision(saved.plate) }] })
 })
+
+test('detail resolves thumbnail URLs without changing reviewed plate fields', async () => {
+  vi.stubEnv('PLATE_IMAGE_BASE', 'https://images.example.com')
+  try {
+    const baseline = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: 'AK/one.webp', tags: [] }
+    context.reviewDeps().baselineAtVersion = async () => baseline
+    const response = await GET(new Request('https://example.com/api/batches/batch'), { params: Promise.resolve({ id: 'batch' }) })
+    expect(await response.json()).toMatchObject({ plates: [{ baseline, proposed: baseline, beforeImageUrl: 'https://images.example.com/plates/AK/one.webp', afterImageUrl: 'https://images.example.com/plates/AK/one.webp' }] })
+  } finally { vi.unstubAllEnvs() }
+})
