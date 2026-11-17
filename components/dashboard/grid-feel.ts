@@ -1,4 +1,4 @@
-export const FAMILY_MIN_COLUMN_WIDTH = 400
+export const FAMILY_MIN_COLUMN_WIDTH = 320
 export const FAMILY_COLUMN_GAP = 16
 
 export function familyColumns(width: number) {

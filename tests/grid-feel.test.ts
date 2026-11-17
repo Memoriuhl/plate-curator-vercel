@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
-import { DROP_DURATION, SPRING_SAMPLES, entranceDelay, familyColumns, hoverPosition } from '../components/dashboard/grid-feel'
+import { DROP_DURATION, SPRING_SAMPLES, entranceDelay, familyColumns, FAMILY_MIN_COLUMN_WIDTH, hoverPosition } from '../components/dashboard/grid-feel'
 
-test.each([[399, 1], [400, 1], [815, 1], [816, 2], [1024, 2], [1231, 2], [1232, 3], [1280, 3], [1440, 3], [1648, 4]])('columns at %i pixels of container width', (width, columns) => {
+test.each([[319, 1], [320, 1], [655, 1], [656, 2], [991, 2], [992, 3], [1024, 3], [1280, 3], [1440, 4]])('columns at %i pixels of container width', (width, columns) => {
   expect(familyColumns(width)).toBe(columns)
 })
 
@@ -33,4 +33,8 @@ test('preview clamps at the bottom using its measured height', () => {
   expect(hoverPosition({ left: 100, right: 240, top: 800 }, 372, 300, 1440, 900).top).toBe(592)
   expect(hoverPosition({ left: 100, right: 240, top: 800 }, 372, 600, 1440, 900).top).toBe(292)
   expect(hoverPosition({ left: 2, right: 142, top: -20 }, 372, 884, 400, 900)).toEqual({ left: 8, top: 8 })
+})
+
+test('family cards use a 320px minimum column width', () => {
+  expect(FAMILY_MIN_COLUMN_WIDTH).toBe(320)
 })

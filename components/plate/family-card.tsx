@@ -143,7 +143,6 @@ export function FamilyCard({
         className={cn(
           'relative flex items-start gap-3',
           plate.deleted && 'opacity-60 [&_h3]:line-through',
-          small && 'min-h-[84px]',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
@@ -173,7 +172,7 @@ export function FamilyCard({
               preview(plate, event.currentTarget, false)
             }}
             onMouseLeave={onClosePreview}
-            style={{ width, height }}
+            style={small ? { width, height } : { width: 'var(--family-image-width, 140px)', height: 'var(--family-image-height, 70px)' }}
             className="relative flex origin-top shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)] text-[var(--ink-3)]"
           >
             {plate.imageUrl ? (
@@ -225,7 +224,7 @@ export function FamilyCard({
       }}
       onClickCapture={event => drag?.suppressClick(event)}
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
-      className={cn('@container relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
+      className={cn('@container family-card relative flex origin-top min-w-0 cursor-pointer flex-col gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
       <div className="flex items-start gap-3">
         {canEdit ? <button
@@ -237,10 +236,10 @@ export function FamilyCard({
           aria-disabled={!drag?.enabled || !!template.deleted}
           title={drag?.handleTitle}
           onKeyDown={event => { if (!entranceRunning(event.currentTarget)) drag?.onKeyDown(item, event) }}
-          className={cn('flex shrink-0 flex-col items-center justify-center self-start h-[70px] rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !template.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
+          className={cn('flex shrink-0 flex-col items-center justify-center self-start family-template-handle rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !template.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
         ><IoReorderThreeOutline size={20} aria-hidden="true" />{number}</button> : <span
           aria-hidden="true"
-          className="flex shrink-0 flex-col items-center justify-center self-start h-[70px] rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
+          className="flex shrink-0 flex-col items-center justify-center self-start family-template-handle rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
         >
           <IoReorderThreeOutline size={20} />
           {number}
@@ -248,7 +247,7 @@ export function FamilyCard({
         <div className="min-w-0 flex-1">{plateContent(template, false)}</div>
       </div>
       {variants.length ? (
-        <div className="mt-3 flex flex-col gap-3 pl-8">
+        <div className="mt-3 flex flex-col gap-2 pl-8">
           {variants.length >= 6 ? (
             <VirtualizedVariants
               plates={variants}
