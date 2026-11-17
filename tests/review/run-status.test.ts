@@ -17,3 +17,14 @@ test.each<{ state: ReviewBatch['state']; requested?: string; result?: ApprovalRe
 ])('maps $state with $result to $phase', ({ state, requested, result, status, phase, outcome }) => {
   expect(approvalRunStatus({ ...batch, state, publishRequestedAt: requested }, { status: status ?? (result ? 'completed' : 'running'), result, updatedAt: 'then' })).toEqual({ runId: 'run', phase, outcome, updatedAt: requested && !result ? requested : 'then' })
 })
+
+
+test.each(['failed', 'published', 'publish_failed'] as const)('retains requester from Batch for %s without result identity', phase => {
+  const requestedBy = { uid: 'requester', email: 'requester@example.com', authorityEpoch: 2 }
+  const result: ApprovalResult | undefined = phase === 'published' ? { outcome: 'published', version: 8 } : phase === 'publish_failed' ? { outcome: 'publish_failed', error: 'revoked', reasons: [] } : undefined
+  expect(approvalRunStatus({ ...batch, publishRequestedBy: requestedBy }, { status: phase === 'failed' ? 'failed' : 'completed', result, updatedAt: null }).outcome?.requestedBy).toEqual(requestedBy)
+})
+test('prefers Workflow requester over Batch metadata', () => {
+  const requestedBy = { uid: 'workflow', email: 'workflow@example.com', authorityEpoch: 3 }
+  expect(approvalRunStatus({ ...batch, publishRequestedBy: { ...requestedBy, uid: 'batch' } }, { status: 'completed', result: { outcome: 'publish_failed', error: 'revoked', reasons: [], requestedBy }, updatedAt: null }).outcome?.requestedBy).toEqual(requestedBy)
+})

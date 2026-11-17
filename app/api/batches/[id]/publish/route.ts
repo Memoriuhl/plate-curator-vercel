@@ -3,7 +3,7 @@ import { PUBLISH_STOPS } from '../../../../../lib/publish/stop'
 import { randomUUID } from 'node:crypto'
 import { publishControlStop } from '../../../../../lib/publish/control'
 import { resumeHook } from 'workflow/api'
-import { currentActiveOwner, publishAllowed, publishDeps, reviewDeps } from '../../../../../lib/server/context'
+import { currentActiveOwner, requesterAuthority, publishAllowed, publishDeps, reviewDeps } from '../../../../../lib/server/context'
 import { publishBaselineStatus } from '../../../../../lib/publish/baseline-status'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
@@ -29,7 +29,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (stop) return json({ error: stop }, 409)
   const baseline = await publishBaselineStatus(publishing, batch)
   if (baseline.error) return json(baseline, 409)
-  const requestedBy = { uid: auth.actor.uid, email: auth.actor.email, authorityEpoch: auth.actor.authorityEpoch }
+  const requestedBy = requesterAuthority(auth.actor)
   try {
     const command: PublishRequester = { ownerUid: auth.actor.uid, requestedBy, generation: control.generation, commandId: randomUUID() }
     await resumeHook(`publish:${id}:${body.revision}`, command)

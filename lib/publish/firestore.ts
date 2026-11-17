@@ -1,12 +1,18 @@
 import { publishRequesterStop, sameRequester } from './authority'
-import { normalizeEmail } from '../members/member'
+import { isActiveOwner, normalizeEmail } from '../members/member'
 import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
 import { parsePublishControl, publishCommandKey, publishControlStop } from './control'
 import type { PublishCommand, PublishControl, PublishControlState } from './types'
 import { FieldValue, type DocumentData, type DocumentSnapshot, type Transaction, type Firestore } from '@google-cloud/firestore'
 import type { PublishCurator, PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
 
-function writePublishStop(transaction: Transaction, command: PublishCommand, control: DocumentSnapshot, stopped: DocumentSnapshot, now: string, member?: DocumentSnapshot): PublishStop | null {
+function memberDocRef(db: Firestore, email: string | undefined) {
+  return email ? db.doc(`members/${encodeURIComponent(normalizeEmail(email))}`) : null
+}
+
+function writePublishStop({ transaction, command, control, stopped, now, member }: {
+  transaction: Transaction; command: PublishCommand; control: DocumentSnapshot; stopped: DocumentSnapshot; now: string; member?: DocumentSnapshot
+}): PublishStop | null {
   const reason: unknown = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), command) ?? publishRequesterStop(command.requestedBy, member?.data())
   if (reason === null) return null
   if (!isPublishStop(reason)) throw new Error('Malformed Publish stop')
@@ -108,13 +114,14 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
     async advance(record, lease, now) {
       return db.runTransaction(async transaction => {
         const recordRef = db.doc(`publishRecords/${record.id}`)
+        const requesterRef = memberDocRef(db, record.requestedBy?.email)
         const [lock, batch, receipt, pointer, control, stopped, member] = await transaction.getAll(
-          db.doc('locks/publish'), db.doc(`reviewBatches/${record.batchId}`), recordRef, pointerRef, db.doc('config/publishControl'), db.doc(`publishCommandStops/${publishCommandKey(record)}`), db.doc(`members/${encodeURIComponent(normalizeEmail(record.requestedBy?.email ?? 'legacy'))}`),
+          db.doc('locks/publish'), db.doc(`reviewBatches/${record.batchId}`), recordRef, pointerRef, db.doc('config/publishControl'), db.doc(`publishCommandStops/${publishCommandKey(record)}`), ...(requesterRef ? [requesterRef] : []),
         )
         if (!active(lock.data(), lease.token, env, now) || lock.get('batchId') !== record.batchId || lock.get('revision') !== record.revision) return 'lock_lost'
         if (batch.get('env') !== env || batch.get('revision') !== record.revision || batch.get('state') !== 'approved' || batch.get('publishReservation')?.token !== lease.token) return 'superseded_revision'
         if (receipt.get('committedAt')) return 'advanced'
-        const stop = writePublishStop(transaction, record, control, stopped, now, member)
+        const stop = writePublishStop({ transaction, command: record, control, stopped, now, member })
         if (stop) return stop
         if (typeof record.url !== 'string' || record.url.length === 0) return 'superseded_revision'
         if (receipt.get('env') !== env || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('url') !== record.url || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion) return 'superseded_revision'
@@ -154,8 +161,10 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
     async read() { return parsePublishControl((await ref.get()).data()) },
     async change(paused, actor, now) {
       return db.runTransaction(async transaction => {
-        const [snapshot, member] = await transaction.getAll(ref, db.doc(`members/${encodeURIComponent(normalizeEmail(actor.email))}`))
-        if (member.get('uid') !== actor.uid || member.get('status') !== 'active' || member.get('role') !== 'owner') return null
+        const requesterRef = memberDocRef(db, actor.email)
+        if (!requesterRef) return null
+        const [snapshot, member] = await transaction.getAll(ref, requesterRef)
+        if (!isActiveOwner(member.data()) || member.get('uid') !== actor.uid) return null
         const previous = parsePublishControl(snapshot.data())
         if (!previous && paused) return PUBLISH_STOPS.notEnabled
         if (snapshot.exists && !previous) throw new Error('Malformed publication control')
@@ -169,9 +178,10 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
     async check(command: PublishCommand, now: string) {
       return db.runTransaction(async transaction => {
         const stopRef = db.doc(`publishCommandStops/${publishCommandKey(command)}`)
-        const [control, stopped, receipt, member] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`), db.doc(`members/${encodeURIComponent(normalizeEmail(command.requestedBy?.email ?? 'legacy'))}`))
+        const requesterRef = memberDocRef(db, command.requestedBy?.email)
+        const [control, stopped, receipt, member] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`), ...(requesterRef ? [requesterRef] : []))
         if (receipt.get('committedAt')) return null
-        return writePublishStop(transaction, command, control, stopped, now, member)
+        return writePublishStop({ transaction, command, control, stopped, now, member })
       })
     },
   }

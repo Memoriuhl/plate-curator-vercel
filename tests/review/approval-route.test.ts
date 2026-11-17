@@ -12,7 +12,7 @@ import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
-vi.mock('../../lib/server/context', () => mocks)
+vi.mock('../../lib/server/context', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/server/context')>(), ...mocks }))
 vi.mock('workflow/api', () => mocks)
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
 const ctx = { params: Promise.resolve({ id: 'batch' }) }

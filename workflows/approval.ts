@@ -1,3 +1,4 @@
+import { requesterFields } from '../lib/publish/authority'
 import type { PublishRequester } from '../lib/publish/types'
 import { createHook, RetryableError, sleep } from 'workflow'
 import { publishBatch } from '../lib/publish/publish'
@@ -47,6 +48,6 @@ async function runPublish(batchId: string, revision: number, command: PublishReq
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })
   }
   return outcome.ok
-    ? { outcome: 'published' as const, version: outcome.value.toVersion, ...(command.requestedBy ? { requestedBy: command.requestedBy } : {}) }
-    : { outcome: 'publish_failed' as const, error: outcome.error, reasons: outcome.reasons ?? [], ...(command.requestedBy ? { requestedBy: command.requestedBy } : {}), ...(outcome.reviewedVersion !== undefined ? { reviewedVersion: outcome.reviewedVersion, liveVersion: outcome.liveVersion } : {}) }
+    ? { outcome: 'published' as const, version: outcome.value.toVersion, ...requesterFields(command.requestedBy) }
+    : { outcome: 'publish_failed' as const, error: outcome.error, reasons: outcome.reasons ?? [], ...requesterFields(command.requestedBy), ...(outcome.reviewedVersion !== undefined ? { reviewedVersion: outcome.reviewedVersion, liveVersion: outcome.liveVersion } : {}) }
 }

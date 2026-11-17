@@ -23,6 +23,7 @@ const enabled = { paused: false, generation: 1, changedBy: controlActor, changed
 beforeEach(async () => {
   await db.doc('config/publishControl').set(enabled)
   await db.doc('members/owner%40example.com').set({ ...controlActor, role: 'owner', status: 'active' })
+  await db.doc('members/backup%40example.com').set({ uid: 'backup', email: 'backup@example.com', role: 'owner', status: 'active' })
   await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.doc('locks/publish').delete()
   await db.recursiveDelete(db.collection('publishRecords'))
@@ -313,17 +314,21 @@ test('the pause transaction normalizes the membership email', async () => {
 })
 
 
-test.each(['updateRole', 'remove'] as const)('requester %s wins at the commit seam and restore cannot revive it', async method => {
+test.each(['updateRoleGuarded', 'removeGuarded'] as const)('requester %s wins at the commit seam and restore cannot revive it', async method => {
   const members = firestoreMembersStore(db)
   const f = fixture()
   const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
-    await members[method]('owner@example.com', 'editor')
+    expect(await members[method]('owner@example.com', 'editor')).toBe('ok')
     return pointer.advance(...args)
   } }, curator: firestorePublishCurator(db, env) }
   expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'revoked' })
   expect((await pointer.read()).version).toBe(1)
   expect(await records.get(record.id)).toMatchObject({ state: 'uploaded' })
-  await members.upsertSeed({ email: 'owner@example.com', uid: 'owner', role: 'owner', status: 'active', signIn: 'google', invite: null, invitedBy: null, createdAt: now })
+  if (method === 'removeGuarded') {
+    expect(await members.create({ email: 'owner@example.com', role: 'editor', signIn: 'google', invitedBy: 'backup', invite: { tokenHash: 'restore', issuedAt: now, expiresAt: '2027-11-15T12:00:00Z' } })).toBe('ok')
+    expect(await members.activate('owner@example.com', 'owner')).toBe('ok')
+  }
+  expect(await members.updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
   expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'revoked' })
 })
 
@@ -334,7 +339,7 @@ test('revocation after Publish commit reconciles the same version exactly once',
   const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
     advances++
     expect(await pointer.advance(...args)).toBe('advanced')
-    await firestoreMembersStore(db).remove('owner@example.com')
+    expect(await firestoreMembersStore(db).removeGuarded('owner@example.com')).toBe('ok')
     expect(await pointer.advance(...args)).toBe('advanced')
     throw new Error('lost response')
   } }, curator: firestorePublishCurator(db, env) }
@@ -347,8 +352,8 @@ test('revocation after Publish commit reconciles the same version exactly once',
 
 test('revocation before preparation refuses upload; restored authority still invalidates the old command', async () => {
   const members = firestoreMembersStore(db)
-  await members.updateRole('owner@example.com', 'editor')
-  await members.updateRole('owner@example.com', 'owner')
+  await members.updateRoleGuarded('owner@example.com', 'editor')
+  await members.updateRoleGuarded('owner@example.com', 'owner')
   const f = fixture()
   const deps = { ...f.deps, control, store, lock, records, pointer }
   expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'revoked' })
@@ -360,7 +365,7 @@ test('a different revoked approver does not change requester authority or approv
   await db.doc('reviewBatches/batch').set({ ...approved, env })
   const members = firestoreMembersStore(db)
   await members.upsertSeed({ email: 'approver@example.com', uid: 'approver', role: 'owner', status: 'active', signIn: 'google', invite: null, invitedBy: null, createdAt: now })
-  await members.remove('approver@example.com')
+  expect(await members.removeGuarded('approver@example.com')).toBe('ok')
   const f = fixture(approved)
   expect(await publishBatch({ ...f.deps, control, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }, owner, command)).toMatchObject({ ok: true })
   expect((await store.getBatch(batch.id))?.approval).toEqual(approved.approval)
@@ -379,11 +384,11 @@ test.each([false, true])('a command with no authority marker is superseded at th
 
 test.each(['pause', 'revoke'])('pause plus revoke preserves the first terminal reason: %s', async first => {
   if (first === 'pause') await control.change(true, controlActor, now)
-  else await firestoreMembersStore(db).updateRole('owner@example.com', 'editor')
+  else await firestoreMembersStore(db).updateRoleGuarded('owner@example.com', 'editor')
   const expected = first === 'pause' ? 'paused' : 'revoked'
   expect(await control.check(command, now)).toBe(expected)
   await db.doc('config/publishControl').set({ ...enabled, paused: true, generation: 2 })
-  await firestoreMembersStore(db).updateRole('owner@example.com', 'editor')
+  await firestoreMembersStore(db).updateRoleGuarded('owner@example.com', 'editor')
   expect(await control.check(command, now)).toBe(expected)
   expect((await pointer.read()).version).toBe(1)
 })
@@ -394,5 +399,27 @@ test('bootstrap without a member document fails the final active Owner check', a
   await records.save(record, lease.token, now)
   await db.doc('members/owner%40example.com').delete()
   expect(await pointer.advance(record, lease, now)).toBe('revoked')
+  expect((await pointer.read()).version).toBe(1)
+})
+
+
+test('an unchanged guarded Owner role preserves an in-flight Publish at the commit seam', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+    expect(await firestoreMembersStore(db).updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
+    return pointer.advance(...args)
+  } }, curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+})
+
+test('guarded demotion then restore before the pointer transaction invalidates the old epoch', async () => {
+  const f = fixture()
+  const members = firestoreMembersStore(db)
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+    expect(await members.updateRoleGuarded('owner@example.com', 'editor')).toBe('ok')
+    expect(await members.updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
+    return pointer.advance(...args)
+  } }, curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'revoked' })
   expect((await pointer.read()).version).toBe(1)
 })

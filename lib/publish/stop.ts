@@ -12,8 +12,8 @@ export function isPublishStop(error: unknown): error is PublishStop {
 }
 
 export const PUBLISH_STOP_MESSAGES: Record<PublishStop, string> = {
-  [PUBLISH_STOPS.revoked]: 'The Publish requester lost Owner access (revoked).',
   [PUBLISH_STOPS.paused]: 'Catalog publishing is paused.',
+  [PUBLISH_STOPS.revoked]: 'The Publish requester lost Owner access (revoked).',
   [PUBLISH_STOPS.superseded]: 'This Publish command was superseded.',
   [PUBLISH_STOPS.notEnabled]: 'Catalog publishing is not enabled yet.',
 }

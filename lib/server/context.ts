@@ -20,7 +20,7 @@ import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
-import type { PublishDeps } from '../publish/types'
+import type { PublishDeps, RequesterAuthority } from '../publish/types'
 import { expoPushSender, firestoreCatalogPushStore, type CatalogPushDeps } from '../publish/catalog-push'
 import { requireEnv } from '../env'
 import { stagingFirestore } from '../gcp/firestore'
@@ -54,6 +54,10 @@ export function currentActor(request: Request) {
       activate: (email, uid, hash) => store().activate(email, uid, hash),
     },
   })
+}
+
+export function requesterAuthority(actor: Actor & { email: string; authorityEpoch: number }): RequesterAuthority {
+  return { uid: actor.uid, email: normalizeEmail(actor.email), authorityEpoch: actor.authorityEpoch }
 }
 
 export async function currentActiveOwner(request: Request): Promise<{ ok: true; actor: Actor & { email: string; authorityEpoch: number } } | { ok: false; response: Response }> {

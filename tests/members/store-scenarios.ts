@@ -7,6 +7,31 @@ const invite = createInvite('first-token', () => instant)
 const pending: PendingMember = { email: ' Person@Example.com ', role: 'editor', signIn: 'google', invitedBy: 'owner', invite }
 
 export function membersStoreScenarios(setup: (now: () => string) => Promise<MembersStore>) {
+  it.each(['updateRole', 'updateRoleGuarded'] as const)('%s leaves authority unchanged for an unchanged role', async method => {
+    const store = await setup(() => instant)
+    await store.create({ ...pending, role: 'owner' })
+    await store.activate(pending.email, 'owner')
+    const before = await store.getByEmail(pending.email)
+    expect(await store[method](pending.email, 'owner')).toBe('ok')
+    expect(await store.getByEmail(pending.email)).toEqual(before)
+  })
+
+  it('removed status is inert even without a removedAt marker', async () => {
+    const store = await setup(() => instant)
+    await store.upsertSeed({ ...pending, role: 'owner', status: 'removed', uid: 'old-owner', createdAt: instant })
+    expect(await store.getByEmail(pending.email)).toBeNull()
+    expect(await store.getByUid('old-owner')).toBeNull()
+    expect(await store.getByInviteHash(invite.tokenHash)).toBeNull()
+    expect(await store.list()).toEqual([])
+    expect(await store.updateRole(pending.email, 'owner')).toBe('not_found')
+    expect(await store.updateRoleGuarded(pending.email, 'owner')).toBe('not_found')
+    expect(await store.activate(pending.email, 'old-owner')).toBe('not_found')
+    expect(await store.remove(pending.email)).toBe('not_found')
+    expect(await store.removeGuarded(pending.email)).toBe('not_found')
+    expect(await store.create(pending)).toBe('ok')
+    expect((await store.getByEmail(pending.email))?.authorityEpoch).toBe(2)
+  })
+
   it('increments authority across demotion, restore, removal and recreation', async () => {
     const store = await setup(() => instant)
     await store.create({ ...pending, role: 'owner' })

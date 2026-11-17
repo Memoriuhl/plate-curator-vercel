@@ -4,7 +4,7 @@ export type Member = {
   email: string
   role: 'editor' | 'owner'
   signIn: 'google' | 'password'
-  status: 'pending' | 'active'
+  status: 'pending' | 'active' | 'removed'
   invite: { tokenHash: string; issuedAt: string; expiresAt: string } | null
   uid: string | null
   invitedBy: string | null
