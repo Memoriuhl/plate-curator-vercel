@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { createJob, claimNext, expireJob, getJob, getJobForActor, reportResult } from '../../lib/jobs/jobs'
+import { createJob, claimJob, claimNext, expireJob, getJob, getJobForActor, reportResult } from '../../lib/jobs/jobs'
 import { issueWorkerToken, verifyWorkerToken, revokeWorkerToken } from '../../lib/jobs/tokens'
 import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
 import { plateRevision } from '../../lib/review/revision'
@@ -223,5 +223,41 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     const first = await reportResult(s.deps, 'worker', 'job', c.claimId, input)
     expect(first).toMatchObject({ ok: true, value: { result: { backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: 10, usage: input.usage } } })
     expect(await reportResult(s.deps, 'worker', 'job', c.claimId, { ...input, usage: { output: 4, input: 3 } })).toEqual(first)
+  })
+  test('hosted jobs are skipped by queue claims and claimed by id', async () => {
+    const s = await setup()
+    await createJob(s.deps, { id: 'hosted', batchId: 'batch', plateId: 'one', requestedBy: 'requester', route: 'hosted' })
+    s.advance(1)
+    await s.create('local')
+    expect(await claimNext(s.deps, 'worker')).toMatchObject({ job: { id: 'local' } })
+    expect(await claimNext(s.deps, 'worker')).toBeNull()
+    const claimed = await claimJob(s.deps, 'hosted-worker', 'hosted')
+    expect(claimed).toMatchObject({ ok: true, value: { job: { id: 'hosted', route: 'hosted', state: 'claimed', workerId: 'hosted-worker', leaseExpiresAt: 1101 } } })
+    if (!claimed.ok) throw new Error('Expected claim')
+    expect(await reportResult(s.deps, 'hosted-worker', 'hosted', claimed.value.claimId, s.result)).toMatchObject({ ok: true, value: { state: 'completed' } })
+  })
+  test('claiming by id refuses another live claim but lets the same worker reclaim', async () => {
+    const s = await setup()
+    await s.create()
+    const first = await claimJob(s.deps, 'hosted-worker', 'job')
+    expect(await claimJob(s.deps, 'other', 'job')).toEqual({ ok: false, error: 'claim_mismatch' })
+    const again = await claimJob(s.deps, 'hosted-worker', 'job')
+    if (!first.ok || !again.ok) throw new Error('Expected claims')
+    expect(again.value.claimId).not.toBe(first.value.claimId)
+    expect(await reportResult(s.deps, 'hosted-worker', 'job', first.value.claimId, s.result)).toEqual({ ok: false, error: 'claim_mismatch' })
+    s.advance(100)
+    expect(await claimJob(s.deps, 'other', 'job')).toMatchObject({ ok: true, value: { job: { workerId: 'other' } } })
+  })
+  test('claiming by id reports completed, expired and missing jobs without a new claim', async () => {
+    const s = await setup()
+    await s.create('done')
+    const c = await claimJob(s.deps, 'hosted-worker', 'done')
+    if (!c.ok) throw new Error('Expected claim')
+    await reportResult(s.deps, 'hosted-worker', 'done', c.value.claimId, s.result)
+    expect(await claimJob(s.deps, 'hosted-worker', 'done')).toMatchObject({ ok: true, value: { job: { state: 'completed' }, claimId: c.value.claimId } })
+    await s.create('gone')
+    await expireJob(s.deps, 'gone')
+    expect(await claimJob(s.deps, 'hosted-worker', 'gone')).toEqual({ ok: false, error: 'claim_expired' })
+    expect(await claimJob(s.deps, 'hosted-worker', 'missing')).toEqual({ ok: false, error: 'not_found' })
   })
 }
