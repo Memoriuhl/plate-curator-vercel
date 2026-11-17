@@ -28,6 +28,22 @@ export async function proposeEdit(
       .filter(key => i.fields[key] !== undefined)
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
+    if (plate.deleted) {
+      if (plate.isStandard) return { ok: false, error: 'invalid_state' }
+      if (plate.templateRole === 'template') {
+        const [plates, edits] = await Promise.all([
+          d.stateBaseline(batch.baselineVersion, plate.state),
+          d.store.listEdits(batch.id),
+        ])
+        const fieldsById = new Map(edits.map(edit => [edit.plateId, edit.fields]))
+        const hasVariants = plates.some(baseline => {
+          const member = { ...baseline, ...fieldsById.get(baseline.id) }
+          return member.id !== plate.id && !member.deleted && member.templateRole === 'variant'
+            && (member.variantOfPlateId === plate.id || !!plate.templateFamily && member.templateFamily === plate.templateFamily)
+        })
+        if (hasVariants) return { ok: false, error: 'invalid_state' }
+      }
+    }
     if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
     const fields: EditableFields = Object.fromEntries(editableKeys
       .filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key]))

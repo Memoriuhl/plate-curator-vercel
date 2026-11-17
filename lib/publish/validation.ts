@@ -45,12 +45,16 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
       else families.set(plate.templateFamily, (families.get(plate.templateFamily) ?? 0) + (plate.templateRole === 'template' ? 1 : 0))
     }
   }
-  for (const plate of baseline.plates) if (!ids.has(plate.id) && !deleted.has(plate.id)) reasons.push(`Missing baseline plate: ${plate.id}`)
+  for (const plate of baseline.plates) {
+    if (ids.has(plate.id)) continue
+    if (!deleted.has(plate.id)) reasons.push(`Missing baseline plate: ${plate.id}`)
+    if (plate.templateRole === 'template' && plate.templateFamily && families.has(plate.templateFamily)) touchedFamilies.add(plate.templateFamily)
+  }
   for (const [state, count] of standards) if (count > 1) reasons.push(`Multiple standard plates in state: ${state}`)
   for (const family of touchedFamilies) {
     const count = families.get(family) ?? 0
     if (count > 1) reasons.push(`Family must have at most one template: ${family}`)
-    else if (baselineTemplateCounts.get(family) === 1 && count !== 1 && !baseline.plates.some(plate => deleted.has(plate.id) && plate.templateFamily === family && plate.templateRole === 'template')) reasons.push(`Family must retain exactly one template: ${family}`)
+    else if (baselineTemplateCounts.get(family) === 1 && count !== 1) reasons.push(`Family must retain exactly one template: ${family}`)
   }
   return reasons
 }

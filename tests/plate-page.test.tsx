@@ -364,7 +364,7 @@ test.each([1, 2])('templates with %i linked variants cannot be added', count => 
 })
 
 test('delete requires confirmation and Cancel leaves the batch unchanged', async () => {
-  render(<PlatePage {...props} />)
+  render(<PlatePage {...props} plates={[]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   expect(screen.getByRole('alertdialog')).toBeTruthy()
   expect(screen.getByText('It is removed from the game at the next Publish. You can undo until then.')).toBeTruthy()
@@ -381,4 +381,30 @@ test('pending deletion remains visible and can be undone', async () => {
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
   await waitFor(() => expect(state.edit).toHaveBeenCalledWith(expect.objectContaining({ id: army.id }), { deleted: false }))
+})
+
+test('Standard deletion is disabled with a visible reason from the draft overlay', () => {
+  state.remote = { ...army, isStandard: true }
+  state.refreshed = true
+  render(<PlatePage {...props} />)
+  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Set another Standard plate first.')).toBeTruthy()
+})
+
+test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion counts Variants after the draft overlay: %s', action => {
+  const template = { ...props.plate, isStandard: false, templateRole: 'template' as const, templateFamily: 'test-family' }
+  const variant = { ...army, id: 'AK.variant', templateRole: 'variant' as const, templateFamily: 'test-family', variantOfPlateId: template.id }
+  render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
+  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Move or promote its 1 Variants first.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(state.edit).not.toHaveBeenCalled()
+  cleanup()
+  state.remote = action === 'moved' ? { ...variant, templateFamily: 'other', variantOfPlateId: null }
+    : action === 'promoted' ? { ...variant, templateRole: 'template', variantOfPlateId: null } : { ...variant, deleted: true }
+  state.refreshed = true
+  render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
+  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
+  expect(screen.queryByText('Move or promote its 1 Variants first.')).toBeNull()
 })

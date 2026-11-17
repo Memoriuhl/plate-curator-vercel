@@ -205,6 +205,10 @@ export function PlatePage(props: PlatePageProps) {
       ? member.templateFamily === current.templateFamily
       : member.id === current.id,
   )
+  const variantCount = plates.filter(member => member.id !== current.id && !member.deleted && member.templateRole === 'variant'
+    && (member.variantOfPlateId === current.id || !!current.templateFamily && member.templateFamily === current.templateFamily)).length
+  const deleteReason = current.isStandard ? 'Set another Standard plate first.'
+    : current.templateRole === 'template' && variantCount > 0 ? `Move or promote its ${variantCount} Variants first.` : null
   const others = useMemo(() => {
     const outside = plates.filter(member => current.templateFamily
       ? member.templateFamily !== current.templateFamily
@@ -409,9 +413,10 @@ export function PlatePage(props: PlatePageProps) {
               <Parked>Replace or crop</Parked>
             </div>
             {fieldIssue('deleted')}
+            {!current.deleted && deleteReason ? <p id="delete-plate-reason" className="caption text-[var(--ink-2)]">{deleteReason}</p> : null}
             {current.deleted ? <Button variant="outline" disabled={blocked} onClick={() => void save(current, { deleted: false })}>Undo delete</Button> : (
               <AlertDialog>
-                <AlertDialogTrigger asChild><Button variant="outline" className="text-[var(--danger)]" disabled={blocked}>Delete plate</Button></AlertDialogTrigger>
+                <AlertDialogTrigger asChild><Button variant="outline" className="text-[var(--danger)]" disabled={blocked || !!deleteReason} aria-describedby={deleteReason ? 'delete-plate-reason' : undefined}>Delete plate</Button></AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete {current.displayName}?</AlertDialogTitle>
@@ -419,7 +424,7 @@ export function PlatePage(props: PlatePageProps) {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction className="bg-[var(--danger)] text-white" onClick={() => void save(current, { deleted: true })}>Delete</AlertDialogAction>
+                    <AlertDialogAction className="bg-[var(--danger)] text-white" disabled={blocked || !!deleteReason} onClick={() => void save(current, { deleted: true })}>Delete</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>

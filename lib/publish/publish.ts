@@ -94,7 +94,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       const next = { version: toVersion, plates: baseline.plates.filter(plate => !deleted.has(plate.id)).map(plate => {
         const edited = { ...plate, ...fields.get(plate.id) }
         delete edited.deleted
-        if (fields.get(plate.id)?.variantOfPlateId === null || deleted.has(edited.variantOfPlateId ?? '')) delete edited.variantOfPlateId
+        if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
         const order = orders.get(plate.state)
         if (order) edited.sortOrder = order.get(plate.id)
         return edited

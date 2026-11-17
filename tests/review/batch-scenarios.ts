@@ -31,6 +31,34 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     return { deps, store, input }
   }
 
+  test('Standard plates cannot be deleted until their draft Standard flag is cleared', async () => {
+    const { deps, store, input } = await setup()
+    const standard = { ...baseline[0], isStandard: true }
+    deps.baselineAtVersion = async () => standard
+    const proposal = { ...input, baseRevision: plateRevision(standard), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, proposal)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    const cleared = await proposeEdit(deps, editor, { ...proposal, fields: { isStandard: false } })
+    if (!cleared.ok) throw new Error('expected Standard edit')
+    expect(await proposeEdit(deps, editor, { ...proposal, baseRevision: plateRevision(cleared.value.plate) })).toMatchObject({ ok: true })
+  })
+
+  test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion requires its Variants to be %s in the batch view', async action => {
+    const { deps, store, input } = await setup()
+    const template: Plate = { ...baseline[0], templateRole: 'template', templateFamily: 'family' }
+    const variant: Plate = { ...baseline[1], templateRole: 'variant', templateFamily: 'family', variantOfPlateId: 'one' }
+    deps.baselineAtVersion = async (_version, id) => id === 'one' ? template : variant
+    deps.stateBaseline = async () => [template, variant]
+    const proposal = { ...input, baseRevision: plateRevision(template), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, proposal)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getBatch('batch')).toMatchObject({ revision: 4 })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    const fields = action === 'moved' ? { templateFamily: 'other', variantOfPlateId: null }
+      : action === 'promoted' ? { templateRole: 'template' as const, variantOfPlateId: null } : { deleted: true }
+    expect(await proposeEdit(deps, editor, { ...input, plateId: 'two', baseRevision: plateRevision(variant), fields })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, proposal)).toMatchObject({ ok: true })
+  })
+
   test('undoing a deletion alone removes the proposal and restores its revision', async () => {
     const { deps, store, input } = await setup()
     const deleted = await proposeEdit(deps, editor, { ...input, fields: { deleted: true } })

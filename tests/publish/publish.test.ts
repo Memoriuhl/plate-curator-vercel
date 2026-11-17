@@ -397,16 +397,21 @@ test('committed legacy receipt completes bookkeeping despite the old baseline', 
   expect([...f.blobs.keys()]).toEqual([1, 2])
 })
 
-test('publish removes a template and detaches its variants without deleting images', async () => {
+test('publish rejects deleting a template while its family retains Variants', async () => {
   const f = fixture()
-  const template = { ...snapshot.plates[0], templateRole: 'template', templateFamily: 'family' }
-  const variant = { ...snapshot.plates[1], templateRole: 'variant', templateFamily: 'family', variantOfPlateId: template.id }
+  const template = { ...snapshot.plates[0], templateRole: 'template' as const, templateFamily: 'family' }
+  const variant = { ...snapshot.plates[1], templateRole: 'variant' as const, templateFamily: 'family', variantOfPlateId: template.id }
   f.blobs.set(1, Buffer.from(JSON.stringify({ version: 1, plates: [template, variant] })))
   f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { deleted: true }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: false, error: 'invalid_snapshot', reasons: ['Family must retain exactly one template: family'] })
+  expect(f.blobs.has(2)).toBe(false)
+  expect(f.pointer().version).toBe(1)
+  expect(validateSnapshot({ version: 1, plates: [template, variant] }, { version: 2, plates: [variant] }, new Set(['one']))).toContain('Family must retain exactly one template: family')
+})
+
+test('publish removes an eligible plate and preserves surviving image references', async () => {
+  const f = fixture()
+  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { deleted: true }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
-  const next = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
-  expect(next.plates).toHaveLength(1)
-  expect(next.plates[0]).toMatchObject({ id: 'two', image: variant.image })
-  expect(next.plates[0]).not.toHaveProperty('variantOfPlateId')
-  expect(next.plates[0]).not.toHaveProperty('deleted')
+  expect(JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates).toEqual([snapshot.plates[1]])
 })
