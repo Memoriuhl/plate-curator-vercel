@@ -104,7 +104,7 @@ function BatchSelection({
   const failed = run.data?.outcome
   const stopped = isPublishStop(failed?.error) || !!baseline.data?.stopped
   const canRetry = baseline.data?.canRetry === true
-  const requested = requestedFrom !== undefined && (requestedFrom === (run.data?.runId ?? null) || !stopped)
+  const requested = requestedFrom !== undefined && requestedFrom === (run.data?.runId ?? null)
   const receiptConflict = baseline.data?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
   const blocked = baseline.data?.error || rejectedLiveVersion !== null || isBaselineError(failed?.error)
   const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
