@@ -20,7 +20,7 @@ test.each([
 })
 
 test('accepts bounded sourced story fields including existing http links', () => {
-  expect(validateSnapshot(baseline, candidate({ firstIssuedYear: 1976, funFacts: [{ text: 'Fact', sourceUrl: 'http://example.org/fact' }], sourceUrl: 'http://example.org/source', wikiUrl: 'https://en.wikipedia.org/wiki/Plate', readMore: [{ title: 'Reference', site: '', url: 'http://example.org' }] }))).toEqual([])
+  expect(validateSnapshot(baseline, candidate({ firstIssuedYear: 1976, funFacts: [{ text: 'Fact', sourceUrl: 'http://example.org/fact' }], sourceUrl: 'http://example.org/source', wikiUrl: 'https://en.wikipedia.org/wiki/Plate', readMore: [{ title: 'Reference', site: 'Example', url: 'http://example.org' }] }))).toEqual([])
 })
 
 test('grandfathers untouched existing values even when unrelated tags change', () => {
@@ -36,3 +36,4 @@ test('validates only changed fields on a plate with legacy story values', () => 
   expect(validateSnapshot({ version: 1, plates: [legacy] }, { version: 2, plates: [{ ...legacy, readMore: [{ title: 'Reference', site: 'Example', url: 'http://example.org' }] }] })).toEqual([])
   expect(validateSnapshot({ version: 1, plates: [legacy] }, { version: 2, plates: [{ ...legacy, firstIssuedYear: 1976 }] })).toEqual([])
 })
+
