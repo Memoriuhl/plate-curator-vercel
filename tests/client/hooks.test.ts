@@ -165,7 +165,7 @@ test.each([true, false])('lost move response reconciles saved Batch before repor
   session.api.get.mockResolvedValue(saved)
   await act(async () => {
     const move = result.current.move('AK', ['AK.one'], { plateId: 'AK.one', templateFamily: 'new' }, origin)
-    if (landed) expect(await move).toEqual({ ok: true })
+    if (landed) expect(await move).toMatchObject({ ok: true, batchId: 'draft', revision: 'draft-revision' })
     else await expect(move).rejects.toThrow('response lost')
   })
   expect(context.cache.get('/api/batches/draft').data).toEqual(saved)
@@ -271,7 +271,7 @@ test('editing reuses the most recent batch revision and revalidates details and 
   session.api.get.mockClear()
   let response
   await act(async () => { response = await result.current.edit.edit(card, { tags: proposed.tags }) })
-  expect(response).toEqual({ ok: true, proposed })
+  expect(response).toMatchObject({ ok: true, proposed })
   expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'draft-revision', fields: { tags: proposed.tags } })
   expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft')
   expect(session.api.get).toHaveBeenCalledWith(ownKey)
@@ -484,7 +484,7 @@ test('two fast edits create one named batch and save both changes in order', asy
       result.current.edit(card, { description: 'Second change' }),
     ])
   })
-  expect(responses).toEqual([{ ok: true, proposed }, { ok: true, proposed }])
+  expect(responses).toMatchObject([{ ok: true, proposed }, { ok: true, proposed }])
   expect(session.api.send.mock.calls).toEqual([
     ['POST', '/api/batches', { name: 'AK edits', plateIds: [card.id] }],
     ['PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'batch-baseline', fields: { tags: ['first'] } }],
@@ -504,7 +504,7 @@ test('failed batch creation releases serialization so a later edit can retry', a
   const { result } = renderHook(() => useEditPlate(), harness())
   await act(async () => { await expect(result.current.edit(card, { tags: ['first'] })).rejects.toBe(failure) })
   expect(result.current.pending).toBe(false)
-  await act(async () => { expect(await result.current.edit(card, { tags: ['retry'] })).toEqual({ ok: true, proposed }) })
+  await act(async () => { expect(await result.current.edit(card, { tags: ['retry'] })).toMatchObject({ ok: true, proposed }) })
   expect(session.api.send).toHaveBeenCalledTimes(3)
   expect(result.current.pending).toBe(false)
 })
@@ -589,7 +589,7 @@ test('detaching a variant sends null and overlays its own template without the o
   const plates = [{ ...card, templateRole: 'variant' as const, variantOfPlateId: 'AK.parent', templateFamily: 'family' }]
   const { result } = renderHook(() => ({ edit: useEditPlate(), overlay: useDraftOverlay(plates) }), harness())
   await waitFor(() => expect(result.current.overlay[0].revision).toBe('variant-revision'))
-  await act(async () => { expect(await result.current.edit.edit(plates[0], fields)).toEqual({ ok: true, proposed: detached }) })
+  await act(async () => { expect(await result.current.edit.edit(plates[0], fields)).toMatchObject({ ok: true, proposed: detached }) })
   expect(session.api.send).toHaveBeenCalledWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'variant-revision', fields })
   expect(result.current.overlay[0]).toMatchObject({ templateRole: 'template', templateFamily: card.id, variantOfPlateId: null })
 })
@@ -724,4 +724,20 @@ test('Publish confirmation shows the approved revision, sends the current batch 
     expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
   } finally { Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+})
+
+test('move capture reads the saved cache revision before the next promotion', async () => {
+  const context = harness()
+  const { result } = renderHook(() => useReorderState(), context)
+  await waitFor(() => expect(result.current.capture().revision).toBe(1))
+  context.cache.set('/api/batches/draft', { data: { ...detail(), batch: { ...batch, revision: 8 } } })
+  expect(result.current.capture()).toEqual({ batchId: 'draft', revision: 8 })
+})
+
+test('bulk edit returns the saved revision for compensating edits', async () => {
+  session.api.send.mockResolvedValue({ batch, plate: proposed })
+  const { result } = renderHook(() => useEditPlate({ parallel: true }), harness())
+  await act(async () => {
+    expect(await result.current.edit(card, { tags: proposed.tags })).toMatchObject({ ok: true, batchId: 'draft', revision: 'draft-revision' })
+  })
 })

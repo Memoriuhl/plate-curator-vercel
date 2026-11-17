@@ -1,6 +1,6 @@
 'use client'
 
-import { plateSelection, useSelectionKeyboard } from './plate-selection'
+import { plateSelection, useSelectionKeyboard, SelectionPresence } from './plate-selection'
 import { SelectionBar } from './selection-bar'
 import dynamic from 'next/dynamic'
 import { FilterBar } from './filter-bar'
@@ -94,7 +94,8 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   }
   const { user } = useSession()
   const me = useMe()
-  const edits = useEditPlate({ parallel: true })
+  const edits = useEditPlate()
+  const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
@@ -102,6 +103,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const { mutate } = useSWRConfig()
   const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
+    bulkEdits,
     families: baselineFamilies, canEdit: canEdit && !issue, show, query, ordering,
     edits: { ...edits, edit: async (plate, fields, reviewed) => {
       const result = await edits.edit(plate, fields, reviewed)
@@ -228,7 +230,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     container.current?.querySelectorAll<HTMLElement>('[data-drag-row]').forEach(element => virtualizer.measureElement(element))
   }, [displayedFamilies, virtualizer])
   useDragFlip(container, reflowIdentity, !!drag.active)
-  useSelectionKeyboard({ close, promote: drag.promote, disabled: !canEdit || drag.saving || edits.pending })
+  useSelectionKeyboard({ close, promote: drag.promote, disabled: !canEdit || drag.saving || edits.pending || bulkEdits.pending, dragging: !!drag.active })
   const keyboardSource = useRef<string | null>(null)
   useEffect(() => {
     if (drag.active?.keyboard) keyboardSource.current = drag.active.item.plate.id
@@ -267,6 +269,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   return (
     <section aria-label="Plate families" id="families">
       {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={onSelectGroup} /> : null}
+      <SelectionPresence />
       <SelectionBar promote={drag.promote} disabled={!canEdit || drag.saving || edits.pending} />
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}

@@ -16,7 +16,7 @@ export function DragPreview({ item, x, y, geometry, variantCount = 0, selectionC
   if (typeof document === 'undefined') return null
   return createPortal(
     <div ref={measurePreview} aria-hidden="true" data-drag-lifted className="pointer-events-none fixed top-0 left-0 z-50 flex origin-top-left flex-col items-center gap-3 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)] shadow-xl ring-1 ring-[var(--line)]" style={{ width: geometry?.width ?? 220, transformOrigin: `${geometry?.offsetX ?? 0}px ${offsetY}px`, transform: `translate3d(${x - (geometry?.offsetX ?? 0)}px, ${y - offsetY}px, 0) scale(1.03)` }}>
-      <span className="caption">{selectionCount > 1 ? selectionCount + ' selected' : null}</span>
+      {selectionCount > 1 ? <span className="caption absolute top-1 right-1 rounded-full bg-[var(--primary)] px-2 py-1 text-[var(--on-primary)]">{selectionCount} selected</span> : null}
       <style>{'body.plate-dragging, body.plate-dragging * { cursor: grabbing !important; user-select: none; }'}</style>
       <div className="flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--fill)]" style={{ width: geometry?.imageWidth ?? 140, height: geometry?.imageHeight ?? 70 }}>
         {item.plate.imageUrl ? <Image src={item.plate.imageUrl} alt="" width={geometry?.imageWidth ?? 140} height={geometry?.imageHeight ?? 70} unoptimized className="size-full object-contain" /> : <span className="caption">No image</span>}

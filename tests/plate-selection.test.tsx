@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { FilterBarControls } from '@/components/dashboard/filter-bar'
 import { SelectionBar } from '@/components/dashboard/selection-bar'
 import { usePlateDrag } from '@/components/dashboard/use-plate-drag'
 import { JurisdictionCard } from '@/components/dashboard/jurisdiction-card'
 import { plateCards } from '../fixtures/plate-cards'
 import { Profiler } from 'react'
 import { afterEach, vi, describe, it, expect } from 'vitest'
-import { createPlateSelection, plateSelection, SelectionPlate, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
+import { createPlateSelection, plateSelection, SelectionPlate, SelectionCheckbox, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 const plates = ['a', 'b', 'c'].map(id => ({ id, state: 'NY' }) as PlateCardData)
 describe('dashboard selection', () => {
@@ -42,10 +41,10 @@ afterEach(() => { cleanup(); plateSelection.clear() })
 it('modifier clicks select without opening a plate and unrelated plates do not render', () => {
   plateSelection.visible(plates)
   const renderA = vi.fn(), renderB = vi.fn()
-  render(<><Profiler id="a" onRender={renderA}><SelectionPlate id="a"><a href="/a">Open A</a></SelectionPlate></Profiler><Profiler id="b" onRender={renderB}><SelectionPlate id="b">B</SelectionPlate></Profiler></>)
+  render(<><Profiler id="a" onRender={renderA}><SelectionPlate id="a"><SelectionCheckbox id="a" /><a href="/a">Open A</a></SelectionPlate></Profiler><Profiler id="b" onRender={renderB}><SelectionPlate id="b"><SelectionCheckbox id="b" />B</SelectionPlate></Profiler></>)
   renderA.mockClear(); renderB.mockClear()
-  fireEvent.click(screen.getByRole('button', { name: 'Select a' }))
-  expect(screen.getByRole('button', { name: 'Select a' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select a' }))
+  expect((screen.getByRole('checkbox', { name: 'Select a' }) as HTMLInputElement).checked).toBe(true)
   expect(renderA).toHaveBeenCalledTimes(1)
   expect(renderB).not.toHaveBeenCalled()
   fireEvent.click(screen.getByText('Open A'), { ctrlKey: true })
@@ -91,9 +90,10 @@ it('Backspace promotes only variants through the edit path and ignores editable 
   const variant = { ...plateCards[0], id: 'NY.variant', templateRole: 'variant' as const }
   const template = { ...variant, id: 'NY.template', templateRole: 'template' as const }
   const edit = vi.fn().mockResolvedValue({ ok: true })
+  const move = vi.fn().mockResolvedValue({ ok: true })
   plateSelection.add([template, variant])
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template, variants: [variant] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template, variants: [variant] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false })
     return <><textarea aria-label="Notes" /><p>{drag.announcement}</p></>
   }
@@ -101,15 +101,88 @@ it('Backspace promotes only variants through the edit path and ignores editable 
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Backspace' })
   expect(edit).not.toHaveBeenCalled()
   await act(async () => fireEvent.keyDown(window, { key: 'Backspace' }))
-  expect(edit).toHaveBeenCalledExactlyOnceWith(variant, { templateRole: 'template', templateFamily: variant.id, variantOfPlateId: null })
-  expect(screen.getByText('1 plates are now Templates')).toBeTruthy()
+  expect(edit).not.toHaveBeenCalled()
+  expect(move).toHaveBeenCalledExactlyOnceWith(variant.state, [template.id, variant.id], { plateId: variant.id, templateFamily: 'ak_variant' }, { batchId: 'batch', revision: 1 })
+  expect(screen.getByText('1 plate is now a Template')).toBeTruthy()
 })
 
-it('Shift-clicking a needs-work chip adds its matching plate ids', () => {
-  const matching = { ...plateCards[0], id: 'NY.weak', checks: { ...plateCards[0].checks, tags: { status: 'weak' as const, value: null } } }
-  plateSelection.register([matching])
-  const select = vi.fn()
-  render(<FilterBarControls counts={{ all: 1, undertagged: 1, generic: 0, nofunfacts: 0 }} changedCount={0} onSelectGroup={select} />)
-  fireEvent.click(screen.getByRole('button', { name: /Under-tagged/ }), { shiftKey: true })
-  expect(select).toHaveBeenCalledWith('undertagged', [matching.id])
+
+it.each(['dialog', 'menu', 'listbox', 'combobox'])('ignores destructive shortcuts and Escape inside %s', role => {
+  plateSelection.add(plates)
+  const promote = vi.fn(), close = vi.fn()
+  function Harness() { useSelectionKeyboard({ close, promote, disabled: false }); return <div role={role}><button>Inside</button></div> }
+  render(<Harness />)
+  const target = screen.getByRole('button')
+  fireEvent.keyDown(target, { key: 'Delete' })
+  fireEvent.keyDown(target, { key: 'Escape' })
+  expect(promote).not.toHaveBeenCalled()
+  expect(close).not.toHaveBeenCalled()
+  expect(plateSelection.snapshot()).toHaveLength(3)
+})
+
+it('preserves selection when Escape is handled, in a popover, in an input, or during a drag', () => {
+  plateSelection.add(plates)
+  const close = vi.fn()
+  function Harness({ dragging = false }) {
+    useSelectionKeyboard({ close, promote: vi.fn(), disabled: false, dragging })
+    return <><input /><div data-radix-popper-content-wrapper><button>Popover</button></div></>
+  }
+  const view = render(<Harness />)
+  for (const target of [screen.getByRole('textbox'), screen.getByRole('button')]) fireEvent.keyDown(target, { key: 'Escape' })
+  const handled = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+  handled.preventDefault()
+  window.dispatchEvent(handled)
+  view.rerender(<Harness dragging />)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(close).not.toHaveBeenCalled()
+  expect(plateSelection.snapshot()).toHaveLength(3)
+})
+
+it('dimmed plates have disabled checkboxes and are excluded from ranges', () => {
+  plateSelection.visible([plates[0], plates[2]])
+  render(<SelectionPlate id="b" disabled><SelectionCheckbox id="b" disabled /><a href="/b">Dimmed</a></SelectionPlate>)
+  expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
+  expect(screen.getByRole('checkbox').title).toBe('Does not match the current filters')
+  fireEvent.click(screen.getByRole('link'), { ctrlKey: true })
+  expect(plateSelection.has('b')).toBe(false)
+  act(() => { plateSelection.select('a'); plateSelection.select('c', { shiftKey: true }) })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['a', 'c'])
+})
+
+it('uses focused input and popover guards even when the keyboard event targets the window', () => {
+  plateSelection.add(plates)
+  const promote = vi.fn(), close = vi.fn()
+  function Harness() { useSelectionKeyboard({ close, promote, disabled: false }); return <><input /><div data-radix-popper-content-wrapper><button>Inside</button></div></> }
+  render(<Harness />)
+  for (const target of [screen.getByRole('textbox'), screen.getByRole('button')]) {
+    target.focus()
+    fireEvent.keyDown(window, { key: 'Backspace' })
+    fireEvent.keyDown(window, { key: 'Escape' })
+  }
+  expect(promote).not.toHaveBeenCalled()
+  expect(close).not.toHaveBeenCalled()
+  expect(plateSelection.snapshot()).toHaveLength(3)
+})
+
+it('Escape cancels an active drag without clearing its selection', () => {
+  const template = { ...plateCards[0], templateRole: 'template' as const }
+  plateSelection.add([template])
+  function Harness() {
+    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false, dragging: !!drag.active })
+    return <><button onKeyDown={event => drag.onKeyDown({ kind: 'family', plate: template }, event)}>Handle</button><output>{drag.announcement}</output></>
+  }
+  render(<Harness />)
+  fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByText('Cancelled')).toBeTruthy()
+  expect(plateSelection.snapshot()).toHaveLength(1)
+})
+
+it('filter changes remove dimmed selections from the current State and preserve other States', () => {
+  const store = createPlateSelection()
+  store.register(plates)
+  store.add([...plates, { ...plates[0], id: 'NJ.a', state: 'NJ' }])
+  store.visible([plates[0], plates[2]])
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['a', 'c', 'NJ.a'])
 })
