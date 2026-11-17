@@ -2,8 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, test, vi } from 'vitest'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 
-const route = vi.hoisted(() => ({ code: 'AK', pending: false }))
-vi.mock('next/navigation', () => ({ useParams: () => ({ code: route.code }) }))
+const route = vi.hoisted(() => ({ code: 'AK', query: '', pending: false }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(route.query), useParams: () => ({ code: route.code }) }))
 vi.mock('next/link', () => ({
   default: ({ children, prefetch, onMouseEnter, onFocus, scroll, ...props }: Record<string, unknown>) => {
     void prefetch
@@ -19,6 +19,7 @@ const { JurisdictionCard } = await import('@/components/dashboard/jurisdiction-c
 const jurisdiction = { code: 'AL', name: 'Alabama', plateCount: 10, completeCount: 4 } as JurisdictionSummary
 
 beforeEach(() => {
+  route.query = ''
   route.code = 'AK'
   route.pending = false
 })
@@ -40,4 +41,10 @@ test('the pending link exposes its loading indicator', () => {
   expect(html).toContain('role="status"')
   expect(html).toContain('Loading')
   expect(html).toContain('animate-spin')
+})
+
+
+test('jurisdiction links preserve the selected Batch', () => {
+  route.query = 'batch=shared'
+  expect(renderToStaticMarkup(<JurisdictionCard jurisdiction={jurisdiction} />)).toContain('href="/states/AL?batch=shared"')
 })

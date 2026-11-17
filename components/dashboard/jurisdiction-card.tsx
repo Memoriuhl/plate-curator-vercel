@@ -1,5 +1,7 @@
 'use client'
 
+import { useSelectedBatchId } from '@/lib/client/hooks'
+
 import Link, { useLinkStatus } from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -23,6 +25,7 @@ function PendingIndicator() {
 }
 
 export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
+  const batchId = useSelectedBatchId()
   const params = useParams<{ code: string }>()
   const selected = params.code === jurisdiction.code
   const [prefetch, setPrefetch] = useState<true | 'auto'>('auto')
@@ -53,7 +56,7 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
   return (
     <Link
       ref={ref}
-      href={`/states/${jurisdiction.code}`}
+      href={`/states/${jurisdiction.code}${batchId !== null ? `?batch=${encodeURIComponent(batchId)}` : ''}`}
       prefetch={prefetchNearby || prefetch}
       onMouseEnter={() => setPrefetch(true)}
       onFocus={() => setPrefetch(true)}

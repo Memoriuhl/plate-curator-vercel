@@ -1,13 +1,11 @@
+import { canEdit, editableStates } from './access'
+export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
 import { limits } from './fields'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps } from './types'
 
 const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description'] as const
-
-export function canEdit(batch: ReviewBatch, actor: Actor): boolean {
-  return batch.createdBy === actor.uid || actor.role === 'owner'
-}
 
 export async function proposeEdit(
   d: ReviewDeps,
@@ -18,7 +16,7 @@ export async function proposeEdit(
     const batch = await d.store.getBatch(i.batchId)
     if (!batch) return { ok: false, error: 'not_found' }
     if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
-    if (!['open', 'submitted', 'approved'].includes(batch.state)) return { ok: false, error: 'invalid_state' }
+    if (!editableStates.includes(batch.state)) return { ok: false, error: 'invalid_state' }
     const baseline = await d.baseline(i.plateId)
     if (!baseline) return { ok: false, error: 'not_found' }
     const plateIds = batch.plateIds.includes(i.plateId) ? batch.plateIds : [...batch.plateIds, i.plateId]
@@ -83,7 +81,7 @@ export async function reorderState(
   if (!batch) return { ok: false, error: 'not_found' }
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.revision !== input.batchRevision) return { ok: false, error: 'superseded_revision' }
-  if (!['open', 'submitted', 'approved'].includes(batch.state)) return { ok: false, error: 'invalid_state' }
+  if (!editableStates.includes(batch.state)) return { ok: false, error: 'invalid_state' }
   const plates = await d.stateBaseline(batch.baselineVersion, input.state)
   const ids = new Set(plates.map(plate => plate.id))
   if (!plates.length || input.order.length !== ids.size || new Set(input.order).size !== ids.size || input.order.some(id => !ids.has(id))) {

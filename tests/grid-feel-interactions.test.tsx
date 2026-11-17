@@ -107,6 +107,7 @@ test('shared intent registry prevents repeated prefetch after virtualized remoun
 
 const previewDetail = vi.hoisted(() => ({ data: undefined as undefined | { plate: typeof plateCards[number] } }))
 vi.mock('../lib/client/hooks', () => ({
+  useSelectedBatchId: () => null,
   useMe: () => ({ data: { role: 'editor' } }),
   usePlateDetail: () => previewDetail,
   useDraftOverlay: (plates: unknown[]) => plates,

@@ -1,5 +1,7 @@
 'use client'
 
+import { useSelectedBatchId } from '@/lib/client/hooks'
+
 import Image from 'next/image'
 import { preconnect } from 'react-dom'
 import Link from 'next/link'
@@ -56,6 +58,7 @@ export function FamilyCard({
   drag,
   canEdit,
 }: FamilyCardProps) {
+  const batchId = useSelectedBatchId()
   const router = useRouter()
   const prefetched = useRef(new Set<string>())
   function prefetch(id: string) {
@@ -142,7 +145,7 @@ export function FamilyCard({
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
           prefetch={false}
-          href={'/plates/' + plate.id}
+          href={'/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')}
           className={cn('group/plate flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
           onPointerEnter={() => prefetch(plate.id)}
           onFocus={(event) => {

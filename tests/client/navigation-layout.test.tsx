@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 
 const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', push: vi.fn(), prefetch: vi.fn() }))
 vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
   useParams: () => ({ code: mounted.code, id: mounted.id }),
   usePathname: () => mounted.pathname,
   useRouter: () => ({ push: mounted.push, prefetch: mounted.prefetch }),
@@ -45,6 +46,8 @@ vi.mock('@/components/dashboard/review-strip', () => ({
     return <div>Review</div>
   },
 }))
+
+vi.mock('@/components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
 
 const { default: StatesLayout } = await import('@/app/(curator)/states/layout')
 const { useParams } = await import('next/navigation')

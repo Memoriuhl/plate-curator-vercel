@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
+import { canEdit, editableStates } from '../review/access'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -23,9 +24,9 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
   return `/api/batches${params.length ? `?${params.join('&')}` : ''}`
 }
 
-export function useMe() {
+export function useMe(enabled = true) {
   const { user, api } = useSession()
-  return useSWR<Actor>(user ? '/api/me' : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
+  return useSWR<Actor>(user && enabled ? '/api/me' : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
 }
 
 export function useMembers() {
@@ -165,9 +166,25 @@ function mostRecentBatch(batches: ReviewBatch[] | undefined): ReviewBatch | unde
   return batches?.reduce<ReviewBatch | undefined>((latest, batch) => !latest || updated(batch) > updated(latest) ? batch : latest, undefined)
 }
 
+export function useSelectedBatchId() {
+  return useSearchParams()?.get('batch') ?? null
+}
+
+export function useWorkspaceBatch() {
+  const id = useSelectedBatchId()
+  const detail = useBatch(id, { reuse: true })
+  const me = useMe(id !== null)
+  if (id === null) return { mode: 'personal' as const }
+  const status = id === '' || detail.error || me.error ? 'unavailable' : !detail.data || !me.data ? 'loading' :
+    canEdit(detail.data.batch, me.data) && editableStates.includes(detail.data.batch.state) ? 'ready' : 'read-only'
+  return { mode: 'selected' as const, id, detail: detail.data, status }
+}
+
 export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   const { data: batches } = useBatches(['open'], { mine: true })
-  const { data: detail } = useBatch(mostRecentBatch(batches)?.id ?? null, { reuse: true })
+  const workspace = useWorkspaceBatch()
+  const personal = useBatch(workspace.mode === 'personal' ? mostRecentBatch(batches)?.id ?? null : null, { reuse: true })
+  const detail = workspace.mode === 'selected' ? workspace.detail : personal.data
   return useMemo(() => {
     const entries = new Map(detail?.plates.map(entry => [entry.proposed.id, entry]))
     const positions = new Map(Object.entries(detail?.batch.stateOrders ?? {}).map(([state, order]) =>
@@ -229,15 +246,17 @@ export function useEditPlate() {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
+  const workspace = useWorkspaceBatch()
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
   async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields): Promise<EditResult<Plate>> {
     try {
-      const id = await ensureBatch(plate)
+      if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
+      const id = workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate)
       const key = `/api/batches/${id}`
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
-      const baseRevision = detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision
+      const baseRevision = workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision
       if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${key}/plates/${plate.id}`, { baseRevision, fields })
       await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
@@ -271,13 +290,15 @@ export function useReorderState() {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
+  const workspace = useWorkspaceBatch()
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
   async function save(state: string, order: string[]): Promise<EditResult> {
     if (!order.length) return { ok: false, error: 'invalid_state' }
     try {
-      const id = await ensureBatch({ id: order[0], state })
+      if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
+      const id = workspace.mode === 'selected' ? workspace.id : await ensureBatch({ id: order[0], state })
       const key = `/api/batches/${id}`
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
       await mutate(key, async () => {

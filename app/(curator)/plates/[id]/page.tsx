@@ -28,7 +28,7 @@ async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
     const referrer = new URL(requestHeaders.get('referer') ?? '')
     fromState = referrer.pathname === `/states/${plate.state}`
     if (fromState)
-      for (const key of ['show', 'q']) {
+      for (const key of ['show', 'q', 'batch']) {
         if (referrer.searchParams.has(key))
           returnQuery.set(key, referrer.searchParams.get(key)!)
       }

@@ -10,6 +10,8 @@ import type { BatchDetail } from '../lib/client/hooks'
 import type { ReviewBatch } from '../lib/review/types'
 
 const state = vi.hoisted(() => ({
+  selected: false,
+  readonly: false,
   role: 'owner',
   open: [] as ReviewBatch[],
   review: [] as ReviewBatch[],
@@ -22,6 +24,7 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/client/hooks', () => ({
+  useWorkspaceBatch: () => state.selected ? ({ mode: 'selected', id: 'shared', detail: state.detail, status: state.readonly ? 'read-only' : 'ready' }) : ({ mode: 'personal' }),
   useEnsureBatch: () => vi.fn(),
   useEditPlate: () => ({ edit: vi.fn(), pending: false }),
   useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
@@ -48,7 +51,7 @@ vi.mock('../components/ui/button', () => ({
       label,
       props as { disabled?: boolean; onClick?: () => Promise<void> },
     )
-    return <button disabled={props.disabled}>{props.children}</button>
+    return <button disabled={props.disabled} title={props.title}>{props.children}</button>
   },
 }))
 
@@ -67,6 +70,8 @@ const batch: ReviewBatch = {
 }
 
 beforeEach(() => {
+  state.selected = false
+  state.readonly = false
   state.role = 'owner'
   state.open = [batch]
   state.review = []
@@ -160,4 +165,25 @@ test('changed filter counts current-jurisdiction batch membership including uned
     <FilterBar counts={filterCounts(alaskaFixture.plates)} code="AK" />,
   )
   expect(html).toMatch(/Changed in a batch<span class="count">2<\/span>/)
+})
+
+
+test('selected submit targets the shared Batch and Run Tag stays disabled', async () => {
+  state.selected = true
+  state.detail!.batch = { ...batch, id: 'shared', revision: 9 }
+  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  expect(html).toContain('Selected batch:')
+  expect(html).toContain('Run Tag on a shared Batch is coming next')
+  expect(state.buttons.get('Run pipeline')?.disabled).toBe(true)
+  await state.buttons.get('Submit for review')!.onClick!()
+  expect(state.submit).toHaveBeenCalledWith('shared', 9)
+})
+
+test('read-only shared Batch cannot submit', async () => {
+  state.selected = true
+  state.readonly = true
+  renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
+  await state.buttons.get('Submit for review')!.onClick!()
+  expect(state.submit).not.toHaveBeenCalled()
 })

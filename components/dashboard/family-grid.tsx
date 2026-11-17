@@ -10,7 +10,7 @@ import { useDragFlip } from './use-drag-flip'
 import { estimatedFamilyHeight } from './variant-list-layout'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
+import { useWorkspaceBatch, useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
 import { useSWRConfig } from 'swr'
 import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
@@ -40,7 +40,10 @@ export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
 export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   const params = useSearchParams()
   const pathname = usePathname()
-  const overlaid = useFamilyBatchOverlay(plates)
+  const latestOverlay = useFamilyBatchOverlay(plates)
+  const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(null)
+  const overlaid = heldOverlay ?? latestOverlay
+  const workspace = useWorkspaceBatch()
   const changedIds = useMemo(
     () =>
       new Set(
@@ -80,9 +83,10 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   const edits = useEditPlate()
   const ordering = useReorderState()
   const { mutate } = useSWRConfig()
-  const canEdit = me.data?.role === 'editor' || me.data?.role === 'owner'
+  const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
     families: baselineFamilies, canEdit, show, query, edits, ordering,
+    holdOverlay: held => setHeldOverlay(held ? overlaid : null),
     targets: () => collectDragTargets(container.current, baselineFamilies),
     closePreview: close,
     reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
