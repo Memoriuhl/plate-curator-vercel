@@ -25,6 +25,8 @@ function setup(source = first) {
 }
 test('keyboard reorder of the first family confirms before any write; Cancel restores', async () => {
   const { reorder, drop } = setup()
+  const handle = screen.getByRole('button', { name: 'Move' })
+  handle.focus()
   drop()
   expect(screen.getByRole('alertdialog').textContent).toContain('Make Second the AK Standard?')
   expect(reorder).not.toHaveBeenCalled()
@@ -32,6 +34,7 @@ test('keyboard reorder of the first family confirms before any write; Cancel res
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(reorder).not.toHaveBeenCalled()
   expect(screen.getByRole('status').textContent).toBe('')
+  await waitFor(() => expect(document.activeElement).toBe(handle))
   drop()
   fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await waitFor(() => expect(reorder).toHaveBeenCalledExactlyOnceWith('AK', ['second', 'first', 'third'], { from: 'first', to: 'second' }))
