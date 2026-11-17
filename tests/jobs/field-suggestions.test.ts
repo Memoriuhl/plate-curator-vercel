@@ -32,6 +32,11 @@ test('Group stays unavailable until its multi-plate contract exists', () => {
   expect(parseFieldSuggestion({ kind: 'fields', stage: 'group', fields: { templateFamily: 'one' }, sources: [] }, 'group')).toBeNull()
 })
 
+test.each(['describe', 'story', 'wiki-link', 'colors', 'find-image', 'group', 'order'] as const)('%s cannot overwrite image provenance', stage => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  expect(parseFieldSuggestion({ kind: 'fields', stage, fields: { sourceUrl: 'https://example.org/image' }, sources: ['https://example.org/image'] }, stage)).toBeNull()
+})
+
 test('canonicalizes object keys and source order for idempotent reports', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const input = { kind: 'fields', stage: 'describe', fields: { description: ' Description ' }, sources: ['https://example.org/b', 'https://example.org/a', 'https://example.org/b'] }

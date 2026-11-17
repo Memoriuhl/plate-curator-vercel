@@ -4,7 +4,7 @@ import type { FieldSuggestion, PipelineStage } from './types'
 
 const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
   describe: ['description'],
-  story: ['funFacts', 'firstIssuedYear', 'readMore', 'wikiUrl'],
+  story: ['funFacts', 'firstIssuedYear', 'readMore'],
   'wiki-link': ['wikiUrl'],
   colors: [],
   'find-image': [],
