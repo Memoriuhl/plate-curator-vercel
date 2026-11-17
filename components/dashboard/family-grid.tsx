@@ -364,6 +364,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
           />
         ) : null}
       </Suspense>
+      {drag.standardDialog}
       <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
       {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
       {drag.active ? <DragPreview {...drag.active} selectionCount={drag.selectionCount} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}

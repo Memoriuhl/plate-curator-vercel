@@ -9,7 +9,7 @@ const editor = { uid: 'editor-one', name: 'Jane Smith', role: 'editor' } as cons
 const owner = { uid: 'owner-one', name: null, role: 'owner' } as const
 const createdAt = '2026-11-15T12:00:00Z'
 const baseline: Plate[] = [
-  { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png' },
+  { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png', templateRole: 'template' },
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png' },
 ]
 const input = { id: 'new-batch', name: 'Review plates', plateIds: ['two', 'one'], baselineVersion: 11 }
@@ -96,7 +96,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
   test('detail merges edits and returns each plate\'s revision', async () => {
     const { deps, store } = await setup()
     await createBatch(deps, editor, input)
-    const result = await proposeEdit(deps, editor, { batchId: input.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'], isStandard: true } })
+    const result = await proposeEdit(deps, editor, { batchId: input.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'], isStandard: true }, standard: { from: null, to: 'one' } })
     expect(result.ok).toBe(true)
     const proposed = { ...baseline[0], tags: ['changed'], isStandard: true }
     expect(await batchDetail(deps, input.id)).toEqual({
@@ -142,7 +142,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     const detail = await batchDetail(deps, input.id)
     if (!detail.ok) throw new Error('expected batch detail')
     const plate = detail.value.plates[1]
-    expect(await proposeEdit(deps, editor, { batchId: input.id, plateId: plate.proposed.id, baseRevision: plate.revision, fields: { isStandard: true } })).toMatchObject({
+    expect(await proposeEdit(deps, editor, { batchId: input.id, plateId: plate.proposed.id, baseRevision: plate.revision, fields: { isStandard: true }, standard: { from: null, to: plate.proposed.id } })).toMatchObject({
       ok: true, value: { batch: { revision: 2 }, plate: { tags: ['changed'], isStandard: true } },
     })
   })

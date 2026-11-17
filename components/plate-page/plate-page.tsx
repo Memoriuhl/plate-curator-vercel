@@ -1,5 +1,6 @@
 'use client'
 
+import { useStandardConfirmation } from '@/components/plate/standard-confirmation'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSWRConfig } from 'swr'
 import Image from 'next/image'
@@ -33,7 +34,7 @@ import { Button } from '@/components/ui/button'
 import { RarityMark } from '@/components/plate/rarity-mark'
 import { cn } from '@/components/utils'
 import { localPipelineReason } from '@/lib/local-pipeline'
-import type { EditableFields } from '@/lib/review/types'
+import type { EditableFields, StandardChange } from '@/lib/review/types'
 import {
   useDraftOverlay,
   useEditPlate,
@@ -186,6 +187,7 @@ export function PlatePage(props: PlatePageProps) {
   const router = useRouter()
   const { mutate } = useSWRConfig()
   const { edit, pending } = useEditPlate()
+  const standardConfirmation = useStandardConfirmation()
   const detailCard = useMemo(() => [cardData(props.plate)], [props.plate])
   const cards = useMemo(() => props.plates.map(cardData), [props.plates])
   const [plate] = useDraftOverlay(detailCard)
@@ -199,7 +201,7 @@ export function PlatePage(props: PlatePageProps) {
   const [status, setStatus] = useState('')
   const [draftReset, setDraftReset] = useState<Record<string, number>>({})
   const [resolving, setResolving] = useState(false)
-  const blocked = pending || resolving || issue?.result.error === 'stale_plate'
+  const blocked = pending || standardConfirmation.pending || resolving || issue?.result.error === 'stale_plate'
   const current = { ...plate, description: plate.checks.description.value }
   const family = plates.filter((member) =>
     current.templateFamily
@@ -239,10 +241,10 @@ export function PlatePage(props: PlatePageProps) {
   const stateHref = `/states/${plate.state}${suffix}`
   const plateHref = (id: string) => `/plates/${encodeURIComponent(id)}${suffix}`
 
-  async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }) {
+  async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }, standard?: StandardChange) {
     setStatus('Saving to your batch…')
     try {
-      const result = reviewed ? await edit(target, fields, reviewed) : await edit(target, fields)
+      const result = reviewed ? await edit(target, fields, reviewed) : standard ? await edit(target, fields, undefined, standard) : await edit(target, fields)
       if (result.ok) {
         setStatus('Saved to your batch')
         setIssue(null)
@@ -497,15 +499,17 @@ export function PlatePage(props: PlatePageProps) {
               <Button
                 variant="outline"
                 aria-pressed={current.isStandard}
-                disabled={blocked}
-                onClick={() =>
-                  void save(current, { isStandard: !current.isStandard })
-                }
+                disabled={blocked || current.isStandard || current.templateRole !== 'template' || current.deleted}
+                onClick={async () => {
+                  const standard = await standardConfirmation.confirm(plates, current.id)
+                  if (standard !== false) await save(current, { isStandard: true }, undefined, standard)
+                }}
               >
                 <IoStarOutline />
                 Set as Standard
               </Button>
             </div>
+            {standardConfirmation.dialog}
             {fieldIssue('isStandard')}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid content-start gap-2">

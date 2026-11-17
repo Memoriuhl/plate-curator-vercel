@@ -4,6 +4,9 @@ import type { Outcome, ReviewError } from '../review/types'
 const headers = { 'Cache-Control': 'private, no-store' }
 
 const statusFor: Record<ReviewError, number> = {
+  standard_change_unconfirmed: 409,
+  standard_required: 422,
+  standard_invalid_template: 422,
   forbidden: 403,
   not_found: 404,
   stale_plate: 409,

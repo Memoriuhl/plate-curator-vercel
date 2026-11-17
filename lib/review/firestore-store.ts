@@ -153,8 +153,9 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         if (next.deleteEditFor !== undefined) {
           transaction.delete(batchRef.collection('edits').doc(next.deleteEditFor))
         }
-        if (next.edit) {
-          transaction.set(batchRef.collection('edits').doc(next.edit.plateId), next.edit)
+        for (const id of next.deleteEditsFor ?? []) transaction.delete(batchRef.collection('edits').doc(id))
+        for (const edit of [...(next.edits ?? []), ...(next.edit ? [next.edit] : [])]) {
+          transaction.set(batchRef.collection('edits').doc(edit.plateId), edit)
         }
         return 'ok'
       })

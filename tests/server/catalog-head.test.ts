@@ -70,7 +70,7 @@ beforeEach(() => {
     store: createMemoryStore([openBatch]),
     baseline: async () => plate,
     baselineAtVersion: async () => plate,
-    stateBaseline: async () => [plate, { ...plate, id: 'AK.two', slug: 'two' }],
+    stateBaseline: async () => [plate, { ...plate, id: 'AK.two', slug: 'two', templateRole: 'template' }],
     now: () => '',
   } satisfies ReviewDeps)
 })
@@ -117,7 +117,7 @@ test('a curator state reorder makes the next catalog read fresh', async () => {
   await head()
   firestore.curator = { stateOrder: { AK: ['AK.two', 'AK.one'] }, stateProgress: {} }
   const response = await PUT(
-    new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify({ batchRevision: 4, order: ['AK.two', 'AK.one'] }) }),
+    new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify({ batchRevision: 4, order: ['AK.two', 'AK.one'], standard: { from: null, to: 'AK.two' } }) }),
     { params: Promise.resolve({ id: 'batch', state: 'AK' }) },
   )
   expect(response.status).toBe(200)

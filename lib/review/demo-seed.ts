@@ -37,7 +37,7 @@ export async function seedDemo(d: ReviewDeps, input: { projectId: string; env: s
     }
   } else if (await d.store.create(batch) !== 'ok') throw new Error('Demo batch already exists')
   const edits: [Plate, EditableFields][] = [
-    [target, { tags: [...new Set([...target.tags, 'alaska', 'passenger'])], description: `${target.displayName}: an Alaska passenger plate selected for the review demo.`, isStandard: !target.isStandard }],
+    [target, { tags: [...new Set([...target.tags, 'alaska', 'passenger'])], description: `${target.displayName}: an Alaska passenger plate selected for the review demo.` }],
     [moved, { templateFamily: target.templateFamily, templateRole: 'variant' as const, variantOfPlateId: target.id }],
   ]
   for (const [plate, fields] of edits) {
@@ -47,7 +47,7 @@ export async function seedDemo(d: ReviewDeps, input: { projectId: string; env: s
   const current = await d.store.getBatch(id)
   if (!current) throw new Error('Demo batch disappeared')
   const order = plates.map(plate => plate.id)
-  const result = await reorderState(d, input.editor, { batchId: id, state: 'AK', batchRevision: current.revision, order: [...order.slice(1), order[0]] })
+  const result = await reorderState(d, input.editor, { batchId: id, state: 'AK', batchRevision: current.revision, order: [...order.slice(1), order[0]], standard: { from: plates.find(plate => plate.isStandard)?.id ?? null, to: order[1] } })
   if (!result.ok) throw new Error(`Demo reorder failed: ${result.error}`)
   return result.value
 }

@@ -1,10 +1,11 @@
 import { expect, test } from 'vitest'
 import { publishBatch } from '../../lib/publish/publish'
-import { batch, command, fixture, owner } from './fixture'
+import { batch, command, fixture, owner, seedOrderStandards } from './fixture'
 
 test('replay of a committed-but-unfinished Publish must not overwrite a newer Batch curator State order', async () => {
   const a = { ...batch, id: 'a', stateOrders: { CA: ['one', 'two'] } }
   const f = fixture(a)
+  await seedOrderStandards(f.deps, 'a')
   const write = f.deps.curator.writeStateOrders
   let failOnce = true
   f.deps.curator.writeStateOrders = async (...args) => {
@@ -16,6 +17,7 @@ test('replay of a committed-but-unfinished Publish must not overwrite a newer Ba
   expect(f.pointer().version).toBe(2)
   const b = { ...batch, id: 'b', baselineVersion: 2, stateOrders: { CA: ['two', 'one'] } }
   await f.deps.store.create(b as never)
+  await seedOrderStandards(f.deps, 'b')
   expect(await publishBatch(f.deps, owner, { ...command, batchId: 'b', commandId: 'cmd-b' })).toMatchObject({ ok: true, value: { toVersion: 3 } })
   expect(f.stateOrder.CA).toEqual(['two', 'one'])
   expect(await publishBatch(f.deps, owner, cmdA)).toMatchObject({ ok: true, value: { toVersion: 2 } })

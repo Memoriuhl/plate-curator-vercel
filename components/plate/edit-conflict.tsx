@@ -6,6 +6,9 @@ import type { EditableFields } from '@/lib/review/types'
 import type { EditResult } from '@/lib/client/hooks'
 
 const errors = {
+  standard_change_unconfirmed: 'The Standard changed. Reload and confirm the new Standard again.',
+  standard_required: 'Choose another Standard before changing this plate.',
+  standard_invalid_template: 'The first plate must be a Template that is not deleted.',
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
   invalid_state: 'This batch is no longer open for editing.',

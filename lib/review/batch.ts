@@ -1,16 +1,17 @@
+import { standardEdits } from './standard'
 import { canEdit, editableStates } from './access'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
 import { limits } from './fields'
 import { plateRevision } from './revision'
-import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps } from './types'
+import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
 const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
 
 export async function proposeEdit(
   d: ReviewDeps,
   a: Actor,
-  i: { batchId: string; plateId: string; baseRevision: string; fields: EditableFields },
+  i: { batchId: string; plateId: string; baseRevision: string; fields: EditableFields; standard?: StandardChange },
 ): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const batch = await d.store.getBatch(i.batchId)
@@ -28,6 +29,7 @@ export async function proposeEdit(
       .filter(key => i.fields[key] !== undefined)
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
+    if (current.isStandard && (i.fields.isStandard === false || i.fields.templateRole !== undefined && plate.templateRole !== 'template')) return { ok: false, error: 'standard_required' }
     if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
       const edits = await d.store.listEdits(batch.id)
       const deleted = edits.filter(edit => edit.plateId !== plate.id && edit.fields.deleted)
@@ -63,9 +65,29 @@ export async function proposeEdit(
       plateId: i.plateId, baseRevision: plateRevision(baseline), fields,
       authorId: a.uid, updatedAt: d.now(), resultRevision: plateRevision(plate),
     }
+    let combined: Awaited<ReturnType<typeof standardEdits>> | undefined
+    if (i.fields.isStandard === true || batch.stateOrders[plate.state]) {
+      const baselinePlates = await d.stateBaseline(batch.baselineVersion, plate.state)
+      let order = batch.stateOrders[plate.state] ?? baselinePlates.map(member => member.id)
+      if (i.fields.isStandard === true) {
+        if (plate.deleted || plate.templateRole !== 'template') return { ok: false, error: 'standard_invalid_template' }
+        const existingEdits = await d.store.listEdits(batch.id)
+        const effectiveFields = new Map(existingEdits.map(edit => [edit.plateId, edit.fields]))
+        const familyIds = new Set(baselinePlates.filter(member => {
+          const effective = { ...member, ...effectiveFields.get(member.id) }
+          return member.id === plate.id || effective.variantOfPlateId === plate.id || !!plate.templateFamily && effective.templateFamily === plate.templateFamily
+        }).map(member => member.id))
+        order = [plate.id, ...order.filter(id => id !== plate.id && familyIds.has(id)), ...order.filter(id => !familyIds.has(id))]
+      }
+      combined = await standardEdits(d, a, batch, baselinePlates, order, new Map([[plate.id, changes]]), i.standard)
+      if (!combined.ok) return combined
+      nextBatch.plateIds = combined.value.plateIds
+      nextBatch.stateOrders = { ...batch.stateOrders, [plate.state]: order }
+      nextBatch.baselineOrders = { ...batch.baselineOrders, [plate.state]: batch.baselineOrders?.[plate.state] ?? baselinePlates.map(member => member.id) }
+    }
     const result = await d.store.commit(i.batchId, batch.revision, {
       batch: nextBatch,
-      ...(Object.keys(fields).length === 0 ? { deleteEditFor: i.plateId } : { edit }),
+      ...(combined?.ok ? combined.value : Object.keys(fields).length === 0 ? { deleteEditFor: i.plateId } : { edit }),
     })
     if (result === 'ok') {
       if (batch.state !== 'open') await d.supersedeRun?.(batch)
@@ -102,7 +124,7 @@ async function transitionBatch(
 
 export async function reorderState(
   d: ReviewDeps, actor: Actor,
-  input: { batchId: string; state: string; batchRevision: number; order: string[]; promotion?: { plateId: string; templateFamily: string } },
+  input: { batchId: string; state: string; batchRevision: number; order: string[]; standard?: StandardChange; promotion?: { plateId: string; templateFamily: string } },
 ): Promise<Outcome<ReviewBatch>> {
   const batch = await d.store.getBatch(input.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
@@ -133,12 +155,15 @@ export async function reorderState(
       .map(key => [key, plate[key]]))
     edit = { plateId, baseRevision: plateRevision(baseline), fields, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(plate) }
   }
+  const combined = await standardEdits(d, actor, batch, plates, input.order, new Map(edit ? [[edit.plateId, edit.fields]] : []), input.standard)
+  if (!combined.ok) return combined
+  plateIds = combined.value.plateIds
   const next: ReviewBatch = {
     ...batch, plateIds, state: 'open', approval: null, revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
     baselineOrders: { ...batch.baselineOrders, [input.state]: batch.baselineOrders?.[input.state] ?? plates.map(plate => plate.id) },
   }
-  const result = await d.store.commit(batch.id, batch.revision, { batch: next, ...(edit ? { edit } : {}) })
+  const result = await d.store.commit(batch.id, batch.revision, { batch: next, ...combined.value })
   if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)
   return result === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
 }

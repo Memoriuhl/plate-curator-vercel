@@ -1,3 +1,4 @@
+import { standardScenarios } from '../tests/review/standard-scenarios'
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
@@ -43,7 +44,7 @@ test.each(['development', 'preview:feature/demo'])('demo seed and resets keep th
   const seededEdits = await demoStore.listEdits(current.id)
   for (const state of ['open', 'edited', 'submitted', 'approved'] as const) {
     if (state !== 'open') {
-      expect(await proposeEdit(deps, editor, { batchId: current.id, plateId: 'two', baseRevision: plateRevision(plates[1]), fields: { tags: ['changed'] } })).toMatchObject({ ok: true })
+      expect(await proposeEdit(deps, editor, { batchId: current.id, plateId: 'two', baseRevision: plateRevision({ ...plates[1], ...(await demoStore.getEdit(current.id, 'two'))?.fields }), fields: { tags: ['changed'] } })).toMatchObject({ ok: true })
       current = (await demoStore.getBatch(current.id))!
     }
     if (state === 'submitted' || state === 'approved') {
@@ -81,6 +82,7 @@ afterAll(async () => {
 })
 
 reviewBatchScenarios(async seed => {
+  await db.recursiveDelete(db.doc(`reviewBatches/${seed.id}`))
   await db.doc(`reviewBatches/${seed.id}`).set({ ...seed, env })
   return firestoreReviewStore(db, env)
 }, 20000)
@@ -108,7 +110,7 @@ test.each(['success', 'competing tag', 'other batch'] as const)('combined promot
     }
     return commit(...args)
   } }
-  const result = await reorderState({ ...deps, store: racingStore }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } })
+  const result = await reorderState({ ...deps, store: racingStore }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['two', 'one'], standard: { from: null, to: 'two' }, promotion: { plateId: 'one', templateFamily: 'new' } })
   const saved = await db.runTransaction(async transaction => {
     const draft = await transaction.get(db.doc('reviewBatches/batch'))
     const edits = await transaction.get(db.collection('reviewBatches/batch/edits'))
@@ -125,7 +127,7 @@ test.each(['success', 'competing tag', 'other batch'] as const)('combined promot
   } else {
     expect(result.ok).toBe(true)
     expect(saved.batch?.stateOrders).toEqual({ AK: ['two', 'one'] })
-    expect(saved.edits).toMatchObject([{ plateId: 'one', fields: { templateRole: 'template', templateFamily: 'new', variantOfPlateId: null } }])
+    expect(saved.edits).toMatchObject([{ plateId: 'one', fields: { templateRole: 'template', templateFamily: 'new', variantOfPlateId: null } }, { plateId: 'two', fields: { isStandard: true } }])
   }
 })
 
@@ -135,7 +137,7 @@ test('reserved Batch rejects a combined move without clearing approval or changi
   await db.doc('reviewBatches/batch').set(approved)
   const signal = db.doc(`curatorLive/${env}/batchRevisions/batch`)
   await signal.set({ revision: 4 })
-  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], promotion: { plateId: 'one', templateFamily: 'new' } })
+  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], standard: { from: null, to: 'one' }, promotion: { plateId: 'one', templateFamily: 'new' } })
   expect(result).toEqual({ ok: false, error: 'superseded_revision' })
   expect((await db.doc('reviewBatches/batch').get()).data()).toEqual(approved)
   expect((await signal.get()).data()).toEqual({ revision: 4 })
@@ -305,5 +307,18 @@ test.each(['stale-submit', 'stale-order', 'forbidden-approve'] as const)('%s lea
       ? await reorderState(deps, owner, { batchId: 'batch', state: 'CA', batchRevision: 3, order: ['two', 'one'] })
       : await approveBatch(deps, { ...owner, role: 'editor' }, 'batch', 4)
   expect(result).toEqual({ ok: false, error: reason === 'forbidden-approve' ? 'forbidden' : 'superseded_revision' })
+  expect(await lifecycleSnapshot()).toEqual(before)
+})
+
+
+standardScenarios(async batch => { await store.create(batch); return store })
+
+test('multi-edit failure rolls back every edit, order, approval and signal', async () => {
+  await db.doc('curatorLive/preview-test/batchRevisions/batch').set({ revision: 4 })
+  const before = await lifecycleSnapshot()
+  await expect(store.commit('batch', 4, {
+    batch: { ...batch, revision: 5, stateOrders: { CA: ['two', 'one'] } },
+    edits: [edit, { ...edit, plateId: 'two', fields: { templateFamily: undefined } }],
+  })).rejects.toThrow()
   expect(await lifecycleSnapshot()).toEqual(before)
 })

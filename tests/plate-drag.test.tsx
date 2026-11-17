@@ -14,6 +14,8 @@ import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
+vi.mock('../components/plate/standard-confirmation', () => ({ useStandardConfirmation: () => ({ pending: false, dialog: null, confirm: async () => undefined }) }))
+
 vi.mock('@tanstack/react-virtual', async importOriginal => {
   const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
   return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) }

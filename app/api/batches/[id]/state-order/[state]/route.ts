@@ -1,3 +1,4 @@
+import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import { reorderState } from '../../../../../../lib/review/batch'
 import { parseEditableFields } from '../../../../../../lib/review/fields'
 import { catalogChanged } from '../../../../../../lib/server/catalog-head'
@@ -8,6 +9,8 @@ export async function PUT(request: Request, ctx: RouteContext<'/api/batches/[id]
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
+  const standard = parseStandardChange(body?.standard)
+  if (standard === null) return badRequest()
   if (typeof body?.batchRevision !== 'number' || !Number.isSafeInteger(body.batchRevision) || body.batchRevision < 0 ||
     !Array.isArray(body.order) || !body.order.every((id: unknown) => typeof id === 'string')) return badRequest()
   const { id, state } = await ctx.params
@@ -20,7 +23,7 @@ export async function PUT(request: Request, ctx: RouteContext<'/api/batches/[id]
     promotion = { plateId: value.plateId, templateFamily: fields.templateFamily }
   }
   const outcome = await reorderState(reviewDeps(), auth.actor, {
-    batchId: id, state, batchRevision: body.batchRevision, order: body.order, promotion,
+    batchId: id, state, batchRevision: body.batchRevision, order: body.order, promotion, standard,
   })
   if (outcome.ok) catalogChanged()
   return respond(outcome)

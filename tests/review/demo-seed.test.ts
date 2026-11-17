@@ -23,7 +23,7 @@ describe('demo seed', () => {
     const first = await seedDemo(d, input)
     expect(d.store.signalRevision(first.id)).toBe(first.revision)
     const edits = await d.store.listEdits(first.id)
-    expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
+    expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant', 'bear'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
     expect(edits.find(edit => edit.plateId === 'gold')?.fields).toMatchObject({ tags: ['gold', 'alaska', 'passenger'], isStandard: false })
     expect({ ...plates[2], ...edits.find(edit => edit.plateId === 'bear-variant')?.fields }).toMatchObject({ templateFamily: 'gold', variantOfPlateId: 'gold', templateRole: 'variant' })
     for (const edit of edits) {

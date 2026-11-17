@@ -13,11 +13,11 @@ test('promotion and order commit once and clear the variant link', async () => {
   deps.baselineAtVersion = async () => variant
   deps.stateBaseline = async () => [plates[0], variant, plates[2]]
   const order = [plates[0].id, plates[2].id, variant.id]
-  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, promotion: { plateId: variant.id, templateFamily: 'new' } })).toMatchObject({ ok: true, value: { revision: 5, approval: null, stateOrders: { AK: order } } })
+  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, standard: { from: 'AK.two', to: order[0] }, promotion: { plateId: variant.id, templateFamily: 'new' } })).toMatchObject({ ok: true, value: { revision: 5, approval: null, stateOrders: { AK: order } } })
   expect(await store.getEdit('batch', variant.id)).toMatchObject({ fields: { templateRole: 'template', variantOfPlateId: null, templateFamily: 'new' }, authorId: editor.uid })
   expect(store.signalRevision('batch')).toBe(5)
 })
-const plates = ['AK.two', 'AK.one', 'AK.three'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [] }))
+const plates = ['AK.two', 'AK.one', 'AK.three'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template' as const, isStandard: id === 'AK.two' }))
 const batch: ReviewBatch = {
   id: 'batch', name: 'Order', createdBy: editor.uid, createdByName: null, createdAt: '',
   state: 'open', revision: 4, baselineVersion: 7, plateIds: ['AK.one'], stateOrders: {}, approval: null,
@@ -32,11 +32,11 @@ function setup(overrides: Partial<ReviewBatch> = {}) {
 test('reordering saves the full state from the pinned version without expanding field-edit membership', async () => {
   const { deps, store, stateBaseline } = setup()
   const order = ['AK.three', 'AK.two', 'AK.one']
-  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order })).toEqual({
-    ok: true, value: { ...batch, revision: 5, stateOrders: { AK: order }, baselineOrders: { AK: plates.map(plate => plate.id) } },
+  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, standard: { from: 'AK.two', to: order[0] } })).toEqual({
+    ok: true, value: { ...batch, plateIds: ['AK.one', 'AK.two', 'AK.three'], revision: 5, stateOrders: { AK: order }, baselineOrders: { AK: plates.map(plate => plate.id) } },
   })
   expect(stateBaseline).toHaveBeenCalledWith(7, 'AK')
-  expect(await store.getBatch('batch')).toMatchObject({ plateIds: ['AK.one'], stateOrders: { AK: order } })
+  expect(await store.getBatch('batch')).toMatchObject({ plateIds: ['AK.one', 'AK.two', 'AK.three'], stateOrders: { AK: order } })
 })
 
 test.each(['inventory', 'variant', 'jurisdiction', 'stale', 'rights', 'reserved'] as const)('invalid combined move (%s) leaves approval, edit, order and signal intact', async failure => {
@@ -66,7 +66,7 @@ test.each(['open', 'submitted', 'approved'] as const)('creator and owner reorder
 
 test.each([[], ['AK.one'], ['AK.one', 'AK.one', 'AK.two'], ['AK.one', 'AK.two', 'CA.other'], ['AK.one', 'AK.two', 'AK.three', 'AK.extra']].map(order => [order]))('rejects a non-permutation %j without mutation', async order => {
   const { deps, store } = setup()
-  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order })).toEqual({ ok: false, error: 'invalid_state' })
+  expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, standard: { from: 'AK.two', to: order[0] } })).toEqual({ ok: false, error: 'invalid_state' })
   expect(await store.getBatch('batch')).toEqual(batch)
 })
 
@@ -117,10 +117,10 @@ test('state order arrays are isolated from caller and reader mutations', async (
 test('a later reorder keeps the first before-order for each state', async () => {
   const { deps, store, stateBaseline } = setup({ baselineOrders: { CA: ['CA.one'] } })
   const firstOrder = ['AK.three', 'AK.two', 'AK.one']
-  expect((await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order: firstOrder })).ok).toBe(true)
+  expect((await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, standard: { from: 'AK.two', to: firstOrder[0] }, order: firstOrder })).ok).toBe(true)
   stateBaseline.mockResolvedValueOnce([...plates].reverse())
   const secondOrder = ['AK.one', 'AK.three', 'AK.two']
-  expect((await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 5, order: secondOrder })).ok).toBe(true)
+  expect((await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 5, standard: { from: firstOrder[0], to: secondOrder[0] }, order: secondOrder })).ok).toBe(true)
   expect(await store.getBatch('batch')).toMatchObject({
     stateOrders: { AK: secondOrder }, baselineOrders: { CA: ['CA.one'], AK: plates.map(plate => plate.id) },
   })
@@ -132,7 +132,7 @@ test('published detail keeps saved positions and versioned fields after the curr
   const fields = { description: 'Updated description' }
   expect((await proposeEdit(deps, editor, { batchId: 'batch', plateId: original.id, baseRevision: plateRevision(original), fields })).ok).toBe(true)
   const order = ['AK.three', 'AK.two', 'AK.one']
-  const reordered = await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 5, order })
+  const reordered = await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 5, order, standard: { from: 'AK.two', to: order[0] } })
   if (!reordered.ok) throw new Error('expected reordered batch')
   const current = plates.map(plate => plate.id === original.id ? { ...plate, ...fields } : plate)
   deps.baseline = vi.fn(async id => current.find(plate => plate.id === id) ?? null)
@@ -146,6 +146,7 @@ test('published detail keeps saved positions and versioned fields after the curr
     batch: { state: 'published' },
     plates: [
       { baseline: original, proposed: { ...original, ...fields } },
+      { baseline: { id: 'AK.two' }, proposed: { isStandard: false } },
       { baseline: { id: 'AK.three' }, order: { before: 2, after: 0, total: 3 } },
     ],
   } })

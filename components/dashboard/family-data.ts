@@ -139,7 +139,7 @@ function recordStandard(states: Map<string, StateStandards>, plate: PlateCardDat
 }
 function standardFixIds(states: Map<string, StateStandards>) {
   return [...states.values()].flatMap(({ standards, candidate }) =>
-    standards.length === 1 ? [] : standards.length ? standards : [candidate.id])
+    standards.length === 1 && standards[0] === candidate.id ? [] : standards.length ? standards : [candidate.id])
 }
 
 function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string, attachedIds: ReadonlySet<string>): string[] {

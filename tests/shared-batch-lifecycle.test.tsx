@@ -36,11 +36,11 @@ vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
 const owner: Actor = { uid: 'owner-uid', name: 'Owner', role: 'owner' }
 const plates: Plate[] = [
-  { id: 'AK.a', state: 'AK', image: '', slug: 'a', displayName: 'Army', tags: [], templateRole: 'template', templateFamily: 'army' },
+  { id: 'AK.a', state: 'AK', image: '', slug: 'a', displayName: 'Army', isStandard: true, tags: [], templateRole: 'template', templateFamily: 'army' },
   { id: 'AK.v', state: 'AK', image: '', slug: 'v', displayName: 'Variant', tags: [], templateRole: 'variant', templateFamily: 'army', variantOfPlateId: 'AK.a' },
   { id: 'AK.b', state: 'AK', image: '', slug: 'b', displayName: 'Navy', tags: [], templateRole: 'template', templateFamily: 'navy' },
 ]
-const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: false, sortOrder: index, revision: plateRevision(plate) }))
+const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: plate.isStandard ?? false, sortOrder: index, revision: plateRevision(plate) }))
 const gridPlates = cards.map(projectFamilyPlate)
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
@@ -125,7 +125,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function OrderAction() {
   const { reorder } = useReorderState()
-  return <button onClick={() => void reorder('AK', ['AK.b', 'AK.a', 'AK.v'])}>Reverse State order</button>
+  return <button onClick={() => void reorder('AK', ['AK.b', 'AK.a', 'AK.v'], { from: 'AK.a', to: 'AK.b' })}>Reverse State order</button>
 }
 function familyOrder(container: HTMLElement) {
   return within(container).getAllByRole('article').map(article => article.getAttribute('aria-label'))
@@ -142,14 +142,14 @@ async function twoSessions() {
   return { first, second }
 }
 
-test('State order reaches the other Dashboard and an order-only Batch can be submitted', async () => {
+test('State order and Standard reach the other Dashboard and the Batch can be submitted', async () => {
   const { first, second } = await twoSessions()
   expect(familyOrder(second.container)).toEqual(['Army family', 'Navy family'])
   fireEvent.click(within(first.container).getByText('Reverse State order'))
   await waitFor(() => expect(second.container.textContent).toContain('rev 1'))
   expect(familyOrder(first.container)).toEqual(['Navy family', 'Army family'])
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
-  expect(requests.find(r => r.path.endsWith('/state-order/AK'))).toMatchObject({ path: '/api/batches/shared/state-order/AK', body: { batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] } })
+  expect(requests.find(r => r.path.endsWith('/state-order/AK'))).toMatchObject({ path: '/api/batches/shared/state-order/AK', body: { batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] } })
   const submit = within(first.container).getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement
   expect(submit.disabled).toBe(false)
   fireEvent.click(submit)
@@ -159,7 +159,7 @@ test('State order reaches the other Dashboard and an order-only Batch can be sub
 test('a stale State order submission changes neither draft nor signal', async () => {
   const { first, second } = await twoSessions()
   connected = false
-  expect(await reorderState(deps, owner, { batchId: 'shared', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })).toMatchObject({ ok: true })
+  expect(await reorderState(deps, owner, { batchId: 'shared', state: 'AK', batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] })).toMatchObject({ ok: true })
   const before = await deps.store.readBatch('shared')
   fireEvent.click(within(first.container).getByText('Reverse State order'))
   await waitFor(() => expect(failedOrder).toEqual({ ok: false, error: 'superseded_revision' }))
@@ -197,7 +197,7 @@ test('resubscription catches up missed commits with one coherent read and ignore
   const { second } = await twoSessions()
   connected = false
   await act(async () => {
-    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })
+    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] })
     await submitBatch(deps, editor, 'shared', 1)
     await approveBatch(deps, owner, 'shared', 2)
   })
@@ -220,7 +220,7 @@ test('manual Refresh catches up while the subscription is unavailable', async ()
   act(() => { failures.get('shared')!({ code: 'unavailable' }) })
   await waitFor(() => expect(second.container.textContent).toContain('Live updates unavailable'))
   await act(async () => {
-    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })
+    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] })
     await submitBatch(deps, editor, 'shared', 1)
   })
   const key = owner.uid + '/api/batches/shared'
@@ -238,7 +238,7 @@ test('a burst of committed lifecycle signals fetches only the latest coherent Ba
   const key = owner.uid + '/api/batches/shared'
   const before = reads.get(key)!
   await act(async () => {
-    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })
+    await reorderState(deps, editor, { batchId: 'shared', state: 'AK', batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] })
     await submitBatch(deps, editor, 'shared', 1)
     await approveBatch(deps, owner, 'shared', 2)
   })
