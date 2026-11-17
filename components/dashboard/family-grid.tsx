@@ -15,6 +15,7 @@ import { useSWRConfig } from 'swr'
 import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
 import { DragPreview } from './drag-preview'
+import { Conflict, type Issue } from '@/components/plate/edit-conflict'
 import { FamilyCard } from '@/components/plate/family-card'
 import { UserAvatar, userAvatarName } from '@/components/app/user-avatar'
 import { useSession } from '@/lib/client/session'
@@ -82,15 +83,43 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   const me = useMe()
   const edits = useEditPlate()
   const ordering = useReorderState()
+  const [issue, setIssue] = useState<Issue | null>(null)
+  const [resolving, setResolving] = useState(false)
+  const [resolutionError, setResolutionError] = useState('')
   const { mutate } = useSWRConfig()
   const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
-    families: baselineFamilies, canEdit, show, query, edits, ordering,
+    families: baselineFamilies, canEdit: canEdit && !issue, show, query, ordering,
+    edits: { ...edits, edit: async (plate, fields, reviewed) => {
+      const result = await edits.edit(plate, fields, reviewed)
+      if (!result.ok && result.error === 'stale_plate') setIssue({ plate, fields, result })
+      return result
+    } },
     holdOverlay: held => setHeldOverlay(held ? overlaid : null),
     targets: () => collectDragTargets(container.current, baselineFamilies),
     closePreview: close,
     reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
   })
+  async function resolveConflict(reapply: boolean) {
+    if (!issue || issue.result.error !== 'stale_plate' || resolving || edits.pending) return
+    setResolving(true)
+    setResolutionError('')
+    try {
+      if (reapply) {
+        const { currentRevision, batchId, draft } = issue.result
+        if (!currentRevision) throw new Error('Missing conflict revision')
+        const result = await edits.edit(issue.plate, draft, { batchId, baseRevision: currentRevision })
+        setIssue(result.ok ? null : { ...issue, result })
+      } else {
+        await mutate(`/api/batches/${issue.result.batchId}`)
+        setIssue(null)
+      }
+    } catch {
+      setResolutionError('Could not resolve this move. Check your connection and try again.')
+    } finally {
+      setResolving(false)
+    }
+  }
   const families = useMemo(() => {
     if (!drag.optimisticOrder && !drag.optimisticEdit) return baselineFamilies
     const positions = new Map(drag.optimisticOrder?.map((id, index) => [id, index]))
@@ -214,6 +243,8 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     : undefined
   return (
     <section aria-label="Plate families" id="families">
+      {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
+      {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (
         <div className="py-12 text-center">
           <p>No plates match</p>

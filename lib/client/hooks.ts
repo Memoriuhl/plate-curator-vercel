@@ -210,7 +210,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
 
 export type EditResult<T = Plate | void> =
   | ({ ok: true } & (T extends void ? object : { proposed: T }))
-  | { ok: false; error: 'stale_plate'; current: Plate; draft: EditableFields }
+  | { ok: false; error: 'stale_plate'; current: Plate; currentRevision: string; batchId: string; draft: EditableFields }
   | { ok: false; error: 'forbidden' | 'invalid_state' | 'not_found' | 'superseded_revision' }
 
 const batchCreations = new WeakMap<object, Map<string, Promise<string>>>()
@@ -251,10 +251,12 @@ export function useEditPlate() {
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
   async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }): Promise<EditResult<Plate>> {
+    let batchId = reviewed?.batchId
     try {
       if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
       if (reviewed && workspace.mode === 'selected' && reviewed.batchId !== workspace.id) return { ok: false, error: 'not_found' }
       const id = reviewed?.batchId ?? (workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate))
+      batchId = id
       const key = `/api/batches/${id}`
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
       const baseRevision = reviewed?.baseRevision ?? (workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision)
@@ -266,7 +268,7 @@ export function useEditPlate() {
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 409 && error.code === 'stale_plate') {
-          return { ok: false, error: 'stale_plate', current: error.body.current as Plate, draft: fields }
+          return { ok: false, error: 'stale_plate', current: error.body.current as Plate, currentRevision: error.body.currentRevision as string, batchId: batchId!, draft: fields }
         }
         if (error.status === 409 && error.code === 'superseded_revision') return { ok: false, error: 'superseded_revision' }
         if (error.status === 403) return { ok: false, error: 'forbidden' }

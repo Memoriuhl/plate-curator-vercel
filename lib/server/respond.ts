@@ -1,3 +1,4 @@
+import { plateRevision } from '../review/revision'
 import type { Outcome, ReviewError } from '../review/types'
 
 const headers = { 'Cache-Control': 'private, no-store' }
@@ -16,7 +17,7 @@ export function json(body: unknown, status = 200): Response {
 
 export function respond<T>(outcome: Outcome<T>): Response {
   if (outcome.ok) return json(outcome.value)
-  return json({ error: outcome.error, ...(outcome.current ? { current: outcome.current } : {}) }, statusFor[outcome.error])
+  return json({ error: outcome.error, ...(outcome.current ? { current: outcome.current, currentRevision: plateRevision(outcome.current) } : {}) }, statusFor[outcome.error])
 }
 
 export async function readJson(request: Request): Promise<Record<string, unknown> | null> {
