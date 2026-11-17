@@ -75,7 +75,7 @@ async function transitionBatch(
 
 export async function reorderState(
   d: ReviewDeps, actor: Actor,
-  input: { batchId: string; state: string; batchRevision: number; order: string[] },
+  input: { batchId: string; state: string; batchRevision: number; order: string[]; promotion?: { plateId: string; templateFamily: string } },
 ): Promise<Outcome<ReviewBatch>> {
   const batch = await d.store.getBatch(input.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
@@ -87,12 +87,31 @@ export async function reorderState(
   if (!plates.length || input.order.length !== ids.size || new Set(input.order).size !== ids.size || input.order.some(id => !ids.has(id))) {
     return { ok: false, error: 'invalid_state' }
   }
+  let edit
+  let plateIds = batch.plateIds
+  if (input.promotion) {
+    const { plateId, templateFamily } = input.promotion
+    const baseline = await d.baseline(plateId)
+    if (!baseline || !ids.has(plateId) || baseline.state !== input.state) return { ok: false, error: 'invalid_state' }
+    const existing = await d.store.getEdit(batch.id, plateId)
+    const current = { ...baseline, ...existing?.fields }
+    if (current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
+    const edits = await d.store.listEdits(batch.id)
+    if (plates.some(plate => plate.id !== plateId && (edits.find(entry => entry.plateId === plate.id)?.fields.templateFamily ?? plate.templateFamily) === templateFamily)) return { ok: false, error: 'invalid_state' }
+    plateIds = plateIds.includes(plateId) ? plateIds : [...plateIds, plateId]
+    if (plateIds.length > limits.plates) return { ok: false, error: 'invalid_state' }
+    const plate = { ...current, templateRole: 'template' as const, variantOfPlateId: null, templateFamily }
+    const fields: EditableFields = Object.fromEntries(editableKeys
+      .filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key]))
+      .map(key => [key, plate[key]]))
+    edit = { plateId, baseRevision: plateRevision(baseline), fields, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(plate) }
+  }
   const next: ReviewBatch = {
-    ...batch, state: 'open', approval: null, revision: batch.revision + 1,
+    ...batch, plateIds, state: 'open', approval: null, revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
     baselineOrders: { ...batch.baselineOrders, [input.state]: batch.baselineOrders?.[input.state] ?? plates.map(plate => plate.id) },
   }
-  const result = await d.store.commit(batch.id, batch.revision, { batch: next })
+  const result = await d.store.commit(batch.id, batch.revision, { batch: next, ...(edit ? { edit } : {}) })
   if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)
   return result === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
 }

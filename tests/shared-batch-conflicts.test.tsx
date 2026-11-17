@@ -10,7 +10,7 @@ import { projectFamilyPlate } from '../components/dashboard/family-data'
 import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
-import { proposeEdit } from '../lib/review/batch'
+import { proposeEdit, reorderState } from '../lib/review/batch'
 import { batchDetail } from '../lib/review/queries'
 import { respond } from '../lib/server/respond'
 import { plateRevision } from '../lib/review/revision'
@@ -96,6 +96,14 @@ function session(actor: Actor, id: string | null = 'shared') {
           tagRevision = result.value.plates.find(p => p.proposed.id === 'AK.v')!.revision
           return { jobId: 'tag-job', runId: 'tag-workflow' }
         }
+        if (method === 'PUT') {
+          const result = await reorderState(deps, actor, { batchId: path.split('/')[3], state: 'AK', ...body as { batchRevision: number; order: string[]; promotion?: { plateId: string; templateFamily: string } } })
+          if (!result.ok) {
+            const response = respond(result)
+            throw new ApiError(response.status, result.error, await response.json())
+          }
+          return result.value
+        }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         const [, , , batchId, , plateId] = path.split('/')
         const result = await proposeEdit(deps, actor, { batchId, plateId, ...body as { baseRevision: string; fields: EditableFields } })
@@ -143,6 +151,54 @@ const button = (view: ReturnType<typeof render>, name: string) => within(view.co
 async function ready(view: ReturnType<typeof render>) {
   await waitFor(() => expect(view.container.textContent).toContain('Live'))
 }
+
+test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s promotion after order or unrelated Tag saves', async mode => {
+  for (const change of ['order', 'tag'] as const) {
+    const first = render(<Workspace actor={editor} />)
+    const second = render(<Workspace actor={owner} />)
+    await ready(first); await ready(second)
+    targetRects(first.container)
+    const handle = within(first.container).getByRole('button', { name: 'Move Variant' })
+    if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540, 100) }
+    else { fireEvent.keyDown(handle, { key: ' ' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
+    const order = ['AK.b', 'AK.a', 'AK.v']
+    const revision = (await deps.store.getBatch('shared'))!.revision
+    await act(async () => {
+      if (change === 'order') expect((await reorderState(deps, owner, { batchId: 'shared', state: 'AK', batchRevision: revision, order })).ok).toBe(true)
+      else await remote({ tags: ['remote tag'] }, 'AK.b')
+    })
+    expect(Array.from(first.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).not.toEqual(['AK.b', 'AK.a'])
+    if (mode === 'pointer') pointer(handle, 'pointerup', 540, 100)
+    else fireEvent.keyDown(window, { key: ' ' })
+    await waitFor(() => expect(first.container.textContent).toContain('This Batch changed. Drag again'))
+    expect((await saved()).proposed.templateRole).toBe('variant')
+    expect((await deps.store.getBatch('shared'))!.revision).toBe(revision + 1)
+    expect(first.container.textContent).not.toContain('Lifted Variant')
+    expect(requests.filter(r => r.method === 'PUT').at(-1)?.body).toMatchObject({ batchRevision: revision, promotion: { plateId: 'AK.v' } })
+    if (change === 'order') expect((await deps.store.getBatch('shared'))!.stateOrders.AK).toEqual(order)
+    if (change === 'order') expect(Array.from(first.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.b', 'AK.a'])
+    if (mode === 'keyboard') await waitFor(() => expect(document.activeElement).toBe(within(first.container).getByRole('button', { name: 'Move Variant' })))
+    cleanup()
+  }
+})
+
+test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s promotion and order together; other Batch saves do not conflict', async mode => {
+  const first = render(<Workspace actor={editor} />)
+  const second = render(<Workspace actor={owner} />)
+  await ready(first); await ready(second)
+  targetRects(first.container)
+  const handle = within(first.container).getByRole('button', { name: 'Move Variant' })
+  if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540) }
+  else { fireEvent.keyDown(handle, { key: ' ' }); fireEvent.keyDown(window, { key: 'ArrowRight' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
+  expect((await reorderState(deps, owner, { batchId: 'other', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })).ok).toBe(true)
+  if (mode === 'pointer') pointer(handle, 'pointerup', 540)
+  else fireEvent.keyDown(window, { key: ' ' })
+  await waitFor(() => expect(first.container.textContent).toContain('Dropped'))
+  await waitFor(() => expect(second.container.querySelector('[data-drag-family="AK.v"]')).toBeTruthy())
+  expect((await saved()).proposed).toMatchObject({ templateRole: 'template', templateFamily: 'ak_v', variantOfPlateId: null })
+  expect(await deps.store.getBatch('shared')).toMatchObject({ revision: 1, stateOrders: { AK: ['AK.a', 'AK.b', 'AK.v'] } })
+  for (const view of [first, second]) expect(Array.from(view.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
+})
 function input(view: ReturnType<typeof render>, value: string, label = 'Description') {
   fireEvent.change(box(view, label), { target: { value } })
 }

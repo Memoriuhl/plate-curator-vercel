@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import type { EditResult, useEditPlate, useReorderState } from '@/lib/client/hooks'
+import type { EditResult, MoveOrigin, useEditPlate, useReorderState } from '@/lib/client/hooks'
 import type { EditableFields } from '@/lib/review/types'
 import { familyOrder, newFamilySlug, orderForDrop, pastDragThreshold, scrollVelocity, targetAt, type DragFamily, type DragItem, type DropTarget, type TargetRect } from './drop-targets'
 import { reflowForDrop, sameDropTarget } from './drag-reflow'
@@ -15,13 +15,13 @@ type Options = {
   show: string
   query: string
   edits: ReturnType<typeof useEditPlate>
-  ordering: ReturnType<typeof useReorderState>
+  ordering: Pick<ReturnType<typeof useReorderState>, 'reorder' | 'pending'> & Partial<Pick<ReturnType<typeof useReorderState>, 'capture' | 'move'>>
   targets(): TargetRect[]
   holdOverlay?(held: boolean): void
   closePreview(): void
   reload(): Promise<unknown>
 }
-type Active = { item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean; geometry: DragGeometry }
+type Active = { item: DragItem; target: DropTarget | null; x: number; y: number; keyboard: boolean; geometry: DragGeometry; origin?: MoveOrigin }
 const errors = {
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
@@ -41,6 +41,7 @@ export function usePlateDrag(options: Options) {
   const pressed = useRef<{ item: DragItem; x: number; y: number; geometry: DragGeometry; pointerId: number; timer: ReturnType<typeof setTimeout> | null } | null>(null)
   const suppress = useRef(false)
   const stableTargets = useRef(createStableDragTargets())
+  const focusRoot = useRef<HTMLElement | null>(null)
   useEffect(() => { latest.current = options })
   const enabled = options.canEdit && options.show === 'all' && !options.query && !options.edits.pending && !options.ordering.pending && !saving
 
@@ -54,6 +55,7 @@ export function usePlateDrag(options: Options) {
     pressed.current = null
   }
   function lift(item: DragItem, x: number, y: number, keyboard: boolean) {
+    focusRoot.current = dragElement(item)?.closest('section') ?? null
     latest.current.holdOverlay?.(true)
     latest.current.closePreview()
     suppress.current = true
@@ -66,7 +68,7 @@ export function usePlateDrag(options: Options) {
     const geometry = pressed.current?.geometry ?? measureDragGeometry(item, x, y)
     stableTargets.current = createStableDragTargets()
     stableTargets.current(latest.current.targets(), window.scrollX, window.scrollY)
-    update({ item, x, y, geometry, keyboard, target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
+    update({ item, x, y, geometry, keyboard, origin: latest.current.ordering.capture?.(), target: item.kind === 'variant' && source ? { kind: 'variant-slot', familyId: source.template.id, index: variantIndex } : { kind: 'family-slot', index } })
     document.body.classList.add('plate-dragging')
     announce(`Lifted ${item.plate.displayName} ${item.kind}, position ${index + 1} of ${families.length}`)
   }
@@ -110,27 +112,31 @@ export function usePlateDrag(options: Options) {
         if (promote) {
           const fields: EditableFields = { templateRole: 'template', variantOfPlateId: null, templateFamily: newFamilySlug(item.plate, families) }
           setOptimisticEdit({ plateId: item.plate.id, fields })
-          result = await edits.edit(item.plate, fields)
-          if (!result.ok) {
-            announce(errors[result.error])
-            if (result.error === 'superseded_revision') await reload()
-            return
-          }
-        }
-        result = await ordering.reorder(item.plate.state, order)
+          if (!ordering.move || !drag.origin) throw new Error('Reload before moving a Variant')
+          result = await ordering.move(item.plate.state, order, { plateId: item.plate.id, templateFamily: fields.templateFamily! }, drag.origin)
+        } else result = await ordering.reorder(item.plate.state, order)
       }
       if (!result.ok) {
         announce(errors[result.error])
-        if (result.error === 'superseded_revision') await reload()
+        if (result.error === 'superseded_revision') {
+          setOptimisticOrder(null)
+          setOptimisticEdit(null)
+          await reload()
+          announce('This Batch changed. Drag again to choose a position in the latest order.')
+        }
       } else announce('Dropped')
     } catch {
-      announce('Could not save this move. Try again.')
-      await reload()
+      announce('The move response was interrupted. Refreshing the saved Batch to check its result.')
+      try { await reload() } catch { announce('Could not check the saved Batch. Refresh before trying this move again.') }
     } finally {
       setOptimisticOrder(null)
       setOptimisticEdit(null)
       setSaving(false)
       latest.current.holdOverlay?.(false)
+      if (drag.keyboard) requestAnimationFrame(() => {
+        Array.from(focusRoot.current?.querySelectorAll<HTMLElement>('[data-drag-handle-id]') ?? [])
+          .find(element => element.dataset.dragHandleId === item.plate.id)?.focus()
+      })
     }
   }
   const actions = useRef({ lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget })
@@ -221,8 +227,8 @@ export function usePlateDrag(options: Options) {
       const drag = current.current
       const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight'
       const family = options.families.find(entry => entry.variants.some(plate => plate.id === item.plate.id))
-      const within = item.kind === 'variant' && family
-      const previous = drag.target?.kind === 'variant-slot' || drag.target?.kind === 'family-slot' ? drag.target.index : 0
+      const within = item.kind === 'variant' && family && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && drag.target?.kind !== 'family-slot'
+      const previous = item.kind === 'variant' && family && !within && drag.target?.kind === 'variant-slot' ? options.families.indexOf(family) : drag.target?.kind === 'variant-slot' || drag.target?.kind === 'family-slot' ? drag.target.index : 0
       const sourceIndex = within ? family.variants.findIndex(plate => plate.id === item.plate.id) : options.families.findIndex(entry => entry.template.id === item.plate.id)
       let next = previous + (forward ? 1 : -1)
       if (forward && next === sourceIndex + 1) next++
