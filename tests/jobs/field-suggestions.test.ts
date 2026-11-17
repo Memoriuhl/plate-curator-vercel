@@ -17,6 +17,7 @@ test.each([
   { ...suggestion, fields: { funFacts: [{ text: 'Uncited', sourceUrl: 'https://other.example/fact' }] } },
   { ...suggestion, fields: { deleted: true } },
   { ...suggestion, fields: { tags: ['bear'] } },
+  { ...suggestion, fields: { sourceUrl: 'https://example.org/fact' } },
   { ...suggestion, fields: {} },
   { ...suggestion, extra: 'unrecognized' },
 ])('rejects malformed or unrelated fields and citations %j', input => {

@@ -4,8 +4,8 @@ import type { FieldSuggestion, PipelineStage } from './types'
 
 const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
   describe: ['description'],
-  story: ['funFacts', 'firstIssuedYear', 'readMore', 'sourceUrl', 'wikiUrl'],
-  'wiki-link': ['wikiUrl', 'sourceUrl'],
+  story: ['funFacts', 'firstIssuedYear', 'readMore', 'wikiUrl'],
+  'wiki-link': ['wikiUrl'],
   colors: [],
   'find-image': [],
   group: ['templateFamily', 'templateRole', 'variantOfPlateId'],
@@ -29,6 +29,6 @@ export function parseFieldSuggestion(input: unknown, expected: PipelineStage): F
   if (['describe', 'story', 'wiki-link'].includes(expected) && !normalizedSources.length) return null
   if (fields.funFacts?.some(fact => !normalizedSources.includes(fact.sourceUrl))) return null
   if (fields.readMore?.some(link => !normalizedSources.includes(link.url))) return null
-  if ([fields.wikiUrl, fields.sourceUrl].some(url => url && !normalizedSources.includes(url))) return null
+  if (fields.wikiUrl && !normalizedSources.includes(fields.wikiUrl)) return null
   return { stage: expected, fields: Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))), sources: normalizedSources }
 }
