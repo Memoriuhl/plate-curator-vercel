@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
 import { PLATE_CHECK_KEYS } from '../lib/catalog/dashboard-types'
-import { filterCounts, matchesPlate, NEEDS_WORK_CHECKS, plateIdsForCheck } from '../components/dashboard/family-data'
+import { attachedFamilyIds, filterCounts, matchesPlate, NEEDS_WORK_CHECKS, plateIdsForCheck } from '../components/dashboard/family-data'
 
 const plates = ['missing', 'weak', 'good'].map((status, index) => ({
   ...plateCards[0], id: `AK.${index}`, state: 'AK', isStandard: index === 0,
@@ -28,6 +28,20 @@ test('family groups use legacy role and parent semantics, not check status', () 
   ]
   expect(plateIdsForCheck(input, 'noFamily')).toEqual(['AK.2'])
   expect(filterCounts(input).groups.noFamily.total).toBe(1)
+})
+
+test('no-family count, URL filter and selection follow grid membership', () => {
+  const input = [
+    { ...plates[0], templateRole: 'template' as const, templateFamily: 'base', variantOfPlateId: null },
+    { ...plates[1], templateRole: 'variant' as const, templateFamily: 'base', variantOfPlateId: null },
+    { ...plates[2], templateRole: 'variant' as const, templateFamily: 'unknown', variantOfPlateId: 'missing' },
+  ]
+  const attached = attachedFamilyIds(input)
+  expect(filterCounts(input).groups.noFamily.total).toBe(1)
+  expect(plateIdsForCheck(input, 'noFamily')).toEqual(['AK.2'])
+  expect(filterCounts(input, attached).groups.noFamily.total).toBe(1)
+  expect(plateIdsForCheck(input, 'noFamily', '', attached)).toEqual(['AK.2'])
+  expect(input.filter(plate => matchesPlate(plate, 'noFamily', '', new Set(), undefined, attached)).map(plate => plate.id)).toEqual(['AK.2'])
 })
 
 test('legacy URLs retain their missing-only or non-good behavior', () => {
