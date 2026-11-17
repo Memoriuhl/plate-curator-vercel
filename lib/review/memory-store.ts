@@ -73,7 +73,8 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       if (current.publishRequestedAt && ['approved', 'published'].includes(saved.batch.state)) { saved.batch.publishRequestedAt = current.publishRequestedAt; if (current.publishRequestedBy) saved.batch.publishRequestedBy = structuredClone(current.publishRequestedBy) }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()
       if (saved.deleteEditFor !== undefined) batchEdits.delete(saved.deleteEditFor)
-      if (saved.edit) batchEdits.set(saved.edit.plateId, saved.edit)
+      for (const id of saved.deleteEditsFor ?? []) batchEdits.delete(id)
+      for (const edit of [...(saved.edits ?? []), ...(saved.edit ? [saved.edit] : [])]) batchEdits.set(edit.plateId, edit)
       edits.set(batchId, batchEdits)
       batches.set(batchId, saved.batch)
       signals.set(batchId, saved.batch.revision)

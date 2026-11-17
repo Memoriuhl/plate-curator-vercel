@@ -1,7 +1,8 @@
 import type { EditableFields } from './types'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
-const keys = new Set(['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'])
+export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
+const keys = new Set<string>(editableKeys)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

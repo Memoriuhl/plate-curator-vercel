@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest'
 import { publishBatch } from '../../lib/publish/publish'
 import type { Snapshot } from '../../lib/catalog/types'
 import type { PublishDeps, PublishRecord } from '../../lib/publish/types'
-import { batch, command, owner } from './fixture'
+import { batch, command, owner, seedOrderStandards } from './fixture'
 
 export type WorkflowOrders = { stateOrder: Record<string, string[]>; stateOrderVersion?: Record<string, number> }
 export type OrderFixture = {
@@ -20,11 +20,15 @@ const ordersB = { CA: ['two', 'one'] }
 
 async function createA(f: OrderFixture) {
   await f.deps.store.create({ ...batch, id: 'a', stateOrders: ordersA })
+  await seedOrderStandards(f.deps, 'a')
 }
 
 async function publishB(f: OrderFixture, orders: Record<string, string[]> = ordersB) {
   await f.deps.store.create({ ...batch, id: 'b', baselineVersion: 2, stateOrders: orders })
-  expect(await publishBatch(f.deps, owner, cmdB)).toMatchObject({ ok: true, value: { toVersion: 3, state: 'done' } })
+  await seedOrderStandards(f.deps, 'b')
+  const result = await publishBatch(f.deps, owner, cmdB)
+  if (!result.ok) throw new Error(JSON.stringify(result))
+  expect(result).toMatchObject({ ok: true, value: { toVersion: 3, state: 'done' } })
 }
 
 async function expectFinishedA(f: OrderFixture) {

@@ -1,5 +1,7 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
+import { useStandardConfirmation } from '@/components/plate/standard-confirmation'
 import { plateSelection, useSelectionKeyboard, SelectionPresence } from './plate-selection'
 import { SelectionBar } from './selection-bar'
 import dynamic from 'next/dynamic'
@@ -97,6 +99,15 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const edits = useEditPlate()
   const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
+  const standardConfirmation = useStandardConfirmation()
+  const standardRepairs = useMemo(() => {
+    if (show !== 'standardPlate') return []
+    const states = new Set(overlaid.filter(plate => standardIds.has(plate.id)).map(plate => plate.state))
+    return [...states].filter(state => ordering.stateOrders?.[state]).flatMap(state => {
+      const first = baselineFamilies.find(family => family.template.state === state && !family.template.deleted && family.template.templateRole === 'template')?.template
+      return first ? [first] : []
+    })
+  }, [show, overlaid, standardIds, baselineFamilies, ordering.stateOrders])
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
   const [resolutionError, setResolutionError] = useState('')
@@ -104,7 +115,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
     bulkEdits,
-    families: baselineFamilies, canEdit: canEdit && !issue, show, query, ordering,
+    families: baselineFamilies, canEdit: canEdit && !issue && !standardConfirmation.pending, show, query, ordering,
     edits: { ...edits, edit: async (plate, fields, reviewed) => {
       const result = await edits.edit(plate, fields, reviewed)
       if (!result.ok && result.error === 'stale_plate') setIssue({ plate, fields, result })
@@ -132,7 +143,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       if (reapply) {
         const { currentRevision, batchId, draft } = issue.result
         if (!currentRevision) throw new Error('Missing conflict revision')
-        const result = await edits.edit(issue.plate, draft, { batchId, baseRevision: currentRevision })
+        const result = await edits.edit(issue.plate, draft, { batchId, baseRevision: currentRevision, ...(issue.standard ? { standard: issue.standard } : {}) })
         setIssue(result.ok ? null : { ...issue, result })
       } else {
         await mutate(`/api/batches/${issue.result.batchId}`)
@@ -273,6 +284,16 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
         plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
         onSelectGroup?.(key, ids)
       }} /> : null}
+      {standardRepairs.map(first => <Button key={first.state} variant="outline" disabled={!canEdit || edits.pending || standardConfirmation.pending} onClick={async () => {
+        const standard = await standardConfirmation.confirm(overlaid.filter(plate => plate.state === first.state), first.id)
+        if (standard === false) return
+        const fields = { isStandard: true }
+        try {
+          const result = await edits.edit(first, fields, undefined, standard)
+          if (!result.ok) setIssue({ plate: first, fields, result, standard })
+        } catch { setResolutionError('Could not save the Standard. Try again.') }
+      }}>Make {first.displayName} the Standard</Button>)}
+      {standardConfirmation.dialog}
       <SelectionPresence />
       <SelectionBar />
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
@@ -364,6 +385,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
           />
         ) : null}
       </Suspense>
+      {drag.standardDialog}
       <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
       {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
       {drag.active ? <DragPreview {...drag.active} selectionCount={drag.selectionCount} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}

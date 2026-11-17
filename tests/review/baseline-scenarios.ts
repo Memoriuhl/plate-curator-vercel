@@ -109,7 +109,7 @@ export function batchBaselineScenarios(make: () => Promise<{ review: ReviewStore
     const s = await setup()
     s.advance()
     const fields = { templateRole: 'template' as const, templateFamily: 'promoted', variantOfPlateId: null }
-    expect(await reorderState(s.deps, editor, { batchId: s.batchId, state: 'AK', batchRevision: 0, order: [unchanged.id, changed.id], promotion: { plateId: changed.id, templateFamily: 'promoted' } })).toMatchObject({ ok: true, value: { revision: 1, stateOrders: { AK: [unchanged.id, changed.id] } } })
+    expect(await reorderState(s.deps, editor, { batchId: s.batchId, state: 'AK', batchRevision: 0, order: [unchanged.id, changed.id], promotion: { plateId: changed.id, templateFamily: 'promoted' }, standard: { from: null, to: unchanged.id } })).toMatchObject({ ok: true, value: { revision: 1, stateOrders: { AK: [unchanged.id, changed.id] } } })
     expect(await s.deps.store.getEdit(s.batchId, changed.id)).toMatchObject({ baseRevision: plateRevision(changed), fields, resultRevision: plateRevision({ ...changed, ...fields }) })
     expect((await s.shown()).proposed).toEqual({ ...changed, ...fields })
     expect(await proposeEdit(s.deps, editor, { batchId: s.batchId, plateId: changed.id, baseRevision: (await s.shown()).revision, fields: { description: 'after promotion' } })).toMatchObject({ ok: true })

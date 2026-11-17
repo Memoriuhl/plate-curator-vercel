@@ -63,3 +63,13 @@ test.each(['head', 'snapshot'])('copy returns structured unavailable when the %s
   expect(await response.json()).toEqual({ ok: false, error: 'unavailable' })
   expect(await deps.store.list({})).toHaveLength(1)
 })
+
+test('Standard warnings accompany a successful copy response', async () => {
+  const store = mocks.reviewDeps().store
+  const original = await store.getBatch(batch.id)
+  await store.commit(batch.id, original.revision, { batch: { ...original, stateOrders: { CA: ['two', 'one'] } } })
+  const response = await POST(request({ revision: 2, targetVersion: 2 }), ctx)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ state: 'open', warnings: [expect.stringContaining('CA:')] })
+  expect(await store.list({})).toHaveLength(2)
+})

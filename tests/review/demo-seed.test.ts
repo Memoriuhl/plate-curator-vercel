@@ -23,7 +23,7 @@ describe('demo seed', () => {
     const first = await seedDemo(d, input)
     expect(d.store.signalRevision(first.id)).toBe(first.revision)
     const edits = await d.store.listEdits(first.id)
-    expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant'], stateOrders: { AK: ['bear', 'bear-variant', 'gold'] } })
+    expect(first).toMatchObject({ id: 'demo-development-demo-editor', state: 'open', baselineVersion: 11, createdByName: 'Demo Editor', plateIds: ['gold', 'bear-variant', 'bear'], stateOrders: { AK: ['bear', 'gold', 'bear-variant'] } })
     expect(edits.find(edit => edit.plateId === 'gold')?.fields).toMatchObject({ tags: ['gold', 'alaska', 'passenger'], isStandard: false })
     expect({ ...plates[2], ...edits.find(edit => edit.plateId === 'bear-variant')?.fields }).toMatchObject({ templateFamily: 'gold', variantOfPlateId: 'gold', templateRole: 'variant' })
     for (const edit of edits) {
@@ -145,4 +145,15 @@ describe('demo seed', () => {
     expect(await d.store.listEdits(first.id)).toEqual(before)
     expect(d.store.signalRevision(first.id)).toBe(first.revision)
   })
+})
+
+it('demo rotation keeps Variants in the first family with their Template', async () => {
+  const d = setup()
+  const variant: Plate = { ...plates[2], id: 'gold-variant', slug: 'gold-variant', templateFamily: 'gold', variantOfPlateId: 'gold' }
+  const inputPlates = [plates[0], variant, plates[1], plates[2]]
+  d.stateBaseline = async () => inputPlates
+  d.baselineAtVersion = async (_version, id) => inputPlates.find(plate => plate.id === id) ?? null
+  const batch = await seedDemo(d, input)
+  expect(batch.stateOrders.AK).toEqual(['bear', 'gold', 'gold-variant', 'bear-variant'])
+  expect(await d.store.getEdit(batch.id, 'bear')).toMatchObject({ fields: { isStandard: true } })
 })

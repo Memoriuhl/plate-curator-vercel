@@ -13,15 +13,15 @@ vi.mock('../../lib/server/context', () => context)
 const batch = { id: 'batch', name: 'Order', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 7, plateIds: ['one'], stateOrders: {}, approval: null }
 beforeEach(() => {
   context.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'editor', name: null, role: 'editor' } })
-  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [] })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '' } satisfies ReviewDeps)
+  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template' as const, isStandard: id === 'one' })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '' } satisfies ReviewDeps)
 })
 function put(body: unknown) {
   return PUT(new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
 }
 test('signed-in creator receives the updated batch', async () => {
-  const response = await put({ batchRevision: 4, order: ['two', 'one'] })
+  const response = await put({ batchRevision: 4, order: ['two', 'one'], standard: { from: 'one', to: 'two' } })
   expect(response.status).toBe(200)
-  expect(await response.json()).toEqual({ ...batch, revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
+  expect(await response.json()).toEqual({ ...batch, plateIds: ['one', 'two'], revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
 })
 
 test('combined order request promotes the Variant with one revision and rejects stale retries', async () => {
@@ -29,7 +29,7 @@ test('combined order request promotes the Variant with one revision and rejects 
   const variant = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], templateRole: 'variant' as const, templateFamily: 'old', variantOfPlateId: 'two' }
   deps.baselineAtVersion = async () => variant
   deps.stateBaseline = async () => [variant, { ...variant, id: 'two', templateRole: 'template' as const, templateFamily: 'parent' }]
-  const body = { batchRevision: 4, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } }
+  const body = { batchRevision: 4, standard: { from: null, to: 'two' }, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } }
   expect((await put(body)).status).toBe(200)
   expect(await deps.store.getBatch('batch')).toMatchObject({ revision: 5, stateOrders: { AK: body.order } })
   expect(await deps.store.getEdit('batch', 'one')).toMatchObject({ fields: { templateRole: 'template', variantOfPlateId: null, templateFamily: 'new' } })

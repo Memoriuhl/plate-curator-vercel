@@ -68,3 +68,9 @@ test('standard-plate fixes span states, selecting duplicates or the first candid
   expect(input.filter(plate => matchesPlate(plate, 'standardPlate', '', new Set(), new Set(ids))).map(plate => plate.id)).toEqual(ids)
   expect(matchesPlate(input[0], 'standardPlate', 'no match', new Set(), new Set(ids))).toBe(false)
 })
+
+test('Standard issues include a lone Standard below the first plate', () => {
+  const input = [{ ...plates[0], isStandard: false, sortOrder: 0 }, { ...plates[1], isStandard: true, sortOrder: 1 }]
+  expect(plateIdsForCheck(input, 'standardPlate')).toEqual([input[1].id])
+  expect(filterCounts(input).groups.standardPlate.total).toBe(1)
+})

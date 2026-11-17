@@ -1,3 +1,4 @@
+import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import { proposeEdit } from '../../../../../../lib/review/batch'
 import { parseEditableFields } from '../../../../../../lib/review/fields'
 import { catalogChanged } from '../../../../../../lib/server/catalog-head'
@@ -9,6 +10,8 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/batches/[i
   if (!auth.ok) return auth.response
 
   const body = await readJson(request)
+  const standard = parseStandardChange(body?.standard)
+  if (standard === null) return badRequest()
   const fields = parseEditableFields(body?.fields)
   if (typeof body?.baseRevision !== 'string' || fields === null) return badRequest()
 
@@ -17,7 +20,7 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/batches/[i
     batchId: id,
     plateId,
     baseRevision: body.baseRevision,
-    fields,
+    fields, standard,
   })
   if (outcome.ok) catalogChanged()
   return respond(outcome)

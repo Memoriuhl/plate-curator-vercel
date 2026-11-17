@@ -37,11 +37,11 @@ vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
 const owner: Actor = { uid: 'owner-uid', name: 'Owner', role: 'owner' }
 const plates: Plate[] = [
-  { id: 'AK.a', state: 'AK', image: '', slug: 'a', displayName: 'Army', tags: [], templateRole: 'template', templateFamily: 'army' },
+  { id: 'AK.a', state: 'AK', image: '', slug: 'a', displayName: 'Army', isStandard: true, tags: [], templateRole: 'template', templateFamily: 'army' },
   { id: 'AK.v', state: 'AK', image: '', slug: 'v', displayName: 'Variant', tags: [], templateRole: 'variant', templateFamily: 'army', variantOfPlateId: 'AK.a' },
   { id: 'AK.b', state: 'AK', image: '', slug: 'b', displayName: 'Navy', tags: [], templateRole: 'template', templateFamily: 'navy' },
 ]
-const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: false, sortOrder: index, revision: plateRevision(plate) }))
+const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: plate.isStandard ?? false, sortOrder: index, revision: plateRevision(plate) }))
 const gridPlates = cards.map(projectFamilyPlate)
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
@@ -164,7 +164,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions reject a stale %s prom
     const order = ['AK.b', 'AK.a', 'AK.v']
     const revision = (await deps.store.getBatch('shared'))!.revision
     await act(async () => {
-      if (change === 'order') expect((await reorderState(deps, owner, { batchId: 'shared', state: 'AK', batchRevision: revision, order })).ok).toBe(true)
+      if (change === 'order') expect((await reorderState(deps, owner, { batchId: 'shared', state: 'AK', batchRevision: revision, order, standard: { from: 'AK.a', to: order[0] } })).ok).toBe(true)
       else await remote({ tags: ['remote tag'] }, 'AK.b')
     })
     expect(Array.from(first.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).not.toEqual(['AK.b', 'AK.a'])
@@ -190,7 +190,7 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   if (mode === 'pointer') { pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 540) }
   else { fireEvent.keyDown(handle, { key: ' ', shiftKey: true }); fireEvent.keyDown(window, { key: 'ArrowRight' }); fireEvent.keyDown(window, { key: 'ArrowRight' }) }
-  expect((await reorderState(deps, owner, { batchId: 'other', state: 'AK', batchRevision: 0, order: ['AK.b', 'AK.a', 'AK.v'] })).ok).toBe(true)
+  expect((await reorderState(deps, owner, { batchId: 'other', state: 'AK', batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] })).ok).toBe(true)
   if (mode === 'pointer') pointer(handle, 'pointerup', 540)
   else fireEvent.keyDown(window, { key: ' ' })
   await waitFor(() => expect(first.container.textContent).toContain('Dropped'))
@@ -288,19 +288,20 @@ test('different Plate saves from two sessions both succeed', async () => {
 })
 
 test('same Plate saves from the same revision conflict even for different fields and retain the attempted fields only', async () => {
-  const first = render(<Workspace actor={editor} page />)
-  const second = render(<Workspace actor={owner} page />)
+  const first = render(<Workspace actor={editor} page index={2} />)
+  const second = render(<Workspace actor={owner} page index={2} />)
   await ready(first); await ready(second)
   input(first, 'My story')
   fireEvent.click(button(second, 'Set as Standard'))
+  fireEvent.click(document.querySelector('[data-slot=alert-dialog-action]')!)
   await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
   save(first)
   await waitFor(() => expect(button(first, 'Keep saved')).toBeTruthy())
   const alert = within(first.container).getByRole('alert')
   expect(alert.textContent).toContain('Proposed: My story')
   expect(alert.textContent).not.toContain('isStandard')
-  expect((await saved()).proposed).toMatchObject({ isStandard: true })
-  expect((await saved()).proposed.description).toBeUndefined()
+  expect((await saved('AK.b')).proposed).toMatchObject({ isStandard: true })
+  expect((await saved('AK.b')).proposed.description).toBeUndefined()
 })
 
 test('Keep saved discards the proposal and leaves the saved Plate intact', async () => {

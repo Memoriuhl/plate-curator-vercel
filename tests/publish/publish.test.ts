@@ -3,7 +3,7 @@ import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
 import { validateSnapshot } from '../../lib/publish/validation'
-import { batch, command, fixture, owner, snapshot } from './fixture'
+import { batch, command, fixture, owner, snapshot, seedOrderStandards } from './fixture'
 
 test('an editor cannot publish', async () => {
   const f = fixture()
@@ -260,11 +260,13 @@ test.each(['Published description', null])('publishes description edits through 
 
 test('publishes field edits, state order and an absent cleared variant link together', async () => {
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  await seedOrderStandards(f.deps, 'batch')
   f.blobs.set(1, Buffer.from(JSON.stringify({ ...snapshot, plates: [{ ...snapshot.plates[0], variantOfPlateId: 'two' }, snapshot.plates[1]] })))
-  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'], variantOfPlateId: null }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+  const standardEdits = await f.deps.store.listEdits('batch')
+  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'], variantOfPlateId: null }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }, ...standardEdits.filter(edit => edit.plateId !== 'one')]
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
   const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
-  expect(written).toEqual({ version: 2, plates: [{ ...snapshot.plates[0], tags: ['changed'], sortOrder: 1 }, { ...snapshot.plates[1], sortOrder: 0 }] })
+  expect(written).toEqual({ version: 2, plates: [{ ...snapshot.plates[0], tags: ['changed'], sortOrder: 1 }, { ...snapshot.plates[1], isStandard: true, templateRole: 'template', sortOrder: 0 }] })
   expect(written.plates[0]).not.toHaveProperty('variantOfPlateId')
   expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
 })
@@ -276,6 +278,7 @@ test.each([
   ['wrong jurisdiction', ['one', 'other']],
 ] as const)('rejects a %s plate in a state order before any writes', async (_reason, order) => {
   const f = fixture({ ...batch, stateOrders: { CA: [...order] } })
+  await seedOrderStandards(f.deps, 'batch')
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: false, error: 'invalid_snapshot', reasons: [expect.stringContaining('CA')] })
   expect([...f.blobs.keys()]).toEqual([1])
   expect(f.pointer().version).toBe(1)
@@ -284,6 +287,7 @@ test.each([
 
 test('curator order is written after the pointer commit and before batch finalization', async () => {
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  await seedOrderStandards(f.deps, 'batch')
   const write = f.deps.curator.writeStateOrders
   f.deps.curator.writeStateOrders = async (...args) => {
     expect(f.pointer().version).toBe(2)
@@ -297,7 +301,8 @@ test('curator order is written after the pointer commit and before batch finaliz
 
 test.each(['invalid_snapshot', 'version_taken', 'pointer_moved', 'unavailable', 'lock_lost'] as const)('does not write curator order when publication fails with %s before commit', async error => {
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
-  if (error === 'invalid_snapshot') f.deps.snapshots.read = async () => ({ ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, isStandard: true })) })
+  await seedOrderStandards(f.deps, 'batch')
+  if (error === 'invalid_snapshot') f.deps.store.listEdits = async () => []
   if (error === 'version_taken') f.blobs.set(2, Buffer.from('another release'))
   if (error === 'pointer_moved') f.deps.pointer.advance = async () => 'pointer_moved'
   if (error === 'unavailable') f.deps.pointer.advance = async () => { throw new Error('unavailable') }
@@ -308,6 +313,7 @@ test.each(['invalid_snapshot', 'version_taken', 'pointer_moved', 'unavailable', 
 
 test('lease lost before the curator write leaves the order untouched and can be retried', async () => {
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  await seedOrderStandards(f.deps, 'batch')
   const write = f.deps.curator.writeStateOrders
   f.deps.curator.writeStateOrders = async (...args) => {
     f.setTime('2026-11-15T12:02:00Z')
@@ -324,6 +330,7 @@ test('lease lost before the curator write leaves the order untouched and can be 
 
 test.each(['started', 'upload', 'uploaded', 'pointer', 'before curator', 'curator', 'done', 'batch', 'release'] as const)('retry after a crash following %s converges on one snapshot and curator order', async step => {
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
+  await seedOrderStandards(f.deps, 'batch')
   let crashed = false
   const crash = () => { crashed = true; throw new Error('response lost') }
   const save = f.deps.records.save

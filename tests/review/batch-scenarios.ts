@@ -9,8 +9,8 @@ import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/type
 const editor = { uid: 'editor-one', name: null, role: 'editor' } as const
 const owner = { uid: 'owner-one', name: null, role: 'owner' } as const
 const baseline: Plate[] = [
-  { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png' },
-  { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png' },
+  { id: 'one', state: 'CA', slug: 'one', displayName: 'One', tags: ['original'], image: 'one.png', templateRole: 'template' },
+  { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png', templateRole: 'template' },
 ]
 
 export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>, concurrentEditTimeout?: number) {
@@ -74,7 +74,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
   test('Template deletion counts role-less family members and ignores their draft deletions', async () => {
     const { deps, input } = await setup()
     const parent = { ...baseline[0], templateRole: 'template' as const, templateFamily: 'family' }
-    const child = { ...baseline[1], templateFamily: 'family' }
+    const child = { ...baseline[1], templateRole: undefined, templateFamily: 'family' }
     deps.baselineAtVersion = async (_version, id) => id === parent.id ? parent : child
     deps.stateBaseline = async () => [parent, child]
     const deletion = { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } }
@@ -83,16 +83,14 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     expect(await proposeEdit(deps, editor, deletion)).toMatchObject({ ok: true })
   })
 
-  test('Standard plates cannot be deleted until their draft Standard flag is cleared', async () => {
+  test('Standard plates cannot be deleted or have their Standard flag cleared alone', async () => {
     const { deps, store, input } = await setup()
     const standard = { ...baseline[0], isStandard: true }
     deps.baselineAtVersion = async () => standard
     const proposal = { ...input, baseRevision: plateRevision(standard), fields: { deleted: true } }
     expect(await proposeEdit(deps, editor, proposal)).toEqual({ ok: false, error: 'invalid_state' })
     expect(await store.getEdit('batch', 'one')).toBeNull()
-    const cleared = await proposeEdit(deps, editor, { ...proposal, fields: { isStandard: false } })
-    if (!cleared.ok) throw new Error('expected Standard edit')
-    expect(await proposeEdit(deps, editor, { ...proposal, baseRevision: plateRevision(cleared.value.plate) })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, { ...proposal, fields: { isStandard: false } })).toEqual({ ok: false, error: 'standard_required' })
   })
 
   test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion requires its Variants to be %s in the batch view', async action => {
@@ -277,7 +275,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     const { deps, store, input } = await setup()
     const first = await proposeEdit(deps, editor, input)
     if (!first.ok) throw new Error('expected first proposal')
-    const result = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(first.value.plate), fields: { isStandard: true } })
+    const result = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(first.value.plate), fields: { isStandard: true }, standard: { from: null, to: 'one' } })
     expect(result).toMatchObject({ ok: true, value: { plate: { tags: ['changed'], isStandard: true } } })
     expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: { tags: ['changed'], isStandard: true } })
   })

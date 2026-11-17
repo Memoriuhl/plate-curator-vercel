@@ -14,6 +14,8 @@ import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
+vi.mock('../components/plate/standard-confirmation', () => ({ useStandardConfirmation: () => ({ pending: false, dialog: null, confirm: async () => undefined }) }))
+
 vi.mock('@tanstack/react-virtual', async importOriginal => {
   const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
   return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) }
@@ -531,10 +533,9 @@ test('background drop promotes selected variants and ignores selected templates'
   plateSelection.add([a, v, w])
   const { handle, edit, reorder, move } = setup({ variant: true })
   pointerDrag(handle, 700)
-  await waitFor(() => expect(move).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
   expect(edit).not.toHaveBeenCalled()
-  expect(move).toHaveBeenCalledWith(v.state, [a.id, b.id, v.id, w.id], { plateId: v.id, templateFamily: 'ak_v' }, expect.any(Object))
-  expect(move).toHaveBeenCalledWith(w.state, [a.id, b.id, v.id, w.id], { plateId: w.id, templateFamily: 'ak_w' }, expect.any(Object))
+  expect(move).toHaveBeenCalledWith(v.state, [a.id, b.id, v.id, w.id], [{ plateId: v.id, templateFamily: 'ak_v' }, { plateId: w.id, templateFamily: 'ak_w' }], expect.any(Object))
   expect(reorder).not.toHaveBeenCalled()
   await waitFor(() => expect(screen.getByText('2 plates are now Templates')).toBeTruthy())
 })
@@ -593,14 +594,13 @@ test('promotion de-duplicates slugs across the selection and advances full State
   }
   render(<Harness />)
   fireEvent.click(screen.getByRole('button'))
-  await waitFor(() => expect(move).toHaveBeenCalledTimes(2))
-  expect(move).toHaveBeenNthCalledWith(1, v.state, [a.id, v.id, second.id], { plateId: v.id, templateFamily: 'ak_v_2' }, { batchId: 'batch', revision: 1 })
-  expect(move).toHaveBeenNthCalledWith(2, second.state, [a.id, v.id, second.id], { plateId: second.id, templateFamily: 'ak_v_2_2' }, { batchId: 'batch', revision: 2 })
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
+  expect(move).toHaveBeenCalledExactlyOnceWith(v.state, [a.id, v.id, second.id], [{ plateId: v.id, templateFamily: 'ak_v_2' }, { plateId: second.id, templateFamily: 'ak_v_2_2' }], { batchId: 'batch', revision: 1 })
 })
 
-test('failed promotion restores saved fields with their new revision and restores State order', async () => {
+test('failed atomic promotion leaves every selected plate and the State order unchanged', async () => {
   plateSelection.add([v, w])
-  const move = vi.fn().mockResolvedValueOnce({ ok: true, revision: 'promoted-v', batchId: 'batch' }).mockResolvedValueOnce({ ok: false, error: 'superseded_revision' })
+  const move = vi.fn().mockResolvedValueOnce({ ok: false, error: 'superseded_revision' })
   const edit = vi.fn().mockResolvedValue(success), reorder = vi.fn().mockResolvedValue(success)
   function Harness() {
     const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
@@ -608,10 +608,10 @@ test('failed promotion restores saved fields with their new revision and restore
   }
   render(<Harness />)
   fireEvent.click(screen.getByRole('button'))
-  await waitFor(() => expect(screen.getByText('Saved 1 of 2; changes undone')).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith({ ...v, revision: 'promoted-v' }, { templateRole: v.templateRole, templateFamily: v.templateFamily, variantOfPlateId: v.variantOfPlateId }, { batchId: 'batch', baseRevision: 'promoted-v' })
-  expect(reorder).toHaveBeenCalledExactlyOnceWith(v.state, familyOrder(families))
-  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([w.id])
+  await waitFor(() => expect(screen.getByText('Saved 0 of 2; changes undone')).toBeTruthy())
+  expect(edit).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([v.id, w.id])
 })
 
 test('drag preview only adds an absolutely positioned count for multi-selection', () => {
@@ -955,4 +955,26 @@ test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget 
     await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
     for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', variantOfPlateId: b.id, templateFamily: b.templateFamily || b.id })
   } finally { cleanup(); vi.unstubAllGlobals() }
+})
+
+test('cross-state partial promotion rollback preserves a legacy Standard below the first family', async () => {
+  const variant = { ...v, isStandard: false }
+  const localFamilies = [{ template: { ...a, isStandard: false }, variants: [variant] }, { template: { ...b, isStandard: true }, variants: [] }]
+  const remoteTemplate = { ...b, id: 'NY.template', state: 'NY', templateFamily: 'ny_template', isStandard: true }
+  const remoteVariant = { ...variant, id: 'NY.v', state: 'NY', templateFamily: 'ny_template', variantOfPlateId: remoteTemplate.id }
+  plateSelection.register([localFamilies[0].template, variant, localFamilies[1].template, remoteTemplate, remoteVariant])
+  plateSelection.add([variant, remoteVariant])
+  const move = vi.fn().mockResolvedValueOnce({ ok: true, batchId: 'batch', revisions: { [variant.id]: 'promoted' } }).mockResolvedValueOnce({ ok: false, error: 'superseded_revision' })
+  const reorder = vi.fn().mockResolvedValue({ ok: true, revisions: { [variant.id]: 'restored-order' } })
+  const edit = vi.fn().mockResolvedValue(success)
+  function Harness() {
+    const drag = usePlateDrag({ families: localFamilies, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    return <><button onClick={() => void drag.promote()}>Promote</button><output>{drag.announcement}</output></>
+  }
+  render(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Promote' }))
+  await waitFor(() => expect(screen.getByText('Saved 1 of 2; changes undone')).toBeTruthy())
+  expect(reorder).toHaveBeenCalledExactlyOnceWith('AK', familyOrder(localFamilies))
+  expect(edit).toHaveBeenCalledExactlyOnceWith({ ...variant, revision: 'restored-order' }, { templateRole: variant.templateRole, templateFamily: variant.templateFamily, variantOfPlateId: variant.variantOfPlateId }, { batchId: 'batch', baseRevision: 'restored-order' })
+  expect(move.mock.calls.every(call => call.length === 4)).toBe(true)
 })

@@ -134,13 +134,13 @@ test('description rejects overlong text without saving', () => {
   )
 })
 
-test('Standard sends the inverse value', async () => {
+test('Standard requires confirmation and sends the acknowledgement', async () => {
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  expect(state.edit).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await waitFor(() =>
-    expect(state.edit).toHaveBeenCalledWith(expect.anything(), {
-      isStandard: !army.isStandard,
-    }),
+    expect(state.edit).toHaveBeenCalledWith(expect.anything(), { isStandard: true }, undefined, { from: 'AK.standard_gold', to: army.id }),
   )
 })
 
@@ -289,6 +289,8 @@ test.each([
   state.edit.mockResolvedValueOnce({ ok: false, error })
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  expect(state.edit).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await waitFor(() =>
     expect(screen.getByRole('alert').textContent).toContain(message),
   )
@@ -445,4 +447,24 @@ test('rejected Undo delete explains that the parent must be restored first', asy
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
   await waitFor(() => expect(screen.getByRole('alert').textContent).toBe("Undo the parent's deletion first."))
+})
+
+test('Cancel leaves Set as Standard unsaved', async () => {
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  expect(screen.getByRole('alertdialog')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(state.edit).not.toHaveBeenCalled()
+})
+
+test('a stale Set as Standard retry retains the reviewed acknowledgement', async () => {
+  state.edit.mockResolvedValueOnce({ ok: false, error: 'stale_plate', batchId: 'current', currentRevision: 'fresh', current: { id: army.id, isStandard: false }, draft: { isStandard: true } })
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
+  await screen.findByText('Someone changed this while you were editing.')
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply mine' }))
+  await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(2))
+  expect(state.edit).toHaveBeenLastCalledWith(expect.objectContaining({ id: army.id }), { isStandard: true }, { batchId: 'current', baseRevision: 'fresh', standard: { from: 'AK.standard_gold', to: army.id } })
 })

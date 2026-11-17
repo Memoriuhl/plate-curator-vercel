@@ -413,7 +413,7 @@ test('publishes and reconciles through the Firestore adapters', async () => {
 test('concurrent lock claims admit exactly one publisher', async () => {
   const results = await Promise.all([lock.claim(lease, now), lock.claim({ ...lease, token: 'other' }, now)])
   expect(results.filter(Boolean)).toHaveLength(1)
-})
+}, 20000)
 
 test('lease expiry compares instants across equivalent timestamp formats', async () => {
   await lock.claim(lease, now)

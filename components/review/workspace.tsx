@@ -1,5 +1,6 @@
 'use client'
 
+import { apiErrorReasons } from '@/lib/client/api'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -82,6 +83,8 @@ export function reviewError(error: unknown, revision: number) {
     error && typeof error === 'object' && 'code' in error ? error.code : ''
   if (code === 'superseded_revision')
     return `This batch changed while you were reviewing. Look again at revision ${revision}.`
+  if (code === 'standard_change_unconfirmed')
+    return apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.'
   if (code === 'invalid_state')
     return 'This batch is no longer available for this action. Refresh and look again.'
   return 'Could not save this action. Please try again.'

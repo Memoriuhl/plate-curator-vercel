@@ -3,7 +3,7 @@ import type { Snapshot } from '../catalog/types'
 
 const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
 
-export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted: ReadonlySet<string> = new Set()): string[] {
+export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted: ReadonlySet<string> = new Set(), stateOrders: Record<string, string[]> = {}): string[] {
   if (!candidate || typeof candidate !== 'object' || !('plates' in candidate) || !Array.isArray(candidate.plates)) {
     return ['Snapshot must contain a plates array']
   }
@@ -59,6 +59,11 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
     const count = families.get(family) ?? 0
     if (count > 1) reasons.push(`Family must have at most one template: ${family}`)
     else if ((!baselineFamilies.has(family) || baselineTemplateCounts.get(family) === 1) && families.has(family) && count === 0) reasons.push(`Family must retain exactly one template: ${family}`)
+  }
+  for (const [state, order] of Object.entries(stateOrders)) {
+    const plates = candidate.plates.filter(plate => plate && typeof plate === 'object' && plate.state === state)
+    const first = plates.find(plate => plate.id === order[0])
+    if (!first || first.templateRole !== 'template' || first.isStandard !== true || plates.filter(plate => plate.isStandard === true).length !== 1) reasons.push('Standard must be the first Template in state: ' + state)
   }
   return reasons
 }

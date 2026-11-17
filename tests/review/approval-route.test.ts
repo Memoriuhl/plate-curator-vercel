@@ -17,7 +17,7 @@ vi.mock('../../lib/server/context', async importOriginal => ({ ...await importOr
 vi.mock('workflow/api', () => mocks)
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
 const ctx = { params: Promise.resolve({ id: 'batch' }) }
-const baseline = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
+const baseline = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], templateRole: 'template' as const, isStandard: true }
 const batch: ReviewBatch = { id: 'batch', name: 'Review', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open', revision: 0, baselineVersion: 7, plateIds: ['one'], stateOrders: {}, approval: null }
 function request(body: unknown) {
   return new Request('http://localhost/api/batches/batch', { method: 'POST', body: JSON.stringify(body) })

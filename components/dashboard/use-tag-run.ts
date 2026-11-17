@@ -28,6 +28,9 @@ export type RunEntry = {
 }
 
 export const editErrors = {
+  standard_change_unconfirmed: 'Reload and confirm the Standard change again.',
+  standard_required: 'Choose another Standard first.',
+  standard_invalid_template: 'The Standard must be a live Template.',
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
   invalid_state: 'This batch is no longer open for editing.',

@@ -68,6 +68,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
   let pointer: CatalogPointer = { version: 1 }
   let lease: PublishLease | null = null
   let reservation: string | null = null
+  let reservationBatch: string | null = null
   let time = '2026-11-15T12:00:00Z'
   const active = (token: string, now: string) => lease?.token === token && Date.parse(lease.expiresAt) > Date.parse(now)
   const commit = store.commit.bind(store)
@@ -107,7 +108,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     return { error, saved, current, claim }
   }
   store.commit = async (id, revision, next) => {
-    if (reservation && (next.publishToken !== reservation || next.batch.state !== 'published')) return 'revision_mismatch'
+    if (reservation && reservationBatch === id && (next.publishToken !== reservation || next.batch.state !== 'published')) return 'revision_mismatch'
     const result = await commit(id, revision, next)
     if (result === 'ok' && next.batch.state === 'published') reservation = null
     return result
@@ -276,7 +277,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
         const current = await store.getBatch(claim.batchId)
         if (!current || claim.purpose !== 'abandon' && (current.state !== 'approved' || current.revision !== claim.revision)) return false
         lease = structuredClone(claim)
-        if (claim.purpose !== 'abandon') reservation = claim.token
+        if (claim.purpose !== 'abandon') { reservation = claim.token; reservationBatch = claim.batchId }
         return true
       },
       renew: async (claim, now) => {
@@ -298,4 +299,13 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     }
     return null
   }, burns, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, stateOrderVersion, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+}
+
+export async function seedOrderStandards(d: Pick<PublishDeps, 'store' | 'snapshots'>, batchId: string) {
+  const batch = (await d.store.getBatch(batchId))!
+  const snapshot = await d.snapshots.read(batch.baselineVersion)
+  const edits = Object.entries(batch.stateOrders).flatMap(([state, order]) => snapshot.plates.filter(plate => plate.state === state).map(plate => ({
+    plateId: plate.id, baseRevision: '', fields: { isStandard: plate.id === order[0], ...(plate.id === order[0] ? { templateRole: 'template' as const } : {}) }, authorId: 'editor', updatedAt: '', resultRevision: '',
+  })))
+  await d.store.commit(batch.id, batch.revision, { batch: { ...batch, plateIds: [...new Set([...batch.plateIds, ...edits.map(edit => edit.plateId)])] }, edits })
 }

@@ -4,6 +4,9 @@ import type { Outcome, ReviewError } from '../review/types'
 const headers = { 'Cache-Control': 'private, no-store' }
 
 const statusFor: Record<ReviewError, number> = {
+  standard_change_unconfirmed: 409,
+  standard_required: 422,
+  standard_invalid_template: 422,
   forbidden: 403,
   not_found: 404,
   stale_plate: 409,
@@ -17,7 +20,7 @@ export function json(body: unknown, status = 200): Response {
 
 export function respond<T>(outcome: Outcome<T>): Response {
   if (outcome.ok) return json(outcome.value)
-  return json({ error: outcome.error, ...(outcome.current ? { current: outcome.current, currentRevision: plateRevision(outcome.current) } : {}) }, statusFor[outcome.error])
+  return json({ error: outcome.error, ...(outcome.reasons ? { reasons: outcome.reasons } : {}), ...(outcome.current ? { current: outcome.current, currentRevision: plateRevision(outcome.current) } : {}) }, statusFor[outcome.error])
 }
 
 export async function readJson(request: Request): Promise<Record<string, unknown> | null> {

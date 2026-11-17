@@ -99,7 +99,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
         if (order) edited.sortOrder = order.get(plate.id)
         return edited
       }) }
-      const reasons = validateSnapshot(baseline, next, deleted)
+      const reasons = validateSnapshot(baseline, next, deleted, batch.stateOrders)
       for (const [state, order] of Object.entries(batch.stateOrders)) {
         const ids = new Set(baseline.plates.filter(plate => plate.state === state).map(plate => plate.id))
         if (order.length !== ids.size || new Set(order).size !== order.length || order.some(id => !ids.has(id))) {
