@@ -671,8 +671,8 @@ body {
 
 .family-order {
   font-family: var(--font-sans);
-  font-size: 30px;
-  line-height: 34px;
+  font-size: 22px;
+  line-height: 26px;
   font-weight: 900;
   font-style: italic;
   color: var(--ink);

@@ -174,7 +174,7 @@ export function FamilyCard({
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="family-order pointer-events-none absolute -top-[34px] -left-[26px] z-10">{number}</span> : null}
+        {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="family-order pointer-events-none absolute -top-[19px] -left-[11px] z-10">{number}</span> : null}
         <Link
           href={href}
           draggable={false}
