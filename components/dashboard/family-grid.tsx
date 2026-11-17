@@ -268,7 +268,11 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     : undefined
   return (
     <section aria-label="Plate families" id="families">
-      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={onSelectGroup} /> : null}
+      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={(key, ids) => {
+        const selectedIds = new Set(ids)
+        plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
+        onSelectGroup?.(key, ids)
+      }} /> : null}
       <SelectionPresence />
       <SelectionBar promote={drag.promote} disabled={!canEdit || drag.saving || edits.pending} />
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
