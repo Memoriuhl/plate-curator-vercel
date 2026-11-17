@@ -29,14 +29,14 @@ Run the hook tests with `node --test scripts/hygiene/*.test.mjs`.
 
 ## Continuous hygiene checks
 
-Every pull request and push to `main` or `release` runs the tests on Node 24, then checks each commit in the event's range. Author and committer emails, commit messages, added lines and file paths are checked, including violations removed by a later commit. Merge commits are compared to their first parent; commits on merged branches are also checked.
+While the repository is private, same-repository pull requests and pushes to `main` or `release` run hygiene on the ARM64 device runner. The job runs the hygiene tests on Node 24, then checks each commit in the event's range. Author and committer emails, commit messages, added lines and file paths are checked, including violations removed by a later commit. Merge commits are compared to their first parent; commits on merged branches are also checked.
 
 Authors must use the repository's no-reply identity. Committers may also use `noreply@github.com` so GitHub merge and squash commits pass. Private and Tailscale IPv4 addresses are rejected in added lines, paths and messages; address-bearing paths are withheld from diagnostics. Use localhost or the dev server in documentation.
 
 Pull request titles and bodies use the same message checks, including address detection, on opening, editing, reopening and new commits. CI passes both fields through environment variables to `node scripts/hygiene/check.mjs pull-request`.
 
-Run the same range check locally with `node scripts/hygiene/check.mjs range <base> <head>`. The base is excluded and the head is included. An all-zero base (a newly created branch's push event) checks all history reachable from the head. CI requires a nonempty `HYGIENE_DENYLIST` repository secret; fork pull requests without access to it fail closed. Reports identify violation kinds and locations without printing matched text, and denylisted paths are withheld.
+Run the same range check locally with `node scripts/hygiene/check.mjs range <base> <head>`. The base is excluded and the head is included. An all-zero base (a newly created branch's push event) checks all history reachable from the head. CI requires a nonempty `HYGIENE_DENYLIST` repository secret. Reports identify violation kinds and locations without printing matched text, and denylisted paths are withheld.
 
 A separate job runs gitleaks 8.30.1 against the same range, using a download verified against its pinned SHA-256 checksum. `.gitleaks.toml` extends the default rules and allows public Firebase web API identifiers only under the Google API key rule. Scanner output is kept out of the job log; a failure can be investigated locally using the same version and range. All Actions are pinned to full commit hashes and the workflow has read-only repository permissions.
 
-Required branch protection starts at public handoff; while the repository is private, review both checks before merging.
+On the runner device, use `systemctl status plate-curator-runner` to check the service and `journalctl -u plate-curator-runner` to view its logs. Jobs queue when the device is offline. Review the checks before merging. Before public handoff, disconnect the device runner and switch the workflows to GitHub-hosted runners.
