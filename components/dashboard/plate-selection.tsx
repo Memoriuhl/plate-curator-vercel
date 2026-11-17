@@ -100,6 +100,16 @@ export function useSelectionKeyboard({ close, promote, disabled, dragging = fals
 }
 
 export function SelectionPresence() {
+  useEffect(() => {
+    function dismiss(event: globalThis.MouseEvent) {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-plate-selection], [data-selection-controls], [data-run-trigger], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]')) return
+      plateSelection.clear()
+    }
+    window.addEventListener('click', dismiss)
+    return () => window.removeEventListener('click', dismiss)
+  }, [])
   const any = useSyncExternalStore(plateSelection.subscribe, () => plateSelection.snapshot().length > 0, () => false)
   useEffect(() => {
     document.documentElement.dataset.hasSelection = String(any)

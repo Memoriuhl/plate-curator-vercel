@@ -261,6 +261,7 @@ export function FamilyCard({
       }}
       onClick={event => {
         if ((event.target as Element).closest('[data-plate-row], button, input, a')) return
+        event.preventDefault()
         if (template.deleted || (matches && !matches(template))) return
         plateSelection.select(template.id, event)
       }}

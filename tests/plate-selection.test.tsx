@@ -6,7 +6,7 @@ import { JurisdictionCard } from '@/components/dashboard/jurisdiction-card'
 import { plateCards } from '../fixtures/plate-cards'
 import { Profiler } from 'react'
 import { afterEach, vi, describe, it, expect } from 'vitest'
-import { createPlateSelection, plateSelection, SelectionPlate, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
+import { createPlateSelection, plateSelection, SelectionPlate, SelectionPresence, useSelectionKeyboard } from '@/components/dashboard/plate-selection'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 const plates = ['a', 'b', 'c'].map(id => ({ id, state: 'NY' }) as PlateCardData)
 describe('dashboard selection', () => {
@@ -223,4 +223,20 @@ it('Backspace with only Templates selected announces No Variants selected', asyn
   expect(screen.getByText('No Variants selected')).toBeTruthy()
   expect(edit).not.toHaveBeenCalled()
   expect(move).not.toHaveBeenCalled()
+})
+
+it('clears selection on an unmodified background click, preserving modified clicks and selection controls', () => {
+  plateSelection.visible(plates)
+  render(<><SelectionPresence /><button>Background</button><SelectionPlate id="a">Plate a</SelectionPlate><SelectionBar /></>)
+  act(() => plateSelection.add(plates))
+  for (const modifiers of [{ ctrlKey: true }, { shiftKey: true }, { metaKey: true }]) {
+    fireEvent.click(screen.getByRole('button', { name: 'Background' }), modifiers)
+    expect(plateSelection.snapshot()).toHaveLength(3)
+  }
+  fireEvent.click(screen.getByRole('button', { name: '3 selected' }))
+  expect(plateSelection.snapshot()).toHaveLength(3)
+  fireEvent.click(screen.getByText('Plate a'))
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['b', 'c'])
+  fireEvent.click(screen.getByRole('button', { name: 'Background' }))
+  expect(plateSelection.snapshot()).toHaveLength(0)
 })
