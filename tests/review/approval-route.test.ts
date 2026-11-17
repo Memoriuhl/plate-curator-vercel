@@ -12,7 +12,7 @@ import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
-vi.mock('../../lib/server/context', () => mocks)
+vi.mock('../../lib/server/context', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/server/context')>(), ...mocks }))
 vi.mock('workflow/api', () => mocks)
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
 const ctx = { params: Promise.resolve({ id: 'batch' }) }
@@ -23,7 +23,7 @@ function request(body: unknown) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', role: 'owner' } })
+  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5, role: 'owner' } })
   mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
   mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
@@ -39,8 +39,8 @@ test('submit stores the run, approve resumes approval, and Publish only resumes 
   expect((await approve(request({ revision: 1 }), ctx)).status).toBe(200)
   expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:1', { by: 'owner' })
   expect((await publish(request({ revision: 2 }), ctx)).status).toBe(202)
-  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner', generation: 1, commandId: expect.any(String) })
-  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ publishRequestedAt: '2026-11-16T12:00:00.000Z' })
+  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner', requestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 }, generation: 1, commandId: expect.any(String) })
+  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ publishRequestedAt: '2026-11-16T12:00:00.000Z', publishRequestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 } })
   expect(mocks.publishBatch).not.toHaveBeenCalled()
 })
 

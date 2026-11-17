@@ -60,7 +60,7 @@ test('failed Publish sends no push', async () => {
   expect(mocks.catalogPush).not.toHaveBeenCalled()
 })
 
-test.each(['paused', 'superseded', 'publish_not_enabled'])('a generation-bound command returns terminal %s without retrying', async error => {
+test.each(['paused', 'revoked', 'superseded', 'publish_not_enabled'])('a generation-bound command returns terminal %s without retrying', async error => {
   mocks.createHook.mockResolvedValue({ ownerUid: 'owner', generation: 3, commandId: 'fresh-command' })
   mocks.publishBatch.mockResolvedValue({ ok: false, error })
   expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error, reasons: [] })
@@ -71,9 +71,19 @@ test.each(['paused', 'superseded', 'publish_not_enabled'])('a generation-bound c
 
 test('paused and superseded Publish stops never reach catalogPush', async () => {
   mocks.createHook.mockResolvedValue({ ownerUid: 'owner', generation: 3, commandId: 'stopped-command' })
-  for (const error of ['paused', 'superseded']) {
+  for (const error of ['paused', 'revoked', 'superseded']) {
     mocks.publishBatch.mockResolvedValue({ ok: false, error })
     expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error, reasons: [] })
     expect(mocks.catalogPush).not.toHaveBeenCalled()
   }
+})
+
+
+test('requester authority passes unchanged into the publisher and revoked result', async () => {
+  const requestedBy = { uid: 'requester', email: 'requester@example.com', authorityEpoch: 7 }
+  mocks.createHook.mockResolvedValue({ ownerUid: 'requester', requestedBy, generation: 3, commandId: 'request' })
+  mocks.publishBatch.mockResolvedValue({ ok: false, error: 'revoked' })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error: 'revoked', reasons: [], requestedBy })
+  expect(mocks.publishBatch).toHaveBeenCalledWith({}, { uid: 'requester', name: null, role: 'owner' }, { batchId: 'batch', revision: 2, requestedBy, generation: 3, commandId: 'request' })
+  expect(mocks.catalogPush).not.toHaveBeenCalled()
 })

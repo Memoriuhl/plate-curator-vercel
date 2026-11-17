@@ -1,4 +1,4 @@
-# Publish controls and recovery (#126, #119)
+# Publish controls and recovery (#127, #126, #119)
 
 ## Pause and Resume
 
@@ -16,21 +16,33 @@ creates a missing control at generation 1. Malformed existing data needs triage.
 
 Each accepted Publish has a distinct command ID and carries its accepted
 generation into the Workflow and immutable release receipt. The command shape
-can gain a requester authority marker alongside the generation without changing
-existing receipts. Requester revocation enforcement belongs to #127.
+also binds the authenticated requester as requestedBy: UID, normalized member
+email and authorityEpoch. Existing member documents without an epoch start at
+zero. Members role changes, removal and restoration increment the epoch in the
+same transaction as the authority change. Removal retains an internal tombstone
+with status `removed` and the incremented epoch while hiding the member from
+lookups and lists and cleaning up curatorLiveAccess. Recreating a removed member advances that epoch
+again; old commands cannot regain authority. Commands without a bound marker
+are superseded. A bootstrap UID still needs an active Owner member document.
 
 Firestore decides the race at the pointer commit. The transaction reads the
-shared control alongside the lease, Batch, receipt and pointer. If Pause commits
-first, the command stops without advancing the pointer. A quick Pause and Resume
-changes the generation, so the old command is superseded even when publishing is
+shared control and requester member alongside the lease, Batch, receipt and
+pointer. If Pause commits first, the command stops without advancing the pointer. If requester demotion or
+removal commits first, the command stops as revoked. An epoch mismatch also
+revokes an old command after Owner access is restored. Revoking a different
+approver preserves approval and does not stop the active requester. A quick
+Pause and Resume changes the generation, so the old command is superseded even when publishing is
 enabled again. Missing control also stops the command. Terminal reasons persist
-in `publishCommandStops` by command ID, so step retries reproduce the same stop.
+in `publishCommandStops` by command ID, so step retries reproduce the same stop
+even if pause and revocation affect the same command. The workspace identifies
+the requester and revoked stop, states that the Catalog did not advance, and requires a fresh
+Publish by an active Owner. Revocation remains in Members.
 The lease and reservation are released, the Batch stays approved with its history,
 and an uploaded but uncommitted Snapshot and receipt remain intact.
 
 If Publish committed first, its receipt wins: retries finish the bookkeeping and
-report the same published version even after Pause or a generation change. They
-never advance the pointer a second time or replace that outcome with a stop.
+report the same published version even after Pause, a generation change or
+requester revocation. They never advance the pointer a second time or replace that outcome with a stop.
 Pause does not roll back a published Catalog.
 
 Resume only permits new requests. It never restarts a stopped Workflow. Publishing
@@ -44,8 +56,8 @@ their commands.
 
 A stop after upload but before the pointer commit leaves an uploaded receipt
 bound to the stopped command. A fresh click on the same Batch then reports
-`paused`, and any other Batch attempting to take that Snapshot version hits
-`version_taken`. The Catalog stays on its old version: this is fail-safe, but it
+`paused` or `revoked` (the persisted terminal reason), and any other Batch
+attempting to take that Snapshot version hits `version_taken`. The Catalog stays on its old version: this is fail-safe, but it
 blocks further publishing. Recovery comes with explicit retry (#128) and Snapshot
 abandonment (#129). Until those paths ship, preserve the receipt and uploaded
 Snapshot for triage.
@@ -102,6 +114,20 @@ Publish are required for the copy. Copy does not start a model or Publish run.
 
 ## Deployment compatibility and release gate
 
+Members changes must only be made from deployments that include this change.
+Older deployments neither increment authorityEpoch nor understand tombstones.
+Demoting and restoring an Owner through old code leaves the epoch unchanged, so
+an old command can match again. A hard delete followed by re-invitation can also
+realign an epoch with an older command. Restrict Members writes to the fixed
+deployments before relying on requester revocation. Tombstones use status
+`removed` so older active-Owner and activation checks treat them as inactive,
+but this does not make old mutation paths safe.
+
+Never hard-delete member documents, including through the console or scripts.
+Removal must retain the member tombstone and its authority epoch through the
+Members store paths. Re-invitation and restoration must retain and advance that
+history rather than resetting it.
+
 Existing approval Workflow runs can continue on the deployment that started them.
 Updating routes or promoting a deployment does not retrofit the new guard into
 those older steps. New route preflight alone is insufficient: an already accepted
@@ -119,10 +145,10 @@ uncommitted work. An in-flight pointer commit still determines which outcome won
 After fencing older runs, Submit and Approve again on the fixed deployment (or
 copy stale proposals for fresh review). A redeploy, new route URL or Resume does
 not change the code of an old run. Only commands reaching the new publisher are
-checked for a missing generation and treated as superseded when the control
+checked for a missing generation or requester authority marker and treated as superseded when the control
 exists; this does not protect runs executing older publisher code. Hosted proof
 with newly started runs and the legacy-run fence are release gates before relying
-on Pause.
+on Pause or requester revocation.
 
 Before relying on this guard for a release, inventory waiting and executing
 approval runs by Batch, revision and deployment. Let already committed attempts

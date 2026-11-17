@@ -254,7 +254,7 @@ test.each(['Published description', null])('publishes description edits through 
   expect(result.ok).toBe(true)
   expect(await submitBatch(f.deps, owner, batch.id, 1)).toMatchObject({ ok: true })
   expect(await approveBatch(f.deps, owner, batch.id, 2)).toMatchObject({ ok: true })
-  expect(await publishBatch(f.deps, owner, { batchId: batch.id, revision: 3, generation: 1 })).toMatchObject({ ok: true })
+  expect(await publishBatch(f.deps, owner, { ...command, revision: 3 })).toMatchObject({ ok: true })
   expect(JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates[0]).toMatchObject({ description })
 })
 

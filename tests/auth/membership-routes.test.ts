@@ -90,3 +90,14 @@ test.each([spikeStart.POST, spikeResume.POST])('spike routes require Membership 
   expect(response.status).toBe(403)
   expect(await response.json()).toEqual({ error: 'not_member' })
 })
+
+
+test.each(['bootstrap', 'editor', 'unauthenticated'])('Publish refuses %s before touching the control', async kind => {
+  const { POST } = await import('../../app/api/batches/[id]/publish/route')
+  vi.stubEnv('ALLOW_PUBLISH', 'true')
+  if (kind === 'bootstrap') vi.stubEnv('OWNER_UIDS', 'bootstrap')
+  if (kind === 'editor') await members.upsertSeed({ email: 'user@example.com', uid: 'editor', role: 'editor', status: 'active', signIn: 'password', invite: null, invitedBy: null, createdAt: '' })
+  const incoming = kind === 'unauthenticated' ? new Request('http://localhost') : await request(kind)
+  const response = await POST(incoming, { params: Promise.resolve({ id: 'batch' }) })
+  expect(response.status).toBe(kind === 'unauthenticated' ? 401 : 403)
+})

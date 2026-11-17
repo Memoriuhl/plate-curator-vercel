@@ -13,13 +13,13 @@ it('seeds three exact records and converges on the same records on later runs', 
   expect(await seedMembers(store, input)).toEqual({ active: 2, pending: 1 })
   const first = await store.list()
   expect(first).toEqual([
-    { email: 'demo.owner@example.com', uid: 'demo-owner', role: 'owner', signIn: 'password', status: 'active', invite: null, invitedBy: null, createdAt: input.now() },
-    { email: 'editor@example.com', uid: 'demo-editor', role: 'editor', signIn: 'password', status: 'active', invite: null, invitedBy: null, createdAt: input.now() },
-    { email: 'owner@example.com', uid: null, role: 'owner', signIn: 'google', status: 'pending', invite: null, invitedBy: null, createdAt: input.now() },
+    { email: 'demo.owner@example.com', uid: 'demo-owner', role: 'owner', signIn: 'password', status: 'active', invite: null, invitedBy: null, createdAt: input.now(), authorityEpoch: 1 },
+    { email: 'editor@example.com', uid: 'demo-editor', role: 'editor', signIn: 'password', status: 'active', invite: null, invitedBy: null, createdAt: input.now(), authorityEpoch: 1 },
+    { email: 'owner@example.com', uid: null, role: 'owner', signIn: 'google', status: 'pending', invite: null, invitedBy: null, createdAt: input.now(), authorityEpoch: 1 },
   ])
   await store.updateRole('editor@example.com', 'owner')
   await seedMembers(store, { ...input, now: () => '2026-11-17T12:00:00.000Z' })
-  expect(await store.list()).toEqual(first)
+  expect(await store.list()).toEqual(first.map(member => ({ ...member, authorityEpoch: member.email === 'editor@example.com' ? 3 : 1 })))
   expect(await store.activate('owner@example.com', 'google-owner')).toBe('ok')
 })
 

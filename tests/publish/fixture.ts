@@ -1,3 +1,5 @@
+import { publishRequesterStop } from '../../lib/publish/authority'
+import type { PublishCommand } from '../../lib/publish/types'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../../lib/catalog/types'
 import { createMemoryStore } from '../../lib/review/memory-store'
@@ -12,7 +14,7 @@ export const batch: ReviewBatch = {
   state: 'approved', revision: 2, baselineVersion: 1, plateIds: ['one'],
   approval: { revision: 1, by: owner.uid, at: '2026-11-15T12:00:00Z' },
 }
-export const command = { batchId: batch.id, revision: batch.revision, generation: 1, commandId: 'command' }
+export const command = { batchId: batch.id, revision: batch.revision, generation: 1, commandId: 'command', requestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 0 } }
 export const snapshot: Snapshot = { version: 1, plates: [
   { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: ['original'] },
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', image: 'two.png', tags: [] },
@@ -24,13 +26,14 @@ export function fixture(seed: ReviewBatch = batch) {
   const records = new Map<string, PublishRecord>()
   const stateOrder: Record<string, string[]> = { NY: ['existing'] }
   let control: PublishControlState | null = { paused: false, generation: 1, changedBy: { uid: 'owner', email: 'owner@example.com' }, changedAt: '2026-11-16T12:00:00Z' }
+  let requester: unknown = { uid: 'owner', role: 'owner', status: 'active', authorityEpoch: 0 }
   const stops = new Map<string, PublishStop>()
-  const check = async (cmd: { batchId: string; revision: number; generation?: number; commandId?: string }) => {
+  const check = async (cmd: PublishCommand) => {
     if (records.get(`${cmd.batchId}@${cmd.revision}`)?.committedAt) return null
     const key = publishCommandKey(cmd)
     const stopped = stops.get(key)
     if (stopped) return stopped
-    const reason = publishControlStop(control, cmd)
+    const reason = publishControlStop(control, cmd) ?? publishRequesterStop(cmd.requestedBy, requester)
     if (reason) stops.set(key, reason)
     return reason
   }
@@ -115,5 +118,5 @@ export function fixture(seed: ReviewBatch = batch) {
       },
     },
   }
-  return { setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  return { setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }

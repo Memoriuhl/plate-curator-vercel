@@ -1,4 +1,4 @@
-import { isActiveOwner } from '../members/member'
+import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
 import { resumeHook } from 'workflow/api'
@@ -20,7 +20,7 @@ import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
-import type { PublishDeps } from '../publish/types'
+import type { PublishDeps, RequesterAuthority } from '../publish/types'
 import { expoPushSender, firestoreCatalogPushStore, type CatalogPushDeps } from '../publish/catalog-push'
 import { requireEnv } from '../env'
 import { stagingFirestore } from '../gcp/firestore'
@@ -56,13 +56,17 @@ export function currentActor(request: Request) {
   })
 }
 
-export async function currentActiveOwner(request: Request): Promise<{ ok: true; actor: Actor & { email: string } } | { ok: false; response: Response }> {
+export function requesterAuthority(actor: Actor & { email: string; authorityEpoch: number }): RequesterAuthority {
+  return { uid: actor.uid, email: normalizeEmail(actor.email), authorityEpoch: actor.authorityEpoch }
+}
+
+export async function currentActiveOwner(request: Request): Promise<{ ok: true; actor: Actor & { email: string; authorityEpoch: number } } | { ok: false; response: Response }> {
   const auth = await currentActor(request)
   if (!auth.ok) return auth
   if (auth.actor.role !== 'owner') return { ok: false, response: json({ error: 'forbidden' }, 403) }
   const member = await membersStore().getByUid(auth.actor.uid)
   if (!member || member.uid !== auth.actor.uid || !isActiveOwner(member)) return { ok: false, response: json({ error: 'forbidden' }, 403) }
-  return { ok: true, actor: { ...auth.actor, email: member.email } }
+  return { ok: true, actor: { ...auth.actor, email: normalizeEmail(member.email), authorityEpoch: member.authorityEpoch ?? 0 } }
 }
 
 export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {

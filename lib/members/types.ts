@@ -1,8 +1,10 @@
 export type Member = {
+  authorityEpoch?: number
+  removedAt?: string
   email: string
   role: 'editor' | 'owner'
   signIn: 'google' | 'password'
-  status: 'pending' | 'active'
+  status: 'pending' | 'active' | 'removed'
   invite: { tokenHash: string; issuedAt: string; expiresAt: string } | null
   uid: string | null
   invitedBy: string | null

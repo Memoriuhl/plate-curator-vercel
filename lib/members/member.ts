@@ -19,6 +19,37 @@ export function activationResult(member: Member, now: string, tokenHash?: string
   return 'ok'
 }
 
-export function isActiveOwner(member: Member): boolean {
-  return member.role === 'owner' && member.status === 'active' && member.uid !== null
+export function isLiveMember(member: unknown): member is { status: 'pending' | 'active' } {
+  return typeof member === 'object' && member !== null &&
+    (!('removedAt' in member) || !member.removedAt) &&
+    'status' in member && (member.status === 'pending' || member.status === 'active')
+}
+
+export function isActiveOwner(member: unknown): member is { role: 'owner'; status: 'active'; uid: string } {
+  return isLiveMember(member) && member.status === 'active' &&
+    'role' in member && member.role === 'owner' &&
+    'uid' in member && typeof member.uid === 'string' && member.uid.length > 0
+}
+
+export function hasOwnerAuthority(member: unknown, authority: { uid: string; authorityEpoch: number }): boolean {
+  if (!isActiveOwner(member) || member.uid !== authority.uid) return false
+  const epoch = 'authorityEpoch' in member ? member.authorityEpoch : 0
+  return Number.isSafeInteger(epoch) && epoch === authority.authorityEpoch
+}
+
+export function memberTombstone(member: Member, now: string): Member {
+  return { ...member, status: 'removed', uid: null, invite: null, removedAt: now, authorityEpoch: nextAuthorityEpoch(member) }
+}
+
+export function restoredMember(member: Member, previous?: Member): Member {
+  const { removedAt, ...restored } = member
+  void removedAt
+  const unchanged = isLiveMember(previous) && (['uid', 'role', 'status'] as const).every(key => previous[key] === member[key])
+  return { ...restored, email: normalizeEmail(member.email), authorityEpoch: unchanged ? previous.authorityEpoch ?? 0 : nextAuthorityEpoch(previous) }
+}
+
+export function nextAuthorityEpoch(member: { authorityEpoch?: number } | null | undefined): number {
+  const epoch = (member?.authorityEpoch ?? 0) + 1
+  if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error('Member authority exhausted')
+  return epoch
 }

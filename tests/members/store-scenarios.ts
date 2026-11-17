@@ -7,6 +7,48 @@ const invite = createInvite('first-token', () => instant)
 const pending: PendingMember = { email: ' Person@Example.com ', role: 'editor', signIn: 'google', invitedBy: 'owner', invite }
 
 export function membersStoreScenarios(setup: (now: () => string) => Promise<MembersStore>) {
+  it.each(['updateRole', 'updateRoleGuarded'] as const)('%s leaves authority unchanged for an unchanged role', async method => {
+    const store = await setup(() => instant)
+    await store.create({ ...pending, role: 'owner' })
+    await store.activate(pending.email, 'owner')
+    const before = await store.getByEmail(pending.email)
+    expect(await store[method](pending.email, 'owner')).toBe('ok')
+    expect(await store.getByEmail(pending.email)).toEqual(before)
+  })
+
+  it('removed status is inert even without a removedAt marker', async () => {
+    const store = await setup(() => instant)
+    await store.upsertSeed({ ...pending, role: 'owner', status: 'removed', uid: 'old-owner', createdAt: instant })
+    expect(await store.getByEmail(pending.email)).toBeNull()
+    expect(await store.getByUid('old-owner')).toBeNull()
+    expect(await store.getByInviteHash(invite.tokenHash)).toBeNull()
+    expect(await store.list()).toEqual([])
+    expect(await store.updateRole(pending.email, 'owner')).toBe('not_found')
+    expect(await store.updateRoleGuarded(pending.email, 'owner')).toBe('not_found')
+    expect(await store.activate(pending.email, 'old-owner')).toBe('not_found')
+    expect(await store.remove(pending.email)).toBe('not_found')
+    expect(await store.removeGuarded(pending.email)).toBe('not_found')
+    expect(await store.create(pending)).toBe('ok')
+    expect((await store.getByEmail(pending.email))?.authorityEpoch).toBe(2)
+  })
+
+  it('increments authority across demotion, restore, removal and recreation', async () => {
+    const store = await setup(() => instant)
+    await store.create({ ...pending, role: 'owner' })
+    await store.activate(pending.email, 'requester')
+    const original = (await store.getByEmail(pending.email))!.authorityEpoch!
+    expect(Number.isSafeInteger(original)).toBe(true)
+    await store.updateRole(pending.email, 'editor')
+    expect(await store.getByEmail(pending.email)).toMatchObject({ role: 'editor', authorityEpoch: original + 1 })
+    await store.updateRole(pending.email, 'owner')
+    expect(await store.getByEmail(pending.email)).toMatchObject({ role: 'owner', authorityEpoch: original + 2 })
+    await store.remove(pending.email)
+    expect(await store.getByEmail(pending.email)).toBeNull()
+    await store.create({ ...pending, role: 'owner' })
+    await store.activate(pending.email, 'requester')
+    expect((await store.getByEmail(pending.email))!.authorityEpoch).toBeGreaterThan(original + 3)
+  })
+
   it('guards the last active Owner and ignores pending Owners', async () => {
     const store = await setup(() => instant)
     await store.create({ ...pending, email: 'owner@example.com', role: 'owner' })
@@ -63,10 +105,10 @@ export function membersStoreScenarios(setup: (now: () => string) => Promise<Memb
     expect(await store.create(pending)).toBe('ok')
     expect(await store.create({ ...pending, email: 'person@example.com', role: 'owner' })).toBe('exists')
     const member = await store.getByEmail(' PERSON@example.com ')
-    expect(member).toEqual({ ...pending, email: 'person@example.com', status: 'pending', uid: null, createdAt: instant })
+    expect(member).toEqual({ ...pending, email: 'person@example.com', status: 'pending', uid: null, createdAt: instant, authorityEpoch: 1 })
     expect(await store.list()).toEqual([member])
     expect(await store.updateRole(pending.email, 'owner')).toBe('ok')
-    expect(await store.getByEmail(pending.email)).toEqual({ ...member, role: 'owner' })
+    expect(await store.getByEmail(pending.email)).toEqual({ ...member, role: 'owner', authorityEpoch: member!.authorityEpoch! + 1 })
     expect(await store.remove(pending.email)).toBe('ok')
     expect(await store.list()).toEqual([])
     expect(await store.remove(pending.email)).toBe('not_found')
@@ -89,7 +131,7 @@ export function membersStoreScenarios(setup: (now: () => string) => Promise<Memb
     expect(await store.activate(pending.email, 'account', invite.tokenHash)).toBe('hash_mismatch')
     expect(await store.getByUid('account')).toBeNull()
     expect(await store.activate(pending.email, 'account', next.tokenHash)).toBe('ok')
-    const active = { ...expired, invite: null, status: 'active', uid: 'account' }
+    const active = { ...expired, authorityEpoch: expired!.authorityEpoch! + 1, invite: null, status: 'active', uid: 'account' }
     expect(await store.getByEmail(pending.email)).toEqual(active)
     expect(await store.getByUid('account')).toEqual(active)
     expect(await store.activate(pending.email, 'other')).toBe('invalid_state')
@@ -109,7 +151,7 @@ export function membersStoreScenarios(setup: (now: () => string) => Promise<Memb
     const member = (await store.getByUid('owner-account'))!
     await store.upsertSeed({ ...member, role: 'owner', uid: 'replacement' })
     expect(await store.getByUid('owner-account')).toBeNull()
-    expect(await store.getByEmail('owner@example.com')).toEqual({ ...member, role: 'owner', uid: 'replacement' })
+    expect(await store.getByEmail('owner@example.com')).toEqual({ ...member, role: 'owner', uid: 'replacement', authorityEpoch: member.authorityEpoch! + 1 })
   })
 
   it('allows only one concurrent create and one concurrent activation', async () => {

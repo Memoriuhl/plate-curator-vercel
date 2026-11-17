@@ -1,3 +1,4 @@
+import { hasRequesterAuthority } from './authority'
 import { PUBLISH_STOPS } from './stop'
 import type { PublishCommand, PublishControlState, PublishStop } from './types'
 
@@ -13,7 +14,7 @@ export function parsePublishControl(data: unknown): PublishControlState | null {
 
 export function publishControlStop(control: PublishControlState | null, command?: PublishCommand): PublishStop | null {
   if (!control) return PUBLISH_STOPS.notEnabled
-  if (command && !Number.isSafeInteger(command.generation)) return PUBLISH_STOPS.superseded
+  if (command && (!Number.isSafeInteger(command.generation) || !hasRequesterAuthority(command.requestedBy))) return PUBLISH_STOPS.superseded
   if (control.paused) return PUBLISH_STOPS.paused
   if (command && command.generation !== control.generation) return PUBLISH_STOPS.superseded
   return null
