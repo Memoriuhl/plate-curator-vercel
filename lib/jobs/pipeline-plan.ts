@@ -19,13 +19,19 @@ export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRu
   return result
 }
 
-export function planPipeline(plates: Plate[], stages: LocalRunStage[], options: PipelineOptions): RunStep[] {
+type PlanningPlate = Pick<Plate, 'id' | 'tags'> & Partial<Pick<Plate, 'image' | 'imageUrl' | 'funFacts'>> & { hasStory?: boolean }
+
+export function pipelineNeedsModel(steps: readonly Pick<RunStep, 'stage'>[], options: PipelineOptions): boolean {
+  return steps.some(step => ['tag', 'colors', 'describe', 'story'].includes(step.stage) || step.stage === 'group' && options.group?.visionTiebreak === true)
+}
+
+export function planPipeline(plates: PlanningPlate[], stages: LocalRunStage[], options: PipelineOptions): RunStep[] {
   const selected = orderedPipelineStages(stages)
   const steps: Omit<RunStep, 'index'>[] = []
   for (const plate of plates) for (const stage of selected) {
     if (stage === 'group' || stage === 'find-image' && options['find-image']?.onlyMissingImage && (plate.image || plate.imageUrl) ||
       stage === 'tag' && options.tag?.onlyUnderTagged && plate.tags.length >= 3 ||
-      stage === 'story' && options.story?.redoExisting === false && plate.funFacts?.length) continue
+      stage === 'story' && options.story?.redoExisting === false && (plate.hasStory ?? !!plate.funFacts?.length)) continue
     steps.push({ plateId: plate.id, stage, resourceClass: ['tag', 'describe', 'story', 'colors'].includes(stage) ? 'gpu' : 'io' })
   }
   if (selected.includes('group') && plates.length) steps.push({ plateId: plates[0].id, stage: 'group', resourceClass: 'gpu' })

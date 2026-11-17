@@ -130,3 +130,13 @@ test('serialized specialized image choices and one Group keep original peer hash
   expect(await review.store.listEdits('batch')).toHaveLength(2)
   expect(await applyQueueBundle(jobs, review, actor, id, async () => bytes)).toMatchObject({ value: { revision: 1 } })
 }, 20_000)
+
+test('model-free Wiki run and job omit modelId in the serialized records when no desktop model is enabled', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const result = await enqueueRun(jobs, actor, { requestId: 'model-free', batchId: 'batch', plateIds: [plates[0].id], stages: ['wiki-link'] })
+  if (!result.ok) throw Error(result.error)
+  const id = await dispatchQueueStage(jobs, result.value.id, 1, 0, 'model-free-hook')
+  const run = (await jobs.store.transaction(tx => tx.runs()))[0]
+  expect(run).not.toHaveProperty('modelId')
+  expect(await jobs.store.transaction(tx => tx.get(id!))).not.toHaveProperty('modelId')
+})

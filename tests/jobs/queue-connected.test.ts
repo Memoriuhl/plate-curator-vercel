@@ -43,6 +43,7 @@ async function complete(s: Awaited<ReturnType<typeof setup>>) {
     const claim = await claimNext({ ...s.jobs }, 'worker')
     expect(claim?.job.id).toBe(id)
     const job = claim!.job
+    if (job.stage === 'find-image' || job.stage === 'wiki-link' || job.stage === 'group') expect(job).not.toHaveProperty('modelId')
     let result: ReportInput
     switch (job.stage) {
       case 'find-image': result = { ...meta, fieldSuggestion: { kind: 'image', stage: 'find-image', candidates: [candidate], sources: [candidate.imageUrl, candidate.sourceUrl] } }; break

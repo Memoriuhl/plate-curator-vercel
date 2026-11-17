@@ -11,10 +11,10 @@ import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboa
 import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
-  workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
+  models: [] as (typeof TAGGING_MODELS)[number][], workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
 vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace }))
-vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: TAGGING_MODELS }, modelId: 'desktop-gemma4-12b' }), TaggingModelPicker: () => <span>Local model</span> }))
+vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: 'desktop-gemma4-12b' }), TaggingModelPicker: () => <span>Local model</span> }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
@@ -30,6 +30,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); localStorage.clear(); mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
+  mocks.models = [...TAGGING_MODELS]
   mocks.api.get.mockReset().mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
 })
@@ -109,6 +110,34 @@ test('Preview hides every run Apply control and explains that a normal rerun is 
     message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
   expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull()
   expect(screen.getByText(/Run again without Preview only/)).toBeTruthy()
+})
+
+test('each specialized image result names its plate in a multi-plate completed Preview', () => {
+  const plates = ['One', 'Two'].map(name => ({ id: `AK.${name.toLowerCase()}`, slug: name.toLowerCase(), state: 'AK', image: '', displayName: name, tags: [] }))
+  const candidate = { id: 'photo', title: 'Photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64) }
+  const run = saved({ status: 'completed', previewOnly: true, plateIds: plates.map(plate => plate.id) })
+  run.attempts[0].projection = { baselineVersion: 1, plates: Object.fromEntries(plates.map(plate => [plate.id, { batchInput: plate, executionPlate: plate, batchInputHash: 'hash', executionHash: 'hash', sourceJobIds: [] }])) }
+  run.jobs = plates.map(plate => ({ id: `image-${plate.id}`, batchId: 'batch', plateId: plate.id, requestedBy: 'editor', env: run.env, inputHash: 'hash', state: 'completed', createdAt: 100,
+    result: { suggestions: [], fieldSuggestion: { kind: 'image', stage: 'find-image', candidates: [candidate], sources: [candidate.imageUrl, candidate.sourceUrl] }, backend: 'fixture', model: 'fixture', promptVersion: 'v1', durationMs: 0 } }))
+  render(<PipelineQueuePanel queue={{ runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(), action: null, message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
+  expect(screen.getByRole('heading', { name: 'Image for One · AK' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Image for Two · AK' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /^Apply/ })).toBeNull()
+})
+
+test('model-free Wiki plus skipped Story can start without any desktop model', async () => {
+  mocks.models = TAGGING_MODELS.filter(model => model.runsOn === 'gateway')
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  const existing = { ...plate, hasStory: true }
+  render(<PipelineRunControls underTagged={[existing]} batchPlates={[existing]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Wiki link' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Story' }))
+  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(false)
+  expect(screen.queryByText('Local model')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false))
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {

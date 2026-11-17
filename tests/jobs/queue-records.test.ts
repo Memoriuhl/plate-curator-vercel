@@ -5,6 +5,7 @@ import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import { enqueueRun, parseEnqueue } from '../../lib/jobs/queue'
 import { parsePipelineOptions } from '../../lib/jobs/pipeline-options'
 import type { JobsDeps } from '../../lib/jobs/types'
+import { dispatchQueueStage } from '../../lib/jobs/queue-engine'
 
 const editor = { uid: 'editor', role: 'editor' as const, name: null }
 const other = { ...editor, uid: 'other' }
@@ -94,4 +95,30 @@ test('unchecked default Story option skips existing stories while preserving oth
   expect(result).toMatchObject({ ok: true, value: { options: { story: { redoExisting: false } }, attempts: [{ steps: [{ stage: 'describe' }] }] } })
   const redo = await enqueueRun(deps, editor, { ...request, requestId: 'explicit-redo', stages: ['story', 'describe'], options: { story: { redoExisting: true } } })
   expect(redo).toMatchObject({ ok: true, value: { options: { story: { redoExisting: true } }, attempts: [{ steps: [{ stage: 'describe' }, { stage: 'story' }] }] } })
+})
+
+test('model-free Wiki, image and CPU Group runs persist no model even when only gateway models are enabled', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup()
+  const deps = { ...s.deps, stateBaseline: async () => [s.plate] }
+  for (const stage of ['wiki-link', 'find-image', 'group'] as const) {
+    const result = await enqueueRun(deps, editor, { ...request, requestId: stage, stages: [stage] })
+    if (!result.ok) throw Error(result.error)
+    expect(result.value).not.toHaveProperty('modelId')
+    const id = await dispatchQueueStage(deps, result.value.id, 1, 0, `hook-${stage}`)
+    expect(await deps.store.transaction(tx => tx.get(id!))).not.toHaveProperty('modelId')
+  }
+  expect(await enqueueRun(deps, editor, { ...request, requestId: 'tie', stages: ['group'], options: { group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: true } } })).toMatchObject({ error: 'invalid_state' })
+  const ignored = await enqueueRun(deps, editor, { ...request, requestId: 'irrelevant-model', stages: ['wiki-link'], modelId: 'gateway-gemma4-26b' })
+  expect(ignored).toMatchObject({ ok: true })
+  if (ignored.ok) expect(ignored.value).not.toHaveProperty('modelId')
+  expect(await enqueueRun(deps, editor, { ...request, requestId: 'unknown', modelId: 'unknown' })).toMatchObject({ error: 'bad_request' })
+})
+
+test('a skipped existing Story does not require a model for the remaining Wiki step', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup()
+  const deps = { ...s.deps, baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Existing fact', sourceUrl: 'https://example.org/source' }] }) }
+  expect(await enqueueRun(deps, editor, { ...request, stages: ['wiki-link', 'story'] })).toMatchObject({ ok: true, value: { attempts: [{ steps: [{ stage: 'wiki-link' }] }] } })
+  expect((await deps.store.transaction(tx => tx.runs()))[0]).not.toHaveProperty('modelId')
 })

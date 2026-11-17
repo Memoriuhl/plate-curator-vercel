@@ -69,7 +69,8 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
         const suggestion = job.result!.fieldSuggestion!
         if (suggestion.kind === 'fields') return null
         const choice = selected.waitReason === 'image_choice' && currentJob?.id === job.id
-        return <div key={job.id}>{renderSpecialized?.(job, selected) ?? <SpecializedSuggestion suggestion={suggestion} plates={entries.map(entry => entry.batchInput)}
+        const plate = attempt?.projection?.plates[job.plateId]?.batchInput ?? job.inputPlate
+        return <div key={job.id} className="grid gap-[var(--stack-gap)]">{suggestion.kind === 'image' ? <h4 className="label">Image for {plateNames[job.plateId] ?? job.inputPlate?.displayName ?? job.plateId}{plate?.state ? ` · ${plate.state}` : ''}</h4> : null}{renderSpecialized?.(job, selected) ?? <SpecializedSuggestion suggestion={suggestion} plates={entries.map(entry => entry.batchInput)}
           previewOnly={selected.previewOnly} blocked={!!queue.action || !choice || !selected.editable} accepted={selected.applied || suggestion.kind === 'image' && !!attempt?.choices[job.id]}
           selectedCandidateId={attempt?.choices[job.id]}
           {...(suggestion.kind === 'image' ? { onSelectImage: async (candidateId: string) => { if (!await queue.chooseImage(selected.id, job.id, candidateId)) throw Error('Image choice was not saved') } } : {})} />}</div>

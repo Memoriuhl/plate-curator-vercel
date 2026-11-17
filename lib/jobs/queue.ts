@@ -3,7 +3,7 @@ import { canEdit } from '../review/batch'
 import type { Actor, ReviewBatch } from '../review/types'
 import { localJobsEnvironment } from './local-scope'
 import { isPipelineStage } from './suggestions'
-import { canonicalStages, planPipeline } from './pipeline-plan'
+import { canonicalStages, planPipeline, pipelineNeedsModel } from './pipeline-plan'
 import { parsePipelineOptions, snapshotPipelineOptions } from './pipeline-options'
 import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
 import type { JobsDeps, JobsTransaction } from './types'
@@ -76,8 +76,6 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   const parsed = parseEnqueue(input)
   if (!parsed) return { ok: false, error: 'bad_request' }
-  const choice = chooseTaggingModel(parsed.modelId, enabledTaggingModels(process.env.TAGGING_MODELS).filter(model => model.runsOn === 'desktop'), process.env.TAGGING_DEFAULT_MODEL)
-  if (!choice.ok) return { ok: false, error: choice.error === 'bad_request' ? 'bad_request' : 'invalid_state' }
   const fingerprint = JSON.stringify({ batchId: parsed.batchId, plateIds: parsed.plateIds, stages: parsed.stages, modelId: parsed.modelId ?? null, options: parsed.options, previewOnly: parsed.previewOnly })
   const id = createHash('sha256').update(JSON.stringify([d.store.env, actor.uid, parsed.requestId])).digest('hex')
   return d.store.transaction(async tx => {
@@ -96,8 +94,13 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
     if (parsed.stages.includes('group') && !await queueGroupContext(d, tx, batch!, plates)) return { ok: false, error: 'invalid_state' }
     const steps = planPipeline(plates, parsed.stages, parsed.options!)
     if (!steps.length) return { ok: false, error: 'invalid_state' }
+    const needsModel = pipelineNeedsModel(steps, parsed.options!)
+    const choice = needsModel ? chooseTaggingModel(parsed.modelId, enabledTaggingModels(process.env.TAGGING_MODELS).filter(model => model.runsOn === 'desktop'), process.env.TAGGING_DEFAULT_MODEL) : undefined
+    if (choice && !choice.ok) return { ok: false, error: choice.error === 'bad_request' ? 'bad_request' : 'invalid_state' }
+    const savedInput = { ...parsed }
+    delete savedInput.modelId
     const now = d.now()
-    const run: PipelineRun = { ...parsed, modelId: choice.model.id, id, fingerprint, env: d.store.env, localScope: d.localScope!, requestedBy: actor.uid,
+    const run: PipelineRun = { ...savedInput, ...(needsModel && choice?.ok ? { modelId: choice.model.id } : {}), id, fingerprint, env: d.store.env, localScope: d.localScope!, requestedBy: actor.uid,
       resourceClass: steps.some(step => step.resourceClass === 'gpu') ? 'gpu' : 'io', options: parsed.options!, previewOnly: parsed.previewOnly!,
       createdAt: now, queuedAt: now, enqueueSequence: Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1, updatedAt: now, status: 'queued', waitReason: 'worker',
       attempts: [{ number: 1, requestId: parsed.requestId, createdAt: now, jobIds: [], status: 'queued', cursor: 0, completedJobIds: [], steps, choices: {}, projection: snapshotProjection(batch!.baselineVersion, plates) }] }

@@ -5,6 +5,7 @@ import type { Actor } from '../review/types'
 import { canEdit } from '../review/access'
 import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome } from './queue-types'
+import { pipelineNeedsModel } from './pipeline-plan'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
 
@@ -44,7 +45,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
       env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
-      completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId ? { modelId: run.modelId } : {}),
+      completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId && pipelineNeedsModel([step], run.options) ? { modelId: run.modelId } : {}),
       ...(run.options[step.stage as keyof typeof run.options] ? { stageOptions: run.options[step.stage as keyof typeof run.options] } : {}),
       ...(step.stage === 'group' ? { groupScope: Object.values(attempt.projection!.plates).map(entry => ({ plate: entry.executionPlate, baseRevision: entry.batchInputHash })), ...(groupContext?.standardId ? { standardId: groupContext.standardId } : {}) } : {}),
     }

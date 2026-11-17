@@ -14,6 +14,7 @@ import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picke
 import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import type { TaggingModelId } from '@/lib/tagging/models'
+import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 
 type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> & Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities'>>
 
@@ -40,14 +41,16 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const active = queue.runs.some(run => ['queued', 'running'].includes(run.status))
   const unavailableStage = stages.map(id => pipelineStages.find(stage => stage.id === id)!).find(stage => stageAvailability(stage, true, queue.capabilities))
   const groupOutsideBatch = stages.includes('group') && planned.some(plate => !batchPlates.some(member => member.id === plate.id))
-  const blocked = !!reason || !validLimit || !planned.length || !stages.length || !modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
   const resolvedOptions = snapshotPipelineOptions(stages, options)
   if (resolvedOptions.group) for (const key of ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const) {
     if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
   }
+  const steps = planPipeline(planned.map(plate => ({ ...plate, hasStory: plate.hasStory ?? plate.checks?.funFacts.status === 'good' })), stages, resolvedOptions)
+  const needsModel = pipelineNeedsModel(steps, resolvedOptions)
+  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...planned], stages, modelId, resolvedOptions, previewOnly)) setOpen(false)
+    if (await queue.enqueue([...planned], stages, needsModel ? modelId : undefined, resolvedOptions, previewOnly)) setOpen(false)
   }
   function option(stage: keyof PipelineOptions, key: string, value: string | boolean) {
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
@@ -94,7 +97,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
             </fieldset>
           })}
         </section>
-        <TaggingModelPicker choice={localChoice} />
+        {needsModel ? <TaggingModelPicker choice={localChoice} /> : null}
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
           <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>

@@ -4,6 +4,7 @@
 .vercel
 node_modules
 .next
+.workflow-data/
 tsconfig.tsbuildinfo
 next-env.d.ts
 /.swc
