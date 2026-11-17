@@ -5,7 +5,7 @@ export const storyFieldKeys = ['funFacts', 'firstIssuedYear', 'wikiUrl', 'readMo
 export function sameEditableValue(key: string, before: unknown, after: unknown) {
   const normalize = (value: unknown) => {
     if (key === 'funFacts' || key === 'readMore') return value ?? []
-    if (key === 'firstIssuedYear' || key === 'sourceUrl' || key === 'wikiUrl') return value ?? null
+    if (['firstIssuedYear', 'sourceUrl', 'wikiUrl', 'colorDetail', 'lineageColor'].includes(key)) return value ?? null
     return value
   }
   return JSON.stringify(normalize(before)) === JSON.stringify(normalize(after))

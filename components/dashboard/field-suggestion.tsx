@@ -5,6 +5,7 @@ import type { Plate } from '@/lib/catalog/types'
 import type { FieldsSuggestion as Suggestion } from '@/lib/jobs/types'
 
 const show = (value: unknown) => value == null ? 'None' : typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+const labels: Record<string, string> = { description: 'Description', funFacts: 'Fun facts', firstIssuedYear: 'First issued year', readMore: 'Read more', wikiUrl: 'Wiki link', colorDetail: 'Background color', lineageColor: 'Broad color', tags: 'Tags', templateFamily: 'Family', templateRole: 'Role', variantOfPlateId: 'Variant of' }
 
 export function FieldSuggestion({ suggestion, before, blocked, accepted, inspectOnly = false, accept }: {
   suggestion: Suggestion
@@ -18,7 +19,7 @@ export function FieldSuggestion({ suggestion, before, blocked, accepted, inspect
     <strong className="capitalize">{suggestion.stage.replaceAll('-', ' ')} suggestion</strong>
     <dl className="grid min-w-0 gap-3">
       {Object.entries(suggestion.fields).map(([key, value]) => <div key={key} className="grid min-w-0 gap-2">
-        <dt className="label">{key}</dt>
+        <dt className="label">{labels[key] ?? key}</dt>
         <dd className="grid min-w-0 gap-2 sm:grid-cols-2">
           <div><span className="caption">Current</span><pre className="whitespace-pre-wrap break-words font-sans text-sm [overflow-wrap:anywhere]">{show(before?.[key])}</pre></div>
           <div><span className="caption">Suggested</span><pre className="whitespace-pre-wrap break-words font-sans text-sm [overflow-wrap:anywhere]">{show(value)}</pre></div>

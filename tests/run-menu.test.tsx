@@ -448,7 +448,8 @@ test('local unsupported stages name the missing integration', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  expect(screen.getByRole('checkbox', { name: 'Wiki link: Needs a reference-search job and draft result' }).closest('fieldset')?.disabled).toBe(true)
+  expect(screen.getByRole('checkbox', { name: 'Group: Run selection needs the connected run coordinator' }).closest('fieldset')?.disabled).toBe(true)
+  expect(screen.getByRole('checkbox', { name: 'Order: Order is manual: drag families to reorder' }).closest('fieldset')?.disabled).toBe(true)
   expect(screen.queryByText('Coming soon')).toBeNull()
 })
 
@@ -515,6 +516,16 @@ test('Story skips existing stories until Redo is enabled', () => {
   fireEvent.click(screen.getByRole('checkbox', { name: 'Redo plates that already have a story' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   expect(start).toHaveBeenCalledWith([existing], false, 'desktop-gemma4-12b', 'story')
+})
+
+test.each([['Wiki link', 'wiki-link', undefined], ['Colors', 'colors', 'desktop-gemma4-12b']])('local %s starts through the typed stage contract', (label, stage, model) => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: label }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([plate], false, model, stage)
 })
 
 test('stage retries retain both the selected model and stage', async () => {

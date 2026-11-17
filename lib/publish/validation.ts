@@ -1,6 +1,6 @@
 import { validTarget } from './allocation'
 import type { Snapshot } from '../catalog/types'
-import { parseStoryFields, storyUrl } from '../review/fields'
+import { colorFieldKeys, parseColorFields, parseStoryFields, storyUrl } from '../review/fields'
 import { sameEditableValue, storyFieldKeys } from '../review/story'
 
 const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
@@ -38,6 +38,9 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
     }
     if (plate.isStandard === true && typeof plate.state === 'string') standards.set(plate.state, (standards.get(plate.state) ?? 0) + 1)
     const previous = baselinePlates.get(plate.id)
+    for (const key of colorFieldKeys) {
+      if (!sameEditableValue(key, previous?.[key], plate[key]) && plate[key] !== undefined && (plate[key] === null || parseColorFields({ [key]: plate[key] }) === null)) reasons.push(`Plate ${index} has invalid ${key}`)
+    }
     if (plate.imageUrl && plate.imageUrl !== previous?.imageUrl) reasons.push('Image candidate needs upload before publishing')
     for (const key of [...storyFieldKeys, 'sourceUrl'] as const) {
       if (!sameEditableValue(key, previous?.[key], plate[key]) && plate[key] !== undefined && (plate[key] === null || (key === 'sourceUrl' ? storyUrl(plate[key]) === null : parseStoryFields({ [key]: plate[key] }) === null))) {

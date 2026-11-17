@@ -4,6 +4,7 @@ import { chooseModel, currentActor, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson, respond } from '@/lib/server/respond'
 import { pipelineRun } from '@/workflows/pipeline'
 import { localPipelineScope } from '@/lib/jobs/local-scope'
+import { runnableLocalStage } from '@/lib/jobs/stages'
 
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]/pipeline'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
@@ -12,13 +13,15 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   if (!auth.ok) return auth.response
   const body = await readJson(request)
   if (body?.previewOnly !== undefined && body.previewOnly !== false) return json({ error: 'unavailable', reason: 'Standalone preview-only runs need the connected run coordinator' }, 422)
-  if (!body || body.stage !== 'describe' && body.stage !== 'story' && body.stage !== 'find-image') return badRequest()
-  const choice = chooseModel(body.model, 'desktop')
-  if (!choice.ok) return choice.error === 'bad_request' ? badRequest() : respond({ ok: false, error: 'invalid_state' })
+  const definition = runnableLocalStage(body?.stage)
+  if (!body || !definition) return badRequest()
+  const choice = definition.needsModel ? chooseModel(body.model, 'desktop') : null
+  if (choice && !choice.ok) return choice.error === 'bad_request' ? badRequest() : respond({ ok: false, error: 'invalid_state' })
   const { id, plateId } = await ctx.params
   const validation = await validateTagging(reviewDeps(), auth.actor, id, plateId)
   if (!validation.ok) return respond(validation)
   const jobId = crypto.randomUUID()
-  const run = await start(pipelineRun, [jobId, id, plateId, auth.actor.uid, body.stage, choice.model.id])
-  return json({ jobId, runId: run.runId, model: choice.model.id, stage: body.stage }, 202)
+  const modelId = choice?.ok ? choice.model.id : undefined
+  const run = await start(pipelineRun, [jobId, id, plateId, auth.actor.uid, definition.stage, modelId])
+  return json({ jobId, runId: run.runId, ...(modelId ? { model: modelId } : {}), stage: definition.stage }, 202)
 }

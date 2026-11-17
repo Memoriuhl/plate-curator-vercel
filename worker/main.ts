@@ -2,7 +2,7 @@ import { gatewayAdapter, ollamaAdapter, type ModelAdapter } from './model'
 import { imageReader } from './images'
 import { runLoop, type WorkerDeps } from './run'
 import { assertLocalWorker } from './local'
-import { createTextStageHandler } from './pipeline/text'
+import { createStageHandler } from './pipeline'
 import { createImageGroupRunner, localVisionTiebreak } from './image-group'
 import { legacyEmbeddingRunner } from './group-embedding'
 import { detectGroupRuntime } from './group-capabilities'
@@ -25,7 +25,7 @@ async function main() {
   const adapters = new Map<string, ModelAdapter>([[adapter.model, adapter]])
   const adapterFor = backend === 'local' ? (model: string) => adapters.get(model) ?? adapters.set(model, ollamaAdapter({ url: ollamaUrl, model })).get(model)! : undefined
   const readImage = imageReader(GAME_REPO)
-  const textStages = createTextStageHandler({ url: ollamaUrl, onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) })
+  const textStages = createStageHandler({ url: ollamaUrl, readImage, onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) })
   const { LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO, LOCAL_GROUP_CACHE } = process.env
   const embed = LOCAL_GROUP_PYTHON && LOCAL_GROUP_LEGACY_REPO && LOCAL_GROUP_CACHE
     ? legacyEmbeddingRunner({ python: LOCAL_GROUP_PYTHON, legacyRepo: LOCAL_GROUP_LEGACY_REPO, cache: LOCAL_GROUP_CACHE, readImage })

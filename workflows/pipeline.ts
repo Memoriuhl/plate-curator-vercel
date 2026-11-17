@@ -3,7 +3,7 @@ import { createJob, expireJob, getJob } from '../lib/jobs/jobs'
 import type { PipelineStage } from '../lib/jobs/types'
 import { jobsDeps } from '../lib/server/context'
 
-export async function pipelineRun(jobId: string, batchId: string, plateId: string, requestedBy: string, stage: PipelineStage, modelId: string) {
+export async function pipelineRun(jobId: string, batchId: string, plateId: string, requestedBy: string, stage: PipelineStage, modelId?: string) {
   'use workflow'
   const result = createHook<{ jobId: string }>({ token: `pipeline:${jobId}` })
   if (!await createPipelineJob(jobId, batchId, plateId, requestedBy, stage, modelId)) return { outcome: 'not_created' as const }
@@ -11,9 +11,9 @@ export async function pipelineRun(jobId: string, batchId: string, plateId: strin
   return finishPipelineJob(jobId, settled === 'timeout')
 }
 
-async function createPipelineJob(jobId: string, batchId: string, plateId: string, requestedBy: string, stage: PipelineStage, modelId: string) {
+async function createPipelineJob(jobId: string, batchId: string, plateId: string, requestedBy: string, stage: PipelineStage, modelId?: string) {
   'use step'
-  const result = await createJob(jobsDeps(), { id: jobId, batchId, plateId, requestedBy, stage, modelId })
+  const result = await createJob(jobsDeps(), { id: jobId, batchId, plateId, requestedBy, stage, ...(modelId ? { modelId } : {}) })
   return result.ok || result.error === 'already_exists'
 }
 

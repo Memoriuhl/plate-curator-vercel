@@ -85,7 +85,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
 }
 
 function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null {
-  const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields' || input?.stageError === 'unavailable') ? input.stageError : undefined
+  const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields' || input?.stageError === 'unavailable' || input?.stageError === 'missing_image') ? input.stageError : undefined
   if (input?.stageError !== undefined && !stageError) return null
   const fieldSuggestion = stage && !stageError ? parseFieldSuggestion(input?.fieldSuggestion, stage) : undefined
   if (stage && (!stageError && !fieldSuggestion || stageError && input.fieldSuggestion !== undefined || input.suggestions !== undefined && (!Array.isArray(input.suggestions) || input.suggestions.length > 0))) return null

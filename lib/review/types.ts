@@ -24,7 +24,7 @@ export type ReviewBatch = {
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
 }
-export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
+export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description' | 'colorDetail' | 'lineageColor'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
 export type ProposedEdit = {
   plateId: string
   baseRevision: string

@@ -15,6 +15,7 @@ import type { TaggingModelId } from '@/lib/tagging/models'
 import type { RunPlate } from './use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
+import { LOCAL_STAGE_DEFINITIONS } from '@/lib/jobs/stages'
 
 const stages = [
   [
@@ -84,17 +85,19 @@ export function RunMenu({
   const [stageName, setStageName] = useState('Tag')
   const [redoStory, setRedoStory] = useState(false)
   const activeStage = local ? stageName : 'Tag'
-  const textStage = activeStage === 'Describe' || activeStage === 'Story'
+  const definition = local ? LOCAL_STAGE_DEFINITIONS.find(stage => stage.label === activeStage) : undefined
+  const localModel = definition?.needsModel ?? false
+  const pipelineStage = definition?.stage
   const desktopModels = choice.data?.models.filter(model => model.runsOn === 'desktop')
   const textChoice = { ...choice, modelId: desktopModels?.find(model => model.id === choice.modelId)?.id as TaggingModelId | undefined ?? desktopModels?.[0]?.id as TaggingModelId | undefined,
     data: choice.data ? { ...choice.data, models: desktopModels ?? [] } : undefined }
-  const activeChoice = textStage ? textChoice : choice
+  const activeChoice = localModel ? textChoice : choice
   const validLimit = Number.isInteger(Number(limit)) && Number(limit) >= 1 && Number(limit) <= 25
   const plates: readonly RunPlate[] = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : local && scope === 'all' ? allPlates : underTagged
   const planned = useMemo(() => planTagRun(activeStage === 'Story' && !redoStory ? plates.filter(plate => !(plate.hasStory ?? plate.checks?.funFacts.status === 'good')) : plates, local && activeStage === 'Tag' && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit, activeStage, redoStory])
   const count = planned.length
   const selectedModel = activeChoice.data?.models.find(model => model.id === activeChoice.modelId)
-  const enabled = (name: string) => name === 'Tag' || local && ['Describe', 'Story'].includes(name)
+  const enabled = (name: string) => name === 'Tag' || local && LOCAL_STAGE_DEFINITIONS.some(stage => stage.label === name)
   return (
     <>
     <Popover open={open} onOpenChange={setOpen}>
@@ -198,7 +201,7 @@ export function RunMenu({
                 ) : null}
                 <span className="id">{duration}</span>
               </div>
-              {name === activeStage ? <TaggingModelPicker choice={activeChoice} error={modelError} /> : null}
+              {name === activeStage && activeStage !== 'Wiki link' ? <TaggingModelPicker choice={activeChoice} error={modelError} /> : null}
               {options.filter(option => !local || !option.startsWith('Limit') && option !== 'Model · local').map((option) => (
                 <label
                   key={option}
@@ -234,9 +237,9 @@ export function RunMenu({
               Cancel
             </Button>
             <Button
-              disabled={disabled || count === 0 || (local && !validLimit) || (textStage && !activeChoice.modelId)}
+              disabled={disabled || count === 0 || (local && !validLimit) || (localModel && !activeChoice.modelId)}
               onClick={() => {
-                if (textStage) start(planned, false, activeChoice.modelId, activeStage === 'Describe' ? 'describe' : 'story')
+                if (pipelineStage) start(planned, false, definition?.needsModel ? activeChoice.modelId : undefined, pipelineStage)
                 else start(planned, false, choice.modelId)
                 setOpen(false)
               }}
