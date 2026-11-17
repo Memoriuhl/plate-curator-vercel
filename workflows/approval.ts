@@ -2,6 +2,7 @@ import { createHook, RetryableError, sleep } from 'workflow'
 import { publishBatch } from '../lib/publish/publish'
 import { catalogChanged } from '../lib/server/catalog-head'
 import { publishDeps, reviewDeps } from '../lib/server/context'
+import { catalogPush } from './catalog-push'
 
 export async function approvalRun(batchId: string, revision: number) {
   'use workflow'
@@ -24,7 +25,9 @@ export async function approvalRun(batchId: string, revision: number) {
   if (requested === 'timeout') return { outcome: 'publish_timeout' as const }
   if ('superseded' in requested) return { outcome: 'superseded' as const }
 
-  return runPublish(batchId, approved.revision, requested.ownerUid)
+  const outcome = await runPublish(batchId, approved.revision, requested.ownerUid)
+  if (outcome.outcome === 'published') return { ...outcome, push: await catalogPush(outcome.version) }
+  return outcome
 }
 
 async function readBatch(batchId: string) {

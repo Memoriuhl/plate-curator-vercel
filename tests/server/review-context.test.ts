@@ -16,11 +16,24 @@ vi.mock('../../lib/review/firestore-store', () => ({ firestoreReviewStore: () =>
 vi.mock('../../lib/catalog/firestore-source', () => ({ firestoreCatalogSource: () => mocks }))
 vi.mock('../../lib/catalog/fixture-source', () => ({ fixtureSource: () => mocks }))
 
-const { reviewDeps } = await import('../../lib/server/context')
+const { reviewDeps, catalogPushDeps } = await import('../../lib/server/context')
 
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.clearAllMocks()
+})
+
+test('catalog push is disabled by default and requires staging when enabled', async () => {
+  vi.stubEnv('CATALOG_PUSH_ENABLED', '')
+  vi.stubEnv('GCP_PROJECT_ID', '')
+  expect(catalogPushDeps().enabled).toBe(false)
+  vi.stubEnv('CATALOG_PUSH_ENABLED', 'true')
+  expect(() => catalogPushDeps()).toThrow('Catalog push requires staging')
+  vi.stubEnv('GCP_PROJECT_ID', 'license-plate-game-staging')
+  vi.stubEnv('EXPO_ACCESS_TOKEN', '')
+  expect(() => catalogPushDeps()).toThrow('Missing environment variable EXPO_ACCESS_TOKEN')
+  vi.stubEnv('EXPO_ACCESS_TOKEN', 'test')
+  expect(catalogPushDeps().enabled).toBe(true)
 })
 
 test.each(['fixture', 'firestore'])('state baseline orders the cached jurisdiction at the pinned version for %s', async kind => {
