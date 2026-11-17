@@ -6,7 +6,7 @@ import { ApiError } from '../lib/client/api'
 import { batch, command, fixture } from './publish/fixture'
 import { publishBaselineStatus } from '../lib/publish/baseline-status'
 
-const mocks = vi.hoisted(() => ({ abandon: vi.fn(), prepared: false, disposition: false, runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
+const mocks = vi.hoisted(() => ({ healthy: false, abandon: vi.fn(), prepared: false, disposition: false, runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
@@ -14,12 +14,21 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: { batch, plates: [] } }),
   useBatches: () => ({ data: [batch] }),
   useBatchRun: () => ({ data: mocks.run ? { runId: mocks.runId, phase: mocks.phase, outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
-  usePublishBaseline: () => ({ data: mocks.prepared ? { error: 'paused', canRetry: false, canAbandon: true, prepared: { commandId: 'command', toVersion: 2 }, ...(mocks.disposition ? { abandonment: { by: { email: 'owner@example.com' }, at: '2026-11-15T12:00:00Z', burnedVersion: 2 } } : {}) } : mocks.baselineError === 'paused' ? { error: 'paused', canRetry: false } : { canRetry: mocks.canRetry, retryReason: mocks.canRetry ? null : 'locked', error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
+  usePublishBaseline: () => ({ data: mocks.prepared ? { error: 'paused', canRetry: false, canAbandon: !mocks.healthy, abandonReason: mocks.healthy ? 'locked' : null, prepared: { commandId: 'command', toVersion: 2 }, ...(mocks.disposition ? { abandonment: { by: { email: 'owner@example.com' }, at: '2026-11-15T12:00:00Z', burnedVersion: 2 } } : {}) } : mocks.baselineError === 'paused' ? { error: 'paused', canRetry: false } : { canRetry: mocks.canRetry, retryReason: mocks.canRetry ? null : 'locked', error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
   usePlateDetail: () => ({}),
   useReviewActions: () => ({ copy: mocks.copy, publish: mocks.publish, abandon: mocks.abandon }),
 }))
-beforeEach(() => { vi.clearAllMocks(); mocks.prepared = false; mocks.disposition = false; mocks.abandon.mockResolvedValue(undefined); mocks.runId = 'old-run'; mocks.publish.mockResolvedValue({ ok: true }); mocks.canRetry = true; mocks.phase = 'failed'; mocks.role = 'owner'; mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
+beforeEach(() => { vi.clearAllMocks(); mocks.healthy = false; mocks.prepared = false; mocks.disposition = false; mocks.abandon.mockResolvedValue(undefined); mocks.runId = 'old-run'; mocks.publish.mockResolvedValue({ ok: true }); mocks.canRetry = true; mocks.phase = 'failed'; mocks.role = 'owner'; mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
 afterEach(cleanup)
+
+test('a healthy live Publish shows neither Prepared Snapshot nor Abandon', () => {
+  mocks.prepared = true
+  mocks.healthy = true
+  render(<PublishWorkspace />)
+  expect(screen.queryByRole('region', { name: 'Prepared Snapshot recovery' })).toBeNull()
+  expect(screen.queryByText(/Prepared Snapshot v2/)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Abandon prepared Snapshot' })).toBeNull()
+})
 
 test('eligible Owner can abandon while paused and sees the burned disposition', async () => {
   mocks.prepared = true

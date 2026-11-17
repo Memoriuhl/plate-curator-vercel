@@ -168,8 +168,8 @@ function BatchSelection({
       </header>
       <RunStatus batchId={id} />
       {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
-      {baseline.data?.prepared && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
-        <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning permanently skips this version and keeps the Batch approval.</p>
+      {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
+        <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
         {baseline.data.canAbandon ? <>
           <label className="block">Reason for abandonment<input className="block w-full rounded border p-2" value={abandonReason} maxLength={1000} onChange={event => setAbandonReason(event.target.value)} /></label>
           <Button variant="outline" disabled={busy || !abandonReason.trim()} onClick={abandon}>Abandon prepared Snapshot</Button>

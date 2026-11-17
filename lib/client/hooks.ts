@@ -12,7 +12,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
-import type { PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
+import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -111,7 +111,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: import('../publish/types').Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
+export type PublishBaselineStatus = { canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )

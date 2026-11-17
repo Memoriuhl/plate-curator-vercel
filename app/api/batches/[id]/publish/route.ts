@@ -95,7 +95,7 @@ export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]
     const receipt = await publishing.records.get(receiptId(id, batch.revision))
     const abandonReason = receipt && !receipt.committedAt ? await publishing.records.abandonmentEligibility(receipt, deps.now()) : 'version_taken'
     const abandonment = batch.publishAbandonment
-    const prepared = receipt && !receipt.committedAt ? { commandId: publishCommandKey(receipt), toVersion: receipt.toVersion } : undefined
+    const prepared = receipt && !receipt.committedAt && !['locked', 'superseded', 'unavailable'].includes(abandonReason ?? '') ? { commandId: publishCommandKey(receipt), toVersion: receipt.toVersion } : undefined
     const reason = receipt && !receipt.committedAt ? await publishing.records.stopped(receipt) : null
     const stop = publishControlStop(control)
     const baseline = stop ? { error: stop } : await publishBaselineStatus(publishing, batch)

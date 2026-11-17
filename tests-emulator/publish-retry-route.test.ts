@@ -114,16 +114,28 @@ test('a live bound run keeps preflight and fresh acceptance locked even after th
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })
 
-test('A: TTL discovers and binds an unbound healthy token owner instead of stealing its claim', async () => {
+test('GET never exposes Prepared Snapshot or Abandon during a healthy live run', async () => {
+  expect((await POST(request('healthy-prepared'), ctx)).status).toBe(202)
+  mocks.status.mockResolvedValue('running')
+  const deps = mocks.deps()
+  const accepted = (await deps.records.command('healthy-prepared'))!.command
+  deps.snapshots.createOnly = async () => { throw new Error('upload pending') }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({ error: 'unavailable' })
+  const preflight = await (await GET(request('preflight'), ctx)).json()
+  expect(preflight.canAbandon).toBe(false)
+  expect(preflight).not.toHaveProperty('prepared')
+})
+
+test('A: read-only GET discovers a healthy token owner without writing its claim', async () => {
   const deps = mocks.deps()
   await deps.records.accept({ ...command, commandId: 'healthy-unbound' }, time)
   time = '2026-11-15T12:10:00Z'
   mocks.status.mockResolvedValue('running')
   mocks.getHookByToken.mockResolvedValue({ runId: 'healthy-run' })
   expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: false, retryReason: 'locked' })
-  expect(await deps.records.command('healthy-unbound')).toMatchObject({ runId: 'healthy-run' })
+  expect(await deps.records.command('healthy-unbound')).not.toHaveProperty('runId')
   expect(await (await POST(request('takeover'), ctx)).json()).toMatchObject({ error: 'locked' })
-  expect(await deps.store.getBatch(batch.id)).toMatchObject({ publishCommand: { commandId: 'healthy-unbound' }, approvalRun: { runId: 'healthy-run' } })
+  expect(await deps.store.getBatch(batch.id)).toMatchObject({ publishCommand: { commandId: 'healthy-unbound' }, approvalRun: { runId: 'old-stopped-run' } })
   expect((await db.doc('publishCommandStops/healthy-unbound').get()).exists).toBe(false)
 })
 
@@ -197,7 +209,9 @@ test('a missing claim with a live token owner is reconstructed and remains locke
   mocks.status.mockResolvedValue('running')
   mocks.getHookByToken.mockResolvedValue({ runId: 'healthy-run' })
   expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({ canRetry: false, retryReason: 'locked' })
-  expect(await deps.records.command('missing-live-claim')).toMatchObject({ runId: 'healthy-run' })
+  expect(await deps.records.command('missing-live-claim')).toBeNull()
+  expect(await (await POST(request('cannot-steal'), ctx)).json()).toMatchObject({ error: 'locked' })
+  expect(await deps.records.command('missing-live-claim')).toBeNull()
 })
 
 test('URL metadata racing different bytes cannot advance the emulator pointer', async () => {

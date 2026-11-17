@@ -155,3 +155,34 @@ test('a stopped receipt remains abandonable after its Batch was fenced out of ap
   expect(await abandonPreparedSnapshot(f.deps, authority, receipt, 'fenced legacy attempt')).toMatchObject({ ok: true })
   expect(await f.deps.store.getBatch(batch.id)).toMatchObject({ state: 'open', revision: 3, publishAbandonment: { burnedVersion: 2 } })
 })
+
+test('another Batch skips a held slot without abandoning it; later disposition succeeds below the live pointer', async () => {
+  const f = await stoppedBeforeUpload()
+  const receipt = f.records.get('batch@2')!
+  f.setControl({ paused: false, generation: 3, changedBy: authority, changedAt: f.deps.now() })
+  await f.deps.store.create({ ...batch, id: 'other' })
+  expect(await publishBatch(f.deps, owner, { ...command, batchId: 'other', commandId: 'other', generation: 3 })).toMatchObject({ ok: true, value: { toVersion: 3 } })
+  expect(f.records.get(receipt.id)?.state).toBe('started')
+  expect(await f.deps.records.abandonmentEligibility(receipt, f.deps.now())).toBeNull()
+  expect(await abandonPreparedSnapshot(f.deps, authority, receipt, 'Disposition after B shipped')).toMatchObject({ ok: true, value: { burnedVersion: 2 } })
+  expect(f.pointer().version).toBe(3)
+})
+
+test('disposition refuses a target committed by any other receipt', async () => {
+  const f = await stoppedBeforeUpload()
+  const receipt = f.records.get('batch@2')!
+  f.records.set('foreign', { ...receipt, id: 'foreign', batchId: 'foreign', committedAt: f.deps.now() })
+  expect(await abandonPreparedSnapshot(f.deps, authority, receipt, 'Must protect committed target')).toMatchObject({ error: 'version_taken' })
+  expect(f.burns.size).toBe(0)
+})
+
+test('a healthy live attempt stays locked even if another receipt conflicts with its target', async () => {
+  const f = fixture()
+  await f.deps.records.accept(command, f.deps.now())
+  await f.deps.records.bindRun(command, 'live-run', f.deps.now())
+  f.deps.snapshots.createOnly = async () => { throw new Error('upload pending') }
+  await publishBatch(f.deps, owner, command)
+  const receipt = f.records.get('batch@2')!
+  f.records.set('foreign', { ...receipt, id: 'foreign', batchId: 'foreign', committedAt: f.deps.now() })
+  expect(await f.deps.records.abandonmentEligibility(receipt, f.deps.now())).toBe('locked')
+})

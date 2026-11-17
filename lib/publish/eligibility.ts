@@ -31,6 +31,9 @@ export type PublishRunLookup = {
   runStatus?: (runId: string) => Promise<string>
 }
 
+export const claimRunKey = (pending: ReviewBatch['publishCommand'], approvalRun: ReviewBatch['approvalRun'], claim: EligibilityInput['claim'], receipt?: PublishRecord | null) =>
+  JSON.stringify([pending ?? null, approvalRun ?? null, claim ?? null, receipt ? [receipt.id, receipt.commandId, receipt.toVersion] : null])
+
 export async function resolveClaimRun(claim: EligibilityInput['claim'], lookup: PublishRunLookup) {
   if (!claim) return { claim, status: undefined }
   try {

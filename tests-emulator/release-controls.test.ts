@@ -118,3 +118,88 @@ test('#129 abandon A, publish different B at v3, delayed old work never commits 
   expect(f.send).toHaveBeenCalledTimes(1)
   expect((await db.doc('catalogPushes/2').get()).exists).toBe(false)
 })
+
+test('global allocator skips burns and legacy held/committed receipts across environments', async () => {
+  await db.doc('publishVersionBurns/2').set({ receiptId: 'burned' })
+  const legacy = { ...command, fromVersion: 1, blobSha256: 'legacy', env: 'foreign' }
+  await db.doc('publishRecords/held').set({ ...legacy, id: 'held', toVersion: 3, state: 'uploaded' })
+  await db.doc('publishRecords/committed').set({ ...legacy, id: 'committed', toVersion: 4, state: 'done', committedAt: now, env: 'third-environment' })
+  expect(await run()).toMatchObject({ outcome: 'published', version: 5 })
+  expect((await f.deps.snapshots.read(5)).version).toBe(5)
+  expect(f.send).toHaveBeenCalledTimes(1)
+})
+
+test('a global burn blocks adoption and pointer advancement without sending a push', async () => {
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (...args) => { await f.deps.control.change(true, actor, now); return advance(...args) }
+  expect(await run()).toMatchObject({ error: 'paused' })
+  const stopped = (await f.deps.records.get('batch@2'))!
+  await db.doc('publishVersionBurns/2').set({ receiptId: 'foreign-burn', env: 'another-environment' })
+  await f.deps.control.change(false, actor, now)
+  const fresh = { ...command, commandId: 'burned-adopter', generation: 3 }
+  expect(await f.deps.records.accept(fresh, now)).toMatchObject({ ok: true })
+  expect(await run(fresh)).toMatchObject({ outcome: 'publish_failed', error: 'version_taken' })
+  const lease = { ...fresh, token: 'burn-proof', expiresAt: '2026-11-15T12:01:00Z' }
+  expect(await f.deps.lock.claim(lease, now)).toBe(true)
+  expect(await advance(stopped, lease, now)).toBe('version_taken')
+  await f.deps.lock.release(lease.token, false)
+  expect((await f.deps.pointer.read()).version).toBe(1)
+  expect(f.send).not.toHaveBeenCalled()
+})
+
+test('same-command reservation survives interruption and replay keeps the same toVersion', async () => {
+  const upload = f.deps.snapshots.createOnly
+  f.deps.snapshots.createOnly = async () => { throw new Error('interrupted before upload') }
+  await expect(run()).rejects.toThrow('Publish unavailable')
+  expect(await f.deps.records.get('batch@2')).toMatchObject({ toVersion: 2 })
+  f.deps.snapshots.createOnly = upload
+  expect(await run()).toMatchObject({ outcome: 'published', version: 2 })
+  expect(await run()).toMatchObject({ outcome: 'published', version: 2 })
+  expect((await db.collection('publishRecords').get()).size).toBe(1)
+  expect(f.send).toHaveBeenCalledTimes(1)
+})
+
+test('no-burn allocation retains pointer plus one', async () => {
+  expect(await run()).toMatchObject({ outcome: 'published', version: 2 })
+  expect((await f.deps.pointer.read()).version).toBe(2)
+  expect((await db.collection('publishVersionBurns').get()).empty).toBe(true)
+})
+
+test('#128 concurrent Publish Workflow runs share one adopted version and one push', async () => {
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (...args) => { await f.deps.control.change(true, actor, now); return advance(...args) }
+  expect(await run()).toMatchObject({ error: 'paused' })
+  const bytes = f.blobs.get(2)
+  await f.deps.control.change(false, actor, now)
+  f.deps.pointer.advance = advance
+  const fresh = { ...command, commandId: 'concurrent-run', generation: 3 }
+  expect(await f.deps.records.accept(fresh, now)).toMatchObject({ ok: true })
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const adopt = f.deps.records.adopt
+  f.deps.records.adopt = async (...args) => { entered.resolve(); await release.promise; return adopt(...args) }
+  const first = run(fresh)
+  await entered.promise
+  await expect(run(fresh)).rejects.toThrow('Publish locked')
+  release.resolve()
+  expect(await first).toMatchObject({ outcome: 'published', version: 2 })
+  expect(await run(fresh)).toMatchObject({ outcome: 'published', version: 2 })
+  expect(f.blobs.get(2)).toBe(bytes)
+  expect((await f.deps.pointer.read()).version).toBe(2)
+  expect(f.send).toHaveBeenCalledTimes(1)
+}, 15000)
+
+test('#129 another Batch skips a stopped held slot without abandon; later disposition is optional', async () => {
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (...args) => { await f.deps.control.change(true, actor, now); return advance(...args) }
+  expect(await run()).toMatchObject({ error: 'paused' })
+  const stopped = (await f.deps.records.get('batch@2'))!
+  await f.deps.control.change(false, actor, now)
+  f.deps.pointer.advance = advance
+  await db.doc('reviewBatches/other').set({ ...batch, id: 'other', env })
+  expect(await run({ ...command, batchId: 'other', commandId: 'other-held', generation: 3 })).toMatchObject({ outcome: 'published', version: 3 })
+  expect((await db.collection('publishVersionBurns').get()).empty).toBe(true)
+  expect(await abandonPreparedSnapshot(f.deps, actor, stopped, 'Disposition only')).toMatchObject({ ok: true })
+  expect((await f.deps.pointer.read()).version).toBe(3)
+  expect(f.send).toHaveBeenCalledTimes(1)
+})

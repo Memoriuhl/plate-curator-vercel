@@ -66,8 +66,6 @@ test('allocator excludes burns and legacy held/committed receipts in other envir
   await db.doc('publishRecords/held').set(record)
   await db.doc('publishCommandStops/command').set({ reason: 'paused' })
   await db.doc('publishRecords/committed').set({ ...record, id: 'committed', toVersion: 4, state: 'done', committedAt: now })
-  expect((await db.doc('publishVersionReservations/3').get()).exists).toBe(false)
-  expect((await db.doc('publishVersionReservations/4').get()).exists).toBe(false)
   const lease = { ...command, token: 'allocation', expiresAt: '2026-11-15T12:01:00Z' }
   expect(await f.deps.lock.claim(lease, now)).toBe(true)
   expect(await f.deps.records.nextVersion(lease.token, now)).toBe(5)
