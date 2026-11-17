@@ -14,10 +14,10 @@ export function PublishControlView({ control, error, change }: {
   const stop = publishControlStop(control)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-  return <section aria-label="Catalog publishing control" className="space-y-3 rounded-2xl border border-border p-4">
+  return <section aria-label="Catalog publishing control" className="space-y-3 rounded-2xl bg-card p-4">
     <p className="font-bold">{stop ? PUBLISH_STOP_MESSAGES[stop] : 'Catalog publishing is enabled.'}</p>
-    {control && <p className="text-sm text-muted-foreground">Changed by {control.changedBy.email} at <time dateTime={control.changedAt}>{new Date(control.changedAt).toLocaleString()}</time>.</p>}
-    <p className="text-sm">Draft work and approval can continue. Resume permits new Publish requests; stopped commands stay stopped.</p>
+    {control && <p className="text-xs text-muted-foreground">Changed by {control.changedBy.email} at <time dateTime={control.changedAt}>{new Date(control.changedAt).toLocaleString()}</time>.</p>}
+    <p className="text-sm">Drafts and approval can continue. Resume allows new requests; stopped commands stay stopped.</p>
     {error && <p role="alert">Publishing controls are unavailable. Publishing is blocked.</p>}
     {message && <p role="alert">{message}</p>}
     <Button variant="outline" disabled={busy || error} onClick={async () => {

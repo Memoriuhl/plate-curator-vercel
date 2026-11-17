@@ -19,7 +19,7 @@ import type { MemberInvite, MemberSummary } from '../members/summary'
 
 export type BatchDetail = {
   batch: ReviewBatch
-  plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
+  plates: { beforeImageUrl?: string | null; afterImageUrl?: string | null; baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
 }
 
 export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {

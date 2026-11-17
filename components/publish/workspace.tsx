@@ -2,7 +2,7 @@
 
 import { ApiError } from '@/lib/client/api'
 import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { PublishControlView } from './control'
@@ -12,7 +12,6 @@ import {
   useBatches,
   useBatchRun,
   useMe,
-  usePlateDetail,
   usePublishBaseline,
   usePublishControl,
   useReviewActions,
@@ -20,17 +19,9 @@ import {
 import type { ReviewBatch } from '@/lib/review/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
-import {
-  changeSummary,
-  DiffTable,
-  groupChanges,
-} from '@/components/review/diff'
+import { groupChanges } from '@/components/review/diff'
+import { BatchChanges } from './batch-changes'
 import { RunStatus } from '@/components/review/run-status'
-
-function PlateDiff(props: React.ComponentProps<typeof DiffTable>) {
-  const detail = usePlateDetail(props.before.id)
-  return <DiffTable {...props} beforeImageUrl={detail.data?.plate?.imageUrl} />
-}
 
 function BatchItem({
   batch,
@@ -41,39 +32,26 @@ function BatchItem({
   selected: boolean
   onSelect: () => void
 }) {
-  const detail = useBatch(batch.id)
   const run = useBatchRun(batch.state === 'published' ? batch.id : null)
-  const groups = detail.data ? groupChanges(detail.data.plates) : null
+  const publishedAt = batch.state === 'published' ? run.data?.updatedAt : null
+  const date = publishedAt ?? batch.approval?.at ?? batch.createdAt
   return (
     <button
       onClick={onSelect}
       className={cn(
         'w-full rounded-2xl border p-4 text-left',
-        selected ? 'border-primary bg-muted' : 'border-border',
+        selected ? 'border-primary bg-muted' : 'border-transparent bg-card',
       )}
     >
+      {batch.state === 'published' ? <span className="mb-2 block text-4xl font-extrabold tracking-tight">v{run.data?.outcome?.version ?? '?'}</span> : <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">Approved &middot; waiting</span>}
       <strong className="block">{batch.name}</strong>
       <span className="block text-sm text-muted-foreground">
         {batch.createdByName || 'Curator'} · revision{' '}
         {batch.approval?.revision ?? batch.revision}
       </span>
-      {batch.approval?.at && (
-        <time className="block text-xs">
-          Approved {new Date(batch.approval.at).toLocaleString()}
-        </time>
-      )}
-      {groups && (
-        <span className="mt-2 block text-xs">
-          {Object.entries(groups)
-            .map(([name, entries]) => `${entries.length} ${name.toLowerCase()}`)
-            .join(' · ')}
-        </span>
-      )}
-      {batch.state === 'published' && (
-        <span className="mt-2 block font-bold">
-          Published · v{run.data?.outcome?.version ?? '?'}
-        </span>
-      )}
+      <time dateTime={date} className="mt-2 block text-xs text-muted-foreground">
+        {publishedAt ? 'Published' : batch.approval?.at ? 'Approved' : 'Created'} {new Date(date).toLocaleString()}
+      </time>
     </button>
   )
 }
@@ -96,11 +74,12 @@ function BatchSelection({
   const [message, setMessage] = useState('')
   const [requestedFrom, setRequestedFrom] = useState<string | null | undefined>(undefined)
   const [rejectedLiveVersion, setRejectedLiveVersion] = useState<number | null>(null)
+  const groups = useMemo(() => groupChanges(detail.data?.plates ?? []), [detail.data])
   if (detail.error) return <p role="alert">Could not load this Batch.</p>
   if (!detail.data) return <p role="status">Loading Batch…</p>
   const { batch, plates } = detail.data
-  const groups = groupChanges(plates)
   const counts = Object.entries(groups)
+    .filter(([, entries]) => entries.length > 0)
     .map(([name, entries]) => `${entries.length} ${name.toLowerCase()}`)
     .join(', ')
   const revision = batch.approval?.revision
@@ -167,6 +146,7 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
+      {batch.state !== 'published' && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
       {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
       {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
         <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
@@ -187,58 +167,7 @@ function BatchSelection({
           run.data.phase === 'waiting-for-publish') && (
           <p role="status">{message}</p>
         )}
-      {Object.entries(groups).map(([name, entries]) => (
-        <section key={name} className="space-y-3">
-          <h2 className="text-lg font-bold">
-            {name}{' '}
-            <span className="text-muted-foreground">{entries.length}</span>
-          </h2>
-          {!entries.length && (
-            <p className="text-sm text-muted-foreground">
-              No {name.toLowerCase()} changes.
-            </p>
-          )}
-          {Object.entries(
-            name === 'Reordered'
-              ? Object.groupBy(entries, (entry) => entry.baseline.state)
-              : { all: entries },
-          ).map(([state, stateEntries]) => (
-            <div key={state} className="space-y-3">
-              {name === 'Reordered' && (
-                <h3 className="font-semibold">{state}</h3>
-              )}
-              {stateEntries?.map((entry) => (
-                <details
-                  key={entry.baseline.id}
-                  className="rounded-2xl border border-border p-3"
-                >
-                  <summary className="cursor-pointer">
-                    <strong>{entry.proposed.displayName}</strong>
-                    <span className="ml-2 text-sm text-muted-foreground">
-                      {name === 'Reordered'
-                        ? `${entry.baseline.state}: moved from ${(entry.order?.before ?? entry.baseline.sortOrder ?? 0) + 1} to ${(entry.order?.after ?? entry.proposed.sortOrder ?? 0) + 1}`
-                        : changeSummary(
-                            entry.baseline,
-                            entry.proposed,
-                            undefined,
-                            name as 'Edited' | 'Regrouped',
-                          )}
-                    </span>
-                  </summary>
-                  <PlateDiff
-                    before={entry.baseline}
-                    after={entry.proposed}
-                    version={batch.baselineVersion}
-                    revision={batch.revision}
-                    positions={entry.order}
-                    order={batch.stateOrders[entry.baseline.state] ?? []}
-                  />
-                </details>
-              ))}
-            </div>
-          ))}
-        </section>
-      ))}
+      <BatchChanges plates={plates} batch={batch} />
       <dialog
         ref={dialog}
         aria-labelledby="publish-title"

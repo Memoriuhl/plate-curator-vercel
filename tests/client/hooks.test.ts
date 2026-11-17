@@ -720,7 +720,7 @@ test('Publish confirmation shows the approved revision, sends the current batch 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
     expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
-    expect(screen.getByText('v12')).toBeDefined()
+    expect(within(screen.getByRole('region', { name: 'Approval run' })).getByText('v12')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
   } finally { Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
