@@ -46,7 +46,7 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
   const groups = suggestion.kind === 'group' ? Map.groupBy(suggestion.proposals, value => value.fields.templateFamily) : null
   return <section aria-label={suggestion.kind === 'image' ? 'Image candidates' : 'Group proposal'} className="grid gap-[var(--stack-gap)]">
     {suggestion.kind === 'image' ? <>
-      <p className="caption">Choose a photo to review in your Batch. Upload is required before publishing.</p>
+      <p className="caption">{onSelectImage ? 'Choose a photo for this run. Your Batch changes only when you apply the run.' : 'Choose a photo to review in your Batch.'} Upload is required before publishing.</p>
       <fieldset disabled={blocked || accepted || saving} className="grid gap-[var(--stack-gap)]">
         <legend className="label">Image candidates</legend>
         {suggestion.candidates.map(value => <div key={value.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
@@ -67,7 +67,7 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
       </div>)}
     </>}
     {accept || onSelectImage && suggestion.kind === 'image' ? <Button size="sm" disabled={blocked || accepted || saving || (suggestion.kind === 'image' ? !candidate || (!onSelectImage && !baseRevision) : batchRevision === undefined)} onClick={() => void apply()}>
-      {accepted ? 'Saved to your Batch' : saving ? 'Saving…' : suggestion.kind === 'image' ? onSelectImage ? 'Use selected image for this run' : 'Apply selected image to your Batch' : 'Apply group to your Batch'}
+      {accepted ? onSelectImage ? 'Selected for this run' : 'Saved to your Batch' : saving ? 'Saving…' : suggestion.kind === 'image' ? onSelectImage ? 'Use selected image for this run' : 'Apply selected image to your Batch' : 'Apply group to your Batch'}
     </Button> : null}
     {error ? <p role="alert" className="caption">{error}</p> : null}
   </section>

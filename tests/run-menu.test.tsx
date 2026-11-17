@@ -540,3 +540,26 @@ test('image candidate choice is explicit and projection-only until aggregate App
   await waitFor(() => expect(choose).toHaveBeenCalledWith('photo'))
   expect(mocks.edit).not.toHaveBeenCalled()
 })
+
+test('image chooser instances have independent radio groups', () => {
+  const candidates: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'photo', title: 'Plate photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64) }] }
+  render(<><SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} onSelectImage={vi.fn()} /><SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} onSelectImage={vi.fn()} /></>)
+  const radios = screen.getAllByRole('radio') as HTMLInputElement[]
+  fireEvent.click(radios[0])
+  fireEvent.click(radios[1])
+  expect(radios.every(radio => radio.checked)).toBe(true)
+  expect(radios[0].name).not.toBe(radios[1].name)
+})
+
+test('a restored durable image choice can resume without changing the checked radio', async () => {
+  const candidates: ImageSuggestion = { kind: 'image', stage: 'find-image', sources: [], candidates: [{ id: 'restored', title: 'Restored photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: 'a'.repeat(64) }] }
+  const choose = vi.fn().mockResolvedValue(undefined)
+  render(<SpecializedSuggestion suggestion={candidates} plates={[]} blocked={false} accepted={false} selectedCandidateId="restored" onSelectImage={choose} />)
+  expect((screen.getByRole('radio') as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByText(/Your Batch changes only when you apply the run/)).toBeTruthy()
+  const button = screen.getByRole('button', { name: 'Use selected image for this run' }) as HTMLButtonElement
+  expect(button.disabled).toBe(false)
+  fireEvent.click(button)
+  await waitFor(() => expect(choose).toHaveBeenCalledWith('restored'))
+  expect(mocks.edit).not.toHaveBeenCalled()
+})

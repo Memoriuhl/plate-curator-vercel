@@ -60,6 +60,10 @@ test('image override edits are paired, gated and cannot publish before managed u
   expect(parseEditableFields({ sourceUrl })).toBeNull()
   expect(parseEditableFields({ imageUrl })).toBeNull()
   expect(parseEditableFields({ imageUrl, sourceUrl })).toEqual({ imageUrl, sourceUrl })
+  expect(parseEditableFields({ imageUrl, sourceUrl: 'not a URL' })).toBeNull()
+  const longSource = `https://commons.wikimedia.org/wiki/File:${'Alaska_'.repeat(20)}Plate.jpg`
+  expect(longSource.length).toBeGreaterThan(120)
+  expect(parseEditableFields({ imageUrl, sourceUrl: longSource })).toEqual({ imageUrl, sourceUrl: longSource })
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
   expect(parseEditableFields({ imageUrl, sourceUrl })).toBeNull()
   expect(validateSnapshot({ version: 1, plates: [plate] }, { version: 2, plates: [{ ...plate, imageUrl, sourceUrl }] })).toContain('Image candidate needs upload before publishing')
