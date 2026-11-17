@@ -1,5 +1,5 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
-import type { Plate } from '../catalog/types'
+import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
@@ -24,7 +24,7 @@ export type ReviewBatch = {
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
 }
-export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & { variantOfPlateId?: string | null; deleted?: boolean }
+export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description'>> & StoryFields & { variantOfPlateId?: string | null; deleted?: boolean }
 export type ProposedEdit = {
   plateId: string
   baseRevision: string

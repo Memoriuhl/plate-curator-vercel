@@ -57,6 +57,11 @@ export function buildPlate(snapshot: Snapshot, curator: CuratorState, imageUrl: 
       ...plateCard(plate, index, imageUrl),
       description: plate.description ?? null, category: text(plate.category),
       sourceUrl: text(plate.sourceUrl), wikiUrl: text(plate.wikiUrl),
+      ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? {
+        funFacts: Array.isArray(plate.funFacts) ? plate.funFacts : [],
+        readMore: Array.isArray(plate.readMore) ? plate.readMore : [],
+        firstIssuedYear: plate.firstIssuedYear ?? null,
+      } : {}),
     },
     family: plate.templateFamily ? plates.flatMap((member, memberIndex) =>
       member.templateFamily === plate.templateFamily ? [plateCard(member, memberIndex, imageUrl)] : []) : [],

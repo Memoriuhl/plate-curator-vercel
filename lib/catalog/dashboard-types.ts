@@ -1,4 +1,4 @@
-import type { StateProgress } from './types'
+import type { StateProgress, StoryFields } from './types'
 
 export type CheckStatus = 'good' | 'weak' | 'missing'
 
@@ -49,7 +49,7 @@ export type DashboardData = { catalogVersion: number; jurisdictions: Jurisdictio
 export type JurisdictionData = { code: string; name: string; region: string; plates: PlateCardData[] }
 
 export type PlateDetail = {
-  plate: PlateCardData & {
+  plate: PlateCardData & StoryFields & {
     description: string | null
     category: string | null
     sourceUrl: string | null

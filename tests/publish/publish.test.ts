@@ -45,6 +45,19 @@ test('refuses a snapshot that drops a plate', () => {
   expect(validateSnapshot(snapshot, { version: 2, plates: [snapshot.plates[0]] })).toContain('Missing baseline plate: two')
 })
 
+test('story edits retain catalog shapes and clear nullable draft markers in the assembled snapshot', async () => {
+  const story = { firstIssuedYear: 1976, funFacts: [{ text: 'Sourced fact', sourceUrl: 'https://example.org/fact' }], readMore: [{ title: 'Reference', site: 'Example', url: 'https://example.org/reference' }], wikiUrl: 'https://en.wikipedia.org/wiki/Plate' }
+  for (const clear of [false, true]) {
+    const f = fixture()
+    const fields = clear ? { firstIssuedYear: null, wikiUrl: null, funFacts: [], readMore: [] } : story
+    f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+    expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+    const output = JSON.parse(Buffer.from(f.blobs.get(2)!).toString()).plates[0]
+    expect(output).toMatchObject(clear ? { funFacts: [], readMore: [] } : story)
+    if (clear) for (const key of ['firstIssuedYear', 'wikiUrl']) expect(output).not.toHaveProperty(key)
+  }
+})
+
 test('refuses two standard plates in a state', async () => {
   const f = fixture()
   f.deps.snapshots.read = async () => ({ ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, isStandard: true })) })

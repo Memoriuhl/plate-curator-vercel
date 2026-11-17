@@ -35,6 +35,7 @@ import { RarityMark } from '@/components/plate/rarity-mark'
 import { cn } from '@/components/utils'
 import { localPipelineReason } from '@/lib/local-pipeline'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
+import { StoryEditor } from './story-editor'
 import {
   useDraftOverlay,
   useEditPlate,
@@ -188,7 +189,11 @@ export function PlatePage(props: PlatePageProps) {
   const { mutate } = useSWRConfig()
   const { edit, pending } = useEditPlate()
   const standardConfirmation = useStandardConfirmation()
-  const detailCard = useMemo(() => [cardData(props.plate)], [props.plate])
+  const localPipeline = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+  const detailCard = useMemo(() => [{ ...cardData(props.plate), ...(localPipeline ? {
+    funFacts: props.plate.funFacts ?? [], readMore: props.plate.readMore ?? [], firstIssuedYear: props.plate.firstIssuedYear ?? null,
+    sourceUrl: props.plate.sourceUrl, wikiUrl: props.plate.wikiUrl,
+  } : {}) }], [props.plate, localPipeline])
   const cards = useMemo(() => props.plates.map(cardData), [props.plates])
   const [plate] = useDraftOverlay(detailCard)
   const plates = useDraftOverlay(cards)
@@ -562,6 +567,10 @@ export function PlatePage(props: PlatePageProps) {
               pending={blocked}
               save={(value, target) => save(target, { description: value || null })}
             />
+            {localPipeline ? <>
+              {(['firstIssuedYear', 'funFacts', 'readMore', 'wikiUrl'] as const).map(field => <div key={field}>{fieldIssue(field)}</div>)}
+              <StoryEditor key={`${current.id}-${current.revision}`} plate={current} pending={blocked} save={save} />
+            </> : <>
             <label className="grid gap-2">
               <span className="label">First issued</span>
               <span title={localPipelineReason('First issued year is not an editable Batch field')}>
@@ -619,6 +628,7 @@ export function PlatePage(props: PlatePageProps) {
                   )
                 })}
             </div>
+            </>}
           </Card>
         </div>
         <Card title={`Family ${current.templateFamily ?? 'unassigned'}`}>

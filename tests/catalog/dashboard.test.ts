@@ -123,7 +123,7 @@ test.each([
   [['First fact', 'Second fact'], 'good', 'First fact\nSecond fact'],
   [[''], 'good', ''],
 ] as const)('fun facts %j produce %s', async (funFacts, status, value) => {
-  expect((await detail({ funFacts })).plate.checks.funFacts).toEqual({ status, value })
+  expect((await detail({ funFacts: funFacts as unknown as Plate['funFacts'] })).plate.checks.funFacts).toEqual({ status, value })
 })
 
 test.each(['rare', { tier: 'rare' }])('rarity returns the tier text for %j', async rarity => {

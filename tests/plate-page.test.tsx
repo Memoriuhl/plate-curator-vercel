@@ -78,7 +78,15 @@ beforeEach(() => {
   })
   state.edit.mockReset().mockResolvedValue({ ok: true })
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllEnvs() })
+
+test('story controls require the local flag on the plate page', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  render(<PlatePage {...props} />)
+  expect(screen.getByRole('spinbutton', { name: 'First issued year' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')).toBe(false)
+  expect(screen.getByRole('button', { name: 'Add link' }).hasAttribute('disabled')).toBe(false)
+})
 
 test('tags normalize on Enter, deduplicate, and remove individually', async () => {
   render(<PlatePage {...props} />)

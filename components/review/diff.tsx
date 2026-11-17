@@ -19,6 +19,11 @@ const changeFields = {
   Regrouped: ['templateFamily', 'templateRole', 'variantOfPlateId'],
   Reordered: ['sortOrder'],
 }
+const storyKeys = ['funFacts', 'firstIssuedYear', 'readMore']
+const factText = (facts: unknown) => Array.isArray(facts) ? facts.map(fact =>
+  fact && typeof fact === 'object' ? [fact.text, fact.sourceTitle, fact.sourceUrl].filter(Boolean).join('\n') : String(fact ?? '')).join('\n\n') : typeof facts === 'string' ? facts : undefined
+const linkText = (links: unknown) => Array.isArray(links) ? links.map(link =>
+  link && typeof link === 'object' ? `${link.title ?? ''} · ${link.site ?? ''}\n${link.url ?? ''}` : String(link ?? '')).join('\n\n') : undefined
 
 export function changeSummary(
   before: Plate,
@@ -27,6 +32,8 @@ export function changeSummary(
   group?: keyof typeof changeFields,
 ) {
   if (after.deleted) return 'Deleted at next Publish'
+  const story = storyKeys
+  const groupKeys = group ? [...changeFields[group], ...(group === 'Edited' ? story : [])] : null
   return (
     [
       'image',
@@ -40,8 +47,9 @@ export function changeSummary(
       'isStandard',
       'sourceUrl',
       'wikiUrl',
+      ...story,
     ]
-      .filter((key) => !group || changeFields[group].includes(key))
+      .filter((key) => !groupKeys || groupKeys.includes(key))
       .flatMap((key) => {
         if (JSON.stringify(before[key]) === JSON.stringify(after[key]))
           return []
@@ -95,6 +103,7 @@ export function DiffTable({
 }) {
   const [visibleSide, setVisibleSide] = useState<'before' | 'after'>('before')
   const comparisonId = useId()
+  const hasStory = storyKeys.some(key => before[key] != null || after[key] != null)
   const position = (plate: Plate) =>
     `${order.indexOf(plate.id) + 1} of ${order.length}`
   const rows = [
@@ -129,7 +138,11 @@ export function DiffTable({
       after.isStandard ? 'Yes' : 'No',
     ],
     ['Rarity', 'not available', 'not available'],
-    ['Fun facts', 'none', 'none'],
+    ['Fun facts', factText(before.funFacts), factText(after.funFacts)],
+    ...(hasStory ? [
+      ['First issued', before.firstIssuedYear, after.firstIssuedYear],
+      ['Read more', linkText(before.readMore), linkText(after.readMore)],
+    ] : []),
     [
       'Links',
       [before.sourceUrl, before.wikiUrl].filter(Boolean).join(', '),
@@ -162,7 +175,7 @@ export function DiffTable({
           ? 'bg-[var(--danger-tint)]'
           : 'bg-[var(--success-tint)]'
         return (
-          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-14 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
+          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:grid md:grid-rows-subgrid', hasStory ? 'md:row-span-16' : 'md:row-span-14', visibleSide === side ? 'grid' : 'hidden')}>
             <h3 className="font-semibold">{side === 'before' ? `Before · Catalog v${version}` : `After · rev ${revision}`}</h3>
             {rows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
@@ -212,7 +225,7 @@ export function groupChanges(plates: BatchDetail['plates']) {
     )
   return {
     Deleted: plates.filter(entry => entry.proposed.deleted === true),
-    Edited: plates.filter((entry) => changed(entry, changeFields.Edited)),
+    Edited: plates.filter((entry) => changed(entry, [...changeFields.Edited, ...storyKeys])),
     Regrouped: plates.filter((entry) => changed(entry, changeFields.Regrouped)),
     Reordered: plates.filter((entry) =>
       !entry.proposed.deleted && (entry.order !== undefined || changed(entry, changeFields.Reordered)),
