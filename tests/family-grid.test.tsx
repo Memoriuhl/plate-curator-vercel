@@ -96,8 +96,8 @@ test('image and title links with nonfocusable status glyphs', () => {
   expect(html.match(/role="img"/g)).toHaveLength(14)
 })
 
-test('hover preview contains identity, description, all checks, chips and overflow', () => {
-  const plate = { ...base, tags: ['one', 'two', 'three', 'four'] }
+test('hover preview contains identity, full description and fun facts, all checks and every tag', () => {
+  const plate = { ...base, tags: ['one', 'two', 'three', 'four'], checks: { ...base.checks, funFacts: { status: 'good' as const, value: 'First fact\nSecond fact' } } }
   const html = renderToStaticMarkup(
     <PlateHoverContent plate={plate} parent="Parent" left={8} top={8} />,
   )
@@ -112,12 +112,16 @@ test('hover preview contains identity, description, all checks, chips and overfl
     'Family',
     'Image',
     'Rarity',
-    '+1',
+    'four',
+    '<li>First fact</li>',
+    '<li>Second fact</li>',
     'Click to open',
   ])
     expect(html).toContain(value)
   if (plate.checks.description.value)
     expect(html).toContain(plate.checks.description.value)
+  expect(html).not.toContain('h-[492px]')
+  expect(html).not.toContain('+1')
 })
 
 test('explicit parent references support legacy templates without a role', () => {
