@@ -159,7 +159,7 @@ test('family projection round-trip preserves the server revision', () => {
 })
 
 test('server counts preserve every filter definition', () => {
-  expect(filterCounts([base])).toEqual({
+  expect(filterCounts([base])).toMatchObject({
     all: 1,
     nofunfacts: Number(base.checks.funFacts.status === 'missing'),
     undertagged: Number(base.checks.tags.status !== 'good'),

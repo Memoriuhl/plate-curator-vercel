@@ -22,6 +22,7 @@ import { useSession } from '@/lib/client/session'
 import {
   groupFamilies,
   matchesPlate,
+  plateIdsForCheck,
   expandFamilyPlate,
   type FamilyPlate,
 } from './family-data'
@@ -56,9 +57,10 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
   )
   const show = params.get('show') ?? 'all'
   const query = params.get('q') ?? ''
+  const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show) : []), [overlaid, show])
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const matches = (plate: PlateCardData) =>
-    matchesPlate(plate, show, query, changedIds)
+    matchesPlate(plate, show, query, changedIds, standardIds)
   const container = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 5, margin: 420, ready: false })
   const [preview, setPreview] = useState<{

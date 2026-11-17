@@ -470,11 +470,14 @@ body {
 }
 .filter-chips {
   display: flex;
-  flex-wrap: wrap;
+  max-width: 100%;
+  overflow-x: auto;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
 }
 .filter-item {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);

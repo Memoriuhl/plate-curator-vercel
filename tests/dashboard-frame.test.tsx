@@ -1,3 +1,9 @@
+vi.mock('../components/ui/tooltip', () => ({
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <span role="tooltip">{children}</span>,
+}))
 import { filterCounts } from '../components/dashboard/family-data'
 import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
