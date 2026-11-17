@@ -22,6 +22,9 @@ export type Plate = StoryFields & {
   isStandard?: boolean
   sortOrder?: number
   description?: string | null
+  funFacts?: { text: string; sourceUrl: string; sourceTitle?: string }[]
+  readMore?: { title: string; url: string; site?: string }[]
+  wikiUrl?: string | null
   [key: string]: unknown
 }
 

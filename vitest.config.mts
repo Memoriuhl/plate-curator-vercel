@@ -8,7 +8,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'client',
-          include: ['tests/client/copy-recovery.test.tsx', 'tests/standard-confirmation.test.tsx', 'tests/publish-control-ui.test.tsx', 'tests/shared-batch-live.test.tsx', 'tests/shared-batch-lifecycle.test.tsx', 'tests/shared-batch-conflicts.test.tsx', 'tests/invite-page.test.tsx', 'tests/members-page.test.tsx', 'tests/sign-in-form.test.tsx', 'tests/client/session.test.tsx', 'tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx', 'tests/plate-drag.test.tsx', 'tests/client/navigation-layout.test.tsx', 'tests/client/review-comparison.test.tsx'],
+          include: ['tests/research/ui.test.tsx', 'tests/client/copy-recovery.test.tsx', 'tests/standard-confirmation.test.tsx', 'tests/publish-control-ui.test.tsx', 'tests/shared-batch-live.test.tsx', 'tests/shared-batch-lifecycle.test.tsx', 'tests/shared-batch-conflicts.test.tsx', 'tests/invite-page.test.tsx', 'tests/members-page.test.tsx', 'tests/sign-in-form.test.tsx', 'tests/client/session.test.tsx', 'tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx', 'tests/plate-drag.test.tsx', 'tests/client/navigation-layout.test.tsx', 'tests/client/review-comparison.test.tsx'],
           environment: 'jsdom',
         },
       },
@@ -18,6 +18,7 @@ export default defineConfig({
           name: 'node',
           exclude: [
             ...configDefaults.exclude,
+            'tests/research/ui.test.tsx',
             'tests/client/copy-recovery.test.tsx',
             'tests/standard-confirmation.test.tsx',
             'tests/publish-control-ui.test.tsx',

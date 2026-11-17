@@ -28,6 +28,9 @@ export type ResearchJob = {
   error?: string
   replacedBy?: string
   completedAt?: number
+  acceptedRevision?: string
+  acceptedFields?: string[]
+  legacyRevision?: string
 }
 
 export const emptyResearchDraft = (): ResearchDraft => ({ description: null, descriptionSources: [], funFacts: [], readMore: [], wikiSource: null })

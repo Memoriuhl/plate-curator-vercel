@@ -4,21 +4,42 @@ import { saveEvidence } from './evidence'
 import type { EvidenceSource, ResearchInput, ResearchResult } from './types'
 import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
+import { reserveResearchSpend } from './budget'
 
-type SessionContext = { session: { id: string; turn: { id: string } } }
+type SessionContext = { session: { id: string; turn: { id: string }; auth?: { current: { principalId: string; authenticator: string } | null } } }
 export type ResearchSessionBinding = { ownerUid: string; jobId?: string; input?: ResearchInput }
 
 export async function researchTurn(ctx: SessionContext, providedStore?: ResearchStateStore) {
   const store = providedStore ?? await researchState()
   const binding = await store.read<ResearchSessionBinding>(`session/${ctx.session.id}`)
+  if (!providedStore) {
+    const principal = ctx.session.auth?.current
+    const local = process.env.EVE_DEV === '1' && !process.env.VERCEL && principal?.authenticator === 'local-dev'
+    if (!local) {
+      const { activeResearchOwner } = await import('./auth')
+      if (!principal || !binding || binding.ownerUid !== principal.principalId || !(await activeResearchOwner(principal.principalId))) throw new Error('Research caller is no longer an active Owner')
+    }
+  }
   const runId = binding?.jobId ?? `${ctx.session.id}/${ctx.session.turn.id}`
+  let jobDeadline: number | undefined
+  if (binding?.jobId && !providedStore) {
+    const { researchDatabase, researchEnvironment } = await import('./storage')
+    const { firestoreResearchStore } = await import('./firestore-store')
+    const job = await firestoreResearchStore(await researchDatabase(), researchEnvironment()).transaction(tx => tx.get(binding.jobId!))
+    if (!job || job.executor !== 'eve' || !['queued', 'running'].includes(job.state)) throw new Error('Research request is no longer active')
+    jobDeadline = job.deadline
+  }
   const deadline = await store.update<number, number>(`deadline/${runId}`, prior => {
-    const value = prior ?? Date.now() + 300000
+    const value = prior ?? jobDeadline ?? Date.now() + 300000
     return { value, result: value }
   })
   return {
     store, runId, deadline, binding,
-    async reserve(kind: ResearchCall) { return await reserveResearchCall(runId, kind, { store, now: Date.now, deadline }) === 'reserved' },
+    async reserve(kind: ResearchCall) {
+      if (await reserveResearchCall(runId, kind, { store, now: Date.now, deadline }) !== 'reserved') return false
+      if (kind !== 'model' && kind !== 'web-search') return true
+      return reserveResearchSpend(store, process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', runId, kind === 'model' ? 'model' : 'search', kind === 'model' ? 0.2 : 0.01, Number(process.env.RESEARCH_BUDGET_USD ?? '2'))
+    },
     async evidence(source: EvidenceSource) { return saveEvidence(store, runId, source) },
   }
 }

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Firestore } from '@google-cloud/firestore'
 import type { ResearchStateStore } from './state'
+import { fileResearchState } from './file-state'
 
 let database: Firestore | undefined
 export function researchEnvironment() {
@@ -35,36 +36,7 @@ export function firestoreResearchState(db: Firestore, env: string): ResearchStat
   }
 }
 
-let localPending = Promise.resolve()
-function localResearchState(): ResearchStateStore {
-  return {
-    async read<T>(key: string) {
-      await localPending
-      const { readFile } = await import('node:fs/promises')
-      try { return JSON.parse(await readFile(`.eve/research/${createHash('sha256').update(key).digest('hex')}.json`, 'utf8')) as T }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
-    },
-    async update<T, R>(key: string, change: (value: T | null) => { value: T; result: R }) {
-      let release!: () => void
-      const previous = localPending
-      localPending = new Promise(resolve => { release = resolve })
-      await previous
-      const { mkdir, readFile, writeFile, rename } = await import('node:fs/promises')
-      try {
-        const path = `.eve/research/${createHash('sha256').update(key).digest('hex')}.json`
-        let value: T | null = null
-        try { value = JSON.parse(await readFile(path, 'utf8')) as T } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-        const changed = change(value)
-        await mkdir('.eve/research', { recursive: true })
-        await writeFile(path + '.tmp', JSON.stringify(changed.value))
-        await rename(path + '.tmp', path)
-        return changed.result
-      } finally { release() }
-    },
-  }
-}
-
 export async function researchState(): Promise<ResearchStateStore> {
-  if (process.env.EVE_DEV === '1' && !process.env.VERCEL) return localResearchState()
+  if (process.env.EVE_DEV === '1' && !process.env.VERCEL) return fileResearchState('.eve/research')
   return firestoreResearchState(await researchDatabase(), researchEnvironment())
 }
