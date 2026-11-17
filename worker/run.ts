@@ -35,8 +35,6 @@ interface Claim {
   plate: WorkerPlate
   local?: boolean
   queueRunId?: string
-  groupScope?: { plate: Plate; baseRevision: string }[]
-  stageOptions?: PipelineOptions[keyof PipelineOptions]
 }
 
 export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
@@ -99,7 +97,7 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   } else {
     let imageB64: string
     try {
-      imageB64 = await deps.readImage(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? claim.plate.imageUrl || claim.plate.image : claim.plate.image)
+      imageB64 = await deps.readImage(claim.local && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? claim.plate.imageUrl || claim.plate.image : claim.plate.image)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       backend = 'missing-image'

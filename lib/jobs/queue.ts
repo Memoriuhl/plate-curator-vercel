@@ -9,6 +9,8 @@ import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
 import type { JobsDeps, JobsTransaction } from './types'
 import type { EnqueueInput, PipelineRun, QueueOutcome, QueueRunView } from './queue-types'
 import { chooseTaggingModel, enabledTaggingModels } from '../tagging/models'
+import { completeGroupScope } from '../review/group-context'
+import type { Plate } from '../catalog/types'
 
 export const queueLimits = { gpu: 1, io: 2 } as const
 export const queueStageTimeoutMs = 10 * 60_000
@@ -49,6 +51,15 @@ export async function queuePlate(d: JobsDeps, tx: JobsTransaction, batchId: stri
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
+export async function queueGroupContext(d: JobsDeps, tx: JobsTransaction, batch: ReviewBatch, selected: Plate[]) {
+  if (!selected.length || !d.stateBaseline || selected.some(plate => !batch.plateIds.includes(plate.id)) || new Set(selected.map(plate => plate.state)).size !== 1) return null
+  const baselines = await d.stateBaseline(batch.baselineVersion, selected[0].state, 'snapshot')
+  const statePlates: Plate[] = []
+  for (const baseline of baselines) statePlates.push(batch.plateIds.includes(baseline.id) ? await queuePlate(d, tx, batch.id, baseline.id) ?? baseline : baseline)
+  if (!completeGroupScope(selected, statePlates)) return null
+  return { statePlates, standardId: batch.stateOrders[selected[0].state]?.[0] ?? baselines[0]?.id }
+}
+
 export async function currentProjectionMatches(d: JobsDeps, tx: JobsTransaction, run: PipelineRun, batch: ReviewBatch) {
   const projection = run.attempts.at(-1)!.projection
   if (!projection) return false
@@ -82,7 +93,7 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
       if (!plate) return { ok: false, error: 'not_found' }
       plates.push(plate)
     }
-    if (parsed.stages.includes('group') && new Set(plates.map(plate => plate.state)).size !== 1) return { ok: false, error: 'bad_request' }
+    if (parsed.stages.includes('group') && !await queueGroupContext(d, tx, batch!, plates)) return { ok: false, error: 'invalid_state' }
     const steps = planPipeline(plates, parsed.stages, parsed.options!)
     if (!steps.length) return { ok: false, error: 'invalid_state' }
     const now = d.now()
@@ -113,7 +124,8 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
         applied: !!batch.pipelineApplications?.[`${run.id}:${run.attempts.at(-1)!.number}`] })
     }
     return { ok: true, value: [...visible.filter(run => ['queued', 'running'].includes(run.status)),
-      ...visible.filter(run => !['queued', 'running'].includes(run.status)).slice(0, 50)] }
+      ...visible.filter(run => !['queued', 'running'].includes(run.status))
+        .sort((a, b) => (b.attempts.at(-1)?.endedAt ?? b.updatedAt) - (a.attempts.at(-1)?.endedAt ?? a.updatedAt) || a.id.localeCompare(b.id)).slice(0, 50)] }
   })
 }
 

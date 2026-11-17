@@ -16,7 +16,7 @@ async function setup(group = false) {
     templateFamily: 'AK.one', templateRole: index ? 'variant' as const : 'template' as const, variantOfPlateId: index ? 'AK.one' : null, isStandard: !index }))
   const store = createMemoryStore([{ id: 'batch', name: 'Queue', createdBy: actor.uid, createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: plates.map(plate => plate.id), approval: null, stateOrders: { AK: plates.map(plate => plate.id) } }])
   const baseline = async (id: string) => plates.find(plate => plate.id === id) ?? null
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('test-bundle')), localScope: 'test-bundle', baseline, now: () => 100, id: () => 'id', leaseMs: 1000 }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('test-bundle')), localScope: 'test-bundle', baseline, stateBaseline: async () => plates, now: () => 100, id: () => 'id', leaseMs: 1000 }
   const review: ReviewDeps = { store, baseline, baselineAtVersion: async (_version, id) => baseline(id), stateBaseline: async () => plates, now: () => 'today' }
   const created = await enqueueRun(jobs, actor, { requestId: 'bundle', batchId: 'batch', plateIds: plates.map(plate => plate.id), stages: group ? ['describe', 'group'] : ['wiki-link', 'describe', 'story'] })
   if (!created.ok) throw Error(created.error)

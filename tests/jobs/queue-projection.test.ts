@@ -7,7 +7,7 @@ const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', imag
 function result(overrides: Partial<TaggingJob> = {}): TaggingJob {
   return { id: 'description', batchId: 'batch', plateId: plate.id, requestedBy: 'editor', inputHash: plateRevision(plate),
     executionHash: plateRevision(plate), env: 'preview:local-pipeline-test', localScope: 'test', createdAt: 100, state: 'completed', stage: 'describe',
-    result: { suggestions: [], fieldSuggestion: { stage: 'describe', fields: { description: 'A sourced description' }, sources: ['https://example.org/wiki'] },
+    result: { suggestions: [], fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'A sourced description' }, sources: ['https://example.org/wiki'] },
       backend: 'test', model: 'fixture', promptVersion: 'v1', durationMs: 10 }, ...overrides }
 }
 

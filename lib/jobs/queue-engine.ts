@@ -1,4 +1,4 @@
-import { currentProjectionMatches, finishRun, localQueueEnabled, queuePermission, queueRecordFits } from './queue'
+import { currentProjectionMatches, finishRun, localQueueEnabled, queuePermission, queueRecordFits, queueGroupContext } from './queue'
 import { plateRevision } from '../review/revision'
 import { projectJob } from './queue-projection'
 import type { Actor } from '../review/types'
@@ -33,6 +33,8 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     let error: string | undefined
     if (!batch || batch.state !== 'open') error = 'batch_read_only'
     else if (!await currentProjectionMatches(d, tx, run, batch)) error = 'stale_input'
+    const groupContext = step.stage === 'group' && batch ? await queueGroupContext(d, tx, batch, Object.values(attempt.projection!.plates).map(entry => entry.batchInput)) : null
+    if (step.stage === 'group' && !groupContext) error = 'invalid_group_scope'
     if (run.cancelRequestedAt !== undefined || error) {
       finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), error)
       tx.setRun(run); return null
@@ -44,7 +46,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
       completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId ? { modelId: run.modelId } : {}),
       ...(run.options[step.stage as keyof typeof run.options] ? { stageOptions: run.options[step.stage as keyof typeof run.options] } : {}),
-      ...(step.stage === 'group' ? { groupScope: Object.values(attempt.projection!.plates).map(entry => ({ plate: entry.executionPlate, baseRevision: entry.batchInputHash })) } : {}),
+      ...(step.stage === 'group' ? { groupScope: Object.values(attempt.projection!.plates).map(entry => ({ plate: entry.executionPlate, baseRevision: entry.batchInputHash })), ...(groupContext?.standardId ? { standardId: groupContext.standardId } : {}) } : {}),
     }
     attempt.jobIds.push(jobId); attempt.status = 'running'; run.waitReason = 'worker'; run.updatedAt = d.now()
     if (!queueRecordFits(run)) { finishRun(run, 'failed', d.now(), 'payload_too_large'); tx.setRun(run); return null }
@@ -52,8 +54,6 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     return jobId
   })
 }
-
-type ImageResult = { kind?: string; candidates?: { id: string; imageUrl: string; sourceUrl: string }[] }
 
 export async function observeQueueStage(d: JobsDeps, id: string, number: number, index: number): Promise<StageObservation> {
   if (!localQueueEnabled(d)) return { phase: 'done' }
@@ -80,9 +80,10 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
     if (run.cancelRequestedAt !== undefined) finishRun(run, 'cancelled', d.now())
     else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
     else if (job.result?.stageError) {
-      attempt.outcome = 'no_result'; finishRun(run, 'failed', d.now(), job.result.stageError)
+      if (['no_sources', 'no_supported_fields'].includes(job.result.stageError)) attempt.outcome = 'no_result'
+      finishRun(run, 'failed', d.now(), job.result.stageError)
     } else {
-      const raw = job.result?.fieldSuggestion as ImageResult | undefined
+      const raw = job.result?.fieldSuggestion
       const candidateId = attempt.choices[job.id]
       if (raw?.kind === 'image' && !candidateId) {
         if (run.waitReason !== 'image_choice') { run.status = 'running'; run.waitReason = 'image_choice'; run.updatedAt = d.now(); tx.setRun(run) }
@@ -126,7 +127,7 @@ export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jo
     if (error) return { ok: false, error }
     const job = await tx.get(jobId)
     const attempt = run.attempts.at(-1)!
-    const raw = job?.result?.fieldSuggestion as ImageResult | undefined
+    const raw = job?.result?.fieldSuggestion
     if (!job || job.queueRunId !== run.id || job.queueAttempt !== attempt.number || job.queueStep !== attempt.cursor || job.state !== 'completed' ||
       raw?.kind !== 'image' || !raw.candidates?.some(candidate => candidate.id === candidateId) || run.cancelRequestedAt !== undefined) return { ok: false, error: 'invalid_state' }
     if (!await currentProjectionMatches(d, tx, run, batch!)) return { ok: false, error: 'stale_input' }

@@ -8,7 +8,7 @@ import type { GroupSuggestion, ImageSuggestion } from '@/lib/jobs/specialized-su
 
 export type SpecializedAccept = { candidateId: string; baseRevision: string } | { batchRevision: number }
 
-export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchRevision, blocked, accepted, selectedCandidateId, onSelectImage, accept }: {
+export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchRevision, blocked, accepted, selectedCandidateId, onSelectImage, accept, previewOnly }: {
   suggestion: ImageSuggestion | GroupSuggestion
   plates: Plate[]
   baseRevision?: string
@@ -16,6 +16,7 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
   blocked: boolean
   accepted: boolean
   selectedCandidateId?: string
+  previewOnly?: boolean
   onSelectImage?(candidateId: string): Promise<void>
   accept?(payload: SpecializedAccept): Promise<void>
 }) {
@@ -46,7 +47,7 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
   const groups = suggestion.kind === 'group' ? Map.groupBy(suggestion.proposals, value => value.fields.templateFamily) : null
   return <section aria-label={suggestion.kind === 'image' ? 'Image candidates' : 'Group proposal'} className="grid gap-[var(--stack-gap)]">
     {suggestion.kind === 'image' ? <>
-      <p className="caption">{onSelectImage ? 'Choose a photo for this run. Your Batch changes only when you apply the run.' : 'Choose a photo to review in your Batch.'} Upload is required before publishing.</p>
+      <p className="caption">{previewOnly ? 'Choose a photo to inspect in this Preview run. These results cannot be applied.' : onSelectImage ? 'Choose a photo for this run. Your Batch changes only when you apply the run.' : 'Choose a photo to review in your Batch.'} Upload is required before publishing.</p>
       <fieldset disabled={blocked || accepted || saving} className="grid gap-[var(--stack-gap)]">
         <legend className="label">Image candidates</legend>
         {suggestion.candidates.map(value => <div key={value.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
@@ -57,7 +58,7 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
         </div>)}
       </fieldset>
     </> : <>
-      <p className="caption">{suggestion.scope.length} plates in {groups!.size} proposed {groups!.size === 1 ? 'family' : 'families'}. All changes apply together. State order and Standard stay in place.</p>
+      <p className="caption">{suggestion.scope.length} plates in {groups!.size} proposed {groups!.size === 1 ? 'family' : 'families'}. {previewOnly ? 'Preview results cannot be applied.' : 'All changes apply together.'} State order and Standard stay in place.</p>
       {[...groups!].map(([family, members]) => <div key={family} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
         <strong>{plates.find(plate => plate.id === members.find(member => member.fields.templateRole === 'template')?.plateId)?.displayName ?? family}</strong>
         <ul className="grid gap-2">{members.map(member => {

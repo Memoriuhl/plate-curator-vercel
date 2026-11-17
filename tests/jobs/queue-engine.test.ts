@@ -91,14 +91,14 @@ test('round robin gives another requester a stage boundary while preserving same
 test('sequential projected Wiki/Describe/Story survives server reconstruction and missed callback, never writes Batch', async () => {
   const s = setup()
   const run = await s.run('chain', ['wiki-link', 'describe', 'story'])
-  const wiki = await s.complete('worker', { ...base, fieldSuggestion: { stage: 'wiki-link', fields: { wikiUrl: 'https://example.org/wiki' }, sources: ['https://example.org/wiki'] } })
+  const wiki = await s.complete('worker', { ...base, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: 'https://example.org/wiki' }, sources: ['https://example.org/wiki'] } })
   await dispatchQueueStage({ ...s.deps }, run.id, 1, 1, 'description-hook')
   const describe = await claimNext(s.deps, 'worker')
   expect(describe?.job.inputPlate?.wikiUrl).toBe('https://example.org/wiki')
   expect(describe?.job.inputHash).toBe(wiki.job.inputHash)
   expect(describe?.job.executionHash).not.toBe(wiki.job.inputHash)
   await reportResult(s.deps, 'worker', describe!.job.id, describe!.claimId, { ...base,
-    fieldSuggestion: { stage: 'describe', fields: { description: 'Sourced' }, sources: ['https://example.org/wiki'] } })
+    fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'Sourced' }, sources: ['https://example.org/wiki'] } })
   expect(await observeQueueStage({ ...s.deps }, run.id, 1, 1)).toEqual({ phase: 'next' })
   await dispatchQueueStage(s.deps, run.id, 1, 2, 'story-hook')
   expect((await claimNext(s.deps, 'worker'))?.job.inputPlate?.description).toBe('Sourced')
@@ -143,7 +143,7 @@ test('cancellation is immediate before claim but remains requested until active 
 test('retry preserves completed result provenance, deduplicates command, rejects changed Batch and bounds attempt growth', async () => {
   const s = setup()
   const run = await s.run('retry', ['describe', 'story'])
-  const done = await s.complete('worker', { ...base, fieldSuggestion: { stage: 'describe', fields: { description: 'Sourced' }, sources: ['https://example.org/wiki'] } })
+  const done = await s.complete('worker', { ...base, fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'Sourced' }, sources: ['https://example.org/wiki'] } })
   await dispatchQueueStage(s.deps, run.id, 1, 1, 'story')
   const failed = (await claimNext(s.deps, 'worker'))!
   await failLocalJob(s.deps, 'worker', failed.job.id, failed.claimId, 'stage_failed')
@@ -213,6 +213,15 @@ test('list keeps every visible active run after more than fifty newer terminal o
   expect(listed.value).toHaveLength(51)
   expect(listed.value.some(run => run.id === active.id && run.status === 'queued')).toBe(true)
   expect(listed.value.filter(run => run.status === 'completed')).toHaveLength(50)
+  const claim = (await claimNext(s.deps, 'worker'))!
+  s.advance(1000)
+  await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'stage_failed')
+  await observeQueueStage(s.deps, active.id, 1, 0)
+  const failed = await listRuns(s.deps, actor)
+  expect(failed).toMatchObject({ ok: true })
+  if (!failed.ok) throw Error(failed.error)
+  expect(failed.value[0]).toMatchObject({ id: active.id, status: 'failed', editable: true })
+  expect(await retryRun(s.deps, actor, active.id, 'retry-old-visible')).toMatchObject({ ok: true })
 })
 
 test('a dead worker stays reserved until explicit exact stale-claim recovery confirms it stopped', async () => {

@@ -79,7 +79,7 @@ test('authentication and other-owner visibility/mutations reject without exposin
   await POST(post())
   const [run] = await deps.store.transaction(tx => tx.runs())
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
-  expect(await (await GET(get())).json()).toEqual({ runs: [], orphanJobs: [], observedAt: 100 })
+  expect(await (await GET(get())).json()).toMatchObject({ runs: [], orphanJobs: [], observedAt: 100, capabilities: { previewOnly: { available: true } } })
   expect((await cancel(new Request('https://example.org', { method: 'POST' }), { params: Promise.resolve({ id: run.id }) })).status).toBe(403)
   expect(await claimNext({ ...deps, localScope: undefined }, 'production')).toBeNull()
 })

@@ -1,10 +1,10 @@
 import type { Plate } from '../catalog/types'
 import type { EditableFields, ReviewBatch } from '../review/types'
 import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
-import type { ImageGroupOptions } from './image-options'
+
 import type { WorkerCapabilityRecord } from './capabilities'
 import type { PipelineRun, ResourceClass } from './queue-types'
-import type { PipelineOptions } from './pipeline-options'
+import type { ImageGroupOptions } from './image-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
@@ -29,15 +29,13 @@ export type TaggingJob = {
   previewOnly?: boolean
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions
   queueRunId?: string
-  previewOnly?: boolean
   queueAttempt?: number
   enqueuedBy?: string
   queueStep?: number
   queueOrder?: number
   completionHook?: string
-  stageOptions?: PipelineOptions[keyof PipelineOptions]
+  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean }
   resourceClass?: ResourceClass
   failure?: string
   createdAt: number
@@ -72,6 +70,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string): Promise<Plate[]>; now(): number; id(): string; leaseMs: number; localScope?: string }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; now(): number; id(): string; leaseMs: number; localScope?: string }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

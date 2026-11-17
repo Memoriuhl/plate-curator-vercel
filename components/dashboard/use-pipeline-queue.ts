@@ -10,6 +10,7 @@ import type { EnqueueInput, LocalRunStage, PipelineRun, QueueRunSummary, QueueRu
 import type { PipelineOptions } from '@/lib/jobs/pipeline-options'
 import type { RunPlate } from './use-tag-run'
 import type { TaggingJob } from '@/lib/jobs/types'
+import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 
 export const pipelineQueueKey = '/api/local-pipeline/runs'
 
@@ -39,7 +40,7 @@ export function usePipelineQueue(existingBatchId?: string | null) {
   const [message, setMessage] = useState('')
   const [selectedId, select] = useState<string | undefined>()
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
-  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
+  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number; capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>> }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
   useEffect(() => {
     if (!uid || !list.data) return
     try {
@@ -120,6 +121,6 @@ export function usePipelineQueue(existingBatchId?: string | null) {
     return perform(`recover:${job.id}`, async () => api.send('POST', `/api/jobs/${job.id}/recover`, { claimId: job.claimId, workerStopped: true }))
   }
 
-  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected, observedAt: list.data?.observedAt, select, loading: list.isLoading, error: list.error, refresh: list.mutate,
+  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected, capabilities: list.data?.capabilities, observedAt: list.data?.observedAt, select, loading: list.isLoading, error: list.error, refresh: list.mutate,
     action, message, disabledReason, enqueue, cancel, retry, apply, chooseImage, recover, recoverOrphan }
 }

@@ -8,6 +8,7 @@ import type { QueueRunSummary, QueueRunView } from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import { PipelineFieldValue, pipelineFieldLabel } from './pipeline-field-value'
 import { pipelineStages } from './pipeline-stages'
+import { SpecializedSuggestion } from './specialized-suggestion'
 
 type QueueControls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'selected' | 'select' | 'loading' | 'error' | 'refresh' | 'action' | 'message' | 'cancel' | 'retry' | 'apply' | 'chooseImage' | 'recover'> &
   Partial<Pick<ReturnType<typeof usePipelineQueue>, 'orphanJobs' | 'recoverOrphan' | 'observedAt'>>
@@ -28,7 +29,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
   const attempt = selected?.attempts.at(-1)
   const entries = Object.values(attempt?.projection?.plates ?? {})
   const plateNames = Object.fromEntries(entries.map(entry => [entry.batchInput.id, entry.batchInput.displayName]))
-  const currentJob = selected?.jobs.find(job => job.queueAttempt === attempt?.number && job.queueStep === attempt.cursor)
+  const currentJob = selected?.jobs.find(job => job.queueAttempt === attempt?.number && job.queueStep === attempt?.cursor)
   const leaseActive = currentJob?.leaseExpiresAt !== undefined && (queue.observedAt === undefined || currentJob.leaseExpiresAt > queue.observedAt)
   return <section aria-label="Pipeline queue and history" className="col-span-full grid basis-full gap-[var(--stack-gap)] rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]">
     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="label">Pipeline queue and history</h2>
@@ -64,7 +65,15 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       <div className="flex flex-wrap justify-between gap-2"><h3 className="label">Coherent run result</h3>
         <Button size="sm" variant="ghost" onClick={() => queue.select('none')}>Hide results</Button></div>
       <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>
-      {selected.waitReason === 'image_choice' && currentJob ? renderSpecialized?.(currentJob, selected) ?? <p role="status">Select an image candidate to continue this run.</p> : null}
+      {selected.jobs.filter(job => job.result?.fieldSuggestion?.kind === 'image' || job.result?.fieldSuggestion?.kind === 'group').map(job => {
+        const suggestion = job.result!.fieldSuggestion!
+        if (suggestion.kind === 'fields') return null
+        const choice = selected.waitReason === 'image_choice' && currentJob?.id === job.id
+        return <div key={job.id}>{renderSpecialized?.(job, selected) ?? <SpecializedSuggestion suggestion={suggestion} plates={entries.map(entry => entry.batchInput)}
+          previewOnly={selected.previewOnly} blocked={!!queue.action || !choice || !selected.editable} accepted={selected.applied || suggestion.kind === 'image' && !!attempt?.choices[job.id]}
+          selectedCandidateId={attempt?.choices[job.id]}
+          {...(suggestion.kind === 'image' ? { onSelectImage: async (candidateId: string) => { if (!await queue.chooseImage(selected.id, job.id, candidateId)) throw Error('Image choice was not saved') } } : {})} />}</div>
+      })}
       {entries.map(entry => {
         const fields = editableFieldKeys().filter(key => JSON.stringify(entry.batchInput[key]) !== JSON.stringify(entry.executionPlate[key]))
         return fields.length ? <details key={entry.batchInput.id} className="rounded-[var(--radius-md)] bg-[var(--fill)] p-3"><summary className="cursor-pointer">{entry.batchInput.displayName} · {fields.length} changed fields</summary>

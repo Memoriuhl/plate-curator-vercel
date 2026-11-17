@@ -6,8 +6,12 @@ import { sameEditableValue } from '../review/story'
 import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from '../review/types'
 import { localQueueEnabled } from './queue'
 import type { JobsDeps } from './types'
+import { verifiedImageFields } from '../review/image'
+import { validGroupContext } from '../review/group-context'
+import { parseFieldSuggestion } from './suggestions'
+import type { ImageCandidate } from './specialized-suggestions'
 
-export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor: Actor, id: string): Promise<Outcome<ReviewBatch>> {
+export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor: Actor, id: string, readImage?: Parameters<typeof verifiedImageFields>[1]): Promise<Outcome<ReviewBatch>> {
   if (!localQueueEnabled(jobs)) return { ok: false, error: 'forbidden' }
   const run = await jobs.store.transaction(async tx => (await tx.runs()).find(run => run.id === id && run.localScope === jobs.localScope))
   if (!run) return { ok: false, error: 'not_found' }
@@ -32,15 +36,29 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     baselines.set(baseline.id, baseline); current.set(baseline.id, actual)
   }
   const changes = new Map<string, Partial<Plate>>()
+  const storedJobs = await jobs.store.transaction(async tx => {
+    const result = []
+    for (const id of attempt.completedJobIds) {
+      const job = await tx.get(id)
+      if (job?.queueRunId === run.id && job.localScope === jobs.localScope && job.batchId === batch.id && job.state === 'completed') result.push(job)
+    }
+    return result
+  })
+  if (storedJobs.length !== attempt.completedJobIds.length) return { ok: false, error: 'invalid_state' }
   for (const entry of Object.values(attempt.projection.plates)) {
     const before = current.get(entry.batchInput.id)!
     const fields: Record<string, unknown> = Object.fromEntries(editableFieldKeys().filter(key => !sameEditableValue(key, before[key], entry.executionPlate[key]))
       .map(key => [key, entry.executionPlate[key]]))
     if (!Object.keys(fields).length) continue
+    let candidate: ImageCandidate | undefined
     if (Object.hasOwn(fields, 'sourceUrl') || Object.hasOwn(fields, 'imageUrl')) {
       fields.imageUrl = entry.executionPlate.imageUrl; fields.sourceUrl = entry.executionPlate.sourceUrl
+      const imageJob = storedJobs.findLast(job => job.plateId === before.id && job.stage === 'find-image' && entry.sourceJobIds.includes(job.id))
+      const suggestion = parseFieldSuggestion(imageJob?.result?.fieldSuggestion, 'find-image')
+      candidate = suggestion?.kind === 'image' ? suggestion.candidates.find(value => value.id === attempt.choices[imageJob!.id]) : undefined
+      if (!candidate || candidate.imageUrl !== fields.imageUrl || candidate.sourceUrl !== fields.sourceUrl || !await verifiedImageFields(candidate, readImage)) return { ok: false, error: 'invalid_state' }
     }
-    const parsed = parseEditableFields(fields)
+    const parsed = parseEditableFields(fields, candidate)
     if (!parsed) return { ok: false, error: 'invalid_state' }
     changes.set(before.id, parsed)
   }
@@ -48,18 +66,16 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     const selected = [...current.values()]
     if (!selected.length || new Set(selected.map(plate => plate.state)).size !== 1) return { ok: false, error: 'invalid_state' }
     const state = selected[0].state
-    const statePlates = (await review.stateBaseline(batch.baselineVersion, state)).map(plate => ({ ...plate, ...edits.find(edit => edit.plateId === plate.id)?.fields }))
-    const ids = new Set(selected.map(plate => plate.id))
-    const families = new Set(selected.map(plate => plate.templateFamily).filter(Boolean))
-    if (statePlates.some(plate => !plate.deleted && !ids.has(plate.id) && (families.has(plate.templateFamily) || ids.has(plate.variantOfPlateId ?? ''))) ||
-      selected.some(plate => plate.deleted || plate.variantOfPlateId && !ids.has(plate.variantOfPlateId))) return { ok: false, error: 'invalid_state' }
-    const standardId = batch.stateOrders[state]?.[0] ?? statePlates.find(plate => plate.isStandard)?.id ?? statePlates[0]?.id
-    const proposed = selected.map(plate => ({ ...plate, ...changes.get(plate.id) }))
-    if (proposed.some(plate => plate.id === standardId && plate.templateRole !== 'template')) return { ok: false, error: 'invalid_state' }
-    const templates = proposed.filter(plate => plate.templateRole === 'template')
-    if (templates.some(plate => plate.templateFamily !== plate.id) || statePlates.some(plate => !plate.deleted && !ids.has(plate.id) &&
-      templates.some(template => template.templateFamily === plate.templateFamily))) return { ok: false, error: 'invalid_state' }
-    if (proposed.some(plate => plate.templateRole === 'variant' && !templates.some(template => template.id === plate.variantOfPlateId && template.templateFamily === plate.templateFamily))) return { ok: false, error: 'invalid_state' }
+    const statePlates = (await review.stateBaseline(batch.baselineVersion, state, 'snapshot')).map(plate => ({ ...plate, ...edits.find(edit => edit.plateId === plate.id)?.fields }))
+    const standardId = batch.stateOrders[state]?.[0] ?? statePlates[0]?.id
+    const groupJob = storedJobs.findLast(job => job.stage === 'group')
+    const suggestion = parseFieldSuggestion(groupJob?.result?.fieldSuggestion, 'group')
+    if (selected.some(plate => !batch.plateIds.includes(plate.id)) || !groupJob || groupJob.standardId !== standardId || suggestion?.kind !== 'group' ||
+      suggestion.scope.some(member => attempt.projection!.plates[member.plateId]?.batchInputHash !== member.baseRevision) ||
+      !validGroupContext(suggestion, selected, statePlates, standardId) || suggestion.proposals.some(proposal => {
+        const projected = attempt.projection!.plates[proposal.plateId]?.executionPlate
+        return !projected || Object.entries(proposal.fields).some(([key, value]) => projected[key as keyof Plate] !== value)
+      })) return { ok: false, error: 'invalid_state' }
   }
   const nextEdits: ProposedEdit[] = []
   const deleteEditsFor: string[] = []

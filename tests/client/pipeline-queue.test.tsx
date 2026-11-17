@@ -8,6 +8,7 @@ import type { QueueRunView } from '../../lib/jobs/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
 import { TAGGING_MODELS } from '../../lib/tagging/models'
 import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboard/pipeline-field-value'
+import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
@@ -99,7 +100,7 @@ test('local controls select multiple stages, keep options snapshot, and permit Q
   expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', {}, true))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true))
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
@@ -108,6 +109,22 @@ test('Preview hides every run Apply control and explains that a normal rerun is 
     message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
   expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull()
   expect(screen.getByText(/Run again without Preview only/)).toBeTruthy()
+})
+
+test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: false, visionTiebreak: false, maskReason: 'Mask unavailable' }), reportedAt: 100, pollIntervalMs: 1000 }
+  render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+  const colour = screen.getByLabelText(/Use colour signal/) as HTMLInputElement
+  expect(colour.checked).toBe(false)
+  expect(colour.disabled).toBe(true)
+  expect((screen.getByLabelText(/Preview only/) as HTMLInputElement).disabled).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag', 'group'], 'desktop-gemma4-12b', {
+    tag: { onlyUnderTagged: false }, group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
+  }, false))
 })
 
 test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {

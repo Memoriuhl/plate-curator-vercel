@@ -2,7 +2,7 @@ export type PipelineOptions = {
   'find-image'?: { onlyMissingImage: boolean }
   story?: { redoExisting: boolean }
   tag?: { onlyUnderTagged: boolean }
-  group?: { method: 'vision' | 'embeddings'; colorSignal: boolean; backgroundMask: boolean; visionTiebreak: boolean }
+  group?: { method: 'embeddings'; colorSignal: boolean; backgroundMask: boolean; visionTiebreak: boolean }
 }
 
 export const defaultPipelineOptions: Required<PipelineOptions> = {

@@ -149,7 +149,7 @@ test.each(['0', '1'])('Tag reads the asset outside local mode (%s)', async local
     const override = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Override.jpg'
     fetch.mockReset().mockResolvedValueOnce(Response.json({ ...claim, plate: { ...claim.plate, imageUrl: override } })).mockResolvedValue(new Response(null, { status: 200 }))
     expect(await runOnce(deps)).toBe('reported')
-    expect(deps.readImage).toHaveBeenCalledWith(local === '1' ? override : claim.plate.image)
+    expect(deps.readImage).toHaveBeenCalledWith(claim.plate.image)
   } finally { vi.unstubAllEnvs() }
 })
 

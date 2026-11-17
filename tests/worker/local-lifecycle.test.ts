@@ -1,10 +1,10 @@
-import { expect, test, vi } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { runOnce, type WorkerDeps } from '../../worker/run'
 
 function setup(local = true) {
   let time = 100
   const claim = { local, queueRunId: 'run', job: { id: 'job' }, claimId: 'claim', leaseExpiresAt: new Date(10000).toISOString(),
-    plate: { image: 'old.webp', imageUrl: 'https://example.org/image.webp', displayName: 'One', state: 'AK', tags: [] }, stage: 'describe' as const }
+    plate: { image: 'old.webp', imageUrl: 'https://example.org/image.webp', displayName: 'One', state: 'AK', tags: [] }, stage: 'describe' as 'describe' | undefined }
   const calls: { path: string; body: unknown }[] = []
   const deps: WorkerDeps = { apiBase: 'https://example.org', token: 'fixture', fetch: vi.fn(async (path, init) => {
     calls.push({ path: String(path), body: init?.body ? JSON.parse(String(init.body)) : undefined })
@@ -13,6 +13,18 @@ function setup(local = true) {
     readImage: vi.fn(async () => ''), now: () => time, sleep: async () => undefined, log: vi.fn() }
   return { claim, deps, calls, advance: (ms: number) => { time += ms } }
 }
+
+afterEach(() => vi.unstubAllEnvs())
+
+test('Tag overrides require BOTH a local claim and the local flag; every legacy case keeps the asset path', async () => {
+  for (const [local, flag, expected] of [[true, '1', 'https://example.org/image.webp'], [true, '0', 'old.webp'], [false, '1', 'old.webp'], [false, '0', 'old.webp']] as const) {
+    vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', flag)
+    const s = setup(local)
+    s.claim.stage = undefined
+    expect(await runOnce(s.deps)).toBe('reported')
+    expect(s.deps.readImage).toHaveBeenCalledWith(expected)
+  }
+})
 
 test('local stage with no handler explicitly fails and production behavior remains unchanged', async () => {
   const s = setup()

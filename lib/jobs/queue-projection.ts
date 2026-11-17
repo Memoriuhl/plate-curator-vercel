@@ -37,10 +37,22 @@ export function projectJob(projection: RunProjection, job: TaggingJob): Projecti
   if (current.sourceJobIds.includes(job.id)) return { ok: true, value: projection }
   if (current.executionHash !== (job.executionHash ?? job.inputHash)) return { ok: false, error: 'stale_input' }
   if (job.state !== 'completed' || !job.result || job.result.backend === 'missing-image') return { ok: false, error: 'stage_failed' }
-  if (job.result.stageError) return { ok: false, error: 'no_result', reason: job.result.stageError }
+  if (job.result.stageError) return { ok: false, error: ['no_sources', 'no_supported_fields'].includes(job.result.stageError) ? 'no_result' : 'stage_failed', reason: job.result.stageError }
   let next = current.executionPlate
   if (job.stage) {
     const suggestion = parseFieldSuggestion(job.result.fieldSuggestion, job.stage)
+    if (suggestion?.kind === 'group') {
+      if (suggestion.scope.length !== Object.keys(projection.plates).length || suggestion.scope.some(member => projection.plates[member.plateId]?.batchInputHash !== member.baseRevision) ||
+        job.groupScope?.some(member => projection.plates[member.plate.id]?.executionHash !== plateRevision(member.plate))) return { ok: false, error: 'stale_input' }
+      const plates = { ...projection.plates }
+      for (const proposal of suggestion.proposals) {
+        const entry = plates[proposal.plateId]
+        if (!entry || entry.batchInputHash !== proposal.baseRevision) return { ok: false, error: 'stale_input' }
+        const executionPlate = { ...entry.executionPlate, ...proposal.fields }
+        plates[proposal.plateId] = { ...entry, executionPlate, executionHash: plateRevision(executionPlate), sourceJobIds: [...entry.sourceJobIds, job.id] }
+      }
+      return { ok: true, value: { ...projection, plates } }
+    }
     if (!suggestion || !('fields' in suggestion) || Object.hasOwn(suggestion.fields, 'sourceUrl')) return { ok: false, error: 'invalid_result' }
     next = { ...next, ...suggestion.fields }
   } else next = { ...next, tags: [...new Set([...next.tags, ...job.result.suggestions].map(tag => tag.trim().toLowerCase()).filter(Boolean))] }

@@ -3,6 +3,7 @@ import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
 import { queueResponse, reconcileQueueWorkflow, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
+import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 
 export async function GET(request: Request) {
   const auth = await currentActor(request)
@@ -31,7 +32,8 @@ export async function GET(request: Request) {
   const detail = selected ? { ...selected, attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
     Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))) } : undefined
   const orphanJobs = await listLocalOrphanJobs(jobsDeps(), auth.actor)
-  return json({ runs: summaries, orphanJobs, observedAt: jobsDeps().now(), ...(detail ? { selected: detail } : {}) })
+  const capabilities = { ...await readLocalWorkerCapabilities(jobsDeps()), previewOnly: { available: true } }
+  return json({ runs: summaries, orphanJobs, capabilities, observedAt: jobsDeps().now(), ...(detail ? { selected: detail } : {}) })
 }
 
 export async function POST(request: Request) {

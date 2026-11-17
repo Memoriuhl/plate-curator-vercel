@@ -4,9 +4,9 @@ import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, Taggin
 import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
-import { completeGroupScope } from '../review/group-context'
+import { completeGroupScope, validGroupContext } from '../review/group-context'
 import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
-import { currentProjectionMatches, queueStageTimeoutMs } from './queue'
+import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -152,6 +152,9 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
           })) return { ok: false, error: 'invalid_result' }
         const batch = await tx.batch(job.batchId)
         if (!batch || !await currentProjectionMatches(d, tx, run, batch)) return { ok: false, error: 'stale_input' }
+        const context = await queueGroupContext(d, tx, batch, entries.map(entry => entry.batchInput))
+        if (!context || job.standardId !== context.standardId || result.fieldSuggestion?.kind === 'group' &&
+          !validGroupContext(result.fieldSuggestion, entries.map(entry => entry.executionPlate), context.statePlates, context.standardId)) return { ok: false, error: 'invalid_result' }
       }
     }
     const current = await currentPlate(d, tx, job.batchId, job.plateId)

@@ -1,11 +1,12 @@
 import { Firestore } from '@google-cloud/firestore'
 import { lookup } from 'node:dns/promises'
+import { createHash } from 'node:crypto'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { firestoreJobsStore } from '../lib/jobs/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { localJobsEnvironment } from '../lib/jobs/local-scope'
 import { cancelRun, enqueueRun, listRuns, retryRun } from '../lib/jobs/queue'
-import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage } from '../lib/jobs/queue-engine'
+import { bindQueueWorkflow, chooseQueueImage, confirmStoppedWorker, dispatchQueueStage, observeQueueStage } from '../lib/jobs/queue-engine'
 import { claimNext, reportResult } from '../lib/jobs/jobs'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
@@ -31,7 +32,7 @@ beforeEach(async () => {
     baselineVersion: 1, plateIds: plates.map(plate => plate.id), stateOrders: {}, approval: null })
   const baseline = async (id: string) => plates.find(plate => plate.id === id) ?? null
   jobs = { store: firestoreJobsStore(db, localJobsEnvironment('queue-emulator'), 'development'), localScope: 'queue-emulator', baseline,
-    now: () => time, id: () => `claim-${++sequence}`, leaseMs: 1000 }
+    stateBaseline: async () => plates, now: () => time, id: () => `claim-${++sequence}`, leaseMs: 1000 }
   review = { store, baseline, baselineAtVersion: async (_version, id) => baseline(id), stateBaseline: async () => plates, now: () => 'today' }
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -86,7 +87,7 @@ test('result reconciliation advances dependencies and one atomic bundle Apply pr
     if (index) await dispatchQueueStage(jobs, run.id, 1, index, `hook-${index}`)
     const claim = (await claimNext(jobs, 'worker'))!
     const report = { backend: 'fixture', model: 'test', promptVersion: 'v1', durationMs: 10,
-      fieldSuggestion: { stage: 'describe', fields: { description: `Description ${index}` }, sources: ['https://example.org/source'] } }
+      fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: `Description ${index}` }, sources: ['https://example.org/source'] } }
     expect(await reportResult(jobs, 'worker', claim.job.id, claim.claimId, report)).toMatchObject({ ok: true })
     await observeQueueStage({ ...jobs }, run.id, 1, index)
   }
@@ -95,3 +96,37 @@ test('result reconciliation advances dependencies and one atomic bundle Apply pr
   expect(await review.store.listEdits('batch')).toHaveLength(2)
   expect(await applyQueueBundle(jobs, review, actor, run.id)).toMatchObject({ value: { revision: 1 } })
 })
+
+test('serialized specialized image choices and one Group keep original peer hashes and apply one verified bundle', async () => {
+  const bytes = Buffer.from('queue emulator verified image')
+  const candidate = { id: 'photo', title: 'Photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: createHash('sha256').update(bytes).digest('hex') }
+  const result = await enqueueRun(jobs, actor, { requestId: 'specialized', batchId: 'batch', plateIds: plates.map(plate => plate.id), stages: ['find-image', 'group'] })
+  if (!result.ok) throw Error(result.error)
+  const id = result.value.id
+  await bindQueueWorkflow(jobs, id, 1, 'specialized-workflow')
+  for (let index = 0; index < 3; index++) {
+    await dispatchQueueStage(jobs, id, 1, index, `specialized-hook-${index}`)
+    const claim = (await claimNext(jobs, 'worker'))!
+    const job = claim.job
+    const meta = { backend: 'fixture', model: 'fixture', promptVersion: 'v1', durationMs: 1 }
+    if (job.stage === 'find-image') {
+      expect(await reportResult(jobs, 'worker', job.id, claim.claimId, { ...meta, fieldSuggestion: { kind: 'image', stage: 'find-image', candidates: [candidate], sources: [candidate.imageUrl, candidate.sourceUrl] } })).toMatchObject({ ok: true })
+      expect(await observeQueueStage(jobs, id, 1, index)).toEqual({ phase: 'waiting' })
+      expect(await chooseQueueImage(jobs, actor, id, job.id, candidate.id)).toMatchObject({ ok: true })
+    } else {
+      expect(job.groupScope?.every(member => member.plate.imageUrl === candidate.imageUrl)).toBe(true)
+      expect(job.standardId).toBe('AK.one')
+      const scope = job.groupScope!.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision }))
+      expect(await reportResult(jobs, 'worker', job.id, claim.claimId, { ...meta, fieldSuggestion: { kind: 'group', stage: 'group', scope, sources: [],
+        proposals: scope.map(member => ({ ...member, fields: { templateFamily: 'AK.one', templateRole: member.plateId === 'AK.one' ? 'template' : 'variant', variantOfPlateId: member.plateId === 'AK.one' ? null : 'AK.one' } })) } })).toMatchObject({ ok: true })
+    }
+    await observeQueueStage(jobs, id, 1, index)
+  }
+  expect(await review.store.listEdits('batch')).toEqual([])
+  const listed = await listRuns({ ...jobs, store: firestoreJobsStore(db, localJobsEnvironment('queue-emulator'), 'development') }, actor)
+  expect(listed).toMatchObject({ ok: true, value: [{ status: 'completed' }] })
+  expect(await applyQueueBundle(jobs, review, actor, id, async () => bytes)).toMatchObject({ value: { revision: 1 } })
+  expect(await review.store.listEdits('batch')).toHaveLength(2)
+  expect(await applyQueueBundle(jobs, review, actor, id, async () => bytes)).toMatchObject({ value: { revision: 1 } })
+}, 20_000)

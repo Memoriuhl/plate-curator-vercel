@@ -1,5 +1,5 @@
 import type { Firestore } from '@google-cloud/firestore'
-import type { EditableFields, ReviewBatch } from '../review/types'
+import type { EditableFields } from '../review/types'
 import type { PipelineRun } from './queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
