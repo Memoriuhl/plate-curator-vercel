@@ -7,3 +7,5 @@ Grouping uses the configured legacy DINOv2 implementation, MSER mask, colour sig
 Connected runs use the existing job model and a persisted run projection. Image choice affects that projection, while explicit aggregate Apply changes the Batch. The shared multi-edit store commit makes grouping atomic under one Batch revision. Group context checks protect Standard, parent links, unaffected families and every member revision.
 
 Standalone image and Group acceptance load a completed, same-scope job by ID. Direct PATCH cannot introduce an arbitrary image/provenance pair; the shared parser needs the server-loaded candidate. Connected-run jobs reject standalone acceptance and use the aggregate Apply path. Group creation reconstructs every plate from current Batch data and supplies its ordered Standard ID to the worker. Hosted tagging always resolves the asset image and ignores review overrides.
+
+Persisted preview jobs are inspect-only. Acceptance checks the stored `previewOnly` flag and rejects conversion through request payloads. The UI hides Apply/Accept. To apply a result, rerun normally; normal runs still require explicit Apply.
