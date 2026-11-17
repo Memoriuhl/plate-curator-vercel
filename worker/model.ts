@@ -289,6 +289,14 @@ export async function gatewayPricing(model: string, request: typeof fetch = fetc
   return entry.pricing
 }
 
+export function retryAfterMs(header: string | null, now = Date.now()): number | undefined {
+  if (!header) return undefined
+  const seconds = Number(header)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const at = Date.parse(header)
+  return Number.isFinite(at) ? Math.max(0, at - now) : undefined
+}
+
 export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?: typeof fetch; pricing?: Pricing; beforeRequest?: () => void; onAttempt?: (attempt: Attempt) => void }): ModelAdapter {
   const model = options.model ?? HOSTED_MODEL
   const request = options.fetch ?? fetch
@@ -307,7 +315,7 @@ export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?
         body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [{ type: 'text', text: buildUserPrompt(input.plate.displayName, input.plate.state) }, { type: 'image_url', image_url: { url: `data:${mime};base64,${input.imageB64}` } }] }] }),
       })
       attempt.status = response.status
-      if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { status: response.status })
+      if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { status: response.status, retryAfterMs: retryAfterMs(response.headers.get('retry-after')) })
       const body = await response.json()
       attempt.model = body.model ?? model
       attempt.usage = Object.fromEntries(Object.entries(body.usage ?? {}).filter(([, value]) => typeof value === 'number')) as Record<string, number>

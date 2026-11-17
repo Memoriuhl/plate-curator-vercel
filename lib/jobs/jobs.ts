@@ -8,7 +8,7 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted' }): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
@@ -25,13 +25,32 @@ export async function claimNext(d: JobsDeps, workerId: string) {
   return d.store.transaction(async tx => {
     const now = d.now()
     const jobs = await tx.list()
-    const job = jobs.filter(job => job.state === 'queued' || (job.state === 'claimed' && job.leaseExpiresAt! <= now))
+    const job = jobs.filter(job => job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + d.leaseMs
     const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt }
     tx.set(claimed)
     return { job: claimed, claimId, leaseExpiresAt }
+  })
+}
+
+function claimable(job: TaggingJob, now: number) {
+  return job.state === 'queued' || (job.state === 'claimed' && job.leaseExpiresAt! <= now)
+}
+
+export async function claimJob(d: JobsDeps, workerId: string, id: string): Promise<Outcome<{ job: TaggingJob; claimId: string }>> {
+  if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
+  const claimId = d.id()
+  return d.store.transaction(async tx => {
+    const job = await tx.get(id)
+    if (!job) return { ok: false, error: 'not_found' }
+    if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
+    if (job.state === 'completed') return { ok: true, value: { job, claimId: job.claimId! } }
+    if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
+    const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
+    tx.set(claimed)
+    return { ok: true, value: { job: claimed, claimId } }
   })
 }
 

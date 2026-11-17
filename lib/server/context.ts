@@ -8,7 +8,10 @@ import { orderedStatePlates } from '../catalog/order'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
 import { fixtureSource } from '../catalog/fixture-source'
 import { catalogSourceKind } from '../catalog/source-kind'
+import { getVercelOidcToken } from '@vercel/oidc'
 import { gcpAuthClient } from '../gcp/credentials'
+import type { HostedDeps } from '../jobs/hosted'
+import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
@@ -106,6 +109,31 @@ export function jobsDeps(): JobsDeps {
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     leaseMs: 5 * 60_000,
+  }
+}
+
+export function taggingBackend(): 'local' | 'hosted' {
+  return process.env.TAGGING_BACKEND === 'hosted' ? 'hosted' : 'local'
+}
+
+export async function hostedTaggingDeps(): Promise<HostedDeps> {
+  const source = catalog()
+  return {
+    jobs: jobsDeps(),
+    adapter: gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY || await getVercelOidcToken(), model: process.env.AI_GATEWAY_MODEL || undefined }),
+    async plate(job) {
+      const plate = job.inputPlate
+      if (!plate) return null
+      const imageUrl = source.imageUrl(plate)
+      return { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [], ...(imageUrl ? { imageUrl } : {}) }
+    },
+    async image(plate) {
+      if (!plate.imageUrl) return null
+      const response = await fetch(plate.imageUrl, { signal: AbortSignal.timeout(30_000) })
+      if (response.status === 404) return null
+      if (!response.ok) throw Object.assign(new Error(`Image request failed: ${response.status}`), { status: response.status })
+      return Buffer.from(await response.arrayBuffer()).toString('base64')
+    },
   }
 }
 

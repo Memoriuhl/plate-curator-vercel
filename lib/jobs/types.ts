@@ -12,6 +12,7 @@ export type TaggingJob = {
   inputPlate?: Plate
   inputHash: string
   env: Environment
+  route?: 'local' | 'hosted'
   createdAt: number
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   claimId?: string
