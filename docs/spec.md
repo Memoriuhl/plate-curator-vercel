@@ -204,7 +204,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 **Repository hygiene**
 - Every commit uses the GitHub no-reply identity.
 - A local commit hook rejects other author emails.
-- A GitHub Actions check (within the private-repo allowance; free once public) on every pull request runs a secret scanner, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. The check runs on every pull request from the first one. Branch protection that requires it starts when the repository goes public, because GitHub Free can't protect branches on a private repository.
+- GitHub Actions routes verification and hygiene jobs to the repository-scoped ARM64 Linux runner labeled `plate-curator-device`. The device runs these jobs for same-repository pull requests and the configured branch pushes while the repository is private. Hygiene scans for secrets, verifies author emails, and searches for a private list of forbidden strings. The list is stored as a CI secret and a gitignored local file, never in the repo. Before making the repo public, disconnect the device runner and move the jobs to GitHub-hosted runners.
 
 **How work is accepted**
 - Every change arrives as a pull request into `main`, the trunk. No branch deploys on push except `release`. UI changes are checked on a worker's local dev server, reached over the private network. A Preview is made on purpose, by building locally and uploading the output (`vercel build` then `vercel deploy --prebuilt`), only when a change needs the cloud: OIDC, Workflow or a reviewer link.
