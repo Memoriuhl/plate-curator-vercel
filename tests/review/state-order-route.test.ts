@@ -27,7 +27,7 @@ test('signed-in creator receives the updated batch', async () => {
 test('combined order request promotes the Variant with one revision and rejects stale retries', async () => {
   const deps = context.reviewDeps()
   const variant = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], templateRole: 'variant' as const, templateFamily: 'old', variantOfPlateId: 'two' }
-  deps.baseline = async () => variant
+  deps.baselineAtVersion = async () => variant
   deps.stateBaseline = async () => [variant, { ...variant, id: 'two', templateRole: 'template' as const, templateFamily: 'parent' }]
   const body = { batchRevision: 4, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } }
   expect((await put(body)).status).toBe(200)
