@@ -8,7 +8,7 @@ Plan and source inventory for [#135](https://github.com/Memoriuhl/plate-curator-
 
 Inventory taken 2026-11-16 at dashboard `ff47d5911bd72c4d5b4aa6ad202e074b5688afb4` and sibling `License-Plate-Game` `bff46fb5c59fb656741e0e61d6d7ad663a07f4dc` (read-only). Repository-root `AGENTS.md` and `docs/HANDOFF.md` were absent in this dashboard checkout; the supplied repository instructions and sibling `AGENTS.md` were read.
 
-Parent #72's comments report earlier staging publications v11 to v12 and hosted v12 to v13, including a revision-mismatch fix and a run remaining pinned to its original deployment. Those are historical dashboard publication evidence, not proof of #135's two simulator adoptions. Do not hardcode v13 as the current baseline or treat that earlier staging approval as this rehearsal's execution record.
+Parent #72 records three Owner-approved staging Publishes (v11 to v12, hosted v12 to v13, and v13 to v14 at 2026-11-16T19:09:41Z). All three approvals are consumed. They are historical dashboard publication evidence, not proof of #135's two simulator adoptions. Planning reference only: v14, then v15, then v16. Always read the live pointer read-only immediately before the run and use symbolic V0, V1 = V0 + 1, V2 = V1 + 1.
 
 **Verified game correction:** Mac verification of sibling `License-Plate-Game` at `d72d9fd5` (PR #224 merge), on `gameplay-mechanics`, supersedes the older inventory: commit `eda0e48d` “prompt for every newer catalog version” makes metadata-only updates prompt. The metadata-only silence blocker applies only to older `bff46fb5`. The button is **Load new plates**; its difference from **Reload now** is an acceptance note, not a blocker.
 
@@ -20,7 +20,7 @@ Use isolated emulator fixtures to rehearse the Batch, approval, publication and 
 
 ### Mode B: staging (only after Jonathan’s explicit go)
 
-The staging steps below require Jonathan’s explicit enablement of real Publish; Owner role alone is insufficient. Parent #72 comments mention earlier staging publications through v13 while the release lead says staging is guarded at v11. **Open question: what is the actual pointer version?** Read `config/catalog`; never hardcode the baseline or treat historical approval as authority for this rehearsal.
+The staging steps below require Jonathan’s explicit enablement of real Publish; Owner role alone is insufficient. All three approved staging Publishes are consumed, so Mode B needs a **new explicit go from Jonathan**. Read `config/catalog` read-only right before the run; never hardcode the baseline or treat historical approval as authority for this rehearsal.
 
 ## Source and test inventory
 
@@ -106,7 +106,7 @@ Publication receipts / run outcomes / capture references:
 
 ## Variant C: stale baseline (pending #124 / #119 merges)
 
-After [#124](https://github.com/Memoriuhl/plate-curator-vercel/pull/124) / [#119](https://github.com/Memoriuhl/plate-curator-vercel/pull/119) merge, retain a Batch approved against v11, then publish v12 through another Batch. The v11-approved Batch must be **BLOCKED** as stale baseline. Use **Copy to new Batch**, review and re-approve against v12, then Publish to v13. These versions describe the scenario, not the current staging pointer; rebase on the actual pointer. Record the blocked outcome and copied Batch baseline, approval and committed version. Mode B authority still applies. Pending until #124 merges; pause/revoke (#126/#127) steps get added later.
+After [#124](https://github.com/Memoriuhl/plate-curator-vercel/pull/124) / [#119](https://github.com/Memoriuhl/plate-curator-vercel/pull/119) merge, retain a Batch approved against V0, then publish V1 through another Batch. The V0-approved Batch must be **BLOCKED** as stale baseline. Use **Copy to new Batch**, review and re-approve against V1, then Publish to V2. Versions are symbolic; V0 is the live pointer read before the run. Record the blocked outcome and copied Batch baseline, approval and committed version. Mode B authority still applies. Pending until #124 merges; pause/revoke (#126/#127) steps get added later.
 
 ## Compact version-and-values evidence
 
@@ -124,4 +124,4 @@ After [#124](https://github.com/Memoriuhl/plate-curator-vercel/pull/124) / [#119
 
 Stop on project mismatch, unknown authority, competing release, invalid family, stale approval or unexpected diff. For Publish failures record readable reasons and whether the pointer advanced before deciding on a normal retry; do not issue a second publication blindly. For no prompt distinguish pointer unchanged, no live subscription, download/cache failure, metadata-only suppression and blocked overlay. For wrong values distinguish cached versus applied version and wrong Plate/navigation. If A committed but recovery fails, report the remaining T1/G1 staging state and coordinate the inverse through Owner authority; do not claim restoration.
 
-Open questions for execution: Does the already-open verified build discover a later Publish, and through what mechanism? What is the actual pointer version given the v11/v13 reports? Where are that revision's metadata-only and watcher regression tests? Can its existing diagnostics expose applied version without source changes? Which valid staging Variant/families and Tag values are available now? Has Jonathan explicitly enabled real staging Publish for the reserved window? These require runtime/Owner evidence; this inventory does not infer the answers from deployment names or old screenshots.
+Open questions for execution: Does the already-open verified build discover a later Publish, and through what mechanism? Where are that revision's metadata-only and watcher regression tests? Can its existing diagnostics expose applied version without source changes? Which valid staging Variant/families and Tag values are available now? Has Jonathan explicitly enabled real staging Publish for the reserved window? These require runtime/Owner evidence; this inventory does not infer the answers from deployment names or old screenshots.
