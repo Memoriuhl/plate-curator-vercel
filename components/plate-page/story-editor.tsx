@@ -19,7 +19,7 @@ export function StoryEditor({ plate, pending, save }: {
   const [draft, setDraft] = useState<StoryFields>(() => ({
     firstIssuedYear: plate.firstIssuedYear ?? null,
     funFacts: plate.funFacts ?? [], readMore: plate.readMore ?? [],
-    sourceUrl: plate.sourceUrl ?? null, wikiUrl: plate.wikiUrl ?? null,
+    wikiUrl: plate.wikiUrl ?? null,
   }))
   const [saved, setSaved] = useState(false)
   const changes = changedStoryFields(target, draft)
@@ -38,9 +38,9 @@ export function StoryEditor({ plate, pending, save }: {
       <label className="grid gap-2">First issued year
         <input aria-label="First issued year" className={input} type="number" min={1800} max={2100} step={1} value={draft.firstIssuedYear ?? ''} onChange={event => change({ firstIssuedYear: event.target.value === '' ? null : Number(event.target.value) })} />
       </label>
-      {(['sourceUrl', 'wikiUrl'] as const).map(key => <label key={key} className="grid gap-2">
-        {key === 'wikiUrl' ? 'Wiki URL' : 'Source URL'}
-        <input aria-label={key === 'wikiUrl' ? 'Wiki URL' : 'Source URL'} type="url" maxLength={2048} className={input} value={draft[key] ?? ''} onChange={event => change({ [key]: event.target.value || null })} />
+      {(['wikiUrl'] as const).map(key => <label key={key} className="grid gap-2">
+        Wiki URL
+        <input aria-label="Wiki URL" type="url" maxLength={2048} className={input} value={draft[key] ?? ''} onChange={event => change({ [key]: event.target.value || null })} />
       </label>)}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="label">Fun facts {draft.funFacts!.length} / 4</h3>

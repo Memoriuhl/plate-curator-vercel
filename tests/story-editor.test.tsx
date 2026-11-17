@@ -24,16 +24,27 @@ test('requires a citation before a fact can be saved to the captured plate revis
 test('adds and removes read-more links and clears optional fields', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const save = vi.fn().mockResolvedValue(true)
-  render(<StoryEditor plate={{ ...plateCards[0], firstIssuedYear: 1976, sourceUrl: 'https://example.org/source' }} pending={false} save={save} />)
+  render(<StoryEditor plate={{ ...plateCards[0], firstIssuedYear: 1976, wikiUrl: 'https://example.org/wiki' }} pending={false} save={save} />)
   fireEvent.change(screen.getByRole('spinbutton', { name: 'First issued year' }), { target: { value: '' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Source URL' }), { target: { value: '' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Wiki URL' }), { target: { value: '' } })
   fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Link 1 title' }), { target: { value: 'Reference' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'Link 1 url' }), { target: { value: 'https://example.org/reference' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save story to Batch' }))
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ firstIssuedYear: null, sourceUrl: null, readMore: [{ title: 'Reference', site: '', url: 'https://example.org/reference' }] })))
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ firstIssuedYear: null, wikiUrl: null, readMore: [{ title: 'Reference', site: '', url: 'https://example.org/reference' }] })))
   fireEvent.click(screen.getByRole('button', { name: 'Remove link 1' }))
   expect(screen.queryByRole('textbox', { name: 'Link 1 url' })).toBeNull()
+})
+
+test('the story editor does not expose or submit the image provenance URL', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const save = vi.fn().mockResolvedValue(true)
+  const plate = { ...plateCards[0], sourceUrl: 'https://example.org/original-image' }
+  render(<StoryEditor plate={plate} pending={false} save={save} />)
+  expect(screen.queryByRole('textbox', { name: 'Source URL' })).toBeNull()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Wiki URL' }), { target: { value: 'http://example.org/reference' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save story to Batch' }))
+  await waitFor(() => expect(save).toHaveBeenCalledWith(plate, { wikiUrl: 'http://example.org/reference' }))
 })
 
 test('a failed save retains the entered draft for retry', async () => {

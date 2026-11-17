@@ -2,12 +2,10 @@ import type { EditableFields } from './types'
 import { storyFieldKeys } from './story'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
-const baseKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
 const storyKeys = storyFieldKeys
-export const persistedEditableKeys = [...baseKeys, ...storyKeys]
-export const editableKeys = persistedEditableKeys
+export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys] as const
 export function editableFieldKeys() {
-  return process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? [...baseKeys, ...storyKeys] : [...baseKeys]
+  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || !storyKeys.some(storyKey => storyKey === key))
 }
 
 export function storyUrl(value: unknown): string | null {
@@ -39,7 +37,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
     if (key === 'firstIssuedYear') {
       if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1800 || value > 2100)) return null
       fields.firstIssuedYear = value as number | null
-    } else if (key === 'sourceUrl' || key === 'wikiUrl') {
+    } else if (key === 'wikiUrl') {
       const url = storyUrl(value)
       if (value !== null && !url) return null
       fields[key] = url

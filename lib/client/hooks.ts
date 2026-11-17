@@ -246,7 +246,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
         ...('funFacts' in card ? {
           funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [],
-          firstIssuedYear: proposed.firstIssuedYear ?? null, sourceUrl: proposed.sourceUrl ?? null, wikiUrl: proposed.wikiUrl ?? null,
+          firstIssuedYear: proposed.firstIssuedYear ?? null, wikiUrl: proposed.wikiUrl ?? null,
         } : {}),
         complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,
       }

@@ -1,6 +1,6 @@
 import type { StoryFields } from '../catalog/types'
 
-export const storyFieldKeys = ['funFacts', 'firstIssuedYear', 'sourceUrl', 'wikiUrl', 'readMore'] as const
+export const storyFieldKeys = ['funFacts', 'firstIssuedYear', 'wikiUrl', 'readMore'] as const
 
 export function sameEditableValue(key: string, before: unknown, after: unknown) {
   const normalize = (value: unknown) => {

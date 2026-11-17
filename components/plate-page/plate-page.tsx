@@ -568,7 +568,7 @@ export function PlatePage(props: PlatePageProps) {
               save={(value, target) => save(target, { description: value || null })}
             />
             {localPipeline ? <>
-              {(['firstIssuedYear', 'funFacts', 'readMore', 'sourceUrl', 'wikiUrl'] as const).map(field => <div key={field}>{fieldIssue(field)}</div>)}
+              {(['firstIssuedYear', 'funFacts', 'readMore', 'wikiUrl'] as const).map(field => <div key={field}>{fieldIssue(field)}</div>)}
               <StoryEditor key={`${current.id}-${current.revision}`} plate={current} pending={blocked} save={save} />
             </> : <>
             <label className="grid gap-2">

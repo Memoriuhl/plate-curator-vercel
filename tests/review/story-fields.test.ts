@@ -12,7 +12,6 @@ afterEach(() => vi.unstubAllEnvs())
 const story = {
   firstIssuedYear: 1976,
   funFacts: [{ text: 'A sourced fact.', sourceUrl: 'https://en.wikipedia.org/wiki/Vehicle_registration_plate', sourceTitle: 'Registration plate' }],
-  sourceUrl: 'https://example.org/source',
   wikiUrl: 'https://en.wikipedia.org/wiki/Vehicle_registration_plate',
   readMore: [{ title: 'Learn more', site: 'Example', url: 'https://example.org/plate' }],
 }
@@ -28,7 +27,7 @@ test('story fields require exact local opt-in', () => {
 
 test('supports explicit clearing and trims sourced text', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
-  const cleared = { firstIssuedYear: null, funFacts: [], readMore: [], wikiUrl: null, sourceUrl: null }
+  const cleared = { firstIssuedYear: null, funFacts: [], readMore: [], wikiUrl: null }
   expect(parseEditableFields(cleared)).toEqual(cleared)
   expect(parseEditableFields({ funFacts: [{ text: ' Fact ', sourceUrl: ' https://example.org/fact ' }] })).toEqual({ funFacts: [{ text: 'Fact', sourceUrl: 'https://example.org/fact' }] })
 })
@@ -70,7 +69,7 @@ test('story edits persist for review, remain when the flag is off, and can be re
   expect((await store.getEdit(request.batchId, plate.id))?.fields).toMatchObject(story)
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   if (!updated.ok) return
-  const removed = await proposeEdit(deps, actor, { ...request, baseRevision: plateRevision(updated.value.plate), fields: { firstIssuedYear: null, sourceUrl: null, wikiUrl: null, funFacts: [], readMore: [], tags: [] } })
+  const removed = await proposeEdit(deps, actor, { ...request, baseRevision: plateRevision(updated.value.plate), fields: { firstIssuedYear: null, wikiUrl: null, funFacts: [], readMore: [], tags: [] } })
   expect(removed.ok).toBe(true)
   expect(await store.getEdit(request.batchId, plate.id)).toBeNull()
 })
@@ -81,6 +80,19 @@ test('server treats missing story fields and empty draft values as the same no-e
   const actor = { uid: 'story-editor', name: null, role: 'editor' as const }
   const store = createMemoryStore([{ id: 'empty-story', name: 'Story', baselineVersion: 1, plateIds: [plate.id], revision: 0, approval: null, state: 'open', createdAt: '2026-11-17', createdBy: actor.uid }])
   const deps: ReviewDeps = { store, baseline: async () => plate, baselineAtVersion: async () => plate, stateBaseline: async () => [plate], now: () => '2026-11-17' }
-  expect(await proposeEdit(deps, actor, { batchId: 'empty-story', plateId: plate.id, baseRevision: plateRevision(plate), fields: { firstIssuedYear: null, sourceUrl: null, wikiUrl: null, funFacts: [], readMore: [] } })).toMatchObject({ ok: true })
+  expect(await proposeEdit(deps, actor, { batchId: 'empty-story', plateId: plate.id, baseRevision: plateRevision(plate), fields: { firstIssuedYear: null, wikiUrl: null, funFacts: [], readMore: [] } })).toMatchObject({ ok: true })
   expect(await store.listEdits('empty-story')).toEqual([])
+})
+
+test('story edits preserve the image provenance URL and cannot request its replacement', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const plate: Plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', tags: [], image: '', sourceUrl: 'https://example.org/original-image' }
+  const actor = { uid: 'story-editor', name: null, role: 'editor' as const }
+  const store = createMemoryStore([{ id: 'provenance', name: 'Story', baselineVersion: 1, plateIds: [plate.id], revision: 0, approval: null, state: 'open', createdAt: '', createdBy: actor.uid }])
+  const deps: ReviewDeps = { store, baseline: async () => plate, baselineAtVersion: async () => plate, stateBaseline: async () => [plate], now: () => '' }
+  expect(parseEditableFields({ sourceUrl: 'https://example.org/story-link' })).toBeNull()
+  const result = await proposeEdit(deps, actor, { batchId: 'provenance', plateId: plate.id, baseRevision: plateRevision(plate), fields: story })
+  expect(result).toMatchObject({ ok: true, value: { plate: { sourceUrl: plate.sourceUrl } } })
+  expect((await store.getEdit('provenance', plate.id))?.fields).not.toHaveProperty('sourceUrl')
+  expect((await store.getEdit('provenance', plate.id))?.fields.funFacts?.[0].sourceUrl).toBe(story.funFacts[0].sourceUrl)
 })
