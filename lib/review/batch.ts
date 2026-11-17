@@ -17,7 +17,7 @@ export async function proposeEdit(
     if (!batch) return { ok: false, error: 'not_found' }
     if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
     if (!editableStates.includes(batch.state)) return { ok: false, error: 'invalid_state' }
-    const baseline = await d.baseline(i.plateId)
+    const baseline = await d.baselineAtVersion(batch.baselineVersion, i.plateId)
     if (!baseline) return { ok: false, error: 'not_found' }
     const plateIds = batch.plateIds.includes(i.plateId) ? batch.plateIds : [...batch.plateIds, i.plateId]
     if (plateIds.length > limits.plates) return { ok: false, error: 'invalid_state' }
@@ -91,7 +91,7 @@ export async function reorderState(
   let plateIds = batch.plateIds
   if (input.promotion) {
     const { plateId, templateFamily } = input.promotion
-    const baseline = await d.baseline(plateId)
+    const baseline = await d.baselineAtVersion(batch.baselineVersion, plateId)
     if (!baseline || !ids.has(plateId) || baseline.state !== input.state) return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(batch.id, plateId)
     const current = { ...baseline, ...existing?.fields }

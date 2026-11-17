@@ -16,7 +16,7 @@ Until decision 25 (browser Firestore listeners) is settled, "live" reads use the
 
 - Own URL (/plates/AK.army), so it can be shared and opened in a new tab.
 - Field drafts stay local while typing; a save sends one operation. If someone else changed the same text field first, the conflict view opens instead of overwriting.
-- Suggested tags: a tagging job is a durable Workflow wait on the GPU worker; the picker fills when the result arrives, even after a reload.
+- Suggested tags: the current page polls the Tag job ids it retains locally. Reload does not rediscover jobs or restore the picker; tagging durability/reload discovery is deferred in #9.
 - A dismissed image suggestion is stored, so it never comes back for this plate.
 
 ## Inbox and review
@@ -60,3 +60,30 @@ implementation or deployment.
 Rules are not deployed from this repository. Staging rules belong to
 `License-Plate-Game/firestore.rules`; deploying requires merging the live signal
 and grant blocks into that file while retaining the game's existing rules.
+
+With `?batch=<id>`, Dashboard and Plate field edits, drags and Tag actions target
+that selected Batch. An unavailable or read-only selection blocks writes instead
+of falling back to a personal Batch. Tag additionally requires an open Batch.
+Without a selection, `useEnsureBatch` still reuses the most recent personal open
+Batch; whether an older open Batch should be reused is an unresolved product choice
+(`lib/client/hooks.ts`, `components/dashboard/use-tag-run.ts`).
+
+Detail, authoritative edits (including combined promotion) and Tag job input/hash
+use the immutable Catalog snapshot named by the Batch's required `baselineVersion`.
+Saved fields overlay that snapshot; a live Catalog advance does not change its
+before-values or revision basis (`lib/review/queries.ts`, `lib/review/batch.ts`,
+`lib/jobs/jobs.ts`, `lib/server/context.ts`). Publishing still rejects a stale
+baseline; Copy to new Batch rebases proposals onto the live Catalog for fresh review.
+
+A Plate save must match the revision of that Batch's current proposed Plate.
+A real conflict returns `stale_plate` with the saved Plate and `currentRevision`.
+Reapply sends only the attempted fields to the same Batch using that returned
+revision; another intervening save can conflict again. State order writes instead
+require the displayed Batch revision (`lib/server/respond.ts`,
+`lib/client/hooks.ts`, `components/plate-page/plate-page.tsx`).
+
+When live signals are unavailable, the selected-Batch bar offers Refresh to fetch
+the authenticated Batch detail explicitly (`components/dashboard/selected-batch-bar.tsx`).
+Tag job visibility is separate: the job-by-id API permits the requesting user or
+an Owner; selecting the same Batch does not grant another Editor access to that
+job (`lib/jobs/jobs.ts`, `app/api/jobs/[id]/route.ts`).

@@ -10,7 +10,7 @@ const editor = { uid: 'editor', name: null, role: 'editor' } as const
 test('promotion and order commit once and clear the variant link', async () => {
   const { deps, store } = setup({ state: 'approved', approval: { revision: 3, by: 'owner', at: '' } })
   const variant = { ...plates[1], templateRole: 'variant' as const, templateFamily: 'old', variantOfPlateId: plates[0].id }
-  deps.baseline = async () => variant
+  deps.baselineAtVersion = async () => variant
   deps.stateBaseline = async () => [plates[0], variant, plates[2]]
   const order = [plates[0].id, plates[2].id, variant.id]
   expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, promotion: { plateId: variant.id, templateFamily: 'new' } })).toMatchObject({ ok: true, value: { revision: 5, approval: null, stateOrders: { AK: order } } })
@@ -43,7 +43,7 @@ test.each(['inventory', 'variant', 'jurisdiction', 'stale', 'rights', 'reserved'
   const { deps, store } = setup({ state: 'approved', approval: { revision: 3, by: 'owner', at: '' } })
   const before = await store.getBatch('batch')
   const variant = { ...plates[1], state: failure === 'jurisdiction' ? 'CA' : 'AK', templateRole: failure === 'variant' ? 'template' as const : 'variant' as const }
-  deps.baseline = async () => variant
+  deps.baselineAtVersion = async () => variant
   if (failure === 'reserved') deps.store.commit = async () => 'revision_mismatch'
   const result = await reorderState(deps, failure === 'rights' ? { ...editor, uid: 'other' } : editor, {
     batchId: 'batch', state: 'AK', batchRevision: failure === 'stale' ? 3 : 4,

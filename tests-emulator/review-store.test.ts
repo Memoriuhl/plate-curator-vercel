@@ -135,7 +135,7 @@ test('reserved Batch rejects a combined move without clearing approval or changi
   await db.doc('reviewBatches/batch').set(approved)
   const signal = db.doc(`curatorLive/${env}/batchRevisions/batch`)
   await signal.set({ revision: 4 })
-  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], promotion: { plateId: 'one', templateFamily: 'new' } })
+  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], promotion: { plateId: 'one', templateFamily: 'new' } })
   expect(result).toEqual({ ok: false, error: 'superseded_revision' })
   expect((await db.doc('reviewBatches/batch').get()).data()).toEqual(approved)
   expect((await signal.get()).data()).toEqual({ revision: 4 })
