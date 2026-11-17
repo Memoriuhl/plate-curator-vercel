@@ -157,8 +157,31 @@ test('review strip hides when empty and approved batches retain Review with disa
   const html = renderToStaticMarkup(<ReviewStrip />)
   expect(html).toContain('href="/review?batch=batch-one"')
   expect(html).toContain('Approved')
-  expect(html).toContain('rev 7')
+  expect(html).toContain('Rev 7')
   expect(state.buttons.get('Publish')?.disabled).toBe(true)
+})
+
+test.each([0, 1, 3])('review strip pluralizes %i plates and uses body typography', (count) => {
+  state.review = [{ ...batch, state: 'submitted', plateIds: batch.plateIds.slice(0, count) }]
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  expect(html).toContain(`>${count} ${count === 1 ? 'plate' : 'plates'}<`)
+  const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap(([, value]) => value.split(/\s+/))
+  expect(classes).not.toContain('count')
+  expect(classes).not.toContain('font-mono')
+  expect(html.indexOf('review-plate-count')).toBeLessThan(html.indexOf('review-status'))
+  expect(html.indexOf('review-status')).toBeLessThan(html.indexOf('review-actions'))
+})
+
+test('review strip preserves the full state list in its title', () => {
+  const states = ['AK', 'AL', 'AZ', 'CA', 'CO', 'VT']
+  state.review = [{ ...batch, state: 'submitted' }]
+  state.detail!.plates = states.map(code => ({
+    ...state.detail!.plates[0],
+    baseline: { ...state.detail!.plates[0].baseline, state: code },
+  }))
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  const list = states.join(', ')
+  expect(html).toContain(`<strong class="review-states" title="${list}">${list}</strong>`)
 })
 
 test('changed filter counts current-jurisdiction batch membership including unedited plates', () => {
