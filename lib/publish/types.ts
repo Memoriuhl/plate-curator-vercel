@@ -69,8 +69,9 @@ export interface PublishLock {
   renew(lease: PublishLease, now: string): Promise<boolean>
   release(token: string, keepBatchFrozen: boolean): Promise<void>
 }
+export type CommittedStateOrders = { version: number; blobSha256: string; orders: Record<string, string[]> }
 export interface PublishCurator {
-  writeStateOrders(orders: Record<string, string[]>, lease: PublishLease, now: string): Promise<'ok' | 'lock_lost'>
+  writeStateOrders(orders: Record<string, string[]>, lease: PublishLease, now: string, record: PublishRecord, live?: CommittedStateOrders): Promise<'ok' | 'lock_lost' | 'reconcile' | 'unavailable'>
 }
 export type PublishDeps = ReviewDeps & {
   control: PublishControl

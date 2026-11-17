@@ -51,6 +51,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     return next
   }
   const stateOrder: Record<string, string[]> = { NY: ['existing'] }
+  const stateOrderVersion: Record<string, number> = {}
   let control: PublishControlState | null = { paused: false, generation: 1, changedBy: { uid: 'owner', email: 'owner@example.com' }, changedAt: '2026-11-16T12:00:00Z' }
   let requester: unknown = { uid: 'owner', role: 'owner', status: 'active', authorityEpoch: 0 }
   const stops = new Map<string, PublishStop>()
@@ -117,9 +118,19 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     store, baselineAtVersion: async (_version, id) => snapshot.plates.find(plate => plate.id === id) ?? null, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
     now: () => time, leaseMs: 60000,
     curator: {
-      writeStateOrders: async (orders, claim, now) => {
+      writeStateOrders: async (orders, claim, now, record, live) => {
         if (!active(claim.token, now) || lease?.batchId !== claim.batchId || lease.revision !== claim.revision) return 'lock_lost'
-        Object.assign(stateOrder, structuredClone(orders))
+        const saved = records.get(record.id)
+        if (record.id !== receiptId(claim.batchId, claim.revision) || !saved?.committedAt || saved.batchId !== claim.batchId || saved.revision !== claim.revision || saved.fromVersion !== record.fromVersion || saved.toVersion !== record.toVersion || saved.blobSha256 !== record.blobSha256 || saved.commandId !== record.commandId) return 'unavailable'
+        if (!Number.isSafeInteger(pointer.version)) return 'unavailable'
+        const legacy = Object.keys(orders).filter(state => typeof stateOrderVersion[state] !== 'number' && Object.hasOwn(stateOrder, state) && pointer.version > record.toVersion)
+        if (legacy.length && (!live || live.version !== pointer.version || live.blobSha256 !== pointer.blobSha256)) return 'reconcile'
+        for (const [state, order] of Object.entries(orders)) {
+          const version = stateOrderVersion[state]
+          if (typeof version === 'number' && version > record.toVersion) continue
+          stateOrder[state] = structuredClone(legacy.includes(state) ? live!.orders[state] : order)
+          stateOrderVersion[state] = legacy.includes(state) ? live!.version : record.toVersion
+        }
         return 'ok'
       },
     },
@@ -286,5 +297,5 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       if (object && url === `https://storage.example/v${version}.json?token=${object.token}`) return { generation: object.generation, bytes: object.bytes }
     }
     return null
-  }, burns, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  }, burns, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, stateOrderVersion, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }

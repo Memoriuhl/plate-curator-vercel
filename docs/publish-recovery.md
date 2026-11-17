@@ -43,6 +43,22 @@ and an uploaded but uncommitted Snapshot and receipt remain intact.
 If Publish committed first, its receipt wins: retries finish the bookkeeping and
 report the same published version even after Pause, a generation change or
 requester revocation. They never advance the pointer a second time or replace that outcome with a stop.
+State orders and their authoritative Catalog versions are written atomically in
+`stateOrder` and `stateOrderVersion`. A receipt's own order records its own
+published version. A late replay skips States with newer recorded
+versions while finishing its own receipt and Batch bookkeeping. Independent
+States with older recorded versions or no existing order still receive its order;
+same-version writes remain idempotent. An existing legacy order without version
+metadata is reconciled from the live committed Snapshot when the replay's version
+is below the Catalog pointer. Snapshot reads happen outside the transaction and
+must match the pointer's version and SHA256, including the canonical published
+bytes. The transaction rechecks the pointer version and hash, committed receipt
+and lease before writing that Snapshot's order with that Snapshot's version.
+This also repairs a legacy State that the newer Publish did not touch. Pointer
+movement triggers a fresh read, bounded to three attempts. Unreadable or invalid
+authoritative data, or repeated pointer movement, returns `unavailable` and leaves
+the receipt and Batch bookkeeping retryable. A replay never labels its own order
+with a newer Catalog version.
 Pause does not roll back a published Catalog.
 
 Resume only permits new requests. It never restarts a stopped Workflow. Publishing
