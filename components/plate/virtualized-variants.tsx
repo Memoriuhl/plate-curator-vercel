@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
-import { revealVariantRow, variantListCap } from '@/components/dashboard/variant-list-layout'
+import { revealVariantRow, variantListCap, VARIANT_ROW_HEIGHT, VARIANT_ROW_GAP } from '@/components/dashboard/variant-list-layout'
 
 export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
   plates: PlateCardData[]
@@ -32,8 +32,8 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
       gapIndex,
     ])].filter(index => index >= 0).sort((a, b) => a - b),
     initialRect: { width: 240, height: 600 },
-    estimateSize: () => 96,
-    gap: 12,
+    estimateSize: () => VARIANT_ROW_HEIGHT,
+    gap: VARIANT_ROW_GAP,
     overscan: 2,
     getItemKey: index => plates[index].id,
   })

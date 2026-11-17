@@ -227,10 +227,10 @@ test('check strip suppresses breakdown while delegating unfocusable icon hover',
   expect(icon.tabIndex).toBe(-1)
 })
 
-test('only image hover and link focus open breakdown; text, id and container do not', () => {
+test('only image hover and link focus open breakdown; text and container do not', () => {
   const preview = vi.fn()
   const view = render(<FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />)
-  for (const element of [view.getByRole('article'), view.getByRole('link'), view.getByRole('heading'), view.container.querySelector('.id')!]) {
+  for (const element of [view.getByRole('article'), view.getByRole('link'), view.getByRole('heading')]) {
     fireEvent.mouseOver(element)
     fireEvent.mouseEnter(element)
   }

@@ -271,7 +271,7 @@ test('grant renews before expiry and selection preserves Plate links', async () 
   }
   const view = render(<Workspace value={value} />)
   await waitFor(() => expect(view.getByText('Live')).toBeTruthy())
-  expect(within(view.container).getByRole('link', { name: /Navy AK.b/ }).getAttribute('href')).toBe('/plates/AK.b?batch=shared')
+  expect(within(view.container).getByRole('link', { name: /Navy/ }).getAttribute('href')).toBe('/plates/AK.b?batch=shared')
   await waitFor(() => expect(requests.filter(r => r.path === '/api/live-access')).toHaveLength(2), { timeout: 2000 })
   expect(listeners.get('shared')?.size).toBe(1)
   expect(disposed).toContain('shared')

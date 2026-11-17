@@ -1,4 +1,5 @@
 vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => ({ prefetch: vi.fn() }) }))
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { StatusIcon } from '../components/plate/status-icon'
@@ -11,12 +12,12 @@ import { plateCards } from '../fixtures/plate-cards'
 import { PLATE_CHECK_KEYS } from '../lib/catalog/dashboard-types'
 
 describe('StatusIcon', () => {
-  test.each(['good', 'weak', 'missing'] as const)('names and distinguishes %s without color alone', status => {
+  test.each(['good', 'weak', 'missing'] as const)('names the %s status accessibly', status => {
     const html = renderToStaticMarkup(<StatusIcon checkKey="tags" check={{ status, value: 'Full tag value' }} />)
     expect(html).toContain(`aria-label="Tags: ${status}"`)
     expect(html).toContain('role="img"')
     expect(html).not.toContain('<button')
-    expect(html.includes('data-status-dot')).toBe(status === 'weak')
+    expect(html).not.toContain('data-status-dot')
     expect(html.includes('data-status-slash')).toBe(status === 'missing')
     expect(html).toContain('data-check="tags"')
     expect(html).not.toContain('title=')
@@ -27,6 +28,8 @@ test('CheckStrip preserves the seven contract checks in decision order', () => {
   const html = renderToStaticMarkup(<CheckStrip checks={plateCards[0].checks} />)
   const labels = ['Description', 'Fun facts', 'Link', 'Tags', 'Family', 'Image', 'Rarity']
   expect(PLATE_CHECK_KEYS).toHaveLength(7)
+  expect(html).toContain('flex-nowrap')
+  expect(html).not.toContain('flex-wrap')
   const offsets = labels.map(label => html.indexOf(`aria-label="${label}:`))
   expect(offsets.every(offset => offset >= 0)).toBe(true)
   expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
@@ -104,4 +107,23 @@ test('plate images skip the optimizer because the source files are already pre-s
     expect(html).toContain('src="https://example.com/AK/standard_gold.webp"')
     expect(html).toContain('loading="lazy"')
   }
+})
+
+
+test('smallest check tier fits its lower container breakpoint', () => {
+  const css = readFileSync('app/globals.css', 'utf8')
+  const tiers = [...css.matchAll(/@container plate-checks \(width < (\d+)px\) \{([\s\S]*?)\n\}/g)]
+  const smallest = tiers.at(-1)!
+  const icon = Number(smallest[2].match(/width: (\d+)px/)![1])
+  const gap = Number(tiers.flatMap(tier => [...tier[2].matchAll(/gap: (\d+)px/g)]).at(-1)![1])
+  expect(PLATE_CHECK_KEYS.length * icon + (PLATE_CHECK_KEYS.length - 1) * gap).toBeLessThanOrEqual(Number(smallest[1]))
+})
+
+test('variant checks span the link width and names use English word wrapping', () => {
+  const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[plateCards[1]]} />)
+  expect(html).toContain('family-variant-checks family-plate-details basis-full')
+  expect(html).toContain('lang="en"')
+  expect(html).toContain('[overflow-wrap:break-word]')
+  expect(html).toContain('hyphens-auto')
+  expect(html).not.toContain('[overflow-wrap:anywhere]')
 })

@@ -27,7 +27,6 @@ export function StatusIcon({ checkKey, check }: { checkKey: PlateCheckKey; check
       )}
     >
       <Icon size={20} aria-hidden="true" />
-      {check.status === 'weak' && <span aria-hidden="true" data-status-dot="" className="absolute right-0 bottom-0 size-1 rounded-full bg-current" />}
       {check.status === 'missing' && <IoRemoveOutline aria-hidden="true" data-status-slash="" size={24} className="absolute rotate-45" />}
     </span>
   )
