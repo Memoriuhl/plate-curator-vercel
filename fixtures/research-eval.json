@@ -1,0 +1,114 @@
+{
+  "status": "draft-corpus-awaiting-freeze",
+  "rubric": [
+    "correct plate and subject",
+    "claim supported by cited passage",
+    "useful description and fact coverage",
+    "relevant fetched links",
+    "generic or duplicate output",
+    "latency, reliability and known/missing cost",
+    "blind curator acceptance and correction effort"
+  ],
+  "plates": [
+    {
+      "plateId": "AZ.arizona_highways",
+      "split": "tuning",
+      "case": "subject-or-date-disambiguation"
+    },
+    {
+      "plateId": "AK.lions_club",
+      "split": "tuning",
+      "case": "subject-or-date-disambiguation"
+    },
+    {
+      "plateId": "AL.law_enforcement_memorial",
+      "split": "tuning",
+      "case": "subject-or-date-disambiguation"
+    },
+    {
+      "plateId": "DE.law_enforcement_memorial",
+      "split": "tuning",
+      "case": "subject-or-date-disambiguation"
+    },
+    {
+      "plateId": "VT.lion_s_club",
+      "split": "tuning",
+      "case": "subject-or-date-disambiguation"
+    },
+    {
+      "plateId": "CA.whale_tail",
+      "split": "tuning",
+      "case": "well-known"
+    },
+    {
+      "plateId": "CA.california_museums_snoopy",
+      "split": "held-out",
+      "case": "well-known"
+    },
+    {
+      "plateId": "AK.standard_gold",
+      "split": "held-out",
+      "case": "well-known"
+    },
+    {
+      "plateId": "AL.standard_passenger",
+      "split": "held-out",
+      "case": "well-known"
+    },
+    {
+      "plateId": "AK.purple_heart",
+      "split": "held-out",
+      "case": "well-known"
+    },
+    {
+      "plateId": "AL.louisiana_state_university",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.university_of_mississippi",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.prostate_cancer_research",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AK.historic_vehicle",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AK.breast_cancer_awareness",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AK.veterans_commemorative",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.auburn_university",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.breast_cancer_research_uab",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.curing_childhood_cancer",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    },
+    {
+      "plateId": "AL.faulkner_university",
+      "split": "held-out",
+      "case": "sparse-or-specialty"
+    }
+  ]
+}

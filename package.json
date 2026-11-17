@@ -19,7 +19,9 @@
     "eval": "tsx worker/eval.ts",
     "eval:run": "tsx worker/compare.ts",
     "eval:compare": "tsx worker/compare.ts --compare",
-    "backfill:signals": "node --conditions=react-server --import tsx scripts/backfill-batch-signals.ts"
+    "backfill:signals": "node --conditions=react-server --import tsx scripts/backfill-batch-signals.ts",
+    "research:baseline": "tsx worker/research-benchmark.ts --executor desktop",
+    "research:benchmark": "tsx worker/research-benchmark.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",
