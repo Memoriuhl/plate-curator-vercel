@@ -563,3 +563,14 @@ test('a restored durable image choice can resume without changing the checked ra
   await waitFor(() => expect(choose).toHaveBeenCalledWith('restored'))
   expect(mocks.edit).not.toHaveBeenCalled()
 })
+
+test.each(['fields', 'tag'])('stored preview %s results show inspection without Apply or Accept', mode => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const job: RunEntry['job'] = mode === 'fields'
+    ? { state: 'completed', suggestions: [], previewOnly: true, stage: 'describe', inputHash: 'base', fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'Inspect this description' }, sources: ['https://example.org/source'] } }
+    : { state: 'completed', suggestions: ['inspect-tag'], previewOnly: true, inputHash: 'base' }
+  render(<TagRunBanner entries={[{ plate, jobId: 'preview', job }]} batchId="batch" starting={false} dismiss={vi.fn()} retry={vi.fn()} />)
+  expect(screen.getByText(/Preview result.*inspect only/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Apply|Accept/ })).toBeNull()
+  expect(mocks.edit).not.toHaveBeenCalled()
+})

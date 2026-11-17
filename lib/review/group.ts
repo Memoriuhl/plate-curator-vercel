@@ -36,7 +36,7 @@ export async function acceptGroup(d: ReviewDeps, jobs: JobsDeps, actor: Actor, i
   const found = await getJobForActor(jobs, actor, input.jobId)
   if (!found.ok) return found
   const job = found.value
-  if (!jobs.localScope || job.localScope !== jobs.localScope || job.batchId !== input.batchId || job.stage !== 'group' || job.state !== 'completed' || 'queueRunId' in job && job.queueRunId) return { ok: false, error: 'invalid_state' }
+  if (job.previewOnly || !jobs.localScope || job.localScope !== jobs.localScope || job.batchId !== input.batchId || job.stage !== 'group' || job.state !== 'completed' || 'queueRunId' in job && job.queueRunId) return { ok: false, error: 'invalid_state' }
   const suggestion = parseGroupSuggestion(job.result?.fieldSuggestion)
   const expected = job.groupScope?.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })).sort((a, b) => a.plateId.localeCompare(b.plateId))
   if (!suggestion || JSON.stringify(suggestion.scope) !== JSON.stringify(expected)) return { ok: false, error: 'invalid_state' }

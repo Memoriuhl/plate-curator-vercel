@@ -4,6 +4,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { plateRevision } from '../../lib/review/revision'
 import { reportLocalWorkerCapabilities } from '../../lib/jobs/capabilities'
+import { groupProposal } from '../../worker/image-group'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { ReviewDeps } from '../../lib/review/types'
 
@@ -65,6 +66,37 @@ test('actual Group route uses server scope and its worker-reported capability', 
   expect((await groupAccept(post({ jobId, batchRevision: 0, suggestion: {} }), ctx)).status).toBe(422)
   expect(await s.d.store.listEdits('batch')).toEqual([])
   expect((await getCapabilities(new Request('http://localhost'))).status).toBe(200)
+  if (!job?.groupScope) throw Error('Missing created Group scope')
+  const suggestion = groupProposal(job.groupScope, { model: 'fixture', groups: [{ templateId: 'AK.b', variants: [{ id: 'AK.a' }] }], similarities: [] }, job.standardId)!
+  await s.jobs.store.transaction(async tx => { tx.set({ ...job, state: 'completed', result: { suggestions: [], fieldSuggestion: suggestion, backend: 'fixture', model: 'fixture', promptVersion: 'fixture', durationMs: 0 } }) })
+  const commit = vi.spyOn(s.d.store, 'commit')
+  const accepted = await groupAccept(post({ jobId, batchRevision: 0, suggestion: { scope: ['forged'] }, fields: { deleted: true } }), ctx)
+  expect(accepted.status).toBe(200)
+  expect(commit).toHaveBeenCalledTimes(1)
+  expect((await s.d.store.getBatch('batch'))?.revision).toBe(1)
+  const edits = await s.d.store.listEdits('batch')
+  expect(edits).toHaveLength(2)
+  expect(edits.find(edit => edit.plateId === 'AK.b')?.fields).toMatchObject({ templateRole: 'variant', variantOfPlateId: 'AK.a', templateFamily: 'AK.a' })
+  expect(edits.every(edit => edit.fields.deleted === undefined)).toBe(true)
+})
+
+test('stored preview jobs reject both accept routes and cannot be converted by request payload', async () => {
+  const s = await setup()
+  const groupScope = s.plates.map(plate => ({ plate, baseRevision: plateRevision(plate) }))
+  const suggestion = groupProposal(groupScope, { model: 'fixture', groups: [{ templateId: 'AK.a', variants: [{ id: 'AK.b' }] }], similarities: [] }, 'AK.a')!
+  await s.jobs.store.transaction(async tx => {
+    tx.set({ ...s.job, previewOnly: true })
+    tx.create({ ...s.job, id: 'group', stage: 'group', previewOnly: true, groupScope, standardId: 'AK.a', result: { suggestions: [], fieldSuggestion: suggestion, backend: 'fixture', model: 'fixture', promptVersion: 'fixture', durationMs: 0 } })
+  })
+  const commit = vi.spyOn(s.d.store, 'commit')
+  expect((await imageAccept(post({ jobId: 'image', candidateId: 'candidate', baseRevision: s.job.inputHash, previewOnly: false }), ctx)).status).toBe(422)
+  expect((await groupAccept(post({ jobId: 'group', batchRevision: 0, previewOnly: false }), ctx)).status).toBe(422)
+  const unsupported = await groupCreate(post({ plateIds: s.plates.map(plate => plate.id), batchRevision: 0, previewOnly: true }), ctx)
+  expect(unsupported.status).toBe(422)
+  expect((await unsupported.json()).reason).toContain('Standalone preview-only')
+  expect(commit).not.toHaveBeenCalled()
+  expect(await s.d.store.listEdits('batch')).toEqual([])
+  expect((await s.d.store.getBatch('batch'))?.revision).toBe(0)
 })
 
 test('local routes and capability writes remain off without the flag', async () => {

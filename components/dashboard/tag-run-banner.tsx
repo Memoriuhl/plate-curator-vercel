@@ -48,14 +48,14 @@ export function TagRunBanner({
     entries.filter((entry) => !entry.error && entry.job.state === state).length
   const active = starting || counts('queued') + counts('claimed') > 0
   async function acceptSpecialized(entry: RunEntry, payload: SpecializedAccept) {
-    if (blocked || !batchId || !entry.jobId) throw new Error('Result is unavailable')
+    if (entry.job.previewOnly || blocked || !batchId || !entry.jobId) throw new Error('Result is unavailable')
     const endpoint = 'candidateId' in payload ? 'images' : 'group'
     await api.send('POST', `/api/batches/${batchId}/${endpoint}/accept`, { ...payload, jobId: entry.jobId })
     setSavedFields(current => ({ ...current, [entry.plate.id]: entry.jobId! }))
     await mutate(`/api/batches/${batchId}`)
   }
   async function acceptFields(entry: RunEntry, suggestion: Suggestion) {
-    if (suggestion.kind !== 'fields') return
+    if (entry.job.previewOnly || suggestion.kind !== 'fields') return
     if (saving.current || blocked || !batchId || !entry.job.inputHash) return
     saving.current = true
     try {
@@ -144,11 +144,13 @@ export function TagRunBanner({
                   Current tags: {tags.join(', ') || 'None'}
                 </p> : null}
                 {entry.error ? <p role="alert">{entry.error}</p> : null}
+                {entry.job.previewOnly ? <p className="caption">Preview result · inspect only. Rerun normally to apply.</p> : null}
                 {entry.job.state === 'completed' && !entry.error && fieldSuggestion?.kind === 'fields' ? <FieldSuggestion
                   suggestion={fieldSuggestion}
                   before={detail.data?.plates.find(item => item.proposed.id === entry.plate.id)?.proposed}
                   blocked={pending || blocked || !entry.job.inputHash}
                   accepted={!!entry.job.inputHash && savedFields[entry.plate.id] === (entry.jobId ?? entry.job.inputHash)}
+                  inspectOnly={entry.job.previewOnly}
                   accept={() => void acceptFields(entry, fieldSuggestion)}
                 /> : null}
                 {entry.job.state === 'completed' && !entry.error && fieldSuggestion && fieldSuggestion.kind !== 'fields' ? <SpecializedSuggestion
@@ -158,10 +160,11 @@ export function TagRunBanner({
                   batchRevision={detail.data?.batch.revision}
                   blocked={pending || blocked || !entry.jobId}
                   accepted={!!entry.jobId && savedFields[entry.plate.id] === entry.jobId}
-                  accept={payload => acceptSpecialized(entry, payload)}
+                  accept={entry.job.previewOnly ? undefined : payload => acceptSpecialized(entry, payload)}
                 /> : null}
                 {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">{entry.job.stageError === 'no_sources' ? 'No usable Wikipedia source was found for this plate.' : entry.job.stageError === 'no_supported_fields' ? 'The sources do not support a suggestion for this plate.' : 'This stage result is unavailable or invalid.'}</p> : null}
-                {entry.job.state === 'completed' && !entry.error && !entry.job.stage ? (
+                {entry.job.previewOnly && !entry.job.stage ? <p className="caption">Suggested tags: {entry.job.suggestions.join(', ') || 'None'}</p> : null}
+                {entry.job.state === 'completed' && !entry.error && !entry.job.stage && !entry.job.previewOnly ? (
                   <div className="flex flex-wrap gap-2">
                     {suggestions.map((tag) => (
                       <Button

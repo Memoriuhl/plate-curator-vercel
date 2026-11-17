@@ -39,6 +39,7 @@ test('long inference sends bounded heartbeats and stops its timer on completion'
   await vi.advanceTimersByTimeAsync(130000)
   expect(request).toHaveBeenCalledTimes(26)
   expect(request.mock.calls[0][0]).toBe('http://localhost:3302/api/worker/capabilities')
+  expect(request.mock.calls.every(([url]) => String(url).endsWith('/api/worker/capabilities'))).toBe(true)
   finish()
   await running
   await vi.advanceTimersByTimeAsync(20000)

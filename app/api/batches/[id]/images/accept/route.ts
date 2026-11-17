@@ -8,6 +8,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
+  if (body?.previewOnly !== undefined && body.previewOnly !== false) return badRequest()
   if (!body || !['jobId', 'candidateId', 'baseRevision'].every(key => typeof body[key] === 'string')) return badRequest()
   const { id } = await ctx.params
   const saved = await acceptImage(reviewDeps(), jobsDeps(), auth.actor, { batchId: id, jobId: body.jobId as string, candidateId: body.candidateId as string, baseRevision: body.baseRevision as string })

@@ -23,7 +23,7 @@ export async function acceptImage(d: ReviewDeps, jobs: JobsDeps, actor: Actor, i
   const found = await getJobForActor(jobs, actor, input.jobId)
   if (!found.ok) return found
   const job = found.value
-  if (job.batchId !== input.batchId || job.localScope !== jobs.localScope || job.state !== 'completed' || job.stage !== 'find-image' || 'queueRunId' in job && job.queueRunId) return { ok: false, error: 'invalid_state' }
+  if (job.previewOnly || job.batchId !== input.batchId || job.localScope !== jobs.localScope || job.state !== 'completed' || job.stage !== 'find-image' || 'queueRunId' in job && job.queueRunId) return { ok: false, error: 'invalid_state' }
   if (job.inputHash !== input.baseRevision) return { ok: false, error: 'stale_plate' }
   const batch = await d.store.getBatch(input.batchId)
   if (!batch) return { ok: false, error: 'not_found' }

@@ -8,6 +8,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
+  if (body?.previewOnly !== undefined && body.previewOnly !== false) return badRequest()
   if (!body || typeof body.jobId !== 'string' || !Number.isSafeInteger(body.batchRevision)) return badRequest()
   const { id } = await ctx.params
   const saved = await acceptGroup(reviewDeps(), jobsDeps(), auth.actor, { batchId: id, jobId: body.jobId, batchRevision: Number(body.batchRevision) })

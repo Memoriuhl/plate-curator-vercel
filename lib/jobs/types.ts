@@ -23,6 +23,7 @@ export type TaggingJob = {
   modelId?: string
   stage?: PipelineStage
   localScope?: string
+  previewOnly?: boolean
   groupScope?: GroupInput
   standardId?: string
   stageOptions?: ImageGroupOptions

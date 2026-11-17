@@ -18,6 +18,7 @@ export type RunPlate = {
   checks?: { funFacts: { status: string } }
 }
 export type TagJob = {
+  previewOnly?: boolean
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   suggestions: string[]
   inputHash?: string

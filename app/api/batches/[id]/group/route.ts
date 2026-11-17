@@ -10,6 +10,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
+  if (body?.previewOnly !== undefined && body.previewOnly !== false) return json({ error: 'unavailable', reason: 'Standalone preview-only runs need the connected run coordinator' }, 422)
   if (!body || !Number.isSafeInteger(body.batchRevision) || !Array.isArray(body.plateIds) || !body.plateIds.every(id => typeof id === 'string')) return badRequest()
   const choice = chooseModel(body.model, 'desktop')
   if (!choice.ok) return badRequest()
