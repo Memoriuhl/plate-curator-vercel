@@ -244,10 +244,13 @@ body {
 
 .dashboard {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--stack-gap);
   min-width: 0;
 }
 .states-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--stack-gap);
   min-width: 0;
 }
 .states-review {
@@ -466,7 +469,6 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  min-height: 60px;
 }
 .filter-chips {
   display: flex;
@@ -501,7 +503,6 @@ body {
   justify-content: flex-end;
   gap: var(--space-4);
   margin-left: auto;
-  margin-bottom: 12px;
   font-size: 12px;
   color: var(--ink-2);
 }
@@ -522,6 +523,7 @@ body {
     grid-template-columns: calc(132px + 17px + var(--space-1)) minmax(0, 1fr);
     grid-template-rows: auto auto 1fr;
     column-gap: var(--space-6);
+    row-gap: var(--stack-gap);
     align-items: start;
   }
   .states-layout > .states-review {
@@ -665,4 +667,14 @@ body {
 .variant-row [data-batch-marker] {
   top: 10px;
   right: 10px;
+}
+
+.family-order {
+  font-family: var(--font-sans);
+  font-size: 30px;
+  line-height: 34px;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--ink);
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.55));
 }
