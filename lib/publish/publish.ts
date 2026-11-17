@@ -4,8 +4,9 @@ import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
 import { sha256, snapshotBytes } from './bytes'
-import type { PublishCommand, PublishDeps, PublishError, PublishLease, PublishOutcome, PublishRecord } from './types'
+import type { CommittedStateOrders, PublishCommand, PublishDeps, PublishError, PublishLease, PublishOutcome, PublishRecord } from './types'
 import { validateSnapshot } from './validation'
+import { orderedStatePlates } from '../catalog/order'
 
 export async function publishBatch(d: PublishDeps, actor: Actor, command: PublishCommand): Promise<PublishOutcome> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
@@ -142,7 +143,19 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       record = await d.records.get(id)
       if (!record?.committedAt) return { ok: false, error: PUBLISH_ERRORS.unavailable }
     }
-    if (await d.curator.writeStateOrders(batch.stateOrders, lease, d.now()) !== 'ok') return { ok: false, error: 'lock_lost' }
+    let orderResult = await d.curator.writeStateOrders(batch.stateOrders, lease, d.now(), record)
+    for (let attempt = 0; orderResult === 'reconcile' && attempt < 3; attempt++) {
+      let live
+      try {
+        live = await committedStateOrders(d, Object.keys(batch.stateOrders), record.toVersion)
+      } catch {
+        continue
+      }
+      if (!live) continue
+      if (!await renew()) return { ok: false, error: 'lock_lost' }
+      orderResult = await d.curator.writeStateOrders(batch.stateOrders, lease, d.now(), record, live)
+    }
+    if (orderResult !== 'ok') return { ok: false, error: orderResult === 'reconcile' ? 'unavailable' : orderResult }
     const done: PublishRecord = { ...record, state: 'done', completionToken: lease.token }
     if (!await d.records.save(done, lease.token, d.now()) || !await renew()) return { ok: false, error: 'lock_lost' }
     const committed = await d.store.commit(batch.id, command.revision, {
@@ -153,5 +166,19 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
     return { ok: true, value: done }
   } finally {
     await d.lock.release(lease.token, keepFrozen)
+  }
+}
+
+async function committedStateOrders(d: PublishDeps, states: string[], toVersion: number): Promise<CommittedStateOrders | null> {
+  const pointer = await d.pointer.read()
+  if (!Number.isSafeInteger(pointer.version) || pointer.version <= toVersion || typeof pointer.blobSha256 !== 'string') return null
+  const snapshot = await d.snapshots.read(pointer.version)
+  if (snapshot.version !== pointer.version || !Array.isArray(snapshot.plates)) return null
+  if (snapshot.plates.some(plate => !plate || typeof plate.id !== 'string' || typeof plate.state !== 'string' || plate.sortOrder !== undefined && (typeof plate.sortOrder !== 'number' || !Number.isFinite(plate.sortOrder)))) return null
+  if (new Set(snapshot.plates.map(plate => plate.id)).size !== snapshot.plates.length) return null
+  if (sha256(snapshotBytes(snapshot)) !== pointer.blobSha256 || await d.snapshots.checksum(pointer.version) !== pointer.blobSha256) return null
+  return {
+    version: pointer.version, blobSha256: pointer.blobSha256,
+    orders: Object.fromEntries(states.map(state => [state, orderedStatePlates(snapshot, state, { stateOrder: {}, stateProgress: {} }).map(plate => plate.id)])),
   }
 }

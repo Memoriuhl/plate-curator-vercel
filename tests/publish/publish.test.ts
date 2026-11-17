@@ -311,7 +311,7 @@ test('lease lost before the curator write leaves the order untouched and can be 
   const write = f.deps.curator.writeStateOrders
   f.deps.curator.writeStateOrders = async (...args) => {
     f.setTime('2026-11-15T12:02:00Z')
-    return write(args[0], args[1], f.deps.now())
+    return write(args[0], args[1], f.deps.now(), args[3])
   }
   expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'lock_lost' })
   expect(f.pointer().version).toBe(2)
