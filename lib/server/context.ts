@@ -11,7 +11,7 @@ import { catalogSourceKind } from '../catalog/source-kind'
 import { getVercelOidcToken } from '@vercel/oidc'
 import { gcpAuthClient } from '../gcp/credentials'
 import type { HostedDeps } from '../jobs/hosted'
-import { DEFAULT_TAGGING_MODEL, taggingModel, type TaggingModel } from '../tagging/models'
+import { chooseTaggingModel, enabledTaggingModels, taggingModel, type TaggingChoice, type TaggingModel } from '../tagging/models'
 import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
@@ -113,8 +113,13 @@ export function jobsDeps(): JobsDeps {
   }
 }
 
-export function defaultTaggingModel(): TaggingModel {
-  return taggingModel(process.env.TAGGING_DEFAULT_MODEL) ?? taggingModel(DEFAULT_TAGGING_MODEL)!
+export function taggingModels(runsOn?: TaggingModel['runsOn']): TaggingModel[] {
+  const enabled = enabledTaggingModels(process.env.TAGGING_MODELS)
+  return runsOn ? enabled.filter(model => model.runsOn === runsOn) : enabled
+}
+
+export function chooseModel(requested: unknown, runsOn?: TaggingModel['runsOn']): TaggingChoice {
+  return chooseTaggingModel(requested, taggingModels(runsOn), process.env.TAGGING_DEFAULT_MODEL)
 }
 
 export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {

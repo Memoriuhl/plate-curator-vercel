@@ -37,3 +37,20 @@ export const DEFAULT_TAGGING_MODEL: TaggingModelId = 'desktop-gemma4-12b'
 export function taggingModel(id: unknown): TaggingModel | null {
   return TAGGING_MODELS.find(model => model.id === id) ?? null
 }
+
+export function enabledTaggingModels(setting: string | undefined): TaggingModel[] {
+  if (!setting?.trim()) return TAGGING_MODELS.filter(model => model.runsOn === 'desktop')
+  return setting.split(',').flatMap(id => taggingModel(id.trim()) ?? [])
+}
+
+export type TaggingChoice = { ok: true; model: TaggingModel } | { ok: false; error: 'bad_request' | 'unavailable' }
+
+export function chooseTaggingModel(requested: unknown, enabled: readonly TaggingModel[], preferred?: unknown): TaggingChoice {
+  if (requested === undefined) {
+    const model = enabled.find(m => m.id === preferred) ?? enabled.find(m => m.id === DEFAULT_TAGGING_MODEL) ?? enabled[0]
+    return model ? { ok: true, model } : { ok: false, error: 'unavailable' }
+  }
+  const model = taggingModel(requested)
+  if (!model) return { ok: false, error: 'bad_request' }
+  return enabled.some(m => m.id === model.id) ? { ok: true, model } : { ok: false, error: 'unavailable' }
+}
