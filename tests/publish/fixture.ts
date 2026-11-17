@@ -68,6 +68,7 @@ export function fixture(seed: ReviewBatch = batch) {
         const current = await store.getBatch(record.batchId)
         if (current?.revision !== record.revision || current.state !== 'approved') return 'superseded_revision'
         const saved = records.get(record.id)
+        if (saved?.commandId !== record.commandId) return 'superseded'
         if (saved?.committedAt) return 'advanced'
         const stop = await check(record)
         if (stop) return stop
@@ -90,9 +91,29 @@ export function fixture(seed: ReviewBatch = batch) {
       downloadUrl: async version => blobs.has(version) ? `https://storage.example/v${version}.json?token=t${version}` : null,
     },
     records: {
+      command: async () => null,
+      stopped: async cmd => stops.get(publishCommandKey(cmd)) ?? null,
+      accept: async cmd => ({ command: cmd }),
+      bindRun: async () => true,
+      adopt: async (record, cmd, checksum, token, now) => {
+        if (!active(token, now)) return 'lock_lost'
+        const saved = records.get(record.id)
+        if (!saved || saved.commandId !== record.commandId || saved.committedAt || !stops.has(publishCommandKey(saved))) return 'superseded'
+        if (checksum !== saved.blobSha256) return 'version_taken'
+        if (pointer.version !== saved.fromVersion) return 'stale_baseline'
+        const current = await store.getBatch(cmd.batchId)
+        if (current?.state !== 'approved' || current.revision !== cmd.revision || current.approval?.revision !== cmd.revision - 1) return 'superseded_revision'
+        const stop = await check(cmd)
+        if (stop) return stop
+        const adopted = { ...saved, ...cmd, supersededCommands: [...saved.supersededCommands ?? [], { batchId: saved.batchId, revision: saved.revision, commandId: saved.commandId, generation: saved.generation, requestedBy: saved.requestedBy }] }
+        records.set(record.id, structuredClone(adopted))
+        return adopted
+      },
       get: async id => structuredClone(records.get(id) ?? null),
       save: async (record, token, now) => {
         if (!active(token, now)) return false
+        const previous = records.get(record.id)
+        if (previous && (previous.commandId !== record.commandId || previous.generation !== record.generation)) return false
         records.set(record.id, structuredClone({ ...records.get(record.id), ...record }))
         return true
       },

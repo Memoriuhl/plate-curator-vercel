@@ -91,7 +91,7 @@ function BatchSelection({
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-  const [requested, setRequested] = useState(false)
+  const [requestedFrom, setRequestedFrom] = useState<string | null | undefined>(undefined)
   const [rejectedLiveVersion, setRejectedLiveVersion] = useState<number | null>(null)
   if (detail.error) return <p role="alert">Could not load this Batch.</p>
   if (!detail.data) return <p role="status">Loading Batch…</p>
@@ -102,17 +102,23 @@ function BatchSelection({
     .join(', ')
   const revision = batch.approval?.revision
   const failed = run.data?.outcome
+  const stopped = isPublishStop(failed?.error) || !!baseline.data?.stopped
+  const requested = requestedFrom !== undefined && (requestedFrom === (run.data?.runId ?? null) || !stopped)
   const receiptConflict = baseline.data?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
   const blocked = baseline.data?.error || rejectedLiveVersion !== null || isBaselineError(failed?.error)
   const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
   const canPublish =
     batch.state === 'approved' &&
     revision !== undefined &&
+    revision === batch.revision - 1 &&
     !requested &&
+    !busy &&
+    !['publishing', 'published'].includes(run.data?.phase ?? '') &&
     !blocked &&
-    !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(
+    !!baseline.data && !baseline.error &&
+    (stopped || !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(
       run.data?.phase ?? '',
-    )
+    ))
   async function publish() {
     if (revision === undefined) return
     onPublish()
@@ -120,7 +126,7 @@ function BatchSelection({
     try {
       const result = await actions.publish(id, batch.revision)
       if (result.ok) {
-        setRequested(true)
+        setRequestedFrom(run.data?.runId ?? null)
         setMessage('Publish requested. Waiting for the run…')
       } else {
         setMessage(result.message)
@@ -141,11 +147,12 @@ function BatchSelection({
         </div>
         {canPublish && (
           <Button variant="publish" onClick={() => dialog.current?.showModal()}>
-            Publish revision {revision}
+            {stopped ? 'Publish again' : `Publish revision ${revision}`}
           </Button>
         )}
       </header>
       <RunStatus batchId={id} />
+      {baseline.data?.stopped && !isPublishStop(failed?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.stopped.reason]} The Catalog did not advance.{baseline.data.stopped.requestedBy ? ` Requested by ${baseline.data.stopped.requestedBy.email} (${baseline.data.stopped.requestedBy.uid}).` : ''}</p>}
       {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
       {batch.state === 'approved' && blocked && liveVersion !== undefined && (
         <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />

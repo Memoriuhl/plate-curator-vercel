@@ -20,6 +20,8 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   const batch = await d.store.getBatch(command.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
   let record = await d.records.get(id)
+  if (record?.committedAt && record.commandId !== command.commandId) return { ok: false, error: 'superseded' }
+  if (record?.supersededCommands?.some(previous => previous.commandId === command.commandId)) return { ok: false, error: 'superseded' }
   if (record?.state === 'done' && record.committedAt && batch.state === 'published' && batch.revision === command.revision + 1) {
     if (record.completionToken) await d.lock.release(record.completionToken, false)
     return { ok: true, value: record }
@@ -42,6 +44,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   }
   try {
     record = await d.records.get(id)
+    if (record?.supersededCommands?.some(previous => previous.commandId === command.commandId)) { keepFrozen = false; return { ok: false, error: 'superseded' } }
     if (!record?.committedAt) {
       const stop = await d.control.check(command, d.now())
       if (stop) { keepFrozen = false; return { ok: false, error: stop } }
@@ -51,6 +54,12 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
     if (baselineError) {
       keepFrozen = false
       return { ok: false, error: baselineError, reviewedVersion: batch.baselineVersion, liveVersion }
+    }
+    if (record && record.commandId !== command.commandId) {
+      if (record.committedAt) { keepFrozen = false; return { ok: false, error: 'superseded' } }
+      const adopted = await d.records.adopt(record, command, await d.snapshots.checksum(record.toVersion), lease.token, d.now())
+      if (typeof adopted === 'string') { keepFrozen = false; return { ok: false, error: adopted } }
+      record = adopted
     }
     if (record?.state === 'failed') {
       keepFrozen = false

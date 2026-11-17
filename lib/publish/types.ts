@@ -15,6 +15,7 @@ export interface PublishControl {
 }
 export type PublishError = PublishStop | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
+  supersededCommands?: PublishCommand[]
   requestedBy?: RequesterAuthority
   generation?: number
   commandId?: string
@@ -42,6 +43,11 @@ export interface PublishSnapshots {
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  command(commandId: string): Promise<{ command: PublishCommand; runId?: string } | null>
+  accept(command: PublishCommand, now: string): Promise<{ command: PublishCommand; runId?: string } | PublishError>
+  bindRun(command: PublishCommand, runId: string, now: string): Promise<boolean>
+  stopped(record: PublishCommand): Promise<PublishStop | null>
+  adopt(record: PublishRecord, command: PublishCommand, checksum: string | null, token: string, now: string): Promise<PublishRecord | PublishError>
   get(id: string): Promise<PublishRecord | null>
   save(record: PublishRecord, token: string, now: string): Promise<boolean>
 }

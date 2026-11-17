@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { approvalRun } from '../../workflows/approval'
+import { approvalRun, publishRun } from '../../workflows/approval'
 
 const mocks = vi.hoisted(() => ({ getBatch: vi.fn(), createHook: vi.fn(), publishBatch: vi.fn(), publishDeps: vi.fn(() => ({})), catalogPush: vi.fn() }))
 vi.mock('../../workflows/catalog-push', () => ({ catalogPush: mocks.catalogPush }))
@@ -86,4 +86,16 @@ test('requester authority passes unchanged into the publisher and revoked result
   expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error: 'revoked', reasons: [], requestedBy })
   expect(mocks.publishBatch).toHaveBeenCalledWith({}, { uid: 'requester', name: null, role: 'owner' }, { batchId: 'batch', revision: 2, requestedBy, generation: 3, commandId: 'request' })
   expect(mocks.catalogPush).not.toHaveBeenCalled()
+})
+
+test('dedicated fresh-command run needs no hook and only a committed outcome reaches Catalog push', async () => {
+  const command = { ownerUid: 'backup', generation: 3, commandId: 'fresh', requestedBy: { uid: 'backup', email: 'backup@example.com', authorityEpoch: 0 } }
+  for (const error of ['paused', 'revoked', 'superseded', 'stale_baseline', 'version_taken']) {
+    mocks.publishBatch.mockResolvedValueOnce({ ok: false, error })
+    expect(await publishRun('batch', 2, command)).toMatchObject({ outcome: 'publish_failed', error, requestedBy: command.requestedBy })
+    expect(mocks.catalogPush).not.toHaveBeenCalled()
+  }
+  expect(await publishRun('batch', 2, command)).toMatchObject({ outcome: 'published', version: 8 })
+  expect(mocks.catalogPush).toHaveBeenCalledExactlyOnceWith(8)
+  expect(mocks.createHook).not.toHaveBeenCalled()
 })

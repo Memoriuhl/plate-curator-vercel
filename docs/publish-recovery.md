@@ -1,4 +1,4 @@
-# Publish controls and recovery (#127, #126, #119)
+# Publish controls and recovery (#128, #127, #126, #119)
 
 ## Pause and Resume
 
@@ -47,20 +47,42 @@ Pause does not roll back a published Catalog.
 
 Resume only permits new requests. It never restarts a stopped Workflow. Publishing
 a stopped Batch requires an explicit fresh Publish command under the current
-generation. The dedicated retry UI and prepared Snapshot reuse are tracked in
-#128; Snapshot abandonment remains #129. Until those recovery paths are available,
-keep stopped receipts and Snapshots for triage rather than deleting or restarting
-their commands.
+generation and requester authority marker. Restoring Owner access also leaves old
+commands stopped.
 
-## Known gap until #128/#129
+## Explicit retry of the same Batch
 
-A stop after upload but before the pointer commit leaves an uploaded receipt
-bound to the stopped command. A fresh click on the same Batch then reports
-`paused` or `revoked` (the persisted terminal reason), and any other Batch
-attempting to take that Snapshot version hits `version_taken`. The Catalog stays on its old version: this is fail-safe, but it
-blocks further publishing. Recovery comes with explicit retry (#128) and Snapshot
-abandonment (#129). Until those paths ship, preserve the receipt and uploaded
-Snapshot for triage.
+Inspect the stopped outcome in Publish: its reason and requester identify the
+command, and “The Catalog did not advance” confirms that the old version stayed
+live. Resume publishing if paused. An active Owner can then select **Publish
+again** for the same approved revision. A different active Owner can request it
+after the original requester was revoked. Editors cannot request it. If the live
+Catalog changed, use **Copy to new Batch** for fresh review instead.
+
+Each explicit click supplies a fresh command ID. A genuinely waiting approval run
+still receives its Publish hook; a stopped run has ended, so the retry starts a
+dedicated durable Publish run. Acceptance stores the requester and current
+generation transactionally with approval, revision and baseline checks. A retained
+start-hook token prevents concurrent starts for one command ID; the durable command
+record returns the same run on subsequent requests, including after completion.
+Retries do not create another release or silently change requester identity.
+
+Under the Publish lease, the fresh command checks the existing immutable Snapshot
+checksum. One Firestore transaction checks the approved revision, live pointer,
+lease, current requester/control and the previous command’s durable stop before
+rebinding the uncommitted receipt. The receipt retains its version and checksum and
+appends the prior command identity to `supersededCommands`. Missing or mismatched
+bytes return `version_taken` for triage; nothing is re-uploaded over them. A moved
+baseline offers Copy. Old work cannot save or commit the adopted receipt and
+returns `superseded`. Only the committed command reaches the existing per-version
+Catalog push claim.
+
+## Known gap until #129
+
+Another Batch attempting to take a stopped attempt’s retained Snapshot version
+still hits `version_taken`. Snapshot abandonment and publishing a different Batch
+over that unused version remain #129. Preserve the receipt and Snapshot for triage;
+do not delete them manually. Same-Batch explicit retry does not abandon an object.
 
 ## Stale baseline
 

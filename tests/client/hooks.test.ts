@@ -632,7 +632,7 @@ test.each([
   session.api.send.mockRejectedValue(new ApiError(409, code, {}))
   const { result } = renderHook(() => useReviewActions(), harness())
   await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message }))
-  expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7 })
+  expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7, commandId: expect.any(String) })
 })
 
 test('Editor never requests run status', async () => {
@@ -708,7 +708,7 @@ test('Publish confirmation shows the approved revision, sends the current batch 
     expect(dialog.textContent).toContain('edited')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8 })
+    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
     expect(screen.getByText('v12')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()

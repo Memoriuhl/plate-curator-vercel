@@ -17,6 +17,7 @@ export type ReviewBatch = {
   baselineOrders?: Record<string, string[]>
   plateIds: string[]
   approvalRun?: { runId: string; revision: number }
+  publishCommand?: { commandId: string; revision: number }
   publishRequestedBy?: RequesterAuthority | null
   publishRequestedAt?: string | null
   approval: { revision: number; by: string; at: string } | null

@@ -7,6 +7,7 @@ import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
+import { HookConflictError } from 'workflow/errors'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
@@ -25,10 +26,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5, role: 'owner' } })
   mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
-  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
+  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { command: async () => null, get: async () => null, accept: async (command: unknown) => ({ command }), bindRun: async () => true } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
   mocks.start.mockResolvedValue({ runId: 'run' })
   mocks.resumeHook.mockResolvedValue({ runId: 'run' })
+  mocks.getRun.mockReturnValue({ status: Promise.resolve('running') })
   mocks.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), baselineAtVersion: async () => baseline, baseline: async () => baseline, stateBaseline: async () => [baseline], now: () => '2026-11-16T12:00:00.000Z', supersedeRun: vi.fn(async () => {}) } satisfies ReviewDeps)
 })
 
@@ -49,6 +51,49 @@ test('a rejected Publish command is not recorded as publishing', async () => {
   mocks.resumeHook.mockRejectedValueOnce(new Error('not waiting'))
   expect((await publish(request({ revision: 0 }), ctx)).status).toBe(409)
   expect((await mocks.reviewDeps().store.getBatch('batch')).publishRequestedAt).toBeUndefined()
+})
+
+test('a stopped approval run starts a new command run instead of resuming its ended hook', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2, approval: { revision: 1, by: 'owner', at: '' }, approvalRun: { runId: 'old', revision: 1 } }])
+  mocks.getRun.mockReturnValue({ status: Promise.resolve('completed'), returnValue: Promise.resolve({ outcome: 'publish_failed', error: 'paused' }) })
+  expect((await publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)).status).toBe(202)
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+  expect(mocks.start).toHaveBeenCalledWith(expect.any(Function), ['batch', 2, expect.objectContaining({ commandId: 'fresh-click' })], expect.objectContaining({ experimental_hook: expect.objectContaining({ token: 'publish-command:fresh-click' }) }))
+})
+
+test('duplicate fresh requests return their persisted run even after the Batch published', async () => {
+  const command = { batchId: 'batch', revision: 2, commandId: 'fresh-click', generation: 1, requestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 } }
+  mocks.publishDeps().records.command = async () => ({ command, runId: 'fresh-run' })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ status: 'publishing', runId: 'fresh-run' })
+  }
+  expect(mocks.start).not.toHaveBeenCalled()
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+})
+
+test('a replayed command cannot be taken by a different requester', async () => {
+  mocks.publishDeps().records.command = async () => ({ command: { batchId: 'batch', revision: 2, requestedBy: { uid: 'other', email: 'other@example.com', authorityEpoch: 0 } }, runId: 'other-run' })
+  expect((await publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)).status).toBe(409)
+  expect(mocks.start).not.toHaveBeenCalled()
+})
+
+test('a concurrent duplicate start returns the run owning the command token', async () => {
+  const command = { batchId: 'batch', revision: 2, commandId: 'fresh-click', generation: 1, requestedBy: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5 } }
+  mocks.publishDeps().records.command = async () => ({ command })
+  mocks.start.mockResolvedValueOnce({ runId: 'one-run' }).mockRejectedValueOnce(new HookConflictError('publish-command:fresh-click', 'one-run'))
+  const responses = await Promise.all([publish(request({ revision: 2, commandId: 'fresh-click' }), ctx), publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)])
+  for (const response of responses) {
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ status: 'publishing', runId: 'one-run' })
+  }
+})
+
+test('unauthenticated fresh clicks are refused before command lookup', async () => {
+  mocks.currentActiveOwner.mockResolvedValue({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
+  expect((await publish(request({ revision: 2, commandId: 'fresh-click' }), ctx)).status).toBe(401)
+  expect(mocks.publishDeps).not.toHaveBeenCalled()
 })
 
 test.each(['submitted', 'approved'] as const)('plate and order edits supersede a %s run', async state => {

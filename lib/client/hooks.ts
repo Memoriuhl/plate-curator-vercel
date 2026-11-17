@@ -12,7 +12,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
-import type { PublishControlState, PublishStop } from '../publish/types'
+import type { PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -111,9 +111,10 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus =
+export type PublishBaselineStatus = { stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
+)
 
 export function usePublishControl() {
   const { user, api } = useSession()
@@ -139,7 +140,7 @@ export function useReviewActions() {
   return {
     async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; reviewedVersion?: number; liveVersion?: number }> {
       try {
-        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision })
+        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision, commandId: crypto.randomUUID() })
         publishWindows.set(batchId, Date.now() + 30000)
         window.dispatchEvent(new Event('batch-publish-requested'))
         await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
