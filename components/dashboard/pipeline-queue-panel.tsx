@@ -51,9 +51,9 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       return <li key={run.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
         <p><strong>{run.plateIds.length} plates · {run.stages.map(id => pipelineStages.find(stage => stage.id === id)?.label ?? id).join(' → ')}</strong></p>
         <p className="caption" role="status">{label(run)} · {attempt.completedCount ?? attempt.completedJobIds?.length ?? 0}/{attempt.stepCount ?? attempt.steps?.length ?? 0} stages · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
-        <p className="caption">Requested {new Date(run.createdAt).toLocaleString()} · Batch {run.batchId}</p>
+        <p className="caption">Requested {new Date(run.createdAt).toLocaleString()} · {run.batchName ?? 'Batch'}</p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View run {run.id.slice(0, 8)}</Button>
+          <Button size="sm" variant="outline" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View results</Button>
           {['queued', 'running'].includes(run.status) && run.cancelRequestedAt === undefined ? <Button size="sm" variant="ghost" disabled={!run.editable || !!queue.action} onClick={() => void queue.cancel(run.id)}>Cancel remaining stages</Button> : null}
           {['failed', 'cancelled'].includes(run.status) && !unresolved ? <Button size="sm" variant="outline" disabled={!run.editable || !!queue.action} onClick={() => void queue.retry(run.id)}>Retry pending stages</Button> : null}
         </div>
@@ -61,7 +61,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       </li>
     })}</ol>
     {selected ? <div className="grid gap-[var(--stack-gap)]">
-      <div className="flex flex-wrap justify-between gap-2"><h3 className="label">Run {selected.id.slice(0, 8)} · coherent result</h3>
+      <div className="flex flex-wrap justify-between gap-2"><h3 className="label">Coherent run result</h3>
         <Button size="sm" variant="ghost" onClick={() => queue.select('none')}>Hide results</Button></div>
       <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>
       {selected.waitReason === 'image_choice' && currentJob ? renderSpecialized?.(currentJob, selected) ?? <p role="status">Select an image candidate to continue this run.</p> : null}
@@ -80,8 +80,8 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
         {leaseActive ? <p className="caption">The active lease has not expired. Wait for the worker to finish or for stale-claim recovery to become available.</p> : null}
         <Button size="sm" variant="outline" disabled={!!queue.action || verifiedClaim !== currentJob.claimId || leaseActive} onClick={() => void queue.recover(selected.id, currentJob.id, currentJob.claimId!)}>Release verified stopped worker</Button>
       </details> : null}
-      <details><summary className="caption cursor-pointer">Attempt history</summary><ol className="mt-[var(--stack-gap)] grid gap-[var(--stack-gap)]">
-        {selected.attempts.map(attempt => <li key={attempt.number} className="caption">Attempt {attempt.number} · {attempt.status}{attempt.error ? ` · ${attempt.error.replaceAll('_', ' ')}` : ''} · {attempt.completedJobIds.length}/{attempt.steps.length} stages</li>)}
+      <details><summary className="caption cursor-pointer">Attempt history</summary><p className="caption mt-[var(--stack-gap)] break-all">Run reference: {selected.id}</p><ol className="mt-[var(--stack-gap)] grid gap-[var(--stack-gap)]">
+        {selected.attempts.map(attempt => <li key={attempt.number} className="caption">Attempt {attempt.number} · {attempt.status}{attempt.error ? ` · ${attempt.error.replaceAll('_', ' ')}` : ''} · {attempt.completedJobIds.length}/{attempt.steps.length} stages<p className="break-all">Job references: {attempt.jobIds.join(', ') || 'No stages started'}</p></li>)}
       </ol></details>
     </div> : null}
   </section>

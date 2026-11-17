@@ -24,7 +24,7 @@ export async function failLocalJob(d: JobsDeps, workerId: string, id: string, cl
 export async function listLocalOrphanJobs(d: JobsDeps, actor: Actor): Promise<TaggingJob[]> {
   if (!localQueueEnabled(d)) return []
   return d.store.transaction(async tx => {
-    const candidates = (await tx.list()).filter(job => job.localScope === d.localScope && !job.queueRunId && job.state === 'claimed' &&
+    const candidates = (await tx.list()).filter(job => job.localScope === d.localScope && !job.queueRunId && job.route !== 'hosted' && job.state === 'claimed' &&
       (job.requestedBy === actor.uid || actor.role === 'owner'))
     const visible: TaggingJob[] = []
     const updates: TaggingJob[] = []
@@ -43,7 +43,7 @@ export async function recoverLocalOrphanJob(d: JobsDeps, actor: Actor, id: strin
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     const job = await tx.get(id)
-    if (!job || job.localScope !== d.localScope || job.queueRunId) return { ok: false, error: 'not_found' }
+    if (!job || job.localScope !== d.localScope || job.queueRunId || job.route === 'hosted') return { ok: false, error: 'not_found' }
     const batch = await tx.batch(job.batchId)
     if (!batch || !canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
     if (job.state !== 'claimed' || job.claimId !== claimId || job.leaseExpiresAt! > d.now()) return { ok: false, error: 'claim_mismatch' }

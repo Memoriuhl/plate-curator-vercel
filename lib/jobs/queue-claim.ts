@@ -6,7 +6,7 @@ export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: Pipel
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter(job => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
-  for (const job of scoped) if (job.state === 'claimed') occupied[job.resourceClass ?? 'gpu']++
+  for (const job of scoped) if (job.state === 'claimed' && job.route !== 'hosted') occupied[job.resourceClass ?? 'gpu']++
   const lastByUser = new Map<string, number>()
   for (const run of runs) if (run.localScope === d.localScope) lastByUser.set(run.requestedBy, Math.max(lastByUser.get(run.requestedBy) ?? 0, run.lastDispatchedAt ?? 0))
   return scoped.filter(job => {

@@ -305,3 +305,13 @@ test('fatal/exhausted Workflow failure with a live claim NEVER releases it; safe
   expect(await retryRun(s.deps, actor, run.id, 'safe-retry')).toMatchObject({ value: { attempts: [{ status: 'failed' }, { number: 2 }] } })
   expect(await claimNext(s.deps, 'replacement')).not.toBeNull()
 })
+
+test('existing hosted Tag jobs retain their by-id lifecycle and never reserve local physical GPU capacity', async () => {
+  const s = setup()
+  expect(await createJob(s.deps, { id: 'hosted', batchId: 'batch', plateId: 'AK.one', requestedBy: actor.uid, route: 'hosted' })).toMatchObject({ ok: true })
+  expect(await claimJob(s.deps, 'hosted-worker', 'hosted')).toMatchObject({ ok: true, value: { job: { state: 'claimed' } } })
+  await s.run('physical-next')
+  expect(await claimNext(s.deps, 'local-worker')).not.toBeNull()
+  expect(await listLocalOrphanJobs(s.deps, actor)).toEqual([])
+  expect(await expireJob(s.deps, 'hosted')).toMatchObject({ value: { state: 'expired' } })
+})

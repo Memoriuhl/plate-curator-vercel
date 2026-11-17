@@ -87,8 +87,8 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
     if (job.queueRunId) return { ok: false, error: 'forbidden' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state === 'completed') return { ok: true, value: { job, claimId: job.claimId! } }
-    if (localClaimsEnabled(d) && job.state !== 'queued') return { ok: false, error: 'claim_mismatch' }
-    if (localClaimsEnabled(d) && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
+    if (localClaimsEnabled(d) && job.route !== 'hosted' && job.state !== 'queued') return { ok: false, error: 'claim_mismatch' }
+    if (localClaimsEnabled(d) && job.route !== 'hosted' && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
     const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
     tx.set(claimed)
@@ -178,7 +178,7 @@ export async function expireJob(d: JobsDeps, id: string): Promise<Outcome<Taggin
     if (!job) return { ok: false, error: 'not_found' }
     if (d.localScope && job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
     if (job.state === 'completed' || job.state === 'expired') return { ok: true, value: job }
-    if (localClaimsEnabled(d) && job.localScope === d.localScope && job.state === 'claimed') {
+    if (localClaimsEnabled(d) && job.localScope === d.localScope && job.route !== 'hosted' && job.state === 'claimed') {
       const pending = { ...job, recoveryNeededAt: job.recoveryNeededAt ?? d.now() }
       tx.set(pending)
       return { ok: true, value: pending }

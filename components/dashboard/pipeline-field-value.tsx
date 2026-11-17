@@ -17,12 +17,12 @@ function href(value: unknown) {
 export function PipelineFieldValue({ field, value, plateNames = {} }: { field: string; value: unknown; plateNames?: Record<string, string> }) {
   if (value === undefined || value === null || value === '' || Array.isArray(value) && !value.length) return <p className="caption">None</p>
   if (field === 'funFacts' && Array.isArray(value)) return <ul className="grid list-disc gap-2 pl-5">{value.map((raw, index) => {
-    const fact = raw as { text?: string; sourceUrl?: string; sourceTitle?: string }
+    const fact = raw && typeof raw === 'object' ? raw as { text?: string; sourceUrl?: string; sourceTitle?: string } : { text: String(raw) }
     const source = href(fact.sourceUrl)
     return <li key={index}><p>{fact.text}</p>{source ? <a className="caption underline" href={source} target="_blank" rel="noreferrer">{fact.sourceTitle || 'Source'}</a> : null}</li>
   })}</ul>
   if (field === 'readMore' && Array.isArray(value)) return <ul className="grid gap-2">{value.map((raw, index) => {
-    const link = raw as { title?: string; site?: string; url?: string }
+    const link = raw && typeof raw === 'object' ? raw as { title?: string; site?: string; url?: string } : { title: String(raw) }
     const source = href(link.url)
     return <li key={index}>{source ? <a className="underline" href={source} target="_blank" rel="noreferrer">{link.title || 'Read more'}</a> : <span>{link.title}</span>}{link.site ? <p className="caption">{link.site}</p> : null}</li>
   })}</ul>

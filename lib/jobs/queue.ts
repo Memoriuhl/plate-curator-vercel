@@ -109,7 +109,7 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
       const batch = batches.get(run.batchId)
       if (!batch || !canEdit(batch, actor)) continue
       const ids = new Set(run.attempts.flatMap(attempt => attempt.jobIds))
-      visible.push({ ...run, jobs: jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope), editable: batch.state === 'open',
+      visible.push({ ...run, batchName: batch.name, jobs: jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope), editable: batch.state === 'open',
         applied: !!batch.pipelineApplications?.[`${run.id}:${run.attempts.at(-1)!.number}`] })
     }
     return { ok: true, value: [...visible.filter(run => ['queued', 'running'].includes(run.status)),
