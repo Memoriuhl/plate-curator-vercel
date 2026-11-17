@@ -27,13 +27,17 @@ export function SignInForm() {
   const passwordControl = useRef<HTMLInputElement>(null)
   const googleControl = useRef<HTMLButtonElement>(null)
   const changeControl = useRef<HTMLButtonElement>(null)
+  const focusedStep = useRef<Check | null | undefined>(undefined)
 
   useEffect(() => {
-    if (!check) emailControl.current?.focus()
-    else if (!check.invited || check.status === 'expired') changeControl.current?.focus()
-    else if (check.signIn === 'password') passwordControl.current?.focus()
-    else googleControl.current?.focus()
-  }, [check])
+    if (focusedStep.current === check) return
+    const control = !check ? emailControl.current
+      : !check.invited || check.status === 'expired' ? changeControl.current
+        : check.signIn === 'password' ? passwordControl.current : googleControl.current
+    if (!control || control.disabled) return
+    control.focus()
+    focusedStep.current = check
+  }, [check, pending, ready])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
