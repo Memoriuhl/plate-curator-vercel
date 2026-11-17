@@ -30,7 +30,6 @@ export async function loadResearchArtifacts(path: string, inputs: ResearchInput[
   try {
     const names = await readdir(path)
     artifacts = await Promise.all(names.filter(name => name.endsWith('.json') && !name.endsWith('.receipt.json') && !['configuration.json', 'manifest.json', 'snapshot.json', 'desktop-raw.json'].includes(name)).map(async name => JSON.parse(await readFile(resolve(path, name), 'utf8')) as ResearchArtifact))
-    // Compatibility with the initial captured baseline; fresh runs use per-plate artifacts.
     if (!artifacts.length && names.includes('desktop-raw.json')) artifacts = JSON.parse(await readFile(resolve(path, 'desktop-raw.json'), 'utf8')) as ResearchArtifact[]
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') artifacts = JSON.parse(await readFile(path, 'utf8')) as ResearchArtifact[]

@@ -63,3 +63,32 @@ claiming queries live desktop work without a first-100 cutoff, baseline/control/
 share per-plate artifacts, and reports retain unrun/interrupted manifest entries.
 Regression tests cover all four fixes. Exact fresh/cached attribution remains a deferred
 measurement improvement; the table does not imply a cold-cache comparison.
+
+
+## Partial blind review
+
+The first review covers 28 outputs on seven plates: all six tuning plates and one
+held-out plate. The other 52 output slots remain unscored.
+
+| Path | Accept as is | Needs correction | Reject |
+| --- | ---: | ---: | ---: |
+| Eve / existing retrieval | 2 | 5 | 0 |
+| Gateway / identical desktop evidence | 3 | 1 | 3 |
+| Desktop / Ollama | 2 | 2 | 3 |
+| Eve / Gateway Parallel | 1 | 3 | 3 |
+
+Eve supplied useful material consistently in this sample, but five of its seven
+outputs needed correction. Ten notes across the four arms explicitly mention a
+missing description. Preferred wording in the Arizona Highways and Whale Tail
+cases came from the identical-evidence control, suggesting synthesis and the
+editorial brief deserve attention alongside retrieval. Parallel's Snoopy result
+was preferred, but that isolated success does not establish an overall advantage.
+
+The next hypotheses are to complete a distinctive plate description, aim for
+roughly three useful facts when supported, and use targeted retrieval when a
+required part is missing. No prompt or model changes were made from this review.
+These judgments measure editorial usefulness; independently checked factual
+accuracy, actual catalog acceptance and correction effort remain unmeasured.
+The reviewed held-out case is now a development example and should not be reused
+as untouched holdout evidence after tuning against these notes. No additional
+paid model calls were made to analyze the ratings.

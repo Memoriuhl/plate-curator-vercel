@@ -90,6 +90,6 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
     {job?.eve ? <p className="id break-all">Agent session: {job.eve.sessionId}</p> : null}
     {research.error ? <p role="alert">{researchMessage(research.error)}</p> : null}
     {message ? <p role="status" className="text-sm">{message}</p> : null}
-    {job?.result ? <ResearchResult key={job.id} result={job.result} pending={pending || blocked || job.state !== 'completed'} onAccept={(fields, draft) => void accept(fields, draft)} /> : null}
+    {job?.result ? <ResearchResult key={job.id} result={job.result} canEditDraft={me.data?.role === 'owner'} pending={pending || blocked || job.state !== 'completed'} onAccept={(fields, draft) => void accept(fields, draft)} /> : null}
   </section>
 }

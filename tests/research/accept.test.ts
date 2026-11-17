@@ -55,6 +55,55 @@ test.each(['sourceUrl', 'firstIssuedYear', 'tags'])('research acceptance cannot 
   expect(await f.review.store.getEdit('batch', f.plate.id)).toBeNull()
 })
 
+test.each(['description', 'funFacts'] as const)('Editors cannot change draft %s text even when evidence supports it', async field => {
+  const f = await completed()
+  const stored = (await f.store.transaction(tx => tx.get(f.job.id)))!.result!.draft
+  const text = 'The wildlife program began in 1987 and supports habitat protection across Arizona.'
+  const draft = field === 'description' ? { ...stored, description: text } : { ...stored, funFacts: [{ text, sourceId: 'S1' }] }
+  expect(await acceptResearch(f.deps, { ...f.owner, role: 'editor' }, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: [field], draft })).toEqual({ ok: false, error: 'forbidden' })
+  expect(await f.review.store.getEdit('batch', f.plate.id)).toBeNull()
+})
+
+test('Editors can accept the stored draft unchanged', async () => {
+  const f = await completed()
+  const draft = (await f.store.transaction(tx => tx.get(f.job.id)))!.result!.draft
+  expect(await acceptResearch(f.deps, { ...f.owner, role: 'editor' }, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['description', 'funFacts', 'readMore'], draft })).toMatchObject({ ok: true, value: { plate: { description: draft.description, funFacts: [{ text: draft.funFacts[0].text }] } } })
+})
+
+test('Editors can deselect fields and remove facts without changing retained text', async () => {
+  const f = await completed()
+  const second = { text: 'The wildlife program supports habitat protection across Arizona.', sourceId: 'S1' }
+  const draft = await f.store.transaction(async tx => {
+    const job = (await tx.get(f.job.id))!
+    const draft = { ...job.result!.draft, funFacts: [...job.result!.draft.funFacts, second] }
+    tx.set({ ...job, result: { ...job.result!, draft } })
+    return draft
+  })
+  const selected = { ...draft, description: null, descriptionSources: [], funFacts: [second], readMore: [] }
+  expect(await acceptResearch(f.deps, { ...f.owner, role: 'editor' }, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['funFacts'], draft: selected })).toMatchObject({ ok: true, value: { plate: { funFacts: [{ text: second.text }] } } })
+  expect(Object.keys((await f.review.store.getEdit('batch', f.plate.id))!.fields)).toEqual(['funFacts'])
+})
+
+test('Editors cannot add link selections to the stored draft', async () => {
+  const f = await completed()
+  const stored = (await f.store.transaction(tx => tx.get(f.job.id)))!.result!.draft
+  expect(await acceptResearch(f.deps, { ...f.owner, role: 'editor' }, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['readMore'], draft: { ...stored, readMore: ['S1', 'S1'] } })).toEqual({ ok: false, error: 'forbidden' })
+})
+
+test('Owners can edit supported draft text', async () => {
+  const f = await completed()
+  const stored = (await f.store.transaction(tx => tx.get(f.job.id)))!.result!.draft
+  const description = 'The wildlife program began in 1987 and supports habitat protection across Arizona.'
+  expect(await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['description'], draft: { ...stored, description } })).toMatchObject({ ok: true, value: { plate: { description } } })
+})
+
+test('Owner text edits still need support from captured evidence', async () => {
+  const f = await completed()
+  const stored = (await f.store.transaction(tx => tx.get(f.job.id)))!.result!.draft
+  expect(await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['description'], draft: { ...stored, description: 'The wildlife program began in 1999 and supports habitat protection across Arizona.' } })).toEqual({ ok: false, error: 'invalid_result' })
+  expect(await f.review.store.getEdit('batch', f.plate.id)).toBeNull()
+})
+
 test('accepting only facts preserves unrelated fields and advances the Batch revision', async () => {
   const f = await completed()
   const result = await acceptResearch(f.deps, f.owner, { jobId: f.job.id, baseRevision: plateRevision(f.plate), fields: ['funFacts'] })

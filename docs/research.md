@@ -1,8 +1,7 @@
 # Research agent setup and operation
 
 Tracking: [#170](https://github.com/Memoriuhl/plate-curator-vercel/issues/170).
-The [approved design](superpowers/specs/2026-11-17-eve-research-design.md) defines the
-desktop/Ollama and Vercel/Eve execution options.
+Research supports desktop/Ollama and Vercel/Eve execution.
 
 ## Where the files live
 
@@ -20,10 +19,6 @@ desktop/Ollama and Vercel/Eve execution options.
 | `workflows/research.ts` | Hosted dispatch and completion reconciliation |
 | `fixtures/research-eval-v16.json` | Frozen 20-plate corpus (Snapshot v16) and rubric |
 
-Before editing agent-facing prompts or tool descriptions, invoke
-`mattpocock-skills:writing-for-agents`, as Jonathan requested. Keep the runtime's
-enforced limits in code and give the prompt clear steps and completion criteria.
-
 ## Talk to the agent locally
 
 Run commands from this feature checkout. Install its pinned dependencies with
@@ -38,7 +33,10 @@ connection, `/new` starts another conversation, `/info` shows the resolved agent
 and `/exit` leaves the terminal. The existing desktop/Ollama pipeline remains the
 application's desktop executor; this command is the Eve authoring interface.
 
-Model calls default to disabled. Jonathan authorized USD 2 total for this pilot and comparison on 2026-11-17. Local calls were disabled after measurement; the feature Preview has a separate USD 0.50 campaign cap within that same total. This is not an ongoing spending authorization.
+Model calls default to disabled. The pilot and comparison were authorized for
+USD 2 total on 2026-11-17. Local calls were disabled after measurement; the feature
+Preview has a separate USD 0.50 campaign cap within that same total. This is not
+an ongoing spending authorization.
 Once authorized, set `RESEARCH_ENABLE_MODEL_CALLS=true` in an ignored `.env.local`
 or the executing process environment. The selected model is explicit in `agent.ts`;
 the initial candidate is `openai/gpt-6.1-sol`, verified in the Gateway catalog.
@@ -106,6 +104,9 @@ Research starts from the Plate screen within an editable Batch. Owners choose
 run; changing the picker does not migrate work already running. Accept selected fields
 only after inspecting their captured passages. Acceptance proposes Batch edits and
 invalidates approval. `sourceUrl` remains image provenance.
+
+Only Owners can edit proposed text. Editors may accept stored wording or deselect
+content. Owner edits still require captured evidence and the shared field validation.
 
 The desktop bridge uses the neighboring private legacy checkout, pinned with
 `RESEARCH_LEGACY_REVISION`, and only calls its story stage. It does not apply a catalog
@@ -176,9 +177,8 @@ source validation, field preservation, and mocked publishing serialization. The
 Firestore emulator checks actual transactions. Next and Eve production builds check
 runtime coexistence. Live catalog Publish was not performed.
 
-The Git-sourced feature Preview at
-<https://plate-curator-vercel-git-feat-eve-research-memoriuhl.vercel.app> is ready
-from commit `31140bd`. Its Eve health check returns ready, unauthenticated session
+The feature Preview is ready from commit `31140bd`. Its Eve health check returns
+ready, unauthenticated session
 creation returns 401, and the separate desktop research worker authenticates and
 polls successfully (204 when idle). Branch-scoped secrets and Firestore research
 indexes are configured. Deployment Protection remains enabled; the exact Preview
@@ -186,14 +186,14 @@ alias is registered for Firebase Google sign-in. Production is unchanged.
 
 An Owner-started UI job, hosted service dispatch through completion, selected-field
 acceptance on that Preview, and authenticated remote terminal use remain unverified.
-The walkthrough is tracked in Herdr Tasks. Search-provider credentials are also
-still missing; Wikipedia works without them.
+Search-provider credentials are still missing; Wikipedia works without them.
 
 This branch is rebased onto merged PR #174 and imports its shared story validators.
 That PR owns the canonical shape: at most four facts and eight read-more links,
-link title and site at most 200 characters, fact source title at most 200, and
-HTTP(S) URLs at most 2048. Eve always provides a non-empty site and may generate at most four links. Its
-acceptance uses the shared story validator; the local pipeline flag gates direct
+link title and site at most 200 characters, fact source title at most 300, and
+HTTP(S) URLs at most 2048. Eve clips its display titles to 200 characters, provides
+a non-empty site, and may generate at most four links. Its acceptance uses the
+shared story validator; the local pipeline flag gates direct
 Batch-edit input. The domain preserves validated story fields with that flag off,
 as do Standard rebuilds and unrelated edits. The scoped review transaction and
 image provenance are preserved.

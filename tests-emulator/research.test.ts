@@ -1,5 +1,5 @@
 import { Firestore } from '@google-cloud/firestore'
-import { afterAll, expect, test } from 'vitest'
+import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { firestoreResearchStore } from '../lib/research/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { claimResearch, reportResearch } from '../lib/research/jobs'
@@ -10,10 +10,13 @@ import './setup'
 
 const db = new Firestore({ projectId: 'demo-plate-curator-research' })
 afterAll(() => db.terminate())
+afterEach(() => vi.unstubAllEnvs())
 
-test('Firestore claim exclusivity, environment fencing and atomic Batch acceptance survive contention', async () => {
+test('Firestore claims and atomic family-plate fact acceptance survive contention', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
   for (const name of ['researchJobs', 'reviewBatches']) await db.recursiveDelete(db.collection(name))
   const f = researchFixture()
+  Object.assign(f.plate, { templateFamily: 'wildlife', templateRole: 'variant' })
   const review = { ...f.review, store: firestoreReviewStore(db, 'development') }
   await review.store.create((await f.review.store.getBatch('batch'))!)
   const store = firestoreResearchStore(db, 'development')
@@ -27,17 +30,17 @@ test('Firestore claim exclusivity, environment fencing and atomic Batch acceptan
   const claim = claims[index]!
   expect(await claimResearch({ ...deps, store: firestoreResearchStore(db, 'production') }, 'other')).toBeNull()
   await reportResearch(deps, ['a', 'b'][index], { jobId: claim.job.id, claimId: claim.claimId, result: f.result(claim.job) })
-  // Empty results cannot clear existing fields, and no Batch write leaks through rejection.
   expect(await acceptResearch(deps, f.owner, { jobId: claim.job.id, baseRevision: plateRevision(f.plate), fields: ['funFacts'] })).toMatchObject({ ok: false, error: 'invalid_result' })
   expect((await review.store.getBatch('batch'))!.revision).toBe(0)
   await store.transaction(async tx => {
     const job = (await tx.get(claim.job.id))!
-    tx.set({ ...job, result: { ...job.result!, draft: { ...job.result!.draft, description: 'The wildlife program supports habitat protection across Arizona through optional registration fees.', descriptionSources: ['S1'] }, sources: [{ id: 'S1', kind: 'web', title: 'Wildlife', url: 'https://example.com/wildlife', fetchedAt: '2026-11-17T00:00:00Z', contentHash: 'hash', text: 'The wildlife program supports habitat protection across Arizona through optional registration fees.' }] } })
+    tx.set({ ...job, result: { ...job.result!, draft: { ...job.result!.draft, description: 'The wildlife program supports habitat protection across Arizona through optional registration fees.', descriptionSources: ['S1'], funFacts: [{ text: 'The wildlife program supports habitat protection across Arizona.', sourceId: 'S1' }] }, sources: [{ id: 'S1', kind: 'web', title: 'Wildlife', url: 'https://example.com/wildlife', fetchedAt: '2026-11-17T00:00:00Z', contentHash: 'hash', text: 'The wildlife program supports habitat protection across Arizona through optional registration fees.' }] } })
   })
-  const accepted = await acceptResearch(deps, f.owner, { jobId: claim.job.id, baseRevision: plateRevision(f.plate), fields: ['description'] })
-  expect(accepted).toMatchObject({ ok: true, value: { batch: { revision: 1 } } })
+  const accepted = await acceptResearch(deps, f.owner, { jobId: claim.job.id, baseRevision: plateRevision(f.plate), fields: ['description', 'funFacts'] })
+  expect(accepted).toMatchObject({ ok: true, value: { batch: { revision: 1 }, plate: { templateFamily: 'wildlife', funFacts: [{ text: 'The wildlife program supports habitat protection across Arizona.', sourceUrl: 'https://example.com/wildlife' }] } } })
   expect((await review.store.getEdit('batch', f.plate.id))?.fields.description).toContain('habitat protection')
-  expect((await store.transaction(tx => tx.get(claim.job.id)))?.acceptedFields).toEqual(['description'])
+  expect((await review.store.getEdit('batch', f.plate.id))?.fields.funFacts).toEqual([{ text: 'The wildlife program supports habitat protection across Arizona.', sourceUrl: 'https://example.com/wildlife', sourceTitle: 'Wildlife' }])
+  expect((await store.transaction(tx => tx.get(claim.job.id)))?.acceptedFields).toEqual(['description', 'funFacts'])
 }, 30000)
 
 test('excluded records before the first hundred cannot starve a later desktop job', async () => {

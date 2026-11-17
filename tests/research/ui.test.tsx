@@ -8,12 +8,22 @@ const result = { draft: { ...emptyResearchDraft(), description: 'This plate supp
 
 test('shows citations and sends only chosen fields with edited wording', () => {
   const accept = vi.fn()
-  render(<ResearchResult result={result} pending={false} onAccept={accept} />)
+  render(<ResearchResult result={result} pending={false} canEditDraft onAccept={accept} />)
   fireEvent.click(screen.getByRole('checkbox', { name: 'Description' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Edit description' }), { target: { value: 'A revised description for this habitat conservation plate.' } })
   fireEvent.click(screen.getByRole('button', { name: 'Accept selected fields' }))
   expect(accept).toHaveBeenCalledWith(['description'], expect.objectContaining({ description: 'A revised description for this habitat conservation plate.' }))
   expect(screen.getByRole('link', { name: 'S1 · Wildlife program' }).getAttribute('href')).toBe('https://example.com/wildlife')
+})
+
+test('Editors can select stored fields while draft text stays read-only', () => {
+  const accept = vi.fn()
+  render(<ResearchResult result={result} pending={false} canEditDraft={false} onAccept={accept} />)
+  expect((screen.getByRole('textbox', { name: 'Edit description' }) as HTMLTextAreaElement).readOnly).toBe(true)
+  expect((screen.getByRole('textbox', { name: 'Edit fact 1' }) as HTMLTextAreaElement).readOnly).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Fun facts' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Accept selected fields' }))
+  expect(accept).toHaveBeenCalledWith(['funFacts'], result.draft)
 })
 
 test('missing fields cannot be selected and acceptance needs an explicit choice', () => {

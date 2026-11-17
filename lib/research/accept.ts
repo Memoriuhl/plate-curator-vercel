@@ -4,8 +4,8 @@ import { proposeEdit } from '../review/batch'
 import { plateRevision } from '../review/revision'
 import { parseEditableFields, parseStoryFields } from '../review/fields'
 import type { ResearchDeps, ResearchError } from './jobs'
-import type { EvidenceSource } from './types'
-import { validateResearchResult } from './validate'
+import type { EvidenceSource, ResearchDraft } from './types'
+import { researchDraftSchema, validateResearchResult } from './validate'
 
 export const researchFields = ['description', 'funFacts', 'readMore', 'wikiUrl'] as const
 export type ResearchField = typeof researchFields[number]
@@ -13,6 +13,24 @@ export type ResearchField = typeof researchFields[number]
 function citationLabels(source: EvidenceSource) {
   const site = new URL(source.url).hostname.slice(0, 200)
   return { title: source.title.trim().slice(0, 200) || site, site }
+}
+
+function orderedSubset(selected: string[], original: string[]) {
+  let offset = 0
+  return selected.every(value => {
+    const index = original.indexOf(value, offset)
+    offset = index + 1
+    return index !== -1
+  })
+}
+
+function unchangedSelection(selected: ResearchDraft, original: ResearchDraft) {
+  const factKeys = (draft: ResearchDraft) => draft.funFacts.map(fact => JSON.stringify([fact.text, fact.sourceId]))
+  return (selected.description === null || selected.description === original.description)
+    && orderedSubset(selected.descriptionSources, original.descriptionSources)
+    && orderedSubset(factKeys(selected), factKeys(original))
+    && orderedSubset(selected.readMore, original.readMore)
+    && (selected.wikiSource === null || selected.wikiSource === original.wikiSource)
 }
 
 export async function acceptResearch(deps: ResearchDeps, actor: Actor, request: { jobId: string; baseRevision: string; fields: string[]; draft?: unknown }): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }> | { ok: false; error: ResearchError }> {
@@ -32,7 +50,13 @@ export async function acceptResearch(deps: ResearchDeps, actor: Actor, request: 
     const edit = await review.store.getEdit(batch.id, baseline.id)
     const currentRevision = plateRevision({ ...baseline, ...edit?.fields })
     if (currentRevision !== request.baseRevision || currentRevision !== (job.acceptedRevision ?? job.input.inputRevision)) return { ok: false as const, error: 'stale_input' as const }
-    const screened = validateResearchResult(request.draft ?? job.result.draft, job.result.sources)
+    const candidate = request.draft ?? job.result.draft
+    if (actor.role !== 'owner') {
+      const parsed = researchDraftSchema.safeParse(candidate)
+      if (!parsed.success) return { ok: false as const, error: 'invalid_result' as const }
+      if (!unchangedSelection(parsed.data, job.result.draft)) return { ok: false as const, error: 'forbidden' as const }
+    }
+    const screened = validateResearchResult(candidate, job.result.sources)
     if (screened.rejected.length) return { ok: false as const, error: 'invalid_result' as const }
     const { draft } = screened
     const sources = new Map(job.result.sources.map(source => [source.id, source]))

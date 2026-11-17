@@ -6,7 +6,6 @@ import { researchDraftSchema, validateResearchResult } from './validate'
 import type { EvidenceSource, ResearchInput } from './types'
 import type { ResearchStateStore } from './state'
 
-// A benchmark control: retrieval is frozen, and no discovery tools are available.
 export async function synthesizeCapturedEvidence(input: ResearchInput, sources: EvidenceSource[], state: ResearchStateStore, runId: string) {
   const campaign = process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117'
   const model = guardedResearchModel(gateway('openai/gpt-6.1-sol'), async () => {
