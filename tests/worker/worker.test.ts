@@ -74,6 +74,26 @@ test('expired lease prevents report transmission', async () => {
   expect(await runOnce(deps)).toBe('dropped')
   expect(fetch).toHaveBeenCalledTimes(1)
 })
+
+test('field-stage execution reports typed fields and skips the Tag image path', async () => {
+  const { deps, fetch } = setup()
+  fetch.mockReset().mockResolvedValueOnce(Response.json({ ...claim, stage: 'describe' })).mockResolvedValue(new Response(null, { status: 200 }))
+  const result = { fieldSuggestion: { stage: 'describe' as const, fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] }, backend: 'local', model: 'text-model', promptVersion: 'fields-v1' }
+  deps.suggestFields = vi.fn(async () => result)
+  expect(await runOnce(deps)).toBe('reported')
+  expect(deps.readImage).not.toHaveBeenCalled()
+  expect(deps.adapter.suggest).not.toHaveBeenCalled()
+  expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toMatchObject({ ...result, suggestions: [] })
+})
+
+test('an unsupported stage is never treated as a Tag job', async () => {
+  const { deps, fetch } = setup()
+  fetch.mockReset().mockResolvedValueOnce(Response.json({ ...claim, stage: 'story' }))
+  expect(await runOnce(deps)).toBe('dropped')
+  expect(deps.adapter.suggest).not.toHaveBeenCalled()
+  expect(deps.readImage).not.toHaveBeenCalled()
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
 test('network report failures retry the identical result', async () => {
   const { deps, fetch } = setup()
   fetch.mockReset().mockResolvedValueOnce(Response.json(claim)).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(new Response(null, { status: 200 }))

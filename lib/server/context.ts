@@ -20,6 +20,7 @@ import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
+import { localJobsEnvironment, localPipelineScope } from '../jobs/local-scope'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
 import type { PublishDeps, RequesterAuthority } from '../publish/types'
@@ -121,8 +122,10 @@ export function reviewDeps(): ReviewDeps {
 }
 
 export function jobsDeps(): JobsDeps {
+  const localScope = localPipelineScope()
   return {
-    store: firestoreJobsStore(stagingFirestore(), reviewEnv() as Environment),
+    ...(localScope ? { localScope } : {}),
+    store: firestoreJobsStore(stagingFirestore(), localScope ? localJobsEnvironment(localScope) : reviewEnv() as Environment, reviewEnv()),
     baseline: reviewDeps().baseline,
     baselineAtVersion: reviewDeps().baselineAtVersion,
     now: () => Date.now(),

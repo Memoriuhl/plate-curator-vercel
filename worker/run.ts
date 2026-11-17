@@ -1,4 +1,8 @@
 import type { ModelAdapter } from './model'
+import type { FieldSuggestion, PipelineStage } from '../lib/jobs/types'
+
+export type WorkerPlate = { image: string; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
+export type StageResult = { fieldSuggestion: FieldSuggestion; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
   apiBase: string
@@ -7,6 +11,7 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -18,7 +23,8 @@ interface Claim {
   claimId: string
   leaseExpiresAt: string
   model?: string
-  plate: { image: string; displayName: string; state: string; tags: string[] }
+  stage?: PipelineStage
+  plate: WorkerPlate
 }
 
 export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
@@ -34,22 +40,38 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   const adapter = claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
   const start = deps.now()
   let backend = adapter.backend
+  let model = adapter.model
+  let promptVersion = adapter.promptVersion
+  let fieldSuggestion: FieldSuggestion | undefined
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
-  let imageB64: string
-  try {
-    imageB64 = await deps.readImage(claim.plate.image)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    backend = 'missing-image'
-    imageB64 = ''
-  }
-  if (backend !== 'missing-image') {
-    const result = await adapter.suggest({ imageB64, plate: claim.plate })
-    suggestions = result.tags
+  if (claim.stage) {
+    if (!deps.suggestFields) {
+      deps.log('No handler is configured for this pipeline stage')
+      return 'dropped'
+    }
+    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model })
+    fieldSuggestion = result.fieldSuggestion
+    backend = result.backend
+    model = result.model
+    promptVersion = result.promptVersion
     usage = result.usage
+  } else {
+    let imageB64: string
+    try {
+      imageB64 = await deps.readImage(claim.plate.image)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      backend = 'missing-image'
+      imageB64 = ''
+    }
+    if (backend !== 'missing-image') {
+      const result = await adapter.suggest({ imageB64, plate: claim.plate })
+      suggestions = result.tags
+      usage = result.usage
+    }
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, backend, model: adapter.model, promptVersion: adapter.promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {

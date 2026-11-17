@@ -2,7 +2,7 @@ import type { Firestore } from '@google-cloud/firestore'
 import type { EditableFields } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 
-export function firestoreJobsStore(db: Firestore, env: Environment): JobsStore {
+export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
   const tokens = db.collection('workerTokens')
   return {
@@ -20,7 +20,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment): JobsStore {
         async review(batchId, plateId) {
           const ref = db.collection('reviewBatches').doc(batchId)
           const batch = await transaction.get(ref)
-          if (!batch.exists || batch.get('env') !== env) return null
+          if (!batch.exists || batch.get('env') !== reviewEnv) return null
           const edit = await transaction.get(ref.collection('edits').doc(plateId))
           return { baselineVersion: batch.get('baselineVersion') as number, fields: (edit.get('fields') as EditableFields | undefined) ?? {} }
         },

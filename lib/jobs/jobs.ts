@@ -1,6 +1,7 @@
 import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { plateRevision } from '../review/revision'
-import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob } from './types'
+import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob, PipelineStage } from './types'
+import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -8,12 +9,13 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string; stage?: PipelineStage }): Promise<Outcome<TaggingJob>> {
+  if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
     if (!inputPlate) return { ok: false, error: 'not_found' }
-    const job: TaggingJob = { ...input, inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const job: TaggingJob = { ...input, ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
@@ -25,7 +27,7 @@ export async function claimNext(d: JobsDeps, workerId: string) {
   return d.store.transaction(async tx => {
     const now = d.now()
     const jobs = await tx.list()
-    const job = jobs.filter(job => job.route !== 'hosted' && claimable(job, now))
+    const job = jobs.filter(job => job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + d.leaseMs
@@ -45,6 +47,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
   return d.store.transaction(async tx => {
     const job = await tx.get(id)
     if (!job) return { ok: false, error: 'not_found' }
+    if (job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state === 'completed') return { ok: true, value: { job, claimId: job.claimId! } }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
@@ -54,16 +57,20 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
   })
 }
 
-function normalize(input: ReportInput): JobResult | null {
-  if (!input || !Array.isArray(input.suggestions) || !['backend', 'model', 'promptVersion'].every(key => {
+function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null {
+  const fieldSuggestion = stage ? parseFieldSuggestion(input?.fieldSuggestion, stage) : undefined
+  if (stage && (!fieldSuggestion || input.suggestions !== undefined && (!Array.isArray(input.suggestions) || input.suggestions.length > 0))) return null
+  if (!stage && input?.fieldSuggestion !== undefined) return null
+  const rawTags = stage ? [] : input?.suggestions
+  if (!input || !Array.isArray(rawTags) || !['backend', 'model', 'promptVersion'].every(key => {
     const value = input[key as keyof ReportInput]
     return typeof value === 'string' && value.trim().length > 0
   }) || !Number.isFinite(input.durationMs) || input.durationMs < 0) return null
   if (input.usage !== undefined && (!input.usage || typeof input.usage !== 'object' || Array.isArray(input.usage) ||
     Object.values(input.usage).some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0))) return null
-  const suggestions = [...new Set(input.suggestions.filter((value): value is string => typeof value === 'string')
+  const suggestions = [...new Set(rawTags.filter((value): value is string => typeof value === 'string')
     .map(value => value.trim().toLowerCase()).filter(value => value.length > 0 && value.length <= 60))].slice(0, 20)
-  return { suggestions, backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: input.durationMs,
+  return { suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: input.durationMs,
     ...(input.usage === undefined ? {} : { usage: Object.fromEntries(Object.entries(input.usage).sort(([a], [b]) => a.localeCompare(b))) }) }
 }
 
@@ -71,10 +78,11 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
   return d.store.transaction(async tx => {
     const job = await tx.get(id)
     if (!job) return { ok: false, error: 'not_found' }
+    if (job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
     if (!job.claimId || job.claimId !== claimId || job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
-    const result = normalize(input)
+    const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
