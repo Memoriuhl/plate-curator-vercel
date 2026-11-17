@@ -21,7 +21,10 @@
     "eval:compare": "tsx worker/compare.ts --compare",
     "backfill:signals": "node --conditions=react-server --import tsx scripts/backfill-batch-signals.ts",
     "research:baseline": "tsx worker/research-benchmark.ts --executor desktop",
-    "research:benchmark": "tsx worker/research-benchmark.ts"
+    "research:benchmark": "tsx worker/research-benchmark.ts",
+    "research:chat": "eve dev",
+    "research:remote": "eve remote connect",
+    "research:build": "eve build"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",

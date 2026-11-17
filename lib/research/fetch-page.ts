@@ -36,12 +36,12 @@ export async function fetchResearchPage(url: string, deps: PageDeps): Promise<Ev
   const dnsLookup: LookupFunction = (host, options, callback) => {
     void vetted(host).then(addresses => {
       const entries = addresses.map(address => ({ address, family: isIP(address) }))
-      if (options.all) (callback as unknown as (error: null, entries: typeof entries) => void)(null, entries)
+      if (options.all) (callback as unknown as (error: null, records: typeof entries) => void)(null, entries)
       else callback(null, entries[0].address, entries[0].family)
     }, () => callback(new Error('Source is not public'), '', 0))
   }
   const dispatcher = deps.fetch ? null : new Agent({ connect: { lookup: dnsLookup } })
-  const request = deps.fetch ?? ((target, init) => publicFetch(target as string, { ...init, dispatcher: dispatcher! }) as unknown as Promise<Response>) as typeof fetch
+  const request = deps.fetch ?? ((target, init) => publicFetch(target as string, { method: 'GET', headers: init?.headers as Record<string, string>, redirect: 'manual', signal: init?.signal, dispatcher: dispatcher! }) as unknown as Promise<Response>) as typeof fetch
   try {
     let current = new URL(url)
     for (let hop = 0; hop <= 5; hop++) {

@@ -6,7 +6,7 @@ const source = { id: 'S1', kind: 'wikipedia', title: 'Arizona Highways', url: 'h
 const outcome = {
   id: input.plateId, sources: [source], attempts: [{ model: 'gemma4:12b', raw: { description: 'original' }, rejected: [] }],
   draft: { description: 'A plate celebrating Arizona Highways magazine.', descriptionSource: source, funFacts: [{ text: 'The magazine began in 1921.', sourceUrl: source.url }], firstIssuedYear: null },
-  readMore: [{ title: source.title, url: source.url }], model: 'gemma4:12b', promptVersion: 'story-v2', status: 'ok',
+  readMore: [{ title: source.title, url: source.url }], model: 'gemma4:12b', promptVersion: 'story-v2', status: 'ok' as const,
 }
 
 test('legacy research receives the captured identity and returns evidence-linked draft fields', async () => {
