@@ -632,7 +632,7 @@ test.each([
   session.api.send.mockRejectedValue(new ApiError(409, code, {}))
   const { result } = renderHook(() => useReviewActions(), harness())
   await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message }))
-  expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7 })
+  expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7, commandId: expect.any(String) })
 })
 
 test('Editor never requests run status', async () => {
@@ -685,6 +685,17 @@ test('switching from an active batch to an already-published batch does not refr
   expect(navigation.refresh).not.toHaveBeenCalled()
 })
 
+test('Publish keeps the click identity after an ambiguous response and clears it after acceptance', async () => {
+  session.api.send.mockRejectedValueOnce(new TypeError('lost response')).mockResolvedValue({ status: 'publishing' })
+  const { result } = renderHook(() => useReviewActions(), harness())
+  await act(async () => { await result.current.publish('release', 8) })
+  const first = session.api.send.mock.calls[0][2]
+  await act(async () => { await result.current.publish('release', 8) })
+  expect(session.api.send.mock.calls[1][2]).toEqual(first)
+  await act(async () => { await result.current.publish('release', 8) })
+  expect(session.api.send.mock.calls[2][2].commandId).not.toBe(first.commandId)
+})
+
 test('Publish confirmation shows the approved revision, sends the current batch revision and retains its result when lists refresh', async () => {
   let published = false
   const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 8, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
@@ -708,7 +719,7 @@ test('Publish confirmation shows the approved revision, sends the current batch 
     expect(dialog.textContent).toContain('edited')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8 })
+    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
     expect(screen.getByText('v12')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()

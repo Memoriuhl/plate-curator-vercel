@@ -37,6 +37,13 @@ async function readBatch(batchId: string) {
   return reviewDeps().store.getBatch(batchId)
 }
 
+export async function publishRun(batchId: string, revision: number, command: PublishRequester) {
+  'use workflow'
+  const outcome = await runPublish(batchId, revision, command)
+  if (outcome.outcome === 'published') return { ...outcome, push: await catalogPush(outcome.version) }
+  return outcome
+}
+
 async function runPublish(batchId: string, revision: number, command: PublishRequester) {
   'use step'
   const batch = await reviewDeps().store.getBatch(batchId)

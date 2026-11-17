@@ -7,6 +7,8 @@ export const PUBLISH_STOPS = {
 
 export type PublishStop = typeof PUBLISH_STOPS[keyof typeof PUBLISH_STOPS]
 
+export const PUBLISH_ERRORS = { ...PUBLISH_STOPS, notWaiting: 'not_waiting', unavailable: 'unavailable' } as const
+
 export function isPublishStop(error: unknown): error is PublishStop {
   return Object.values(PUBLISH_STOPS).some(stop => stop === error)
 }

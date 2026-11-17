@@ -2,19 +2,23 @@ import type { BaselineError } from './baseline'
 import type { PublishStop } from './stop'
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
+import type { RetryEligibility } from './eligibility'
 
 export type CatalogPointer = { version: number; url?: string; blobSha256?: string; publishedAt?: string }
 export type { PublishStop } from './stop'
 export type RequesterAuthority = { uid: string; email: string; authorityEpoch: number }
 export type PublishRequester = { ownerUid: string; requestedBy?: RequesterAuthority; generation?: number; commandId?: string }
 export type PublishCommand = { batchId: string; revision: number } & Omit<PublishRequester, 'ownerUid'>
+export const validCommandId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(value)
 export type PublishControlState = { paused: boolean; generation: number; changedBy: { uid: string; email: string }; changedAt: string }
 export interface PublishControl {
   read(): Promise<PublishControlState | null>
   check(command: PublishCommand, now: string): Promise<PublishStop | null>
 }
-export type PublishError = PublishStop | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
+export type PublishError = PublishStop | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
+  object?: SnapshotObject
+  supersededCommands?: PublishCommand[]
   requestedBy?: RequesterAuthority
   generation?: number
   commandId?: string
@@ -33,15 +37,24 @@ export type PublishRecord = {
 export type PublishLease = { token: string; batchId: string; revision: number; expiresAt: string }
 export interface PublishPointer {
   read(): Promise<CatalogPointer>
-  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
+  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'version_taken' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
 }
+export type SnapshotObject = { generation: string; metageneration: string; md5Hash?: string; crc32c?: string; url: string }
 export interface PublishSnapshots {
+  metadata(version: number): Promise<SnapshotObject | null>
   read(version: number): Promise<Snapshot>
   createOnly(version: number, bytes: Uint8Array): Promise<'created' | 'exists'>
-  checksum(version: number): Promise<string | null>
+  checksum(version: number, generation?: string): Promise<string | null>
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  checkUpload(record: PublishRecord, command: PublishCommand, checksum: string, token: string, now: string): Promise<PublishError | null>
+  eligibility(command: PublishCommand, now: string): Promise<RetryEligibility>
+  command(commandId: string): Promise<{ command: PublishCommand; runId?: string } | null>
+  accept(command: PublishCommand, now: string): Promise<{ ok: true; command: PublishCommand; runId?: string } | { ok: false; error: PublishError }>
+  bindRun(command: PublishCommand, runId: string, now: string): Promise<boolean>
+  stopped(record: PublishCommand): Promise<PublishStop | null>
+  adopt(record: PublishRecord, command: PublishCommand, checksum: string | null, token: string, now: string): Promise<PublishRecord | PublishError>
   get(id: string): Promise<PublishRecord | null>
   save(record: PublishRecord, token: string, now: string): Promise<boolean>
 }

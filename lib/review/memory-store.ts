@@ -6,6 +6,12 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
   const edits = new Map<string, Map<string, ProposedEdit>>()
 
   return {
+    async updatePublishMetadata(batchId, revision, fields) {
+      const batch = batches.get(batchId)
+      if (!batch || batch.revision !== revision) return false
+      Object.assign(batch, structuredClone(fields))
+      return true
+    },
     async copy(input) {
       const existing = batches.get(input.batch.id)
       if (existing) return { ok: true, value: structuredClone(existing) }

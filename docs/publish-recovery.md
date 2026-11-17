@@ -1,4 +1,4 @@
-# Publish controls and recovery (#127, #126, #119)
+# Publish controls and recovery (#128, #127, #126, #119)
 
 ## Pause and Resume
 
@@ -47,20 +47,88 @@ Pause does not roll back a published Catalog.
 
 Resume only permits new requests. It never restarts a stopped Workflow. Publishing
 a stopped Batch requires an explicit fresh Publish command under the current
-generation. The dedicated retry UI and prepared Snapshot reuse are tracked in
-#128; Snapshot abandonment remains #129. Until those recovery paths are available,
-keep stopped receipts and Snapshots for triage rather than deleting or restarting
-their commands.
+generation and requester authority marker. Restoring Owner access also leaves old
+commands stopped.
 
-## Known gap until #128/#129
+## Explicit retry of the same Batch
 
-A stop after upload but before the pointer commit leaves an uploaded receipt
-bound to the stopped command. A fresh click on the same Batch then reports
-`paused` or `revoked` (the persisted terminal reason), and any other Batch
-attempting to take that Snapshot version hits `version_taken`. The Catalog stays on its old version: this is fail-safe, but it
-blocks further publishing. Recovery comes with explicit retry (#128) and Snapshot
-abandonment (#129). Until those paths ship, preserve the receipt and uploaded
-Snapshot for triage.
+Inspect the stopped outcome in Publish: its reason and requester identify the
+command, and “The Catalog did not advance” confirms that the old version stayed
+live. Resume publishing if paused. An active Owner can then select **Publish
+again** for the same approved revision. A different active Owner can request it
+after the original requester was revoked. Editors cannot request it. If the live
+Catalog changed, use **Copy to new Batch** for fresh review instead.
+
+Each explicit click supplies a fresh command ID. A genuinely waiting approval run
+still receives its Publish hook; a stopped run has ended, so the retry starts a
+dedicated durable Publish run. Acceptance stores the requester and current
+generation transactionally with approval, revision and baseline checks. A retained
+start-hook token prevents concurrent starts for one command ID; the durable command
+record returns the same run on subsequent requests, including after completion.
+The client keeps that ID after a lost response or service error until an accepted
+or terminal answer. A replay locates the retained start token and binds its run;
+if no run exists, it repeats the control, approval and baseline checks before
+starting. Retries do not create another release or silently change requester identity.
+
+Preflight and acceptance use the same server eligibility predicate. Publish again
+is driven by its `canRetry` result, including a locked response while a live run
+owns the claim. A fresh click can replace a claim with a durable stop, a bound run
+that is completed, failed or cancelled, or an unbound claim older than two minutes.
+Before applying the TTL, the server looks up the deterministic start token. If a
+live run exists, it binds that run to the claim and keeps the claim locked; TTL
+takeover requires an affirmative lookup showing no run. Unknown lookup state
+fails closed. A delayed start response cannot bind once its claim was replaced.
+`GET /api/batches/:id/publish` may idempotently write the recovered run binding
+and its Batch metadata while computing eligibility. It does not start a run or
+advance the Batch revision. A missing claim document is treated as expired and
+unbound, then checked through its deterministic token before takeover. An explicit
+Workflow run-not-found result permits takeover after the claim TTL; transient or
+unknown lookup errors stay locked and are retried on the next request.
+The clock is supplied to the check. Replacement writes a durable superseded stop
+for a command without one in the same acceptance transaction. A live bound run
+stays locked even after two minutes. After a failed start, retry the same intent,
+or wait for the unbound claim to expire before submitting a fresh click.
+
+Under the Publish lease, the fresh command checks the existing immutable Snapshot
+checksum. One Firestore transaction checks the approved revision, live pointer,
+lease, current requester/control and the previous command’s durable stop before
+rebinding the uncommitted receipt. The receipt retains its version and checksum and
+appends the prior command identity to `supersededCommands`. If upload never happened,
+it recomputes bytes for the same revision and from-version and permits create-only
+upload only when their checksum matches the receipt. Mismatched bytes return
+`version_taken` for triage; nothing is uploaded over different bytes. A moved
+baseline offers Copy. Old work cannot save or commit the adopted receipt and
+returns `superseded`. Only the committed command reaches the existing per-version
+Catalog push claim.
+
+Immediately before create-only upload, another lease-guarded transaction checks
+receipt ownership, exact Batch/revision, version adjacency, current pointer,
+approval, authority, checksum and the absence of any committed receipt for the
+target version. A competing object can only make create-only return exists; its
+checksum must still match, and different bytes are never overwritten. Superseding
+a claim and recording its stop are one transaction; an aborted replacement leaves
+both the old claim and its prior stop history intact. Old work observes superseded
+at its first check after takeover, including before receipt adoption.
+Before an uncommitted pointer advance, the publisher refreshes the object's current
+download URL. Recreated matching bytes can have a new download token; a lost
+metadata response must not leave a retry using the old object's URL.
+The URL, storage generation, metageneration and md5Hash/crc32c come from one
+[GCS object metadata response](https://docs.cloud.google.com/storage/docs/json_api/v1/objects).
+The receipt stores that object identity separately from the publication-control
+generation. SHA256 verification downloads the exact selected storage generation.
+Inside the pointer transaction, after reading the lease, authority and receipt,
+the commit path checks current object metadata and the generation-selected bytes,
+then reads metadata again. A different generation, token, metageneration or hash
+returns `version_taken` without advancing the pointer, even when the bytes are
+identical. A recreation before metadata capture may instead refresh the receipt
+to the verified current generation and its current token.
+
+## Known gap until #129
+
+Another Batch attempting to take a stopped attempt’s retained Snapshot version
+still hits `version_taken`. Snapshot abandonment and publishing a different Batch
+over that unused version remain #129. Preserve the receipt and Snapshot for triage;
+do not delete them manually. Same-Batch explicit retry does not abandon an object.
 
 ## Stale baseline
 
@@ -174,6 +242,8 @@ Focused behavior: `npx vitest run tests/publish tests/review/copy.test.ts tests/
 
 Transactions/concurrency: `npm run test:emulator` uses only Firestore at localhost
 and project `demo-plate-curator`. Snapshot storage in Publish tests is in memory.
+Run this suite alone. The claim-contention tests have scoped fifteen-second
+budgets for Firestore transaction retries; the global test timeout is unchanged.
 The suite checks copy atomicity, concurrent retries, source/head/environment races,
 initial live signals, and Publish reservation and receipt behavior. The screen
 tests exercise both preflight and Workflow failures, recovery navigation, affected

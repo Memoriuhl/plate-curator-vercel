@@ -31,6 +31,21 @@ test('downloadUrl builds the Firebase download URL from the object token', async
   expect(String(fetcher.mock.calls[0][0])).toBe('https://storage.googleapis.com/storage/v1/b/demo-bucket/o/catalog%2Fv2.json?fields=metadata')
 })
 
+test('one metadata response binds the download token to its generation and object hashes', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ generation: '123', metageneration: '4', md5Hash: 'md5', crc32c: 'crc', metadata: { firebaseStorageDownloadTokens: 'current-token' } })))
+  const snapshots = gcsSnapshots('demo-bucket', async () => 'token', fetcher)
+  expect(await snapshots.metadata(2)).toEqual({ generation: '123', metageneration: '4', md5Hash: 'md5', crc32c: 'crc', url: 'https://firebasestorage.googleapis.com/v0/b/demo-bucket/o/catalog%2Fv2.json?alt=media&token=current-token' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(String(fetcher.mock.calls[0][0])).toContain('fields=generation,metageneration,md5Hash,crc32c,metadata')
+})
+
+test('checksum verification selects the exact object generation', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('generation bytes'))
+  const snapshots = gcsSnapshots('demo-bucket', async () => 'token', fetcher)
+  await snapshots.checksum(2, '123')
+  expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('generation')).toBe('123')
+})
+
 test('downloadUrl is null for a missing object or one without a token', async () => {
   const missing = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }))
   expect(await gcsSnapshots('demo-bucket', async () => 't', missing).downloadUrl(2)).toBeNull()

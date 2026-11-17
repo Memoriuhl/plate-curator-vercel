@@ -6,20 +6,47 @@ import { ApiError } from '../lib/client/api'
 import { batch, command, fixture } from './publish/fixture'
 import { publishBaselineStatus } from '../lib/publish/baseline-status'
 
-const mocks = vi.hoisted(() => ({ copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
+const mocks = vi.hoisted(() => ({ runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
-  useMe: () => ({ data: { role: 'owner' } }),
+  useMe: () => ({ data: { role: mocks.role } }),
   useBatch: () => ({ data: { batch, plates: [] } }),
   useBatches: () => ({ data: [batch] }),
-  useBatchRun: () => ({ data: mocks.run ? { phase: 'failed', outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
-  usePublishBaseline: () => ({ data: mocks.baselineError === 'paused' ? { error: 'paused' } : { error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
+  useBatchRun: () => ({ data: mocks.run ? { runId: mocks.runId, phase: mocks.phase, outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
+  usePublishBaseline: () => ({ data: mocks.baselineError === 'paused' ? { error: 'paused', canRetry: false } : { canRetry: mocks.canRetry, retryReason: mocks.canRetry ? null : 'locked', error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
   usePlateDetail: () => ({}),
-  useReviewActions: () => ({ copy: mocks.copy }),
+  useReviewActions: () => ({ copy: mocks.copy, publish: mocks.publish }),
 }))
-beforeEach(() => { vi.clearAllMocks(); mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
+beforeEach(() => { vi.clearAllMocks(); mocks.runId = 'old-run'; mocks.publish.mockResolvedValue({ ok: true }); mocks.canRetry = true; mocks.phase = 'failed'; mocks.role = 'owner'; mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
 afterEach(cleanup)
+
+test('server eligibility permits another click after the fresh run ends without a stop reason', async () => {
+  mocks.run = true
+  mocks.runError = 'paused'
+  mocks.baselineError = null
+  HTMLDialogElement.prototype.close = vi.fn()
+  const view = render(<PublishWorkspace />)
+  fireEvent.click(view.container.querySelector('dialog button[data-variant="publish"]')!)
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(batch.id, batch.revision))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull())
+  mocks.runId = 'fresh-run'
+  mocks.runError = 'invalid_snapshot'
+  view.rerender(<PublishWorkspace />)
+  expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
+})
+
+test('server eligibility hides Publish again while a live run owns the claim', () => {
+  mocks.run = true
+  mocks.runError = 'paused'
+  mocks.baselineError = null
+  mocks.canRetry = false
+  const view = render(<PublishWorkspace />)
+  expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull()
+  mocks.canRetry = true
+  view.rerender(<PublishWorkspace />)
+  expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
+})
 
 test.each([false, true])('Owner sees reviewed and live versions and opens a fresh review (Workflow failure: %s)', async failedRun => {
   mocks.run = failedRun
@@ -83,6 +110,7 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
   expect(screen.getByText(/The Batch remains approved. Resume does not restart this command/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
 })
 
 test('paused Publish explains the stop; after Resume stale proposals still offer Copy', () => {
@@ -94,4 +122,16 @@ test('paused Publish explains the stop; after Resume stale proposals still offer
   mocks.baselineError = 'stale_baseline'
   view.rerender(<PublishWorkspace />)
   expect(screen.getByRole('button', { name: 'Copy to new Batch' })).toBeTruthy()
+})
+
+test.each(['paused', 'stale_baseline', 'editor', 'unauthenticated', 'publishing'])('Publish again is hidden when ineligible: %s', condition => {
+  mocks.run = true
+  mocks.runError = 'revoked'
+  mocks.baselineError = condition === 'paused' || condition === 'stale_baseline' ? condition : null
+  if (condition === 'editor' || condition === 'unauthenticated') mocks.role = condition
+  if (condition === 'publishing') mocks.phase = 'publishing'
+  mocks.canRetry = false
+  render(<PublishWorkspace />)
+  expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull()
+  if (condition === 'stale_baseline') expect(screen.getByRole('button', { name: 'Copy to new Batch' })).toBeTruthy()
 })
