@@ -360,6 +360,8 @@ test.each(['started', 'upload', 'uploaded', 'pointer', 'before curator', 'curato
 
 test.each(['overlapping', 'unrelated'])('fresh Publish refuses an %s intervening release', async kind => {
   const f = fixture()
+  const edits = [{ plateId: 'one', baseRevision: plateRevision(snapshot.plates[0]), fields: { tags: ['approved proposal'] }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: plateRevision({ ...snapshot.plates[0], tags: ['approved proposal'] }) }]
+  f.deps.store.listEdits = async () => structuredClone(edits)
   f.deps.pointer.read = async () => ({ version: 2 })
   f.blobs.set(2, Buffer.from(JSON.stringify({ version: 2, plates: snapshot.plates.map((plate, i) => ({ ...plate, tags: i === (kind === 'overlapping' ? 0 : 1) ? ['new live tag'] : plate.tags })) })))
   const upload = vi.spyOn(f.deps.snapshots, 'createOnly')
@@ -369,6 +371,7 @@ test.each(['overlapping', 'unrelated'])('fresh Publish refuses an %s intervening
   expect(advance).not.toHaveBeenCalled()
   expect(f.records.size).toBe(0)
   expect(await f.deps.store.getBatch(batch.id)).toEqual(batch)
+  expect(await f.deps.store.listEdits(batch.id)).toEqual(edits)
   expect(f.lease()).toBeNull()
   expect(await f.deps.store.commit(batch.id, 2, { batch: { ...batch, revision: 3 } })).toBe('ok')
 })

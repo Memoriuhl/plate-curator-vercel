@@ -27,6 +27,11 @@ test('copies editable proposals and clears atomically into an unapproved open Ba
   expect(copy).toMatchObject({ state: 'open', revision: 0, baselineVersion: 2, approval: null, createdBy: owner.uid, source: { batchId: batch.id, revision: 2 }, stateOrders: { CA: ['two', 'one'] }, baselineOrders: { CA: ['one', 'two'] } })
   for (const key of ['approvalRun', 'publishRequestedAt', 'publishReservation']) expect(copy).not.toHaveProperty(key)
   expect(f.store.signalRevision(copy.id)).toBe(0)
+  expect(await f.store.listEdits(copy.id)).toEqual([expect.objectContaining({
+    fields: original!.edits[0].fields,
+    baseRevision: plateRevision(f.fresh.plates[0]),
+    resultRevision: plateRevision({ ...f.fresh.plates[0], ...original!.edits[0].fields }),
+  })])
   expect(await f.store.readBatch(batch.id)).toEqual(original)
   const detail = await batchDetail({ ...fixture().deps, store: f.store, baselineAtVersion: async (version, id) => version === 2 ? f.fresh.plates.find(plate => plate.id === id) ?? null : null }, copy.id)
   expect(detail).toMatchObject({ ok: true, value: { plates: expect.arrayContaining([expect.objectContaining({ baseline: expect.objectContaining({ tags: ['intervening'] }), proposed: expect.objectContaining({ tags: ['proposed'], variantOfPlateId: null }), edit: expect.objectContaining({ baseRevision: plateRevision(f.fresh.plates[0]), resultRevision: expect.any(String) }) })]) } })
@@ -86,5 +91,21 @@ test.each(['before read', 'before commit', 'source revision', 'source status'])(
     return f.fresh
   }
   expect(await copyBatch(f.d, owner, f.input)).toMatchObject({ ok: false, error: race.startsWith('before') ? 'head_moved' : race === 'source revision' ? 'superseded_revision' : 'invalid_state', ...(race.startsWith('before') ? { liveVersion: 3 } : {}) })
+  expect(await f.store.list({})).toHaveLength(1)
+})
+
+test.each([
+  ['missing', ['one']],
+  ['extra', ['one', 'two', 'other']],
+  ['duplicate', ['one', 'one']],
+  ['wrong jurisdiction', ['one', 'other']],
+] as const)('copy rejects a %s State order without changing the source or creating a target', async (kind, order) => {
+  const f = setup()
+  if (kind === 'wrong jurisdiction') f.fresh.plates.push({ ...f.fresh.plates[0], id: 'other', state: 'NY' })
+  const source = (await f.store.getBatch(batch.id))!
+  await f.store.commit(batch.id, 2, { batch: { ...source, stateOrders: { CA: [...order] } } })
+  const original = await f.store.readBatch(batch.id)
+  expect(await copyBatch(f.d, owner, f.input)).toEqual({ ok: false, error: 'incompatible', reasons: ['State order no longer matches Jurisdiction: CA'] })
+  expect(await f.store.readBatch(batch.id)).toEqual(original)
   expect(await f.store.list({})).toHaveLength(1)
 })

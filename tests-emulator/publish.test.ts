@@ -154,3 +154,22 @@ test('legacy uncommitted mismatch stops safely and leaves the immutable receipt 
   expect((await pointer.read()).version).toBe(1)
   expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
 })
+
+test('a pointer change after upload is distinguished from an initially stale baseline', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  const upload = deps.snapshots.createOnly
+  deps.snapshots.createOnly = async (...args) => {
+    const result = await upload(...args)
+    await db.doc('config/catalog').set({ version: 3 })
+    return result
+  }
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'pointer_moved' })
+  expect([...f.blobs.keys()]).toEqual([1, 2])
+  expect((await pointer.read()).version).toBe(3)
+  expect(await records.get('batch@2')).toMatchObject({ state: 'failed', failure: 'pointer_moved' })
+  expect((await records.get('batch@2'))?.committedAt).toBeUndefined()
+  expect(await store.getBatch(batch.id)).toEqual(batch)
+  expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
+  expect((await db.doc('locks/publish').get()).exists).toBe(false)
+})
