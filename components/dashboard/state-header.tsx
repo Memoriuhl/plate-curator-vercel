@@ -27,6 +27,7 @@ export function StateHeader({
       <BatchActions
         stateCode={jurisdiction.code}
         stateName={jurisdiction.name}
+        allPlates={process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? plates.map(({ id, state, displayName, revision, tags }) => ({ id, state, displayName, revision, tags })) : undefined}
         underTagged={plates
           .filter((plate) => plate.checks.tags.status !== 'good')
           .map(({ id, state, displayName, revision, tags }) => ({

@@ -20,10 +20,12 @@ import { useTagRun, type RunPlate } from './use-tag-run'
 
 export function BatchActions({
   underTagged,
+  allPlates,
   stateCode,
   stateName,
 }: {
   underTagged: RunPlate[]
+  allPlates?: RunPlate[]
   stateCode: string
   stateName: string
 }) {
@@ -104,6 +106,7 @@ export function BatchActions({
         </Button>
         <RunMenu
           underTagged={underTagged}
+          allPlates={allPlates}
           batchPlates={batchPlates}
           stateName={stateName}
           disabledReason={run.disabledReason}

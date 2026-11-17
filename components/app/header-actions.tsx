@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { localPipelineReason } from '@/lib/local-pipeline'
 
 export function HeaderActions() {
   const { user, ready, signOut } = useSession()
@@ -43,13 +44,13 @@ export function HeaderActions() {
     <div className="header-actions">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span tabIndex={0} aria-label="Inbox: Coming soon">
+          <span tabIndex={0} aria-label={`Inbox: ${localPipelineReason('No Inbox route or notification feed')}`}>
             <Button variant="ghost" size="icon" disabled aria-label="Inbox">
               <IoFileTrayOutline className="chrome-icon" aria-hidden="true" />
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>Coming soon</TooltipContent>
+        <TooltipContent>{localPipelineReason('No Inbox route or notification feed')}</TooltipContent>
       </Tooltip>
       {!ready ? (
         <span role="status" className="caption">
