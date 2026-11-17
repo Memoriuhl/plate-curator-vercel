@@ -245,7 +245,8 @@ function searchHarness(query = '') {
       for (const character of text) fireEvent.change(input, { target: { value: input.value + character } })
     },
     async publish() { await act(async () => { await vi.advanceTimersByTimeAsync(300) }) },
-    external(nextQuery: string) {
+    external(nextQuery: string, nextPathname = mounted.pathname) {
+      mounted.pathname = nextPathname
       mounted.query = nextQuery
       view.rerender(<ActualDashboardSearch />)
     },
@@ -390,17 +391,22 @@ test('back/forward overrides a pending own value and cancels newer unpublished t
   }
 })
 
-test('an external query stays selected if an outstanding own acknowledgement arrives afterwards', async () => {
-  const search = searchHarness('batch=shared')
+test.each(['motorcycle', 'army'])('the latest external route and params survive an outstanding own acknowledgement with q=%s', async query => {
+  const search = searchHarness('batch=A')
   search.type('army')
   await search.publish()
-  search.external('q=motorcycle&batch=shared')
-  expect(search.input.value).toBe('motorcycle')
+  expect(search.requests[0].href).toBe('/states/AK?batch=A&q=army')
+  search.external(`q=${query}&batch=B&custom=keep`, '/states/CO')
+  expect(search.input.value).toBe(query)
   await search.requests[0].commit()
-  expect(search.input.value).toBe('motorcycle')
+  expect(search.input.value).toBe(query)
   await search.publish()
+  expect(search.requests).toHaveLength(2)
+  expect(search.requests[1].href).toBe(`/states/CO?q=${query}&batch=B&custom=keep`)
+  expect(mounted.replace).toHaveBeenLastCalledWith(search.requests[1].href, { scroll: false })
   await search.requests[1].commit()
-  expect(new URLSearchParams(mounted.query).get('q')).toBe('motorcycle')
+  expect(mounted.pathname).toBe('/states/CO')
+  expect(Object.fromEntries(new URLSearchParams(mounted.query))).toEqual({ q: query, batch: 'B', custom: 'keep' })
   await search.publish()
   expect(search.requests).toHaveLength(2)
 })

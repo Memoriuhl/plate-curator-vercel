@@ -11,33 +11,38 @@ export function DashboardSearch() {
   const input = useRef<HTMLInputElement>(null)
   const query = params.get('q') ?? ''
   const queryString = params.toString()
-  const [search, setSearch] = useState(() => ({ value: query, query, pending: [] as string[] }))
+  const href = `${pathname}${queryString ? `?${queryString}` : ''}`
+  const [search, setSearch] = useState(() => ({ value: query, query, href, pathname, queryString, pending: [] as string[] }))
   const value = search.value
-  if (search.query !== query) {
+  if (search.href !== href) {
     setSearch(current => {
-      const acknowledgement = current.pending.indexOf(query)
+      const acknowledgement = current.pending.indexOf(href)
       return {
-        value: acknowledgement < 0 ? query : current.value,
+        value: acknowledgement < 0 && current.query !== query ? query : current.value,
         query,
+        href,
+        pathname: acknowledgement < 0 ? pathname : current.pathname,
+        queryString: acknowledgement < 0 ? queryString : current.queryString,
         pending: current.pending.filter((_, index) => index !== acknowledgement),
       }
     })
   }
+  const next = new URLSearchParams(search.queryString)
+  if (value) next.set('q', value)
+  else next.delete('q')
+  const targetHref = `${search.pathname}${next.size ? `?${next}` : ''}`
   useEffect(() => {
-    if (value === query) return
+    if (targetHref === href) return
     const timer = setTimeout(() => {
-      const next = new URLSearchParams(queryString)
-      if (value) next.set('q', value)
-      else next.delete('q')
-      setSearch(current => ({ ...current, pending: [...current.pending, value] }))
-      router.replace(`${pathname}${next.size ? `?${next}` : ''}`, { scroll: false })
+      setSearch(current => ({ ...current, pending: [...current.pending, targetHref] }))
+      router.replace(targetHref, { scroll: false })
     }, 250)
     return () => clearTimeout(timer)
-  }, [value, query, queryString, pathname, router])
+  }, [targetHref, href, router])
   useEffect(() => {
     function historyChange() {
-      const value = new URLSearchParams(window.location.search).get('q') ?? ''
-      setSearch(current => ({ ...current, value }))
+      const params = new URLSearchParams(window.location.search)
+      setSearch(current => ({ ...current, value: params.get('q') ?? '', pathname: window.location.pathname, queryString: params.toString() }))
     }
     function shortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
