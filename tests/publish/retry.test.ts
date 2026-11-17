@@ -57,7 +57,7 @@ test.each([true, false])('missing prepared blob is recreated only from matching 
     return result
   }
   f.deps.snapshots.createOnly = vi.fn(async () => { throw new Error('interrupted before upload') })
-  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'paused' })
   expect(await f.deps.control.check(command, f.deps.now())).toBe('paused')
   f.setControl(enabled)
   if (!matching) f.records.set('batch@2', { ...f.records.get('batch@2')!, blobSha256: 'mismatch' })
@@ -73,4 +73,73 @@ test('an unrelated command cannot reconcile another command committed release', 
   const f = fixture()
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
   expect(await publishBatch(f.deps, owner, { ...command, commandId: 'other' })).toEqual({ ok: false, error: 'superseded' })
+})
+
+test('D: missing-blob recovery refuses a version already committed by another receipt before any upload', async () => {
+  const f = fixture()
+  f.deps.snapshots.createOnly = async () => { throw new Error('interrupted upload') }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  f.setControl({ ...enabled, paused: true, generation: 2 })
+  expect(await f.deps.control.check(command, f.deps.now())).toBe('paused')
+  f.setControl(enabled)
+  f.records.set('other@2', { ...f.records.get('batch@2')!, id: 'other@2', batchId: 'other', committedAt: f.deps.now() })
+  const upload = vi.fn(async () => 'created' as const)
+  f.deps.snapshots.createOnly = upload
+  expect(await publishBatch(f.deps, owner, { ...command, generation: 3, commandId: 'fresh' })).toMatchObject({ error: 'version_taken' })
+  expect(upload).not.toHaveBeenCalled()
+})
+
+test('B1/B2: a replaced claim is superseded at the first check before receipt adoption', async () => {
+  const f = fixture()
+  f.setControl({ ...enabled, paused: true, generation: 2 })
+  expect(await f.deps.control.check(command, f.deps.now())).toBe('paused')
+  f.setControl(enabled)
+  await f.deps.store.updatePublishMetadata(command.batchId, command.revision, { publishCommand: { commandId: 'new-claim', revision: command.revision } })
+  expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'superseded' })
+  expect([...f.blobs.keys()]).toEqual([1])
+})
+
+test('D: create-only recovery never overwrites different bytes arriving after its proof', async () => {
+  const f = fixture()
+  f.deps.snapshots.createOnly = async () => { throw new Error('upload interrupted') }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  f.setControl({ ...enabled, paused: true, generation: 2 })
+  await f.deps.control.check(command, f.deps.now())
+  f.setControl(enabled)
+  const proof = f.deps.records.checkUpload
+  const different = new Uint8Array([9, 8, 7])
+  f.deps.records.checkUpload = async (...args) => {
+    const result = await proof(...args)
+    if (!result) f.blobs.set(2, different)
+    return result
+  }
+  f.deps.snapshots.createOnly = async (version, bytes) => {
+    if (f.blobs.has(version)) return 'exists'
+    f.blobs.set(version, bytes)
+    return 'created'
+  }
+  expect(await publishBatch(f.deps, owner, { ...command, generation: 3, commandId: 'fresh' })).toMatchObject({ error: 'version_taken' })
+  expect(f.blobs.get(2)).toBe(different)
+  expect(f.pointer().version).toBe(1)
+})
+
+test.each([false, true])('D: recreating matching bytes refreshes the object URL even after metadata response loss: %s', async responseLost => {
+  const f = fixture()
+  const upload = f.deps.snapshots.createOnly
+  f.deps.snapshots.createOnly = async (...args) => {
+    const result = await upload(...args)
+    f.setControl({ ...enabled, paused: true, generation: 2 })
+    return result
+  }
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'paused' })
+  f.blobs.delete(2)
+  f.deps.snapshots.createOnly = upload
+  const downloadUrl = vi.fn(async (): Promise<string | null> => 'https://storage.example/v2.json?token=recreated')
+  if (responseLost) downloadUrl.mockResolvedValueOnce(null)
+  f.deps.snapshots.downloadUrl = downloadUrl
+  f.setControl(enabled)
+  const fresh = { ...command, commandId: 'fresh', generation: 3 }
+  if (responseLost) expect(await publishBatch(f.deps, owner, fresh)).toMatchObject({ error: 'unavailable' })
+  expect(await publishBatch(f.deps, owner, fresh)).toMatchObject({ ok: true, value: { url: 'https://storage.example/v2.json?token=recreated' } })
+  expect(f.pointer().url).toBe('https://storage.example/v2.json?token=recreated')
 })

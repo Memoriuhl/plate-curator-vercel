@@ -1,4 +1,6 @@
 import { publishRequesterStop } from '../../lib/publish/authority'
+import { uploadError } from '../../lib/publish/upload'
+import { claimSupersedes } from '../../lib/publish/command'
 import type { PublishCommand } from '../../lib/publish/types'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../../lib/catalog/types'
@@ -30,6 +32,7 @@ export function fixture(seed: ReviewBatch = batch) {
   const stops = new Map<string, PublishStop>()
   const check = async (cmd: PublishCommand) => {
     if (records.get(`${cmd.batchId}@${cmd.revision}`)?.committedAt) return null
+    if (claimSupersedes(await store.getBatch(cmd.batchId), cmd)) return 'superseded' as const
     const key = publishCommandKey(cmd)
     const stopped = stops.get(key)
     if (stopped) return stopped
@@ -91,6 +94,13 @@ export function fixture(seed: ReviewBatch = batch) {
       downloadUrl: async version => blobs.has(version) ? `https://storage.example/v${version}.json?token=t${version}` : null,
     },
     records: {
+      checkUpload: async (record, cmd, checksum, token, now) => {
+        if (!active(token, now)) return 'lock_lost'
+        const current = await store.getBatch(cmd.batchId)
+        if (current?.state !== 'approved' || current.revision !== cmd.revision || current.approval?.revision !== cmd.revision - 1) return 'superseded_revision'
+        if (claimSupersedes(current, cmd)) return 'superseded'
+        return uploadError(records.get(record.id) ?? null, record, cmd, checksum, pointer.version, [...records.values()].some(saved => saved.toVersion === record.toVersion && !!saved.committedAt)) ?? await check(cmd)
+      },
       eligibility: async () => ({ canRetry: true, reason: null }),
       command: async () => null,
       stopped: async cmd => stops.get(publishCommandKey(cmd)) ?? null,

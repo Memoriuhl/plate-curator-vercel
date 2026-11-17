@@ -74,6 +74,10 @@ Preflight and acceptance use the same server eligibility predicate. Publish agai
 is driven by its `canRetry` result, including a locked response while a live run
 owns the claim. A fresh click can replace a claim with a durable stop, a bound run
 that is completed, failed or cancelled, or an unbound claim older than two minutes.
+Before applying the TTL, the server looks up the deterministic start token. If a
+live run exists, it binds that run to the claim and keeps the claim locked; TTL
+takeover requires an affirmative lookup showing no run. Unknown lookup state
+fails closed. A delayed start response cannot bind once its claim was replaced.
 The clock is supplied to the check. Replacement writes a durable superseded stop
 for a command without one in the same acceptance transaction. A live bound run
 stays locked even after two minutes. After a failed start, retry the same intent,
@@ -90,6 +94,18 @@ upload only when their checksum matches the receipt. Mismatched bytes return
 baseline offers Copy. Old work cannot save or commit the adopted receipt and
 returns `superseded`. Only the committed command reaches the existing per-version
 Catalog push claim.
+
+Immediately before create-only upload, another lease-guarded transaction checks
+receipt ownership, exact Batch/revision, version adjacency, current pointer,
+approval, authority, checksum and the absence of any committed receipt for the
+target version. A competing object can only make create-only return exists; its
+checksum must still match, and different bytes are never overwritten. Superseding
+a claim and recording its stop are one transaction; an aborted replacement leaves
+both the old claim and its prior stop history intact. Old work observes superseded
+at its first check after takeover, including before receipt adoption.
+Before an uncommitted pointer advance, the publisher refreshes the object's current
+download URL. Recreated matching bytes can have a new download token; a lost
+metadata response must not leave a retry using the old object's URL.
 
 ## Known gap until #129
 
@@ -210,6 +226,8 @@ Focused behavior: `npx vitest run tests/publish tests/review/copy.test.ts tests/
 
 Transactions/concurrency: `npm run test:emulator` uses only Firestore at localhost
 and project `demo-plate-curator`. Snapshot storage in Publish tests is in memory.
+Run this suite alone. The two Owner-claim contention tests have scoped fifteen-second
+budgets for Firestore transaction retries; the global test timeout is unchanged.
 The suite checks copy atomicity, concurrent retries, source/head/environment races,
 initial live signals, and Publish reservation and receipt behavior. The screen
 tests exercise both preflight and Workflow failures, recovery navigation, affected

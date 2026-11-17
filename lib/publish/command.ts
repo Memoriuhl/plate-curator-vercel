@@ -2,6 +2,11 @@ import type { ReviewBatch } from '../review/types'
 import type { PublishCommand, PublishRecord } from './types'
 
 export const receiptId = (batchId: string, revision: number) => `${batchId}@${revision}`
+export const publishStartToken = (commandId: string) => `publish-command:${commandId}`
+
+export function claimSupersedes(batch: Partial<ReviewBatch> | null | undefined, command: PublishCommand): boolean {
+  return batch?.publishCommand?.revision === command.revision && batch.publishCommand.commandId !== command.commandId
+}
 
 export function batchApprovedFor(batch: Partial<ReviewBatch> | null | undefined, command: PublishCommand): boolean {
   return batch?.state === 'approved' && batch.revision === command.revision && batch.approval?.revision === command.revision - 1

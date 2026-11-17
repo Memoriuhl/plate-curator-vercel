@@ -2,7 +2,7 @@ import type { PublishCommand, PublishDeps } from '../../../../../lib/publish/typ
 import { validCommandId } from '../../../../../lib/publish/types'
 import { sameRequester } from '../../../../../lib/publish/authority'
 import { PUBLISH_ERRORS } from '../../../../../lib/publish/stop'
-import { receiptId } from '../../../../../lib/publish/command'
+import { publishStartToken, receiptId } from '../../../../../lib/publish/command'
 import { randomUUID } from 'node:crypto'
 import { publishControlStop } from '../../../../../lib/publish/control'
 import { getHookByToken, resumeHook, start } from 'workflow/api'
@@ -13,7 +13,7 @@ import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
 async function dispatchRetry(publishing: PublishDeps, accepted: { command: PublishCommand; runId?: string }, ownerUid: string, now: string) {
   let runId = accepted.runId
-  const token = `publish-command:${accepted.command.commandId}`
+  const token = publishStartToken(accepted.command.commandId!)
   if (!runId) {
     try { runId = (await getHookByToken(token)).runId } catch (error) { if (!HookNotFoundError.is(error)) throw error }
   }
@@ -33,7 +33,8 @@ async function dispatchRetry(publishing: PublishDeps, accepted: { command: Publi
       }
     }
   }
-  if (!runId || !await publishing.records.bindRun(accepted.command, runId, now)) return json({ error: PUBLISH_ERRORS.unavailable }, 503)
+  if (!runId) return json({ error: PUBLISH_ERRORS.unavailable }, 503)
+  if (!await publishing.records.bindRun(accepted.command, runId, now)) return json({ error: PUBLISH_ERRORS.superseded }, 409)
   return json({ status: 'publishing', runId }, 202)
 }
 

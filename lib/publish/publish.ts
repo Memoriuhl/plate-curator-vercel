@@ -113,13 +113,15 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       }
       record ??= { id, ...command, fromVersion, toVersion: fromVersion + 1, blobSha256: checksum, state: 'started' }
       if (!await d.records.save(record, lease.token, d.now()) || !await renew()) return { ok: false, error: 'lock_lost' }
+      const uploadStop = await d.records.checkUpload(record, command, checksum, lease.token, d.now())
+      if (uploadStop) { keepFrozen = false; return { ok: false, error: uploadStop } }
       await d.snapshots.createOnly(record.toVersion, bytes)
       existingChecksum = await d.snapshots.checksum(record.toVersion)
       if (existingChecksum !== record.blobSha256) return await fail('version_taken')
     }
     if (!await renew()) return { ok: false, error: 'lock_lost' }
     if (!record.committedAt) {
-      const url = record.url ?? await d.snapshots.downloadUrl(record.toVersion)
+      const url = await d.snapshots.downloadUrl(record.toVersion)
       if (!url) return { ok: false, error: PUBLISH_ERRORS.unavailable }
       record = { ...record, url, state: 'uploaded' }
       if (!await d.records.save(record, lease.token, d.now())) return { ok: false, error: 'lock_lost' }

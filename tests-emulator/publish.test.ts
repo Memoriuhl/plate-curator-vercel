@@ -2,6 +2,7 @@ import { firestoreMembersStore } from '../lib/members/firestore-store'
 import { afterAll, beforeEach, expect, test } from 'vitest'
 import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
 import { publishBatch } from '../lib/publish/publish'
+import { sha256 } from '../lib/publish/bytes'
 import type { PublishLease, PublishRecord } from '../lib/publish/types'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
@@ -14,14 +15,14 @@ const lease: PublishLease = { ...command, token: 'first', expiresAt: '2026-11-15
 const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', url: 'https://storage.example/v2.json?token=t', state: 'uploaded' }
 const lock = firestorePublishLock(db, env)
 const pointer = firestorePublishPointer(db, env)
-const records = firestorePublishRecords(db, env)
+const records = firestorePublishRecords(db, env, { findRun: async () => null })
 const store = firestoreReviewStore(db, env)
 const control = firestorePublishControl(db)
 const controlActor = { uid: 'owner', email: 'owner@example.com' }
 const enabled = { paused: false, generation: 1, changedBy: controlActor, changedAt: now }
 
 test.each(['unbound', 'completed', 'failed', 'cancelled'])('claimRecovery replaces a %s claim and fences its previous command', async status => {
-  const recovering = firestorePublishRecords(db, env, { runStatus: async () => status })
+  const recovering = firestorePublishRecords(db, env, { runStatus: async () => status, findRun: async () => null })
   const first = { ...command, commandId: 'abandoned' }
   await recovering.accept(first, now)
   if (status !== 'unbound') await recovering.bindRun(first, 'old-run', now)
@@ -29,6 +30,102 @@ test.each(['unbound', 'completed', 'failed', 'cancelled'])('claimRecovery replac
   const later = '2026-11-15T12:02:01Z'
   expect(await recovering.accept(next, later)).toMatchObject({ ok: true, command: next })
   expect((await db.doc('publishCommandStops/abandoned').get()).get('reason')).toBe('superseded')
+})
+
+test('B3: two Owners racing takeover of one stale claim produce exactly one winner', async () => {
+  await records.accept({ ...command, commandId: 'stale-claim' }, now)
+  const later = '2026-11-15T12:02:01Z'
+  const a = { ...command, commandId: 'takeover-a' }
+  const b = { ...command, commandId: 'takeover-b', requestedBy: { uid: 'backup', email: 'backup@example.com', authorityEpoch: 0 } }
+  const results = await Promise.all([records.accept(a, later), records.accept(b, later)])
+  expect(results.filter(result => result.ok)).toHaveLength(1)
+  expect(results.filter(result => !result.ok)).toEqual([{ ok: false, error: 'locked' }])
+  expect((await db.doc('publishCommandStops/stale-claim').get()).get('reason')).toBe('superseded')
+}, 15000)
+
+test('B5: failure between staging supersede and replacing the claim rolls both back', async () => {
+  await records.accept({ ...command, commandId: 'old-claim' }, now)
+  let stagedStop = false
+  const failing = new Proxy(db, { get(target, key) {
+    if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>) => db.runTransaction(tx => run(new Proxy(tx, { get(transaction, method) {
+      if (method === 'create') return (ref: { path: string }, data: Record<string, unknown>) => {
+        if (ref.path === 'publishCommandStops/old-claim') stagedStop = true
+        if (ref.path === 'publishCommands/replacement') throw new Error('injected between stop and claim')
+        return transaction.create(ref as Parameters<Transaction['create']>[0], data)
+      }
+      const value = Reflect.get(transaction, method)
+      return typeof value === 'function' ? value.bind(transaction) : value
+    } })))
+    const value = Reflect.get(target, key)
+    return typeof value === 'function' ? value.bind(target) : value
+  } }) as Firestore
+  await expect(firestorePublishRecords(failing, env, { findRun: async () => null }).accept({ ...command, commandId: 'replacement' }, '2026-11-15T12:02:01Z')).rejects.toThrow('injected between stop and claim')
+  expect(stagedStop).toBe(true)
+  expect((await db.doc('publishCommandStops/old-claim').get()).exists).toBe(false)
+  expect(await records.command('replacement')).toBeNull()
+  expect(await store.getBatch(batch.id)).toMatchObject({ publishCommand: { commandId: 'old-claim' } })
+})
+
+test.each(['terminal', 'stopped'])('B2: old work after %s takeover cannot check, adopt or commit', async reason => {
+  const target = firestorePublishRecords(db, env, { runStatus: async () => reason === 'terminal' ? 'failed' : 'running' })
+  await target.accept(command, now)
+  await target.bindRun(command, 'old-run', now)
+  const f = fixture()
+  const bytes = Buffer.from('prepared immutable bytes')
+  f.blobs.set(2, bytes)
+  const prepared = { ...record, blobSha256: sha256(bytes) }
+  await lock.claim(lease, now)
+  await target.save(prepared, lease.token, now)
+  await lock.release(lease.token, false)
+  if (reason === 'stopped') await db.doc(`publishCommandStops/${command.commandId}`).set({ reason: 'paused' })
+  const fresh = { ...command, commandId: 'new-owner-command' }
+  expect(await target.accept(fresh, now)).toMatchObject({ ok: true })
+  expect(await target.bindRun(fresh, 'new-run', now)).toBe(true)
+  const deps = { ...f.deps, control, store, lock, records: target, pointer, curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'superseded' })
+  const nextLease = { ...lease, token: 'fresh-lease' }
+  expect(await lock.claim(nextLease, now)).toBe(true)
+  expect(await target.adopt(prepared, command, prepared.blobSha256, nextLease.token, now)).toBe('superseded')
+  expect(await pointer.advance(prepared, nextLease, now)).toBe('superseded')
+  await lock.release(nextLease.token, false)
+  expect((await pointer.read()).version).toBe(1)
+  expect(await publishBatch(deps, owner, fresh)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+})
+
+test.each(['owner', 'batch', 'revision', 'version', 'committed', 'other-commit', 'checksum', 'pointer', 'stopped'])('D: transactional before-upload proof refuses %s', async changed => {
+  await lock.claim(lease, now)
+  await records.save(record, lease.token, now)
+  const ref = db.doc(`publishRecords/${record.id}`)
+  if (changed === 'owner') await ref.update({ commandId: 'another-command' })
+  if (changed === 'batch') await ref.update({ batchId: 'another-batch' })
+  if (changed === 'revision') await ref.update({ revision: 3 })
+  if (changed === 'version') await ref.update({ toVersion: 3 })
+  if (changed === 'committed') await ref.update({ committedAt: now })
+  if (changed === 'other-commit') await db.doc('publishRecords/other@2').set({ ...record, id: 'other@2', batchId: 'other', env, committedAt: now })
+  if (changed === 'pointer') await db.doc('config/catalog').update({ version: 3 })
+  if (changed === 'stopped') await db.doc(`publishCommandStops/${command.commandId}`).set({ reason: 'superseded' })
+  expect(await records.checkUpload(record, command, changed === 'checksum' ? 'different' : record.blobSha256, lease.token, now)).toBe(changed === 'owner' || changed === 'stopped' ? 'superseded' : changed === 'pointer' ? 'stale_baseline' : 'version_taken')
+})
+
+test('D: a create-only re-upload cannot overwrite different bytes arriving after its transactional proof', async () => {
+  const f = fixture()
+  const deps = { ...f.deps, control, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
+  const createOnly = deps.snapshots.createOnly
+  deps.snapshots.createOnly = async () => { throw new Error('interrupted before storage') }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  await control.change(true, controlActor, now)
+  await control.check(command, now)
+  await control.change(false, controlActor, now)
+  const different = new Uint8Array([9, 8, 7])
+  deps.records = { ...records, checkUpload: async (...args) => {
+    const result = await records.checkUpload(...args)
+    if (!result) f.blobs.set(2, different)
+    return result
+  } }
+  deps.snapshots.createOnly = createOnly
+  expect(await publishBatch(deps, owner, { ...command, generation: 3, commandId: 'reupload' })).toMatchObject({ error: 'version_taken' })
+  expect(f.blobs.get(2)).toBe(different)
+  expect((await pointer.read()).version).toBe(1)
 })
 
 test('two Owners racing through accept admit exactly one command and commit one Catalog version', async () => {
@@ -54,7 +151,7 @@ test('two Owners racing through accept admit exactly one command and commit one 
   expect(await publishBatch(deps, { ...owner, uid: winner.command.requestedBy!.uid }, winner.command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
   expect((await pointer.read()).version).toBe(2)
   expect([...f.blobs.keys()]).toEqual([1, 2])
-})
+}, 15000)
 
 test.each([true, false])('missing blob adoption recomputes and uploads only identical bytes in Firestore: %s', async matching => {
   const f = fixture()

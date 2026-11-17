@@ -45,6 +45,7 @@ export interface PublishSnapshots {
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  checkUpload(record: PublishRecord, command: PublishCommand, checksum: string, token: string, now: string): Promise<PublishError | null>
   eligibility(command: PublishCommand, now: string): Promise<RetryEligibility>
   command(commandId: string): Promise<{ command: PublishCommand; runId?: string } | null>
   accept(command: PublishCommand, now: string): Promise<{ ok: true; command: PublishCommand; runId?: string } | { ok: false; error: PublishError }>
