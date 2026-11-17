@@ -289,11 +289,16 @@ export function useEditPlate() {
   return { edit, pending: pendingCount > 0 }
 }
 
+export type MoveOrigin = { batchId: string | null; revision: number | null }
+
 export function useReorderState() {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
+  const { data: personalBatches } = useBatches(['open'], { mine: true })
+  const personal = useBatch(workspace.mode === 'personal' ? mostRecentBatch(personalBatches)?.id ?? null : null, { reuse: true })
+  const displayed = workspace.mode === 'selected' ? workspace.detail : personal.data
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
@@ -334,5 +339,39 @@ export function useReorderState() {
     return result.finally(() => setPendingCount(count => count - 1))
   }
 
-  return { reorder, pending: pendingCount > 0 }
+  function capture(): MoveOrigin {
+    return { batchId: workspace.mode === 'selected' ? workspace.id : displayed?.batch.id ?? null, revision: displayed?.batch.revision ?? null }
+  }
+
+  async function move(state: string, order: string[], promotion: { plateId: string; templateFamily: string }, origin: MoveOrigin): Promise<EditResult> {
+    setPendingCount(count => count + 1)
+    let key: string | undefined
+    try {
+      if (workspace.mode === 'selected' && (workspace.status !== 'ready' || origin.batchId !== workspace.id)) return { ok: false, error: 'not_found' }
+      if (origin.batchId && origin.revision === null) return { ok: false, error: 'superseded_revision' }
+      const id = origin.batchId ?? await ensureBatch({ id: promotion.plateId, state })
+      key = '/api/batches/' + id
+      await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, promotion })
+      await mutate(key, api.get<BatchDetail>(key), { revalidate: false })
+      await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))
+      return { ok: true }
+    } catch (error) {
+      if (key) {
+        const saved = await api.get<BatchDetail>(key)
+        await mutate(key, saved, { revalidate: false })
+        const plate = saved.plates.find(entry => entry.proposed.id === promotion.plateId)?.proposed
+        if (!(error instanceof ApiError) && plate?.templateRole === 'template' && plate.variantOfPlateId === null &&
+          plate.templateFamily === promotion.templateFamily && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true }
+      }
+      if (error instanceof ApiError) {
+        if (error.status === 409) return { ok: false, error: 'superseded_revision' }
+        if (error.status === 403) return { ok: false, error: 'forbidden' }
+        if (error.status === 404) return { ok: false, error: 'not_found' }
+        if (error.status === 422) return { ok: false, error: 'invalid_state' }
+      }
+      throw error
+    } finally { setPendingCount(count => count - 1) }
+  }
+
+  return { reorder, capture, move, pending: pendingCount > 0 }
 }

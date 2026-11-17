@@ -118,6 +118,47 @@ test('revisiting cached server cards retains a saved draft family order', async 
   expect(revisit.result.current[1].sortOrder).toBe(0)
 })
 
+test('combined move retains lift revision even after a newer Batch enters the cache', async () => {
+  const context = harness()
+  const { result } = renderHook(() => useReorderState(), context)
+  await waitFor(() => expect(result.current.capture()).toEqual({ batchId: 'draft', revision: 1 }))
+  const origin = result.current.capture()
+  context.cache.set('/api/batches/draft', { data: { ...detail(), batch: { ...batch, revision: 2 } } })
+  session.api.send.mockRejectedValue(new ApiError(409, 'superseded_revision', {}))
+  session.api.get.mockResolvedValue({ ...detail(), batch: { ...batch, revision: 2, stateOrders: { AK: ['remote'] } } })
+  await act(async () => expect(await result.current.move('AK', ['AK.one'], { plateId: 'AK.one', templateFamily: 'new' }, origin)).toEqual({ ok: false, error: 'superseded_revision' }))
+  expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PUT', '/api/batches/draft/state-order/AK', { batchRevision: 1, order: ['AK.one'], promotion: { plateId: 'AK.one', templateFamily: 'new' } })
+  expect(context.cache.get('/api/batches/draft').data.batch.stateOrders).toEqual({ AK: ['remote'] })
+})
+
+test.each([true, false])('lost move response reconciles saved Batch before reporting success (landed: %s)', async landed => {
+  const context = harness()
+  const { result } = renderHook(() => useReorderState(), context)
+  await waitFor(() => expect(result.current.capture().revision).toBe(1))
+  const origin = result.current.capture()
+  session.api.send.mockRejectedValue(new Error('response lost'))
+  const saved = landed ? { ...detail(), batch: { ...batch, revision: 2, stateOrders: { AK: ['AK.one'] } }, plates: [{ ...detail().plates[0], proposed: { ...proposed, templateRole: 'template', variantOfPlateId: null, templateFamily: 'new' } }] } : detail()
+  session.api.get.mockResolvedValue(saved)
+  await act(async () => {
+    const move = result.current.move('AK', ['AK.one'], { plateId: 'AK.one', templateFamily: 'new' }, origin)
+    if (landed) expect(await move).toEqual({ ok: true })
+    else await expect(move).rejects.toThrow('response lost')
+  })
+  expect(context.cache.get('/api/batches/draft').data).toEqual(saved)
+  expect(session.api.send).toHaveBeenCalledOnce()
+})
+
+test('personal Batch discovered after lift cannot inherit its newer revision', async () => {
+  const context = harness()
+  const { result } = renderHook(() => useReorderState(), context)
+  const origin = result.current.capture()
+  expect(origin).toEqual({ batchId: null, revision: null })
+  await waitFor(() => expect(result.current.capture().revision).toBe(1))
+  session.api.send.mockRejectedValue(new ApiError(409, 'superseded_revision', {}))
+  await act(async () => expect(await result.current.move('AK', ['AK.one'], { plateId: 'AK.one', templateFamily: 'new' }, origin)).toEqual({ ok: false, error: 'superseded_revision' }))
+  expect(session.api.send.mock.calls[0][2].batchRevision).toBe(0)
+})
+
 test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the server revision', async action => {
   const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', templateRole: action === 'merge' ? 'template' : 'variant' }))
   const parent = { ...card, id: 'AK.parent', templateRole: 'template' as const }
@@ -126,11 +167,14 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
     : [{ template: parent, variants: [plate] }]
   session.api.send.mockResolvedValue({ batch, plate: proposed })
   const reorder = vi.fn().mockResolvedValue({ ok: true })
-  const { result } = renderHook(() => usePlateDrag({
+  const { result } = renderHook(() => {
+    const ordering = useReorderState()
+    return { ...usePlateDrag({
     families, canEdit: true, show: 'all', query: '', edits: useEditPlate(),
-    ordering: { reorder, pending: false }, closePreview: vi.fn(), reload: vi.fn(),
+    ordering: action === 'promote' ? ordering : { reorder, pending: false }, closePreview: vi.fn(), reload: vi.fn(),
     targets: () => [{ target: action === 'merge' ? { kind: 'merge', familyId: parent.id } : { kind: 'family-slot', index: 1 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }],
-  }), harness())
+  }), origin: ordering.capture() } }, harness())
+  if (action === 'promote') await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))
   const handle = document.createElement('button')
   document.body.append(handle)
   try {
@@ -143,11 +187,11 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
       act(() => { window.dispatchEvent(event) })
     }
     await waitFor(() => expect(result.current.announcement).toBe('Dropped'))
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.outside', {
-      baseRevision: 'server-revision',
-      fields: action === 'merge'
-        ? { templateRole: 'variant', variantOfPlateId: parent.id, templateFamily: parent.id }
-        : { templateRole: 'template', variantOfPlateId: null, templateFamily: 'ak_outside' },
+    if (action === 'merge') expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.outside', {
+      baseRevision: 'server-revision', fields: { templateRole: 'variant', variantOfPlateId: parent.id, templateFamily: parent.id },
+    })
+    else expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PUT', '/api/batches/draft/state-order/AK', {
+      batchRevision: 1, order: [parent.id, plate.id], promotion: { plateId: plate.id, templateFamily: 'ak_outside' },
     })
   } finally { handle.remove() }
 })

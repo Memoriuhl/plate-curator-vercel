@@ -23,6 +23,23 @@ test('signed-in creator receives the updated batch', async () => {
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ ...batch, revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
 })
+
+test('combined order request promotes the Variant with one revision and rejects stale retries', async () => {
+  const deps = context.reviewDeps()
+  const variant = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], templateRole: 'variant' as const, templateFamily: 'old', variantOfPlateId: 'two' }
+  deps.baseline = async () => variant
+  deps.stateBaseline = async () => [variant, { ...variant, id: 'two', templateRole: 'template' as const, templateFamily: 'parent' }]
+  const body = { batchRevision: 4, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } }
+  expect((await put(body)).status).toBe(200)
+  expect(await deps.store.getBatch('batch')).toMatchObject({ revision: 5, stateOrders: { AK: body.order } })
+  expect(await deps.store.getEdit('batch', 'one')).toMatchObject({ fields: { templateRole: 'template', variantOfPlateId: null, templateFamily: 'new' } })
+  expect((await put(body)).status).toBe(409)
+  expect(deps.store.signalRevision('batch')).toBe(5)
+})
+
+test.each([null, {}, { plateId: 1, templateFamily: 'new' }, { plateId: 'one', templateFamily: '' }])('rejects malformed promotion %j', async promotion => {
+  expect((await put({ batchRevision: 4, order: ['two', 'one'], promotion })).status).toBe(400)
+})
 test('requires sign-in before parsing input', async () => {
   context.currentActor.mockResolvedValue({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
   expect((await put(null)).status).toBe(401)

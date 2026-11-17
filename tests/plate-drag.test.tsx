@@ -47,17 +47,19 @@ test('threshold, hit targets and scroll edges', () => {
 function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false } = {}) {
   const edit = vi.fn().mockResolvedValue(success)
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
+  const move = vi.fn().mockResolvedValue(success)
+  const capture = vi.fn(() => ({ batchId: 'batch', revision: 4 }))
   const reload = vi.fn().mockResolvedValue(undefined)
   const closePreview = vi.fn()
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, pending: false }, reload, closePreview,
+    const drag = usePlateDrag({ families, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, pending: false }, reload, closePreview,
       targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
     const item = { kind: variant ? 'variant' as const : 'family' as const, plate: singleton ? b : variant ? v : a }
     return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
   }
   render(<Harness />)
-  return { edit, reorder, reload, closePreview, handle: screen.getByRole('button') }
+  return { edit, reorder, move, capture, reload, closePreview, handle: screen.getByRole('button') }
 }
 
 test('keyboard lifts, moves, drops once and removes the global cursor', async () => {
@@ -101,7 +103,7 @@ test('failed reorder snaps back, announces the error and reloads', async () => {
   fireEvent.keyDown(handle, { key: 'ArrowDown' })
   fireEvent.keyDown(handle, { key: 'ArrowDown' })
   fireEvent.keyDown(handle, { key: ' ' })
-  await waitFor(() => expect(screen.getByText('This batch has a newer revision. Reload and try again.')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('This Batch changed. Drag again to choose a position in the latest order.')).toBeTruthy())
   expect(reload).toHaveBeenCalledOnce()
   expect(screen.getByTestId('order').textContent).toBe('')
 })
@@ -151,22 +153,22 @@ test('a family cannot merge into another family', async () => {
   expect(reorder).not.toHaveBeenCalled()
 })
 
-test('dragging a variant out promotes it before saving the full state order', async () => {
-  const { handle, edit, reorder } = setup({ variant: true })
+test('dragging a variant out sends promotion and order together', async () => {
+  const { handle, edit, reorder, move } = setup({ variant: true })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
   await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'template', variantOfPlateId: null, templateFamily: 'ak_v' })
-  expect(reorder).toHaveBeenCalledExactlyOnceWith(v.state, ['AK.a', 'AK.w', 'AK.b', 'AK.v'])
-  expect(edit.mock.invocationCallOrder[0]).toBeLessThan(reorder.mock.invocationCallOrder[0])
+  expect(move).toHaveBeenCalledExactlyOnceWith(v.state, ['AK.a', 'AK.w', 'AK.b', 'AK.v'], { plateId: v.id, templateFamily: 'ak_v' }, { batchId: 'batch', revision: 4 })
+  expect(edit).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
 })
 
 test('a failed promotion does not send a reorder', async () => {
-  const { handle, edit, reorder } = setup({ variant: true })
-  edit.mockResolvedValue({ ok: false, error: 'forbidden' })
+  const { handle, move, reorder } = setup({ variant: true })
+  move.mockResolvedValue({ ok: false, error: 'forbidden' })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })

@@ -38,6 +38,57 @@ test('commit refuses a stale expected revision', async () => {
   expect(await store.getEdit('batch', 'one')).toBeNull()
 })
 
+test.each(['success', 'competing tag', 'other batch'] as const)('combined promotion and signal transaction: %s', async scenario => {
+  const variant = { ...snapshot.plates[0], id: 'one', state: 'AK', templateRole: 'variant' as const, templateFamily: 'old', variantOfPlateId: 'two' }
+  const parent = { ...variant, id: 'two', templateRole: 'template' as const, templateFamily: 'parent' }
+  const approval = { revision: 3, by: owner.uid, at: '' }
+  await db.doc('reviewBatches/batch').set({ ...batch, state: 'approved', approval, env })
+  await db.doc(`curatorLive/${env}/batchRevisions/batch`).set({ revision: 4 })
+  const deps = { store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant, parent], now: () => '' }
+  const commit = store.commit.bind(store)
+  const racingStore = { ...store, commit: async (...args: Parameters<typeof store.commit>) => {
+    if (scenario === 'competing tag') {
+      expect((await proposeEdit(deps, owner, { batchId: 'batch', plateId: 'two', baseRevision: plateRevision(variant), fields: { tags: ['remote'] } })).ok).toBe(true)
+    } else if (scenario === 'other batch') {
+      await store.create({ ...batch, id: 'other' })
+      expect(await commit('other', 4, { batch: { ...batch, id: 'other', revision: 5 } })).toBe('ok')
+    }
+    return commit(...args)
+  } }
+  const result = await reorderState({ ...deps, store: racingStore }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new' } })
+  const saved = await db.runTransaction(async transaction => {
+    const draft = await transaction.get(db.doc('reviewBatches/batch'))
+    const edits = await transaction.get(db.collection('reviewBatches/batch/edits'))
+    const signal = await transaction.get(db.doc(`curatorLive/${env}/batchRevisions/batch`))
+    return { batch: draft.data(), edits: edits.docs.map(doc => doc.data()), signal: signal.data() }
+  })
+  expect(saved.batch).toMatchObject({ revision: 5, approval: null })
+  expect(saved.signal).toEqual({ revision: 5 })
+  if (scenario === 'competing tag') {
+    expect(result).toEqual({ ok: false, error: 'superseded_revision' })
+    expect(saved.batch?.stateOrders).toEqual({})
+    expect(saved.edits).toMatchObject([{ plateId: 'two', fields: { tags: ['remote'] } }])
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+  } else {
+    expect(result.ok).toBe(true)
+    expect(saved.batch?.stateOrders).toEqual({ AK: ['two', 'one'] })
+    expect(saved.edits).toMatchObject([{ plateId: 'one', fields: { templateRole: 'template', templateFamily: 'new', variantOfPlateId: null } }])
+  }
+})
+
+test('reserved Batch rejects a combined move without clearing approval or changing the signal', async () => {
+  const variant = { ...snapshot.plates[0], id: 'one', state: 'AK', templateRole: 'variant' as const }
+  const approved = { ...batch, state: 'approved', approval: { revision: 3, by: owner.uid, at: '' }, env, publishReservation: { token: 'reserved', recordId: 'missing' } }
+  await db.doc('reviewBatches/batch').set(approved)
+  const signal = db.doc(`curatorLive/${env}/batchRevisions/batch`)
+  await signal.set({ revision: 4 })
+  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], promotion: { plateId: 'one', templateFamily: 'new' } })
+  expect(result).toEqual({ ok: false, error: 'superseded_revision' })
+  expect((await db.doc('reviewBatches/batch').get()).data()).toEqual(approved)
+  expect((await signal.get()).data()).toEqual({ revision: 4 })
+  expect(await store.listEdits('batch')).toEqual([])
+})
+
 test('commit writes batch and edit atomically', async () => {
   const candidates = ['one', 'two'].map(plateId => ({ ...edit, plateId }))
   const results = await Promise.all(candidates.map(proposal => store.commit('batch', 4, { batch: { ...batch, revision: 5 }, edit: proposal })))
