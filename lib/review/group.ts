@@ -8,7 +8,7 @@ import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from './ty
 
 export function completeGroupScope(selected: Plate[], statePlates: Plate[]): boolean {
   const ids = new Set(selected.map(plate => plate.id))
-  if (!selected.length || selected.length > 25 || ids.size !== selected.length || new Set(selected.map(plate => plate.state)).size !== 1 || selected.some(plate => plate.deleted)) return false
+  if (!selected.length || selected.length > 25 || ids.size !== selected.length || new Set(selected.map(plate => plate.state)).size !== 1 || selected.some(plate => plate.deleted || !statePlates.some(member => member.id === plate.id))) return false
   const families = new Set(selected.map(plate => plate.templateFamily).filter(Boolean))
   return statePlates.every(plate => plate.deleted || ids.has(plate.id) || !families.has(plate.templateFamily) && !ids.has(plate.variantOfPlateId ?? ''))
     && selected.every(plate => !plate.variantOfPlateId || ids.has(plate.variantOfPlateId))

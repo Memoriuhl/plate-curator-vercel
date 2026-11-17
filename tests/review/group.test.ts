@@ -5,6 +5,7 @@ import { plateRevision } from '../../lib/review/revision'
 import type { Plate } from '../../lib/catalog/types'
 import type { ReviewDeps } from '../../lib/review/types'
 import type { GroupSuggestion } from '../../lib/jobs/specialized-suggestions'
+import { proposeEdit, reorderState } from '../../lib/review/batch'
 
 afterEach(() => vi.unstubAllEnvs())
 const actor = { uid: 'editor', name: null, role: 'editor' as const }
@@ -53,4 +54,17 @@ test('authorization, flag and CAS failure cannot create partial edits', async ()
   s.store.commit = async () => 'revision_mismatch'
   expect(await acceptGroup(s.d, actor, { batchId: 'batch', batchRevision: 0, suggestion: s.suggestion })).toMatchObject({ error: 'superseded_revision' })
   expect(await s.store.listEdits('batch')).toEqual([])
+})
+
+test('image overrides retain paired provenance through Standard rebuilds with the local gate off', async () => {
+  const s = setup()
+  const imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg'
+  const sourceUrl = 'https://commons.wikimedia.org/wiki/File:Plate.jpg'
+  const saved = await proposeEdit(s.d, actor, { batchId: 'batch', plateId: s.plates[0].id, baseRevision: plateRevision(s.plates[0]), fields: { imageUrl, sourceUrl } })
+  expect(saved).toMatchObject({ ok: true })
+  if (!saved.ok) throw Error('Expected draft edit')
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  const reordered = await reorderState(s.d, actor, { batchId: 'batch', state: 'AK', batchRevision: saved.value.batch.revision, order: ['AK.b', 'AK.a', 'AK.c'], standard: { from: 'AK.a', to: 'AK.b' } })
+  expect(reordered).toMatchObject({ ok: true })
+  expect((await s.store.getEdit('batch', 'AK.a'))?.fields).toMatchObject({ imageUrl, sourceUrl })
 })

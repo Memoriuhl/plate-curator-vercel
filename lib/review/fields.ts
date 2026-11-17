@@ -43,7 +43,7 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
     } else if (key === 'firstIssuedYear') {
       if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1800 || value > 2100)) return null
       fields.firstIssuedYear = value as number | null
-    } else if (key === 'wikiUrl') {
+    } else if (key === 'wikiUrl' || key === 'sourceUrl') {
       const url = storyUrl(value)
       if (value !== null && !url) return null
       fields[key] = url
