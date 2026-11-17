@@ -1,5 +1,6 @@
 import type { Firestore } from '@google-cloud/firestore'
-import type { EditableFields } from '../review/types'
+import type { EditableFields, ReviewBatch } from '../review/types'
+import type { PipelineRun } from './queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 
@@ -7,6 +8,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
   const jobs = db.collection('jobs')
   const tokens = db.collection('workerTokens')
   const capabilities = db.collection('localPipelineCapabilities')
+  const runs = db.collection('localPipelineRuns')
   return {
     env,
     async readCapabilities(scope) {
@@ -30,6 +32,11 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           delete value.publishReservation
           return { ...value, stateOrders: value.stateOrders ?? {} } as import('../review/types').ReviewBatch
         },
+        async runs() {
+          const snapshot = await transaction.get(runs.where('env', '==', env))
+          return snapshot.docs.map(doc => doc.data() as PipelineRun)
+        },
+        setRun(run) { transaction.set(runs.doc(run.id), run) },
         async get(id) {
           const doc = await transaction.get(jobs.doc(id))
           return doc.get('env') === env ? doc.data() as TaggingJob : null

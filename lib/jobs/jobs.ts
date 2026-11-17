@@ -5,6 +5,8 @@ import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope } from '../review/group-context'
+import { localClaimCandidate } from './queue-claim'
+import { localQueueEnabled, queueStageTimeoutMs } from './queue'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -54,12 +56,19 @@ export async function claimNext(d: JobsDeps, workerId: string) {
   return d.store.transaction(async tx => {
     const now = d.now()
     const jobs = await tx.list()
-    const job = jobs.filter(job => job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
+    const local = localQueueEnabled(d)
+    const runs = local ? await tx.runs() : []
+    const job = local ? localClaimCandidate(d, jobs, runs) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
-    const leaseExpiresAt = now + d.leaseMs
+    const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
     const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt }
     tx.set(claimed)
+    if (job.queueRunId) {
+      const run = runs.find(run => run.id === job.queueRunId)!
+      run.lastDispatchedAt = now; run.status = 'running'; run.updatedAt = now; run.waitReason = 'resource'
+      tx.setRun(run)
+    }
     return { job: claimed, claimId, leaseExpiresAt }
   })
 }
@@ -75,8 +84,11 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
     const job = await tx.get(id)
     if (!job) return { ok: false, error: 'not_found' }
     if (job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
+    if (job.queueRunId) return { ok: false, error: 'forbidden' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state === 'completed') return { ok: true, value: { job, claimId: job.claimId! } }
+    if (localQueueEnabled(d) && !claimable(job, d.now())) return { ok: false, error: 'claim_mismatch' }
+    if (localQueueEnabled(d) && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
     const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
     tx.set(claimed)
@@ -110,6 +122,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
     if (!job.claimId || job.claimId !== claimId || job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
+    if (job.state === 'failed' || job.state === 'cancelled') return { ok: false, error: 'claim_expired' }
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }

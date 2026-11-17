@@ -3,6 +3,8 @@ import type { EditableFields, ReviewBatch } from '../review/types'
 import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { WorkerCapabilityRecord } from './capabilities'
+import type { PipelineRun, ResourceClass } from './queue-types'
+import type { PipelineOptions } from './pipeline-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
@@ -18,6 +20,7 @@ export type TaggingJob = {
   requestedBy: string
   inputPlate?: Plate
   inputHash: string
+  executionHash?: string
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
@@ -27,8 +30,18 @@ export type TaggingJob = {
   groupScope?: GroupInput
   standardId?: string
   stageOptions?: ImageGroupOptions
+  queueRunId?: string
+  queueAttempt?: number
+  enqueuedBy?: string
+  queueStep?: number
+  completionHook?: string
+  stageOptions?: PipelineOptions[keyof PipelineOptions]
+  resourceClass?: ResourceClass
+  failure?: string
   createdAt: number
-  state: 'queued' | 'claimed' | 'completed' | 'expired'
+  state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
+  endedAt?: number
+  recoveryNeededAt?: number
   claimId?: string
   workerId?: string
   leaseExpiresAt?: number
@@ -39,6 +52,8 @@ export type TaggingJob = {
 export type WorkerToken = { hash: string; workerId: string; env: Environment; createdAt: number; revokedAt: number | null }
 export interface JobsTransaction {
   batch(id: string): Promise<ReviewBatch | null>
+  runs(): Promise<PipelineRun[]>
+  setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
   list(): Promise<TaggingJob[]>
   review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number } | null>
