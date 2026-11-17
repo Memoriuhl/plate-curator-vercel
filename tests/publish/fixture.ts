@@ -3,7 +3,7 @@ import type { Snapshot } from '../../lib/catalog/types'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewBatch } from '../../lib/review/types'
 import type { CatalogPointer, PublishDeps, PublishLease, PublishRecord, PublishControlState, PublishStop } from '../../lib/publish/types'
-import { publishControlStop } from '../../lib/publish/control'
+import { publishCommandKey, publishControlStop } from '../../lib/publish/control'
 
 export const owner = { uid: 'owner', name: null, role: 'owner' } as const
 export const batch: ReviewBatch = {
@@ -27,7 +27,7 @@ export function fixture(seed: ReviewBatch = batch) {
   const stops = new Map<string, PublishStop>()
   const check = async (cmd: { batchId: string; revision: number; generation?: number; commandId?: string }) => {
     if (records.get(`${cmd.batchId}@${cmd.revision}`)?.committedAt) return null
-    const key = cmd.commandId ?? `${cmd.batchId}@${cmd.revision}:legacy`
+    const key = publishCommandKey(cmd)
     const stopped = stops.get(key)
     if (stopped) return stopped
     const reason = publishControlStop(control, cmd)
@@ -68,6 +68,7 @@ export function fixture(seed: ReviewBatch = batch) {
         if (saved?.committedAt) return 'advanced'
         const stop = await check(record)
         if (stop) return stop
+        if (saved?.generation !== record.generation || saved?.commandId !== record.commandId) return 'superseded'
         if (pointer.version !== record.fromVersion) return 'pointer_moved'
         if (!record.url) return 'superseded_revision'
         pointer = { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now }

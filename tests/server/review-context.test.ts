@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  authenticate: vi.fn(),
+  getByUid: vi.fn(),
   resumeHook: vi.fn(async () => ({})),
   cachedJurisdiction: vi.fn(),
   loadSnapshot: vi.fn(() => { throw new Error('Full snapshot reads are unavailable') }),
@@ -9,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('workflow/api', () => ({ resumeHook: mocks.resumeHook }))
 vi.mock('server-only', () => ({}))
+vi.mock('../../lib/auth/actor', () => ({ authenticate: mocks.authenticate, parseOwnerUids: () => [] }))
+vi.mock('../../lib/server/members', () => ({ membersStore: () => ({ getByUid: mocks.getByUid }) }))
 vi.mock('../../lib/server/snapshot-cache', () => ({ cachedJurisdiction: mocks.cachedJurisdiction }))
 vi.mock('../../lib/gcp/storage', () => ({ loadSnapshot: mocks.loadSnapshot }))
 vi.mock('../../lib/gcp/firestore', () => ({ stagingFirestore: () => ({}) }))
@@ -16,7 +20,7 @@ vi.mock('../../lib/review/firestore-store', () => ({ firestoreReviewStore: () =>
 vi.mock('../../lib/catalog/firestore-source', () => ({ firestoreCatalogSource: () => mocks }))
 vi.mock('../../lib/catalog/fixture-source', () => ({ fixtureSource: () => mocks }))
 
-const { reviewDeps, catalogPushDeps } = await import('../../lib/server/context')
+const { reviewDeps, catalogPushDeps, currentActiveOwner } = await import('../../lib/server/context')
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -76,4 +80,28 @@ test('snapshot state baselines ignore curator order and sort the pinned plates b
   expect(await reviewDeps().stateBaseline(7, 'AK', 'snapshot')).toEqual([...plates].reverse())
   expect(mocks.cachedJurisdiction).toHaveBeenCalledExactlyOnceWith(7, 'AK', 'fixture')
   expect(mocks.readCuratorState).not.toHaveBeenCalled()
+})
+
+test('active Owner helper returns authenticated identity and current membership email', async () => {
+  vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'demo-plate-curator')
+  vi.stubEnv('CATALOG_SOURCE', 'firestore')
+  mocks.authenticate.mockResolvedValue({ ok: true, actor: { uid: 'owner', role: 'owner', name: null } })
+  mocks.getByUid.mockResolvedValue({ uid: 'owner', role: 'owner', status: 'active', email: 'owner@example.com' })
+  expect(await currentActiveOwner(new Request('http://localhost'))).toEqual({ ok: true, actor: { uid: 'owner', role: 'owner', name: null, email: 'owner@example.com' } })
+  for (const member of [null, { uid: 'owner', role: 'editor', status: 'active' }, { uid: 'owner', role: 'owner', status: 'pending' }]) {
+    mocks.getByUid.mockResolvedValue(member)
+    const result = await currentActiveOwner(new Request('http://localhost'))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.response.status).toBe(403)
+  }
+  const response = Response.json({ error: 'unauthenticated' }, { status: 401 })
+  mocks.getByUid.mockClear()
+  mocks.authenticate.mockResolvedValue({ ok: false, response })
+  expect(await currentActiveOwner(new Request('http://localhost'))).toEqual({ ok: false, response })
+  expect(mocks.getByUid).not.toHaveBeenCalled()
+  mocks.authenticate.mockResolvedValue({ ok: true, actor: { uid: 'editor', role: 'editor', name: null } })
+  const editor = await currentActiveOwner(new Request('http://localhost'))
+  expect(editor.ok).toBe(false)
+  if (!editor.ok) expect(editor.response.status).toBe(403)
+  expect(mocks.getByUid).not.toHaveBeenCalled()
 })

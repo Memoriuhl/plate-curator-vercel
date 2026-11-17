@@ -1,3 +1,4 @@
+import { isPublishStop } from './stop'
 import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
@@ -42,7 +43,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   try {
     record = await d.records.get(id)
     if (!record?.committedAt) {
-      const stop = await d.control.check(command)
+      const stop = await d.control.check(command, d.now())
       if (stop) { keepFrozen = false; return { ok: false, error: stop } }
     }
     const liveVersion = record?.committedAt ? record.fromVersion : (await d.pointer.read()).version
@@ -106,7 +107,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       record = { ...record, url, state: 'uploaded' }
       if (!await d.records.save(record, lease.token, d.now())) return { ok: false, error: 'lock_lost' }
       const advanced = await d.pointer.advance(record, lease, d.now())
-      if (advanced === 'paused' || advanced === 'superseded' || advanced === 'publish_not_enabled') {
+      if (isPublishStop(advanced)) {
         keepFrozen = false
         return { ok: false, error: advanced }
       }

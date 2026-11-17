@@ -1,5 +1,6 @@
 'use client'
 
+import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
@@ -145,8 +146,7 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
-      {baseline.data?.error === 'paused' && <p role="status">Catalog publishing is paused. Resume before requesting Publish.</p>}
-      {baseline.data?.error === 'publish_not_enabled' && <p role="status">Catalog publishing is not enabled yet. An Owner must Resume publishing.</p>}
+      {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
       {batch.state === 'approved' && blocked && liveVersion !== undefined && (
         <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
       )}

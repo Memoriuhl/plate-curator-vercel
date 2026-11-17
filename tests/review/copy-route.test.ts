@@ -5,14 +5,14 @@ import { GET as preflight } from '../../app/api/batches/[id]/publish/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { batch, owner, snapshot, fixture } from '../publish/fixture'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), publishDeps: vi.fn(), reviewDeps: vi.fn(), reviewEnv: () => 'test' }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), publishDeps: vi.fn(), reviewDeps: vi.fn(), reviewEnv: () => 'test' }))
 vi.mock('../../lib/server/context', () => mocks)
-vi.mock('../../lib/server/members', () => ({ membersStore: () => ({}) }))
 const ctx = { params: Promise.resolve({ id: batch.id }) }
 const request = (body: unknown) => new Request('http://localhost/api/batches/batch/copy', { method: 'POST', body: JSON.stringify(body) })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: owner })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: owner })
   const store = createMemoryStore([batch], () => 2)
   const deps = { ...fixture().deps, store, pointer: { read: async () => ({ version: 2 }) }, snapshots: { read: async () => ({ ...snapshot, version: 2 }) }, baselineAtVersion: async (_v: number, id: string) => snapshot.plates.find(plate => plate.id === id) ?? null }
@@ -38,6 +38,7 @@ test('authentication and Owner checks precede reads and writes', async () => {
   expect((await POST(request({ revision: 2, targetVersion: 2 }), ctx)).status).toBe(401)
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { ...owner, role: 'editor' } })
   expect((await POST(request({ revision: 2, targetVersion: 2 }), ctx)).status).toBe(403)
+  mocks.currentActiveOwner.mockResolvedValue({ ok: false, response: Response.json({ error: 'forbidden' }, { status: 403 }) })
   expect((await preflight(request(null), ctx)).status).toBe(403)
   expect(mocks.publishDeps).not.toHaveBeenCalled()
 })

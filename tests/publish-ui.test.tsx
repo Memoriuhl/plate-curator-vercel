@@ -139,3 +139,10 @@ test('pointer_moved directs the Owner to Copy instead of reapproving the old Bat
   expect(html).toContain('Open Publish and copy to a new Batch for fresh review.')
   expect(html).not.toContain('Fix the Batch and approve it again.')
 })
+
+test.each(['superseded', 'publish_not_enabled'])('terminal %s preserves approval and explains that the Catalog did not advance', error => {
+  const html = renderToStaticMarkup(<RunStatusView run={{ runId: 'run', phase: 'failed', updatedAt: null, outcome: { error } }} />)
+  expect(html).toContain('The Catalog did not advance.')
+  expect(html).toContain('The Batch remains approved.')
+  expect(html).not.toContain('Fix the Batch and approve it again.')
+})

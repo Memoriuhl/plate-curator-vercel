@@ -223,6 +223,7 @@ test('Publish commits first, then Pause, and retries reconcile the same version'
   expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
   expect(advances).toBe(1)
   expect((await pointer.read()).version).toBe(2)
+  expect((await db.doc(`publishCommandStops/${command.commandId}`).get()).exists).toBe(false)
 })
 
 test('quick Pause and Resume supersedes the accepted generation at the pointer transaction', async () => {
@@ -282,4 +283,29 @@ test('unavailable control at the pointer read cannot commit even after successfu
   expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'unavailable' })
   expect((await pointer.read()).version).toBe(1)
   expect((await records.get(record.id))?.committedAt).toBeUndefined()
+})
+
+test('control check for a committed command returns null without creating a stop', async () => {
+  await lock.claim(lease, now)
+  await records.save(record, lease.token, now)
+  expect(await pointer.advance(record, lease, now)).toBe('advanced')
+  await control.change(true, controlActor, now)
+  expect(await control.check(command, now)).toBeNull()
+  expect((await db.doc(`publishCommandStops/${command.commandId}`).get()).exists).toBe(false)
+})
+
+test('control check stamps a stop with the supplied clock', async () => {
+  await control.change(true, controlActor, now)
+  expect(await control.check(command, now)).toBe('paused')
+  expect((await db.doc(`publishCommandStops/${command.commandId}`).get()).get('stoppedAt')).toBe(now)
+})
+
+test('Pause of a missing control reports not enabled without creating it', async () => {
+  await db.doc('config/publishControl').delete()
+  expect(await control.change(true, controlActor, now)).toBe('publish_not_enabled')
+  expect((await db.doc('config/publishControl').get()).exists).toBe(false)
+})
+
+test('the pause transaction normalizes the membership email', async () => {
+  expect(await control.change(true, { ...controlActor, email: ' Owner@Example.com ' }, now)).toMatchObject({ paused: true, generation: 2 })
 })

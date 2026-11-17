@@ -1,5 +1,7 @@
 'use client'
 
+import { publishControlStop } from '@/lib/publish/control'
+import { PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useState } from 'react'
 import type { PublishControlState } from '@/lib/publish/types'
 import { Button } from '@/components/ui/button'
@@ -9,10 +11,11 @@ export function PublishControlView({ control, error, change }: {
   error?: boolean
   change: (paused: boolean) => Promise<void>
 }) {
+  const stop = publishControlStop(control)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   return <section aria-label="Catalog publishing control" className="space-y-3 rounded-2xl border border-border p-4">
-    <p className="font-bold">{!control ? 'Catalog publishing is not enabled yet.' : control.paused ? 'Catalog publishing is paused.' : 'Catalog publishing is enabled.'}</p>
+    <p className="font-bold">{stop ? PUBLISH_STOP_MESSAGES[stop] : 'Catalog publishing is enabled.'}</p>
     {control && <p className="text-sm text-muted-foreground">Changed by {control.changedBy.email} at <time dateTime={control.changedAt}>{new Date(control.changedAt).toLocaleString()}</time>.</p>}
     <p className="text-sm">Draft work and approval can continue. Resume permits new Publish requests; stopped commands stay stopped.</p>
     {error && <p role="alert">Publishing controls are unavailable. Publishing is blocked.</p>}

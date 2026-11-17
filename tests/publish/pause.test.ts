@@ -1,9 +1,8 @@
 import { expect, test, vi } from 'vitest'
 import { publishBatch } from '../../lib/publish/publish'
-import { batch, command, fixture, owner } from './fixture'
+import { batch, command, fixture, owner, snapshot } from './fixture'
 import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
 import { plateRevision } from '../../lib/review/revision'
-import { snapshot } from './fixture'
 
 const enabled = { paused: false, generation: 1, changedBy: { uid: 'owner', email: 'owner@example.com' }, changedAt: '2026-11-16T12:00:00Z' }
 
@@ -84,4 +83,16 @@ test('Editors keep editing and submitting and Owners approving while paused', as
   expect(await submitBatch(f.deps, editor, batch.id, 1)).toMatchObject({ ok: true })
   expect(await approveBatch(f.deps, owner, batch.id, 2)).toMatchObject({ ok: true })
   expect(await f.deps.store.getBatch(batch.id)).toMatchObject({ state: 'approved', revision: 3 })
+})
+
+test.each(['generation', 'commandId'] as const)('fake pointer rejects a receipt with different %s', async field => {
+  const f = fixture()
+  const advance = f.deps.pointer.advance
+  f.deps.pointer.advance = async (record, lease, now) => {
+    const saved = f.records.get(record.id)!
+    f.records.set(record.id, { ...saved, [field]: field === 'generation' ? 2 : 'different-command' })
+    return advance(record, lease, now)
+  }
+  expect(await publishBatch(f.deps, owner, command)).toEqual({ ok: false, error: 'superseded' })
+  expect(f.pointer().version).toBe(1)
 })

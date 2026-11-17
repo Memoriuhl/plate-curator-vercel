@@ -1,3 +1,5 @@
+import { isActiveOwner } from '../members/member'
+import type { Actor } from '../review/types'
 import 'server-only'
 import { resumeHook } from 'workflow/api'
 import { authenticate, parseOwnerUids } from '../auth/actor'
@@ -52,6 +54,15 @@ export function currentActor(request: Request) {
       activate: (email, uid, hash) => store().activate(email, uid, hash),
     },
   })
+}
+
+export async function currentActiveOwner(request: Request): Promise<{ ok: true; actor: Actor & { email: string } } | { ok: false; response: Response }> {
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth
+  if (auth.actor.role !== 'owner') return { ok: false, response: json({ error: 'forbidden' }, 403) }
+  const member = await membersStore().getByUid(auth.actor.uid)
+  if (!member || member.uid !== auth.actor.uid || !isActiveOwner(member)) return { ok: false, response: json({ error: 'forbidden' }, 403) }
+  return { ok: true, actor: { ...auth.actor, email: member.email } }
 }
 
 export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {

@@ -1,7 +1,17 @@
+import { normalizeEmail } from '../members/member'
+import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
 import { parsePublishControl, publishCommandKey, publishControlStop } from './control'
 import type { PublishCommand, PublishControl, PublishControlState } from './types'
-import { FieldValue, type DocumentData, type Firestore } from '@google-cloud/firestore'
+import { FieldValue, type DocumentData, type DocumentSnapshot, type Transaction, type Firestore } from '@google-cloud/firestore'
 import type { PublishCurator, PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
+
+function writePublishStop(transaction: Transaction, command: PublishCommand, control: DocumentSnapshot, stopped: DocumentSnapshot, now: string): PublishStop | null {
+  const reason: unknown = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), command)
+  if (reason === null) return null
+  if (!isPublishStop(reason)) throw new Error('Malformed Publish stop')
+  if (!stopped.exists) transaction.set(stopped.ref, { ...command, reason, stoppedAt: now })
+  return reason
+}
 
 function unexpired(expiresAt: unknown, now: string): boolean {
   return typeof expiresAt === 'string' && Date.parse(expiresAt) > Date.parse(now)
@@ -104,12 +114,9 @@ export function firestorePublishPointer(db: Firestore, env: string): PublishPoin
         if (typeof record.url !== 'string' || record.url.length === 0) return 'superseded_revision'
         if (receipt.get('env') !== env || receipt.get('blobSha256') !== record.blobSha256 || receipt.get('url') !== record.url || receipt.get('fromVersion') !== record.fromVersion || receipt.get('toVersion') !== record.toVersion) return 'superseded_revision'
         if (receipt.get('committedAt')) return 'advanced'
-        const stop = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), record)
-        if (stop) {
-          transaction.set(db.doc(`publishCommandStops/${publishCommandKey(record)}`), { ...record, reason: stop, stoppedAt: now })
-          return stop
-        }
-        if (receipt.get('generation') !== record.generation || receipt.get('commandId') !== record.commandId) return 'superseded'
+        const stop = writePublishStop(transaction, record, control, stopped, now)
+        if (stop) return stop
+        if (receipt.get('generation') !== record.generation || receipt.get('commandId') !== record.commandId) return PUBLISH_STOPS.superseded
         if (receipt.get('state') !== 'uploaded') return 'superseded_revision'
         if (pointer.get('version') !== record.fromVersion) return 'pointer_moved'
         transaction.set(pointerRef, { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now })
@@ -137,17 +144,17 @@ export function firestorePublishCurator(db: Firestore, env: string): PublishCura
 }
 
 export function firestorePublishControl(db: Firestore): PublishControl & {
-  change(paused: boolean, actor: { uid: string; email: string }, now: string): Promise<PublishControlState | null>
+  change(paused: boolean, actor: { uid: string; email: string }, now: string): Promise<PublishControlState | typeof PUBLISH_STOPS.notEnabled | null>
 } {
   const ref = db.doc('config/publishControl')
   return {
     async read() { return parsePublishControl((await ref.get()).data()) },
     async change(paused, actor, now) {
       return db.runTransaction(async transaction => {
-        const [snapshot, member] = await transaction.getAll(ref, db.doc(`members/${encodeURIComponent(actor.email)}`))
+        const [snapshot, member] = await transaction.getAll(ref, db.doc(`members/${encodeURIComponent(normalizeEmail(actor.email))}`))
         if (member.get('uid') !== actor.uid || member.get('status') !== 'active' || member.get('role') !== 'owner') return null
         const previous = parsePublishControl(snapshot.data())
-        if (!previous && paused) return null
+        if (!previous && paused) return PUBLISH_STOPS.notEnabled
         if (snapshot.exists && !previous) throw new Error('Malformed publication control')
         const generation = (previous?.generation ?? 0) + 1
         if (!Number.isSafeInteger(generation)) throw new Error('Publication generation exhausted')
@@ -156,14 +163,12 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
         return control
       })
     },
-    async check(command: PublishCommand) {
+    async check(command: PublishCommand, now: string) {
       return db.runTransaction(async transaction => {
         const stopRef = db.doc(`publishCommandStops/${publishCommandKey(command)}`)
         const [control, stopped, receipt] = await transaction.getAll(ref, stopRef, db.doc(`publishRecords/${command.batchId}@${command.revision}`))
         if (receipt.get('committedAt')) return null
-        const stop = stopped.get('reason') ?? publishControlStop(parsePublishControl(control.data()), command)
-        if (stop) transaction.set(stopRef, { ...command, reason: stop, stoppedAt: new Date().toISOString() })
-        return stop
+        return writePublishStop(transaction, command, control, stopped, now)
       })
     },
   }
