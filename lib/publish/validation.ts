@@ -1,3 +1,4 @@
+import { validTarget } from './allocation'
 import type { Snapshot } from '../catalog/types'
 
 const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
@@ -7,7 +8,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown): string
     return ['Snapshot must contain a plates array']
   }
   const reasons: string[] = []
-  if (!('version' in candidate) || candidate.version !== baseline.version + 1) reasons.push('Snapshot version must advance by one')
+  if (!('version' in candidate) || typeof candidate.version !== 'number' || !validTarget(baseline.version, candidate.version)) reasons.push('Snapshot version must be a greater safe integer')
   const ids = new Set<string>()
   const standards = new Map<string, number>()
   const families = new Map<string, number>()

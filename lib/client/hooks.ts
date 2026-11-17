@@ -12,7 +12,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
-import type { PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
+import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -111,7 +111,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
+export type PublishBaselineStatus = { canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
@@ -139,6 +139,13 @@ export function useReviewActions() {
   const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || key === `/api/batches/${batchId}`))
 
   return {
+    async abandon(batchId: string, revision: number, commandId: string, reason: string) {
+      try {
+        await api.send('POST', `/api/batches/${batchId}/abandon`, { revision, commandId, reason })
+      } finally {
+        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
+      }
+    },
     async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; reviewedVersion?: number; liveVersion?: number }> {
       const key = `${batchId}@${revision}`
       const commandId = publishIntents.current.get(key) ?? crypto.randomUUID()

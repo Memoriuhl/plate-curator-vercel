@@ -144,6 +144,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         } else if (next.publishToken !== undefined) return 'revision_mismatch'
         transaction.set(batchRef, {
           ...next.batch,
+          ...(batch.get('publishAbandonment') ? { publishAbandonment: batch.get('publishAbandonment') } : {}),
           ...(batch.get('approvalRun') ? { approvalRun: batch.get('approvalRun') } : {}),
           ...(batch.get('publishRequestedAt') && ['approved', 'published'].includes(next.batch.state) ? { publishRequestedAt: batch.get('publishRequestedAt'), ...(batch.get('publishRequestedBy') ? { publishRequestedBy: batch.get('publishRequestedBy') } : {}) } : {}),
           env,

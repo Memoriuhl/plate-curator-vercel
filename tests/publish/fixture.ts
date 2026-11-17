@@ -1,8 +1,10 @@
+import { abandonClaim, abandonmentError, abandonmentPlan, abandonedReceiptId } from '../../lib/publish/abandon'
+import { nextPublishVersion, occupiesTarget, validTarget } from '../../lib/publish/allocation'
 import { publishRequesterStop, sameRequester } from '../../lib/publish/authority'
 import { uploadError } from '../../lib/publish/upload'
 import { sameObject, verifyPreparedObject } from '../../lib/publish/object'
 import { batchApprovedFor, claimSupersedes, isSuperseded, receiptId } from '../../lib/publish/command'
-import { CLAIM_TTL_MS, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from '../../lib/publish/eligibility'
+import { claimRunKey, CLAIM_TTL_MS, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from '../../lib/publish/eligibility'
 import type { PublishCommand } from '../../lib/publish/types'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../../lib/catalog/types'
@@ -39,6 +41,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     }
     return object
   }
+  const burns = new Map<number, import('../../lib/publish/types').Abandonment>()
   const records = new Map<string, PublishRecord>()
   const commands = new Map<string, { command: PublishCommand; acceptedAt: string; runId?: string }>()
   let commandQueue = Promise.resolve()
@@ -67,7 +70,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
   let time = '2026-11-15T12:00:00Z'
   const active = (token: string, now: string) => lease?.token === token && Date.parse(lease.expiresAt) > Date.parse(now)
   const commit = store.commit.bind(store)
-  const inspect = async (cmd: PublishCommand, now: string, replay = false) => {
+  const inspect = async (cmd: PublishCommand, now: string, replay = false, writeRecovered = false) => {
     const current = await store.getBatch(cmd.batchId)
     const receipt = records.get(receiptId(cmd.batchId, cmd.revision)) ?? null
     const pending = current?.publishCommand?.revision === cmd.revision ? current.publishCommand : undefined
@@ -79,11 +82,28 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
     const status = claim ? resolved.status : approvalRun?.revision === cmd.revision - 1 ? await (lookup.runStatus?.(approvalRun.runId) ?? Promise.resolve('running')) : undefined
     const input: EligibilityInput = { command: cmd, batch: current, control, member: requester, liveVersion: (await deps.pointer.read()).version, receipt, claim, claimStop, ownStop: stops.get(publishCommandKey(cmd)), receiptStop: receipt ? stops.get(publishCommandKey(receipt)) : undefined, runStatus: status, now, replay }
     const eligibility = retryEligibility(input)
-    if ('recoveredRunId' in resolved && resolved.recoveredRunId && status !== 'not_found' && !terminalRun(status) && claim) {
+    if (writeRecovered && 'recoveredRunId' in resolved && resolved.recoveredRunId && status !== 'not_found' && !terminalRun(status) && claim) {
       commands.set(publishCommandKey(claim.command), structuredClone(claim))
       if (current && batchApprovedFor(current, claim.command)) await store.updatePublishMetadata(current.id, current.revision, { approvalRun: { runId: resolved.recoveredRunId, revision: claim.command.revision - 1 }, publishRequestedAt: claim.acceptedAt, ...(claim.command.requestedBy ? { publishRequestedBy: claim.command.requestedBy } : {}) })
     }
     return { input, eligibility, current, receipt, claim }
+  }
+  const inspectAbandon = async (record: PublishRecord, now: string) => {
+    const saved = records.get(record.id) ?? null
+    const current = await store.getBatch(record.batchId)
+    const pending = current?.publishCommand?.revision === record.revision ? current.publishCommand : undefined
+    const claim = abandonClaim(current, saved ?? record, pending ? commands.get(pending.commandId) : undefined, now)
+    const stop = stops.get(publishCommandKey(claim.command))
+    const key = claimRunKey(pending, current?.approvalRun, claim, saved)
+    const resolved = stop ? { status: undefined } : await resolveClaimRun(claim, lookup)
+    const latest = await store.getBatch(record.batchId)
+    const latestPending = latest?.publishCommand?.revision === record.revision ? latest.publishCommand : undefined
+    const latestSaved = records.get(record.id) ?? null
+    const latestClaim = abandonClaim(latest, latestSaved ?? record, latestPending ? commands.get(latestPending.commandId) : undefined, now)
+    const claimChanged = key !== claimRunKey(latestPending, latest?.approvalRun, latestClaim, latestSaved)
+    const error = records.get(abandonedReceiptId(record))?.abandonment ? null : abandonmentError({ saved, expected: record, liveVersion: pointer.version,
+      committedTarget: [...records.values()].some(other => other.toVersion === record.toVersion && !!other.committedAt), claim, stop, status: resolved.status, now, claimChanged })
+    return { error, saved, current, claim }
   }
   store.commit = async (id, revision, next) => {
     if (reservation && (next.publishToken !== reservation || next.batch.state !== 'published')) return 'revision_mismatch'
@@ -110,8 +130,10 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
         const current = await store.getBatch(record.batchId)
         if (current?.revision !== record.revision || current.state !== 'approved') return 'superseded_revision'
         const saved = records.get(record.id)
+        if (burns.has(record.toVersion) || saved?.state === 'abandoned') return 'version_taken'
         if (saved?.commandId !== record.commandId) return 'superseded'
         if (saved?.committedAt) return 'advanced'
+        if ([...records.values()].some(other => other.id !== record.id && other.toVersion === record.toVersion && occupiesTarget(other))) return 'version_taken'
         const stop = await check(record)
         if (stop) return stop
         if (saved?.generation !== record.generation || saved?.commandId !== record.commandId) return 'superseded'
@@ -147,12 +169,31 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       },
     },
     records: {
+      nextVersion: async (token, now) => active(token, now) ? nextPublishVersion(pointer.version, burns.keys(), records.values()) : null,
+      abandonmentEligibility: async (record, now) => (await inspectAbandon(record, now)).error,
+      abandon: (record, actor, reason, object, token, now) => atomic(async () => {
+        if (publishRequesterStop(actor, requester)) return { ok: false, error: 'forbidden' }
+        const archived = records.get(abandonedReceiptId(record))
+        if (archived?.abandonment) return { ok: true, value: archived.abandonment }
+        if (!active(token, now) || lease?.batchId !== record.batchId || lease.revision !== record.revision) return { ok: false, error: 'lock_lost' }
+        const inspected = await inspectAbandon(record, now)
+        if (inspected.error) return { ok: false, error: inspected.error }
+        const plan = abandonmentPlan(inspected.saved!, inspected.claim, actor, reason, object, now)
+        records.set(plan.archived.id, structuredClone(plan.archived))
+        records.delete(record.id)
+        burns.set(record.toVersion, plan.disposition)
+        for (const cmd of plan.commands) if (!stops.has(publishCommandKey(cmd))) stops.set(publishCommandKey(cmd), 'superseded')
+        reservation = null
+        await store.updatePublishMetadata(record.batchId, inspected.current!.revision, { publishAbandonment: plan.disposition })
+        return { ok: true, value: plan.disposition }
+      }),
       checkUpload: async (record, cmd, checksum, token, now) => {
         if (!active(token, now)) return 'lock_lost'
         const current = await store.getBatch(cmd.batchId)
         if (current?.state !== 'approved' || current.revision !== cmd.revision || current.approval?.revision !== cmd.revision - 1) return 'superseded_revision'
         if (claimSupersedes(current, cmd)) return 'superseded'
-        return uploadError(records.get(record.id) ?? null, record, cmd, checksum, pointer.version, [...records.values()].some(saved => saved.toVersion === record.toVersion && !!saved.committedAt)) ?? await check(cmd)
+        if (burns.has(record.toVersion)) return 'version_taken'
+        return uploadError(records.get(record.id) ?? null, record, cmd, checksum, pointer.version, [...records.values()].some(saved => saved.toVersion === record.toVersion && occupiesTarget(saved) && (saved.id !== record.id || !!saved.committedAt))) ?? await check(cmd)
       },
       eligibility: (cmd, now) => atomic(async () => (await inspect(cmd, now)).eligibility),
       command: async id => {
@@ -164,7 +205,7 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
         const saved = commands.get(publishCommandKey(cmd))
         if (saved && (saved.command.batchId !== cmd.batchId || saved.command.revision !== cmd.revision || !sameRequester(saved.command.requestedBy, cmd.requestedBy))) return { ok: false, error: 'superseded' }
         cmd = saved?.command ?? cmd
-        const { eligibility, claim, receipt, current } = await inspect(cmd, now, !!saved)
+        const { eligibility, claim, receipt, current } = await inspect(cmd, now, !!saved, true)
         if (!eligibility.canRetry) return { ok: false, error: eligibility.reason! }
         if (saved) return { ok: true, command: structuredClone(cmd), ...(saved.runId ?? claim?.runId ? { runId: saved.runId ?? claim?.runId } : {}) }
         if (claim && claim.command.commandId !== cmd.commandId && !stops.has(publishCommandKey(claim.command))) stops.set(publishCommandKey(claim.command), 'superseded')
@@ -190,9 +231,10 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
         if (!batchApprovedFor(current, cmd) || reservation !== token) return 'superseded_revision'
         if (claimSupersedes(current, cmd)) return 'superseded'
         const saved = records.get(record.id)
+        if ([...records.values()].some(other => other.id !== record.id && other.toVersion === record.toVersion && occupiesTarget(other))) return 'version_taken'
         if (!saved || saved.commandId !== record.commandId || saved.committedAt || !stops.has(publishCommandKey(saved))) return 'superseded'
         if (isSuperseded(saved, cmd)) return 'superseded'
-        if (saved.id !== receiptId(cmd.batchId, cmd.revision) || saved.batchId !== cmd.batchId || saved.revision !== cmd.revision || saved.toVersion !== saved.fromVersion + 1 || checksum !== saved.blobSha256 || saved.blobSha256 !== record.blobSha256 || saved.toVersion !== record.toVersion || saved.fromVersion !== record.fromVersion) return 'version_taken'
+        if (saved.id !== receiptId(cmd.batchId, cmd.revision) || saved.batchId !== cmd.batchId || saved.revision !== cmd.revision || !validTarget(saved.fromVersion, saved.toVersion) || saved.state === 'abandoned' || burns.has(saved.toVersion) || checksum !== saved.blobSha256 || saved.blobSha256 !== record.blobSha256 || saved.toVersion !== record.toVersion || saved.fromVersion !== record.fromVersion) return 'version_taken'
         if (pointer.version !== saved.fromVersion || saved.fromVersion !== current!.baselineVersion) return 'stale_baseline'
         const stop = await check(cmd)
         if (stop) return stop
@@ -204,7 +246,15 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       save: async (record, token, now) => {
         if (!active(token, now)) return false
         const previous = records.get(record.id)
-        if (previous && (previous.commandId !== record.commandId || previous.generation !== record.generation)) return false
+        if (burns.has(record.toVersion) || previous?.state === 'abandoned' || record.state === 'abandoned') return false
+        if (!validTarget(record.fromVersion, record.toVersion) || record.id !== receiptId(record.batchId, record.revision)) return false
+        if (!previous && [...records.values()].some(other => other.toVersion === record.toVersion && occupiesTarget(other))) return false
+        if (previous) {
+          if (['id', 'batchId', 'revision', 'fromVersion', 'toVersion', 'blobSha256', 'generation', 'commandId'].some(key => previous[key as keyof PublishRecord] !== record[key as keyof PublishRecord])) return false
+          if (!sameRequester(previous.requestedBy, record.requestedBy)) return false
+          if (previous.state === 'done' && record.state !== 'done' || previous.state === 'failed' && record.state !== 'failed' || previous.state === 'uploaded' && record.state === 'started') return false
+        }
+        if (record.committedAt && record.committedAt !== previous?.committedAt || record.state === 'done' && !previous?.committedAt || record.state === 'failed' && previous?.committedAt) return false
         records.set(record.id, structuredClone({ ...records.get(record.id), ...record }))
         return true
       },
@@ -213,9 +263,9 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       claim: async (claim, now) => {
         if (lease && Date.parse(lease.expiresAt) > Date.parse(now)) return false
         const current = await store.getBatch(claim.batchId)
-        if (current?.state !== 'approved' || current.revision !== claim.revision) return false
+        if (!current || claim.purpose !== 'abandon' && (current.state !== 'approved' || current.revision !== claim.revision)) return false
         lease = structuredClone(claim)
-        reservation = claim.token
+        if (claim.purpose !== 'abandon') reservation = claim.token
         return true
       },
       renew: async (claim, now) => {
@@ -236,5 +286,5 @@ export function fixture(seed: ReviewBatch = batch, lookup: PublishRunLookup = { 
       if (object && url === `https://storage.example/v${version}.json?token=${object.token}`) return { generation: object.generation, bytes: object.bytes }
     }
     return null
-  }, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  }, burns, commands, setRequester: (value: unknown) => { requester = value }, setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }

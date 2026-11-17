@@ -2,6 +2,12 @@
 
 A review dashboard for the Plate Curator catalog, deployed on Vercel. The design is in [docs/spec.md](docs/spec.md).
 
+Publish operators and deployment maintainers should use [Publish controls and recovery](docs/publish-recovery.md)
+for command identity and takeover, receipt ownership and adoption, abandonment and
+version burns, Members tombstones and authority markers, fencing older approval
+Workflows before Resume, and rollback requirements. Keep those operational rules
+in that guide; link to them from other deployment documentation.
+
 ## Before your first commit
 
 Turn on the repository's commit hooks. They refuse commits with a foreign author or committer email, secrets, private strings or `Co-Authored-By` trailers:

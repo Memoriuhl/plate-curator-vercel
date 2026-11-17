@@ -4,7 +4,7 @@ import { sameRequester } from '../../../../../lib/publish/authority'
 import { PUBLISH_ERRORS } from '../../../../../lib/publish/stop'
 import { publishStartToken, receiptId } from '../../../../../lib/publish/command'
 import { randomUUID } from 'node:crypto'
-import { publishControlStop } from '../../../../../lib/publish/control'
+import { publishCommandKey, publishControlStop } from '../../../../../lib/publish/control'
 import { getHookByToken, resumeHook, start } from 'workflow/api'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import { currentActiveOwner, requesterAuthority, publishAllowed, publishDeps, reviewDeps } from '../../../../../lib/server/context'
@@ -93,9 +93,12 @@ export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]
     const command = { batchId: id, revision: batch.revision, commandId: randomUUID(), requestedBy: requesterAuthority(auth.actor), generation: control?.generation }
     const eligibility = await publishing.records.eligibility(command, deps.now())
     const receipt = await publishing.records.get(receiptId(id, batch.revision))
+    const abandonReason = receipt && !receipt.committedAt ? await publishing.records.abandonmentEligibility(receipt, deps.now()) : 'version_taken'
+    const abandonment = batch.publishAbandonment
+    const prepared = receipt && !receipt.committedAt && !['locked', 'superseded', 'unavailable'].includes(abandonReason ?? '') ? { commandId: publishCommandKey(receipt), toVersion: receipt.toVersion } : undefined
     const reason = receipt && !receipt.committedAt ? await publishing.records.stopped(receipt) : null
     const stop = publishControlStop(control)
     const baseline = stop ? { error: stop } : await publishBaselineStatus(publishing, batch)
-    return json({ ...baseline, canRetry: publishAllowed() && eligibility.canRetry, retryReason: eligibility.reason, ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}) })
+    return json({ ...baseline, canAbandon: publishAllowed() && !!prepared && !abandonReason, abandonReason, ...(prepared ? { prepared } : {}), ...(abandonment ? { abandonment } : {}), canRetry: publishAllowed() && eligibility.canRetry, retryReason: eligibility.reason, ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}) })
   } catch { return json({ error: PUBLISH_ERRORS.unavailable }, 503) }
 }

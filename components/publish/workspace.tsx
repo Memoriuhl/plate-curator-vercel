@@ -1,5 +1,6 @@
 'use client'
 
+import { ApiError } from '@/lib/client/api'
 import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useRef, useState } from 'react'
 import Link from 'next/link'
@@ -89,6 +90,8 @@ function BatchSelection({
   const baseline = usePublishBaseline(id)
   const actions = useReviewActions()
   const dialog = useRef<HTMLDialogElement>(null)
+  const [abandonReason, setAbandonReason] = useState('')
+  const [abandonMessage, setAbandonMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [requestedFrom, setRequestedFrom] = useState<string | null | undefined>(undefined)
@@ -113,6 +116,24 @@ function BatchSelection({
     !busy &&
     !!baseline.data && !baseline.error &&
     (canRetry || (!stopped && !blocked && batch.state === 'approved' && revision === batch.revision - 1 && !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(run.data?.phase ?? '')))
+  async function abandon() {
+    const prepared = baseline.data?.prepared
+    if (!prepared) return
+    setBusy(true)
+    setAbandonMessage('')
+    try {
+      await actions.abandon(id, batch.revision, prepared.commandId, abandonReason.trim())
+      setAbandonMessage('Prepared Snapshot abandoned.')
+    } catch (error) {
+      const code = error instanceof ApiError ? error.code : 'unavailable'
+      const messages: Record<string, string> = {
+        locked: 'A live Publish run or lease owns this attempt. Wait for it to stop before abandoning.',
+        version_taken: 'This Snapshot is committed or its version is already live. It cannot be abandoned.',
+        superseded: 'This attempt changed. Refresh before abandoning.',
+      }
+      setAbandonMessage(messages[code] ?? 'Could not abandon this Snapshot. Refresh and try again.')
+    } finally { setBusy(false) }
+  }
   async function publish() {
     if (revision === undefined) return
     onPublish()
@@ -146,6 +167,15 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
+      {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
+      {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
+        <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
+        {baseline.data.canAbandon ? <>
+          <label className="block">Reason for abandonment<input className="block w-full rounded border p-2" value={abandonReason} maxLength={1000} onChange={event => setAbandonReason(event.target.value)} /></label>
+          <Button variant="outline" disabled={busy || !abandonReason.trim()} onClick={abandon}>Abandon prepared Snapshot</Button>
+        </> : <p role="status">Abandon unavailable: {baseline.data.abandonReason === 'locked' ? 'A live Publish run or lease owns this attempt.' : 'This attempt cannot safely be abandoned. Refresh its status.'}</p>}
+      </section>}
+      {abandonMessage && <p role="status">{abandonMessage}</p>}
       {baseline.data?.stopped && !isPublishStop(failed?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.stopped.reason]} The Catalog did not advance.{baseline.data.stopped.requestedBy ? ` Requested by ${baseline.data.stopped.requestedBy.email} (${baseline.data.stopped.requestedBy.uid}).` : ''}</p>}
       {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
       {batch.state === 'approved' && blocked && liveVersion !== undefined && (

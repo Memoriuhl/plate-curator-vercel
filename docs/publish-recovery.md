@@ -1,4 +1,4 @@
-# Publish controls and recovery (#128, #127, #126, #119)
+# Publish controls and recovery (#129, #128, #127, #126, #119)
 
 ## Pause and Resume
 
@@ -37,7 +37,7 @@ in `publishCommandStops` by command ID, so step retries reproduce the same stop
 even if pause and revocation affect the same command. The workspace identifies
 the requester and revoked stop, states that the Catalog did not advance, and requires a fresh
 Publish by an active Owner. Revocation remains in Members.
-The lease and reservation are released, the Batch stays approved with its history,
+The lease and Batch reservation are released, the Batch stays approved with its history,
 and an uploaded but uncommitted Snapshot and receipt remain intact.
 
 If Publish committed first, its receipt wins: retries finish the bookkeeping and
@@ -75,12 +75,14 @@ is driven by its `canRetry` result, including a locked response while a live run
 owns the claim. A fresh click can replace a claim with a durable stop, a bound run
 that is completed, failed or cancelled, or an unbound claim older than two minutes.
 Before applying the TTL, the server looks up the deterministic start token. If a
-live run exists, it binds that run to the claim and keeps the claim locked; TTL
+live run exists, it keeps the claim locked; TTL
 takeover requires an affirmative lookup showing no run. Unknown lookup state
 fails closed. A delayed start response cannot bind once its claim was replaced.
-`GET /api/batches/:id/publish` may idempotently write the recovered run binding
-and its Batch metadata while computing eligibility. It does not start a run or
-advance the Batch revision. A missing claim document is treated as expired and
+Workflow lookups happen before the Firestore transaction. The transaction re-reads
+and compares the claim identity and run binding; a changed claim stays locked and
+the next request performs a new lookup. GET preflight uses read-only transactions
+and does not bind runs, start work, or advance a Batch revision. Acceptance may
+persist a recovered run binding after the same Firestore recheck. A missing claim document is treated as expired and
 unbound, then checked through its deterministic token before takeover. An explicit
 Workflow run-not-found result permits takeover after the claim TTL; transient or
 unknown lookup errors stay locked and are retried on the next request.
@@ -102,7 +104,7 @@ returns `superseded`. Only the committed command reaches the existing per-versio
 Catalog push claim.
 
 Immediately before create-only upload, another lease-guarded transaction checks
-receipt ownership, exact Batch/revision, version adjacency, current pointer,
+receipt ownership, exact Batch/revision, reserved unburned target, current pointer,
 approval, authority, checksum and the absence of any committed receipt for the
 target version. A competing object can only make create-only return exists; its
 checksum must still match, and different bytes are never overwritten. Superseding
@@ -116,19 +118,88 @@ The URL, storage generation, metageneration and md5Hash/crc32c come from one
 [GCS object metadata response](https://docs.cloud.google.com/storage/docs/json_api/v1/objects).
 The receipt stores that object identity separately from the publication-control
 generation. SHA256 verification downloads the exact selected storage generation.
-Inside the pointer transaction, after reading the lease, authority and receipt,
-the commit path checks current object metadata and the generation-selected bytes,
-then reads metadata again. A different generation, token, metageneration or hash
+Before entering the pointer transaction, the commit path checks current object
+metadata and the generation-selected bytes, then reads metadata again. The
+Firestore-only transaction rechecks the lease, authority, receipt and its exact
+object identity tuple. Snapshot writes remain create-only. A different generation, token, metageneration or hash
 returns `version_taken` without advancing the pointer, even when the bytes are
 identical. A recreation before metadata capture may instead refresh the receipt
 to the verified current generation and its current token.
 
-## Known gap until #129
+## Abandon a prepared Snapshot
 
-Another Batch attempting to take a stopped attempt’s retained Snapshot version
-still hits `version_taken`. Snapshot abandonment and publishing a different Batch
-over that unused version remain #129. Preserve the receipt and Snapshot for triage;
-do not delete them manually. Same-Batch explicit retry does not abandon an object.
+Abandonment is optional disposition, not a prerequisite for another Batch to
+publish. The allocator skips held slots, so another eligible Batch can publish at
+the next free version while the stopped receipt remains intact. An active Owner
+may select **Abandon prepared Snapshot** for a stopped or takeover-eligible attempt
+and supply a reason. This action is available while paused. It never advances the pointer.
+Editors and unauthenticated requests are denied; the transaction rechecks the
+Owner's member document and authority marker. A live command claim refuses
+abandonment, even if the receipt still names an earlier stopped command. The
+current claim must have a durable stop or satisfy the same terminal/confirmed
+absent-run takeover rules as [explicit retry](#explicit-retry-of-the-same-batch).
+Unknown or transient Workflow lookup results stay locked.
+
+Under the Publish lease, one Firestore transaction verifies that the receipt is
+uncommitted and no receipt in any environment has committed its target. The live
+pointer may already have passed that unused target: disposition still cannot
+advance or roll back the Catalog. No object or checksum proof
+is required: a crash before upload can also be abandoned. The transaction archives
+the receipt as `publishRecords/{batchId}@{revision}--{commandId}`, marks it
+`abandoned`, stops every command bound to it (including the current Batch claim),
+records the disposition on the Batch, and creates `publishVersionBurns/{version}`.
+The audit records actor, time, reason, and the observed object identity tuple
+(generation, metageneration, hashes and URL), or explicit `null` for no object.
+Different or missing bytes do not prevent abandonment. Duplicate requests return
+the original disposition; a failed transaction leaves all these records unchanged.
+Concurrent abandon requests may return one success and one locked response; retry
+the locked request to obtain the same recorded disposition.
+The original receipt key is freed only by this atomic archival operation, so a
+fresh same-revision command recomputes bytes and receives a new receipt identity.
+The archived attempt is never adopted.
+Abandonment can also dispose of a stopped older receipt after its Batch has been
+fenced out of approved; it does not require the Batch to remain publish-eligible.
+It uses the global lease without creating a new Batch publication reservation.
+
+Allocation chooses the smallest safe integer above the live pointer that is not
+burned, held by any un-abandoned receipt, or targeted by any committed receipt in
+any environment. Stopped receipts hold their versions until retry or abandonment.
+The durable receipt reserves its target before upload; replay preserves that
+target. With no excluded slots, allocation remains `pointer + 1`. Adoption proves
+the receipt's reserved, unburned target and pointer at `fromVersion`, rather than
+requiring adjacency. The blob's internal version always equals its target.
+
+Disposition-only abandonment is a receipt audit record. It never touches committed
+receipts or objects. No Snapshot is deleted or overwritten. A delayed old create-only upload may still
+land in the burned slot, but pointer advancement rejects burned targets and
+abandoned receipts. Command stops also fence retries and late receipt writes.
+Version gaps are safe for consumers: the game requires a newer pointer and a blob
+whose internal version matches it; curator reads use committed versions. Never
+reuse burned numbers. Any future orphan-object garbage collection must check every
+committed reference across all receipts and the pointer history before deleting
+anything, even when an abandonment or burn marker exists. Deletion must also use
+the object's generation precondition. That work is a separate follow-up, outside
+this recovery action.
+
+Abandon before a fresh click permits a new attempt at the next available version.
+A fresh click that owns a live run wins the opposite order: abandonment is refused
+until that run stops. Committed receipts and every target with a committed receipt
+are protected, including commits recorded by another environment. The workspace reports refusal reasons and the final actor, time and
+burned version.
+
+## Operator recovery table
+
+| Observed state | Owner action | Result |
+| --- | --- | --- |
+| Stopped, same approved revision, unchanged baseline | Resume if needed, then Publish again | Fresh authority; verifies and adopts the reserved receipt and bytes |
+| Stopped, choose another Batch | Publish the other eligible Batch; optionally abandon the stopped attempt for disposition | The allocator skips its held slot without requiring abandonment; old commands stay stopped |
+| Stopped before upload | Retry, publish another eligible Batch, or optionally abandon with a reason | The slot remains held until disposition; missing object does not prevent abandonment |
+| Uncommitted target is below the live pointer | Optionally abandon for disposition | Audit and burn only; pointer and storage remain untouched |
+| Live run owns the current claim | Wait for the run to finish or stop | Retry and abandonment fail closed while it is live |
+| Stale baseline | Copy to new Batch, review, Submit, Approve, Publish | New review against the current committed Snapshot |
+| Committed pointer, incomplete bookkeeping | Retry the same command | Reconciles that version; never abandons or advances twice |
+| Mismatched prepared bytes | Triage; abandon a stopped uncommitted attempt if it is no longer wanted | Audit records observed identity; committed data remains protected |
+| Missing or malformed controls | Initialize with Resume if missing; investigate malformed data | No new pointer advance until authoritative controls are valid |
 
 ## Stale baseline
 
@@ -151,11 +222,10 @@ for triage and releasing the reservation. A committed legacy receipt may finish
 curator order and Batch bookkeeping. Never delete a committed receipt or retry
 it as a fresh release.
 
-If a legacy `receipt_baseline_conflict` has already uploaded a blob at
-`fromVersion + 1`, publishing a fresh copy on that same Catalog head will hit
-`version_taken`. Clearing that orphaned Snapshot belongs to Snapshot abandonment
-[#129](https://github.com/Memoriuhl/plate-curator-vercel/issues/129). Until that
-recovery is available, triage leaves both the pointer and the blob untouched.
+If a legacy `receipt_baseline_conflict` has an unused uploaded blob, fresh review
+can proceed while the allocator skips its held target. Optionally use
+[abandonment](#abandon-a-prepared-snapshot) for disposition after the command stops.
+Leave the blob untouched.
 
 The Owner can select **Copy to new Batch** in Publish. POST
 `/api/batches/:id/copy` accepts the source revision and explicit target Catalog
@@ -182,70 +252,35 @@ Publish are required for the copy. Copy does not start a model or Publish run.
 
 ## Deployment compatibility and release gate
 
-Members changes must only be made from deployments that include this change.
-Older deployments neither increment authorityEpoch nor understand tombstones.
-Demoting and restoring an Owner through old code leaves the epoch unchanged, so
-an old command can match again. A hard delete followed by re-invitation can also
-realign an epoch with an older command. Restrict Members writes to the fixed
-deployments before relying on requester revocation. Tombstones use status
-`removed` so older active-Owner and activation checks treat them as inactive,
-but this does not make old mutation paths safe.
+Members writes must use deployments containing #127. Older mutation paths do not
+advance the [authority marker and tombstone history](#pause-and-resume). Never
+hard-delete Members documents or reset their epochs during restoration.
 
-Never hard-delete member documents, including through the console or scripts.
-Removal must retain the member tombstone and its authority epoch through the
-Members store paths. Re-invitation and restoration must retain and advance that
-history rather than resetting it.
+### Fence older Workflows before Resume
 
-Existing approval Workflow runs can continue on the deployment that started them.
-Updating routes or promoting a deployment does not retrofit the new guard into
-those older steps. New route preflight alone is insufficient: an already accepted
-command can execute the older publisher.
+Approval Workflows execute the deployment that started them. Before Resume,
+inventory waiting and executing runs by Batch, revision and starting deployment.
+Fence uncommitted runs from older deployments by moving their Batches out of
+approved through the normal review edit flow, and verify the authoritative state
+prevents every older run from advancing a pointer. Already committed receipts
+finish bookkeeping instead. Then Submit and Approve again on the fixed deployment,
+or Copy stale proposals for fresh review. A redeploy, route change or Resume does
+not retrofit controls into an old run. Pause alone cannot fence code that ignores
+it. Hosted proof with newly started runs and this fence remain release gates.
 
-Before Resume, inventory older waiting or executing approval Workflows by Batch,
-revision and starting deployment. Runs are pinned to their starting deployment:
-older code never reads the publication control. Creating the control document
-does not supersede or stop those older runs. Fence their uncommitted Batches by
-moving them out of `approved` through the normal review edit flow before Resume.
-Verify the authoritative Batch state and that no older run can advance a pointer.
-Already committed receipts must finish bookkeeping instead of being fenced as
-uncommitted work. An in-flight pointer commit still determines which outcome won.
+### Rollback
 
-After fencing older runs, Submit and Approve again on the fixed deployment (or
-copy stale proposals for fresh review). A redeploy, new route URL or Resume does
-not change the code of an old run. Only commands reaching the new publisher are
-checked for a missing generation or requester authority marker and treated as superseded when the control
-exists; this does not protect runs executing older publisher code. Hosted proof
-with newly started runs and the legacy-run fence are release gates before relying
-on Pause or requester revocation.
+Deployments before #129 ignore burns and held receipts: they can target
+pointer + 1 and commit a burned or held slot. Never roll back below the #129
+deployment while burns or held receipts exist. Fence or pause publishing first,
+following the [older-Workflow fence](#fence-older-workflows-before-resume); pause
+alone is insufficient for code that ignores it. Keep every route capable of
+publishing on code that understands burns and holds. Dashboard rollback does not
+undo a committed Catalog release; Catalog recovery publishes reviewed content as
+a higher, unburned version.
 
-Before relying on this guard for a release, inventory waiting and executing
-approval runs by Batch, revision and deployment. Let already committed attempts
-finish bookkeeping from their receipts. Investigate uncommitted legacy mismatches
-without advancing their pointers. Fence waiting pre-fix approval runs by moving
-their Batches out of `approved` before Resume, then Submit and Approve on the fixed
-deployment; for a stale baseline, use the new copy flow instead. Do not assume a
-redeploy or a request sent to a new URL changes an old run's deployment. Verify
-that no waiting pre-fix run can still receive a Publish command before proceeding.
-
-A separately authorized staging check should start NEW approval runs on the fixed
-deployment, using isolated data/environment: exercise the authenticated stale
-preflight, a Catalog-head race after command acceptance, run-result versions, copy
-and review navigation, and refusal to Publish an unapproved copy. Also confirm
-receipt reconciliation on that deployment. Such a check must not use the shared
-public Catalog as disposable data. This implementation performs no deployment,
-Catalog publication, or production Firebase access. Hosted Workflow execution and
-old-run drainage remain release integration gates, not claims of local coverage.
-
-## Local verification
-
-Focused behavior: `npx vitest run tests/publish tests/review/copy.test.ts tests/review/copy-route.test.ts tests/review/approval-route.test.ts tests/review/approval-workflow.test.ts tests/publish-recovery.test.tsx tests/review-recovery-navigation.test.tsx tests/publish-ui.test.tsx tests/review-ui.test.tsx`.
-
-Transactions/concurrency: `npm run test:emulator` uses only Firestore at localhost
-and project `demo-plate-curator`. Snapshot storage in Publish tests is in memory.
-Run this suite alone. The claim-contention tests have scoped fifteen-second
-budgets for Firestore transaction retries; the global test timeout is unchanged.
-The suite checks copy atomicity, concurrent retries, source/head/environment races,
-initial live signals, and Publish reservation and receipt behavior. The screen
-tests exercise both preflight and Workflow failures, recovery navigation, affected
-items, and explicit retry after a head race. Run `npm run typecheck`,
-`npm run lint` and `npm test` for broader coverage. Hosted tagging is out of scope.
+A separately authorized hosted staging check must use isolated data and newly
+started Workflows to exercise stale recovery, commit ordering, receipt adoption,
+optional disposition and committed-only Catalog push. No deployment, real Catalog
+Publish, staging writes or production Firebase access occurred during local
+verification.
