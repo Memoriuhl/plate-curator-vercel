@@ -40,6 +40,16 @@ generation. The dedicated retry UI and prepared Snapshot reuse are tracked in
 keep stopped receipts and Snapshots for triage rather than deleting or restarting
 their commands.
 
+## Known gap until #128/#129
+
+A stop after upload but before the pointer commit leaves an uploaded receipt
+bound to the stopped command. A fresh click on the same Batch then reports
+`paused`, and any other Batch attempting to take that Snapshot version hits
+`version_taken`. The Catalog stays on its old version: this is fail-safe, but it
+blocks further publishing. Recovery comes with explicit retry (#128) and Snapshot
+abandonment (#129). Until those paths ship, preserve the receipt and uploaded
+Snapshot for triage.
+
 ## Stale baseline
 
 A fresh Publish reads `config/catalog` under the Publish lease. If its version
