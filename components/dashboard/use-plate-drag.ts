@@ -94,7 +94,7 @@ export function usePlateDrag(options: Options) {
     const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
     const stable = stableTargets.current(targets(), window.scrollX, window.scrollY)
     return targetAt(x, y, stable.filter(({ target }) =>
-      (target.kind === 'family-slot' || !deletedFamilyIds.has(target.familyId))
+      (target.kind !== 'variant-slot' || !deletedFamilyIds.has(target.familyId))
       && (target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id))))
   }
   function actionFamilies(plates: readonly PlateCardData[]) {
@@ -109,12 +109,13 @@ export function usePlateDrag(options: Options) {
     const edits = latest.current.bulkEdits ?? latest.current.edits
     if (!latest.current.canEdit || current.current || saving) return
     let families = actionFamilies(plates)
-    const skipped = destination ? plates.filter(plate => blockedTemplate(plate, families)) : []
-    const moving = plates.filter(plate => destination
-      ? !skipped.includes(plate) && plate.id !== destination.id && plate.variantOfPlateId !== destination.id && !families.find(family => family.template.id === destination.id)?.variants.some(variant => variant.id === plate.id)
-      : plate.templateRole === 'variant')
-    const skippedMessage = skipped.length ? 'Skipped ' + skipped.length + ' Templates with Variants' : ''
-    if (!moving.length) { latest.current.holdOverlay?.(false); announce(skippedMessage || 'Dropped'); return }
+    const skipped = destination ? plates.filter(plate => !plate.deleted && plate.state === destination.state && blockedTemplate(plate, families)) : []
+    const otherStates = destination ? plates.filter(plate => !plate.deleted && plate.state !== destination.state) : []
+    const moving = plates.filter(plate => !plate.deleted && (destination
+      ? plate.state === destination.state && !skipped.includes(plate) && plate.id !== destination.id && plate.variantOfPlateId !== destination.id && !families.find(family => family.template.id === destination.id)?.variants.some(variant => variant.id === plate.id)
+      : plate.templateRole === 'variant'))
+    const skippedMessage = [skipped.length ? 'Skipped ' + skipped.length + ' Templates with Variants' : '', otherStates.length ? 'Skipped ' + otherStates.length + ' plates from other states' : ''].filter(Boolean).join('. ')
+    if (!moving.length) { latest.current.holdOverlay?.(false); announce(skippedMessage || (destination ? 'Dropped' : 'No Variants selected')); return }
     setSaving(true)
     const previousOrders = new Map([...new Set(moving.map(plate => plate.state))].map(state => [state, familyOrder(families.filter(family => family.template.state === state))]))
     const planned = new Map<string, EditableFields>()
@@ -162,7 +163,7 @@ export function usePlateDrag(options: Options) {
             const fields: EditableFields = { templateRole: plate.templateRole, templateFamily: plate.templateFamily, variantOfPlateId: plate.variantOfPlateId }
             const restored = await edits.edit({ ...plate, revision: result.revision }, fields, { batchId: result.batchId, baseRevision: result.revision })
             if (restored.ok) { reverted++; unreverted.delete(plate.id) }
-          } catch { /* Saved state is refreshed below. */ }
+          } catch { continue }
         }
         let orderRestored = true
         if (!destination && reverted === succeeded.length) {
@@ -176,7 +177,7 @@ export function usePlateDrag(options: Options) {
         const message = reverted === succeeded.length && orderRestored ? 'Saved ' + succeeded.length + ' of ' + moving.length + '; changes undone' : (succeeded.length - reverted) + ' of ' + moving.length + ' saved' + (orderRestored ? '' : '; order could not be restored')
         announce([message, skippedMessage].filter(Boolean).join('. '))
       } else {
-        plateSelection.replace(skipped)
+        plateSelection.replace([...skipped, ...otherStates])
         const message = destination ? moving.length + (moving.length === 1 ? ' plate moved' : ' plates moved') : moving.length === 1 ? '1 plate is now a Template' : moving.length + ' plates are now Templates'
         announce([message, skippedMessage].filter(Boolean).join('. '))
       }
@@ -196,6 +197,7 @@ export function usePlateDrag(options: Options) {
     const drag = current.current
     finish()
     if (!drag) return
+    if (drag.item.plate.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     const selected = drag.selection
     if (!drag.target) {
       if (!drag.keyboard) await editSelection(selected)

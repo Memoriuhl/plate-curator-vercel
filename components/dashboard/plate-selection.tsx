@@ -11,7 +11,7 @@ export function createPlateSelection() {
   let loaded: PlateCardData[] = []
   const states = new Map<string, PlateCardData[]>()
   const listeners = new Set<() => void>()
-  const publish = (next: readonly PlateCardData[]) => { selected = next; ids = new Set(next.map(plate => plate.id)); listeners.forEach(listener => listener()) }
+  const publish = (next: readonly PlateCardData[]) => { selected = next.filter(plate => !plate.deleted); ids = new Set(selected.map(plate => plate.id)); listeners.forEach(listener => listener()) }
   return {
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
     snapshot: () => selected,
@@ -25,10 +25,10 @@ export function createPlateSelection() {
       for (const [state, group] of Map.groupBy(plates, plate => plate.state)) states.set(state, group)
       const fresh = new Map(plates.map(plate => [plate.id, plate]))
       const next = selected.map(plate => fresh.get(plate.id) ?? plate)
-      if (next.some((plate, index) => plate !== selected[index])) publish(next)
+      if (next.some((plate, index) => plate.deleted || plate !== selected[index])) publish(next)
     },
     visible(plates: PlateCardData[]) {
-      visible = plates
+      visible = plates.filter(plate => !plate.deleted)
       const loadedIds = new Set(loaded.map(plate => plate.id))
       const visibleIds = new Set(plates.map(plate => plate.id))
       const next = selected.filter(plate => !loadedIds.has(plate.id) || visibleIds.has(plate.id))

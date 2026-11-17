@@ -79,6 +79,9 @@ it('groups cross-state selections and outlines the matching jurisdiction', () =>
   plateSelection.add([{ ...plateCards[0], id: 'NY.a', state: 'NY', displayName: 'New York' }, { ...plateCards[0], id: 'NJ.b', state: 'NJ', displayName: 'New Jersey' }])
   render(<><SelectionBar promote={vi.fn()} disabled={false} /><JurisdictionCard jurisdiction={{ code: 'NJ', name: 'New Jersey', region: 'us', plateCount: 1, completeCount: 0, progress: null }} /></>)
   expect(screen.getByRole('link').className).toContain('outline-2')
+  const bar = screen.getByLabelText('Plate selection')
+  expect(bar.className).toContain('fixed')
+  expect(bar.className).toContain('bottom-4')
   fireEvent.click(screen.getByRole('button', { name: '2 selected' }))
   expect(screen.getByRole('heading', { name: 'NY (1)' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'NJ (1)' })).toBeTruthy()
@@ -185,4 +188,37 @@ it('filter changes remove dimmed selections from the current State and preserve 
   store.add([...plates, { ...plates[0], id: 'NJ.a', state: 'NJ' }])
   store.visible([plates[0], plates[2]])
   expect(store.snapshot().map(plate => plate.id)).toEqual(['a', 'c', 'NJ.a'])
+})
+
+it('excludes deleted plates from add, select-all, toggles, ranges, and refreshed selection', () => {
+  const store = createPlateSelection()
+  const deleted = { ...plates[1], deleted: true }
+  store.visible([plates[0], deleted, plates[2]])
+  store.select(deleted.id)
+  expect(store.snapshot()).toEqual([])
+  store.add([deleted, plates[0]])
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['a'])
+  store.all()
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['a', 'c'])
+  store.select('a', { ctrlKey: true })
+  store.select('c', { shiftKey: true })
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['a', 'c'])
+  store.register([{ ...plates[0], deleted: true }, deleted, plates[2]])
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['c'])
+})
+
+it('Backspace with only Templates selected announces No Variants selected', async () => {
+  const template = { ...plateCards[0], templateRole: 'template' as const }
+  plateSelection.add([template])
+  const edit = vi.fn(), move = vi.fn()
+  function Harness() {
+    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false })
+    return <output>{drag.announcement}</output>
+  }
+  render(<Harness />)
+  await act(async () => fireEvent.keyDown(window, { key: 'Backspace' }))
+  expect(screen.getByText('No Variants selected')).toBeTruthy()
+  expect(edit).not.toHaveBeenCalled()
+  expect(move).not.toHaveBeenCalled()
 })

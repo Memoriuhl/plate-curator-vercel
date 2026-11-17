@@ -108,7 +108,7 @@ export function FamilyCard({
     const marker = badge?.(plate)
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <SelectionPlate key={plate.id} id={plate.id} disabled={!!matches && !matches(plate)}><div
+      <SelectionPlate key={plate.id} id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))}><div
         key={plate.id}
         data-drag-variant={small ? plate.id : undefined}
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
@@ -152,7 +152,7 @@ export function FamilyCard({
           aria-disabled={!drag?.enabled || !!plate.deleted} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !plate.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
-        <SelectionCheckbox id={plate.id} disabled={!!matches && !matches(plate)} imageOffset={small && canEdit ? 28 : 0} />
+        <SelectionCheckbox id={plate.id} disabled={!!plate.deleted || (!!matches && !matches(plate))} imageOffset={small && canEdit ? 28 : 0} />
         <Link
           lang="en"
           title={plate.id}

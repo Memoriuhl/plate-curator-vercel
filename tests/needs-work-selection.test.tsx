@@ -46,7 +46,11 @@ test('Shift-click selects exactly the chip ids resolved from the current overlay
   const onSelectGroup = vi.fn()
   const plates = alaskaFixture.plates.map(projectFamilyPlate)
   const view = render(<TooltipProvider><FamilyGrid code="AK" plates={plates} onSelectGroup={onSelectGroup} /></TooltipProvider>)
+  const grid = screen.getByRole('region', { name: 'Plate families' })
+  const spacing = grid.className
+  expect(spacing).toContain('pb-56')
   fireEvent.click(screen.getByRole('button', { name: /No fun facts/ }), { shiftKey: true })
+  expect(grid.className).toBe(spacing)
   expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([first.id])
   expect(onSelectGroup).toHaveBeenLastCalledWith('nofunfacts', [first.id])
   expect(data.replace).not.toHaveBeenCalled()

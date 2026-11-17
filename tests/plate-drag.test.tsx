@@ -634,3 +634,51 @@ test('multi-merge displays the invalid outline when selected templates still hav
   }
   expect(view.container.querySelector('article')?.className).toContain('outline-dashed')
 })
+
+test('multi-merge skips selected plates from other States', async () => {
+  const foreign = { ...w, id: 'NY.foreign', state: 'NY' }
+  plateSelection.add([v, foreign])
+  const { handle, edit } = setup({ variant: true, merge: true })
+  pointerDrag(handle, 110)
+  await waitFor(() => expect(screen.getByText(/Skipped 1 plates from other states/)).toBeTruthy())
+  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([foreign.id])
+})
+
+test('background drop with only Templates selected reports No Variants selected', async () => {
+  plateSelection.add([a, b])
+  const { handle, edit, move, reorder } = setup()
+  pointerDrag(handle, 700)
+  await waitFor(() => expect(screen.getByText('No Variants selected')).toBeTruthy())
+  expect(edit).not.toHaveBeenCalled()
+  expect(move).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
+})
+
+test('deleted destinations are checked before multi-merge and never promote the selection', async () => {
+  plateSelection.add([v, w])
+  const { handle, edit, move } = setup({ variant: true, merge: true, deletedDestination: true })
+  pointerDrag(handle, 110)
+  await waitFor(() => expect(screen.getByText('Cancelled')).toBeTruthy())
+  expect(edit).not.toHaveBeenCalled()
+  expect(move).not.toHaveBeenCalled()
+})
+
+test('deleted plate checkboxes and modifier selection are disabled', () => {
+  const deleted = { ...v, deleted: true }
+  plateSelection.visible([deleted])
+  const view = render(<FamilyCard template={a} variants={[deleted]} matches={() => true} />)
+  expect((screen.getByRole('checkbox', { name: 'Select ' + v.id }) as HTMLInputElement).disabled).toBe(true)
+  fireEvent.click(view.container.querySelector('a[title="' + v.id + '"]')!, { ctrlKey: true })
+  expect(plateSelection.snapshot()).toEqual([])
+})
+
+test('bulk moves exclude plates deleted after selection was captured', async () => {
+  const deleted = { ...w, deleted: false }
+  plateSelection.add([v, deleted])
+  deleted.deleted = true
+  const { handle, edit } = setup({ variant: true, merge: true })
+  pointerDrag(handle, 110)
+  await waitFor(() => expect(screen.getByText('1 plate moved')).toBeTruthy())
+  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+})

@@ -267,7 +267,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       )?.template.displayName
     : undefined
   return (
-    <section aria-label="Plate families" id="families">
+    <section aria-label="Plate families" id="families" className="pb-56 sm:pb-32">
       {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={(key, ids) => {
         const selectedIds = new Set(ids)
         plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
