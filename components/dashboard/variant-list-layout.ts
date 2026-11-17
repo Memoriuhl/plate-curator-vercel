@@ -1,4 +1,4 @@
-export const VARIANT_ROW_HEIGHT = 66
+export const VARIANT_ROW_HEIGHT = 84
 export const VARIANT_ROW_GAP = 12
 
 export function variantListCap(rows: { start: number; size: number }[]) {
@@ -6,7 +6,7 @@ export function variantListCap(rows: { start: number; size: number }[]) {
 }
 
 export function estimatedFamilyHeight(variantCount: number) {
-  return 190 + (variantCount ? 24 : 0) + Math.min(variantCount, 5.5) * VARIANT_ROW_HEIGHT + Math.min(Math.max(variantCount - 1, 0), 5) * VARIANT_ROW_GAP
+  return 116 + (variantCount ? 24 : 0) + Math.min(variantCount, 5.5) * VARIANT_ROW_HEIGHT + Math.min(Math.max(variantCount - 1, 0), 5) * VARIANT_ROW_GAP
 }
 
 export function revealVariantRow(list: HTMLElement, row: HTMLElement) {

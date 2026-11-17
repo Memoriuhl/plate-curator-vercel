@@ -119,9 +119,10 @@ test('smallest check tier fits its lower container breakpoint', () => {
   expect(PLATE_CHECK_KEYS.length * icon + (PLATE_CHECK_KEYS.length - 1) * gap).toBeLessThanOrEqual(Number(smallest[1]))
 })
 
-test('variant checks span the link width and names use English word wrapping', () => {
+test('every plate keeps its title and checks together beside the image', () => {
   const html = renderToStaticMarkup(<FamilyCard template={plateCards[0]} variants={[plateCards[1]]} />)
-  expect(html).toContain('family-variant-checks family-plate-details basis-full')
+  expect(html).not.toContain('flex-wrap')
+  expect(html).not.toContain('flex-col @min-')
   expect(html).toContain('lang="en"')
   expect(html).toContain('[overflow-wrap:break-word]')
   expect(html).toContain('hyphens-auto')

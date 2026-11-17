@@ -609,6 +609,7 @@ body {
 
 .family-plate-details {
   container: plate-checks / inline-size;
+  min-width: 110px;
 }
 
 .family-plate-details [data-check-strip] {
@@ -618,6 +619,7 @@ body {
 .family-plate-details [data-check] {
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
 }
 
 @container plate-checks (width < 164px) {

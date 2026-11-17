@@ -1,5 +1,8 @@
+export const FAMILY_MIN_COLUMN_WIDTH = 400
+export const FAMILY_COLUMN_GAP = 16
+
 export function familyColumns(width: number) {
-  return width < 560 ? 1 : width < 820 ? 2 : width < 1060 ? 3 : width < 1400 ? 4 : 5
+  return Math.max(1, Math.floor((width + FAMILY_COLUMN_GAP) / (FAMILY_MIN_COLUMN_WIDTH + FAMILY_COLUMN_GAP)))
 }
 
 export function entranceDelay(row: number, column: number) {
