@@ -9,11 +9,12 @@ import { publishBaselineStatus } from '../lib/publish/baseline-status'
 const mocks = vi.hoisted(() => ({ copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
+  usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
   useMe: () => ({ data: { role: 'owner' } }),
   useBatch: () => ({ data: { batch, plates: [] } }),
   useBatches: () => ({ data: [batch] }),
   useBatchRun: () => ({ data: mocks.run ? { phase: 'failed', outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
-  usePublishBaseline: () => ({ data: { error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
+  usePublishBaseline: () => ({ data: mocks.baselineError === 'paused' ? { error: 'paused' } : { error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
   usePlateDetail: () => ({}),
   useReviewActions: () => ({ copy: mocks.copy }),
 }))
@@ -71,4 +72,26 @@ test('a pointer_moved failure with an effectively stale baseline offers Copy to 
   fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
   await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh'))
+})
+
+test('a stopped command leaves the approved Batch visible and requires a fresh Publish request', () => {
+  mocks.run = true
+  mocks.runError = 'paused'
+  mocks.baselineError = null
+  render(<PublishWorkspace />)
+  expect(screen.getAllByText(batch.name).length).toBeGreaterThan(0)
+  expect(screen.getByText(/The Batch remains approved. Resume does not restart this command/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+})
+
+test('paused Publish explains the stop; after Resume stale proposals still offer Copy', () => {
+  mocks.baselineError = 'paused'
+  const view = render(<PublishWorkspace />)
+  expect(screen.getByText('Catalog publishing is paused. Resume before requesting Publish.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+  mocks.baselineError = 'stale_baseline'
+  view.rerender(<PublishWorkspace />)
+  expect(screen.getByRole('button', { name: 'Copy to new Batch' })).toBeTruthy()
 })

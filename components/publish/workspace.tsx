@@ -1,8 +1,10 @@
 'use client'
 
+import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
+import { PublishControlView } from './control'
 import { CopyRecovery } from './copy-recovery'
 import {
   useBatch,
@@ -11,6 +13,7 @@ import {
   useMe,
   usePlateDetail,
   usePublishBaseline,
+  usePublishControl,
   useReviewActions,
 } from '@/lib/client/hooks'
 import type { ReviewBatch } from '@/lib/review/types'
@@ -143,6 +146,7 @@ function BatchSelection({
         )}
       </header>
       <RunStatus batchId={id} />
+      {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
       {batch.state === 'approved' && blocked && liveVersion !== undefined && (
         <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
       )}
@@ -234,6 +238,7 @@ function BatchSelection({
 }
 
 function OwnerWorkspace() {
+  const control = usePublishControl()
   const batches = useBatches(['approved', 'published'])
   const [selection, setSelection] = useState<string | null>(null)
   const sorted = [...(batches.data ?? [])].sort((a, b) =>
@@ -252,6 +257,7 @@ function OwnerWorkspace() {
     <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
       <aside className="space-y-4">
         <h1 className="text-2xl font-extrabold">Publish</h1>
+        <PublishControlView control={control.data?.control ?? null} error={!!control.error} change={control.change} />
         <h2 className="font-bold">Approved Batches</h2>
         {!approved.length && (
           <p>

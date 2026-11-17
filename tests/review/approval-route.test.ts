@@ -9,7 +9,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', () => mocks)
@@ -23,7 +23,9 @@ function request(body: unknown) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.publishDeps.mockReturnValue({ pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
+  mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', role: 'owner' } })
+  mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
+  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { get: async () => null } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'owner', name: null, role: 'owner' } })
   mocks.start.mockResolvedValue({ runId: 'run' })
   mocks.resumeHook.mockResolvedValue({ runId: 'run' })
@@ -37,7 +39,7 @@ test('submit stores the run, approve resumes approval, and Publish only resumes 
   expect((await approve(request({ revision: 1 }), ctx)).status).toBe(200)
   expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:1', { by: 'owner' })
   expect((await publish(request({ revision: 2 }), ctx)).status).toBe(202)
-  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner' })
+  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', { ownerUid: 'owner', generation: 1, commandId: expect.any(String) })
   expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ publishRequestedAt: '2026-11-16T12:00:00.000Z' })
   expect(mocks.publishBatch).not.toHaveBeenCalled()
 })
@@ -106,10 +108,41 @@ test('run metadata writes cannot overwrite edits or a newer submission', async (
 
 test('a stale preflight returns reviewed and live versions without accepting a command', async () => {
   mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2 }])
-  mocks.publishDeps.mockReturnValue({ pointer: { read: async () => ({ version: 8 }) }, records: { get: async () => null } })
+  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 8 }) }, records: { get: async () => null } })
   const response = await publish(request({ revision: 2 }), ctx)
   expect(response.status).toBe(409)
   expect(await response.json()).toEqual({ error: 'stale_baseline', reviewedVersion: 7, liveVersion: 8 })
   expect(mocks.resumeHook).not.toHaveBeenCalled()
   expect((await mocks.reviewDeps().store.getBatch('batch')).publishRequestedAt).toBeUndefined()
+})
+
+test('paused wins over stale; Resume restores stale-baseline rejection', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2 }])
+  mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 8 }) }, records: { get: async () => null } })
+  mocks.controlRead.mockResolvedValueOnce({ paused: true, generation: 2 })
+  expect(await (await publish(request({ revision: 2 }), ctx)).json()).toEqual({ error: 'paused' })
+  expect(await (await publish(request({ revision: 2 }), ctx)).json()).toEqual({ error: 'stale_baseline', reviewedVersion: 7, liveVersion: 8 })
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+})
+
+test('missing and unavailable control refuse command acceptance', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'approved', revision: 2 }])
+  mocks.controlRead.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('offline'))
+  expect(await (await publish(request({ revision: 2 }), ctx)).json()).toEqual({ error: 'publish_not_enabled' })
+  expect((await publish(request({ revision: 2 }), ctx)).status).toBe(503)
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+})
+
+test.each(['editor', 'removed', 'bootstrap'])('Publish requires current active membership before reading controls: %s', async () => {
+  mocks.currentActiveOwner.mockResolvedValue({ ok: false, response: Response.json({ error: 'forbidden' }, { status: 403 }) })
+  expect((await publish(request({ revision: 2 }), ctx)).status).toBe(403)
+  expect(mocks.controlRead).not.toHaveBeenCalled()
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+})
+
+test('invalid Publish bodies and missing Batches are rejected before the paused control is read', async () => {
+  mocks.controlRead.mockResolvedValue({ paused: true, generation: 2 })
+  expect((await publish(request({}), ctx)).status).toBe(400)
+  expect((await publish(request({ revision: 2 }), { params: Promise.resolve({ id: 'missing' }) })).status).toBe(404)
+  expect(mocks.controlRead).not.toHaveBeenCalled()
 })

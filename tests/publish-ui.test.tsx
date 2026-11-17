@@ -9,6 +9,7 @@ import type { BatchDetail } from '../lib/client/hooks'
 
 const state = vi.hoisted(() => ({ role: 'owner' }))
 vi.mock('../lib/client/hooks', () => ({
+  usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
   useMe: () => ({ data: { role: state.role } }),
   useBatchRun: () => ({}),
   useBatch: () => ({}),
@@ -136,5 +137,12 @@ test('an order field counts a selected move even when its numeric position stays
 test('pointer_moved directs the Owner to Copy instead of reapproving the old Batch', () => {
   const html = renderToStaticMarkup(<RunStatusView run={{ runId: 'run', phase: 'failed', updatedAt: null, outcome: { error: 'pointer_moved' } }} />)
   expect(html).toContain('Open Publish and copy to a new Batch for fresh review.')
+  expect(html).not.toContain('Fix the Batch and approve it again.')
+})
+
+test.each(['superseded', 'publish_not_enabled'])('terminal %s preserves approval and explains that the Catalog did not advance', error => {
+  const html = renderToStaticMarkup(<RunStatusView run={{ runId: 'run', phase: 'failed', updatedAt: null, outcome: { error } }} />)
+  expect(html).toContain('The Catalog did not advance.')
+  expect(html).toContain('The Batch remains approved.')
   expect(html).not.toContain('Fix the Batch and approve it again.')
 })

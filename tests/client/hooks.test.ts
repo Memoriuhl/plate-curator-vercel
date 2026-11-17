@@ -9,6 +9,7 @@ import type { ReviewBatch } from '../../lib/review/types'
 import { useMe, useBatchRun, useReviewActions, batchesKey, useReorderState, useDraftOverlay, useEditPlate, useBatches, useBatch, usePlateDetail, usePreloadPlateDetail, useEnsureBatch, type BatchDetail } from '../../lib/client/hooks'
 import { projectFamilyPlate, expandFamilyPlate } from '../../components/dashboard/family-data'
 import { usePlateDrag } from '../../components/dashboard/use-plate-drag'
+import { usePublishBaseline, usePublishControl } from '../../lib/client/hooks'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -67,6 +68,29 @@ beforeEach(() => {
   session.api.send.mockReset()
 })
 afterEach(cleanup)
+
+test('Publish baseline does not poll and the control waits thirty seconds, with mutation refreshing baseline', async () => {
+  vi.useFakeTimers()
+  try {
+    const context = harness()
+    session.api.get.mockResolvedValue({ control: null, error: null, reviewedVersion: 1, liveVersion: 1 })
+    session.api.send.mockResolvedValue({ control: null })
+    const view = renderHook(() => ({ baseline: usePublishBaseline('draft'), control: usePublishControl(), actions: useReviewActions() }), context)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    session.api.get.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(29998) })
+    expect(session.api.get).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2) })
+    expect(session.api.get.mock.calls.map(([path]) => path)).toEqual(['/api/publish/control'])
+    session.api.get.mockClear()
+    await act(async () => { await view.result.current.control.change(false) })
+    expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft/publish')
+    session.api.get.mockClear()
+    session.api.send.mockRejectedValueOnce(new ApiError(409, 'paused', {}))
+    await act(async () => { await view.result.current.actions.publish('draft', 2) })
+    expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft/publish')
+  } finally { cleanup(); vi.useRealTimers() }
+})
 
 test('state hooks fetch on first mount, reuse cached data on revisit, and explicitly refresh after writes', async () => {
   const context = harness()

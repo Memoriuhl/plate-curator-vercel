@@ -1,11 +1,12 @@
+import { isPublishStop } from './stop'
 import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
 import { sha256, snapshotBytes } from './bytes'
-import type { PublishDeps, PublishError, PublishLease, PublishOutcome, PublishRecord } from './types'
+import type { PublishCommand, PublishDeps, PublishError, PublishLease, PublishOutcome, PublishRecord } from './types'
 import { validateSnapshot } from './validation'
 
-export async function publishBatch(d: PublishDeps, actor: Actor, command: { batchId: string; revision: number }): Promise<PublishOutcome> {
+export async function publishBatch(d: PublishDeps, actor: Actor, command: PublishCommand): Promise<PublishOutcome> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
   try {
     return await publishAttempt(d, command)
@@ -14,7 +15,7 @@ export async function publishBatch(d: PublishDeps, actor: Actor, command: { batc
   }
 }
 
-async function publishAttempt(d: PublishDeps, command: { batchId: string; revision: number }): Promise<PublishOutcome> {
+async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<PublishOutcome> {
   const id = `${command.batchId}@${command.revision}`
   const batch = await d.store.getBatch(command.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
@@ -41,6 +42,10 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
   }
   try {
     record = await d.records.get(id)
+    if (!record?.committedAt) {
+      const stop = await d.control.check(command, d.now())
+      if (stop) { keepFrozen = false; return { ok: false, error: stop } }
+    }
     const liveVersion = record?.committedAt ? record.fromVersion : (await d.pointer.read()).version
     const baselineError = publishBaselineError(batch.baselineVersion, liveVersion, record)
     if (baselineError) {
@@ -102,6 +107,10 @@ async function publishAttempt(d: PublishDeps, command: { batchId: string; revisi
       record = { ...record, url, state: 'uploaded' }
       if (!await d.records.save(record, lease.token, d.now())) return { ok: false, error: 'lock_lost' }
       const advanced = await d.pointer.advance(record, lease, d.now())
+      if (isPublishStop(advanced)) {
+        keepFrozen = false
+        return { ok: false, error: advanced }
+      }
       if (advanced !== 'advanced') return advanced === 'lock_lost' ? { ok: false, error: 'lock_lost' } : await fail(advanced)
       record = await d.records.get(id)
       if (!record?.committedAt) return { ok: false, error: 'unavailable' }

@@ -1,3 +1,5 @@
+import { isActiveOwner } from '../members/member'
+import type { Actor } from '../review/types'
 import 'server-only'
 import { resumeHook } from 'workflow/api'
 import { authenticate, parseOwnerUids } from '../auth/actor'
@@ -16,7 +18,7 @@ import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
-import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
+import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
 import type { PublishDeps } from '../publish/types'
 import { expoPushSender, firestoreCatalogPushStore, type CatalogPushDeps } from '../publish/catalog-push'
@@ -52,6 +54,15 @@ export function currentActor(request: Request) {
       activate: (email, uid, hash) => store().activate(email, uid, hash),
     },
   })
+}
+
+export async function currentActiveOwner(request: Request): Promise<{ ok: true; actor: Actor & { email: string } } | { ok: false; response: Response }> {
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth
+  if (auth.actor.role !== 'owner') return { ok: false, response: json({ error: 'forbidden' }, 403) }
+  const member = await membersStore().getByUid(auth.actor.uid)
+  if (!member || member.uid !== auth.actor.uid || !isActiveOwner(member)) return { ok: false, response: json({ error: 'forbidden' }, 403) }
+  return { ok: true, actor: { ...auth.actor, email: member.email } }
 }
 
 export function catalog(snapshotLoader: (version: number) => Promise<Snapshot> = loadSnapshot) {
@@ -146,11 +157,14 @@ export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
   }
 }
 
+export function publishControl() { return firestorePublishControl(stagingFirestore()) }
+
 export function publishDeps(): PublishDeps {
   const db = stagingFirestore()
   const env = reviewEnv()
   return {
     ...reviewDeps(),
+    control: publishControl(),
     curator: firestorePublishCurator(db, env),
     pointer: firestorePublishPointer(db, env),
     records: firestorePublishRecords(db, env),

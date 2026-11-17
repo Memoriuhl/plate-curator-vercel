@@ -1,4 +1,56 @@
-# Stale Publish recovery (#119)
+# Publish controls and recovery (#126, #119)
+
+## Pause and Resume
+
+Active Owners use the Catalog publishing control in Publish to Pause or Resume.
+The screen shows the last actor and time. Editors cannot change the control.
+Draft edits, Submit and Approve continue while publishing is paused. Existing
+deployment restrictions still apply to changing the control and requesting Publish.
+
+`config/publishControl` sits beside `config/catalog`, shared by every deployment
+targeting that Catalog, independently of the dashboard environment key. Every
+Pause and every Resume transaction increments its generation and records the
+Owner's UID, email and timestamp. Missing or malformed control data fails closed:
+no new command or pointer advance is allowed. An active Owner's first Resume
+creates a missing control at generation 1. Malformed existing data needs triage.
+
+Each accepted Publish has a distinct command ID and carries its accepted
+generation into the Workflow and immutable release receipt. The command shape
+can gain a requester authority marker alongside the generation without changing
+existing receipts. Requester revocation enforcement belongs to #127.
+
+Firestore decides the race at the pointer commit. The transaction reads the
+shared control alongside the lease, Batch, receipt and pointer. If Pause commits
+first, the command stops without advancing the pointer. A quick Pause and Resume
+changes the generation, so the old command is superseded even when publishing is
+enabled again. Missing control also stops the command. Terminal reasons persist
+in `publishCommandStops` by command ID, so step retries reproduce the same stop.
+The lease and reservation are released, the Batch stays approved with its history,
+and an uploaded but uncommitted Snapshot and receipt remain intact.
+
+If Publish committed first, its receipt wins: retries finish the bookkeeping and
+report the same published version even after Pause or a generation change. They
+never advance the pointer a second time or replace that outcome with a stop.
+Pause does not roll back a published Catalog.
+
+Resume only permits new requests. It never restarts a stopped Workflow. Publishing
+a stopped Batch requires an explicit fresh Publish command under the current
+generation. The dedicated retry UI and prepared Snapshot reuse are tracked in
+#128; Snapshot abandonment remains #129. Until those recovery paths are available,
+keep stopped receipts and Snapshots for triage rather than deleting or restarting
+their commands.
+
+## Known gap until #128/#129
+
+A stop after upload but before the pointer commit leaves an uploaded receipt
+bound to the stopped command. A fresh click on the same Batch then reports
+`paused`, and any other Batch attempting to take that Snapshot version hits
+`version_taken`. The Catalog stays on its old version: this is fail-safe, but it
+blocks further publishing. Recovery comes with explicit retry (#128) and Snapshot
+abandonment (#129). Until those paths ship, preserve the receipt and uploaded
+Snapshot for triage.
+
+## Stale baseline
 
 A fresh Publish reads `config/catalog` under the Publish lease. If its version
 is different from the approved Batch's `baselineVersion`, it returns
@@ -55,11 +107,28 @@ Updating routes or promoting a deployment does not retrofit the new guard into
 those older steps. New route preflight alone is insufficient: an already accepted
 command can execute the older publisher.
 
+Before Resume, inventory older waiting or executing approval Workflows by Batch,
+revision and starting deployment. Runs are pinned to their starting deployment:
+older code never reads the publication control. Creating the control document
+does not supersede or stop those older runs. Fence their uncommitted Batches by
+moving them out of `approved` through the normal review edit flow before Resume.
+Verify the authoritative Batch state and that no older run can advance a pointer.
+Already committed receipts must finish bookkeeping instead of being fenced as
+uncommitted work. An in-flight pointer commit still determines which outcome won.
+
+After fencing older runs, Submit and Approve again on the fixed deployment (or
+copy stale proposals for fresh review). A redeploy, new route URL or Resume does
+not change the code of an old run. Only commands reaching the new publisher are
+checked for a missing generation and treated as superseded when the control
+exists; this does not protect runs executing older publisher code. Hosted proof
+with newly started runs and the legacy-run fence are release gates before relying
+on Pause.
+
 Before relying on this guard for a release, inventory waiting and executing
 approval runs by Batch, revision and deployment. Let already committed attempts
 finish bookkeeping from their receipts. Investigate uncommitted legacy mismatches
-without advancing their pointers. Supersede waiting pre-fix approval runs through
-the normal review edit/resubmit flow, then Submit and Approve again on the fixed
+without advancing their pointers. Fence waiting pre-fix approval runs by moving
+their Batches out of `approved` before Resume, then Submit and Approve on the fixed
 deployment; for a stale baseline, use the new copy flow instead. Do not assume a
 redeploy or a request sent to a new URL changes an old run's deployment. Verify
 that no waiting pre-fix run can still receive a Publish command before proceeding.

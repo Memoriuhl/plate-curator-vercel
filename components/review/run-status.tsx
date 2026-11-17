@@ -1,5 +1,6 @@
 'use client'
 
+import { isPublishStop, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useEffect, useState } from 'react'
 import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
@@ -22,6 +23,7 @@ const phases = [
   'published',
 ]
 const failures: Record<string, string> = {
+  ...PUBLISH_STOP_MESSAGES,
   [BASELINE_ERRORS.stale]: 'The Catalog changed since this Batch was reviewed.',
   [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
   pointer_moved: 'The Catalog moved during Publish.',
@@ -92,13 +94,14 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               {failures[run.outcome?.error ?? ''] ??
                 'Publish could not complete.'}
             </p>
+            {isPublishStop(run.outcome?.error) && <p>The Catalog did not advance.</p>}
             <ul className="list-disc pl-5">
               {run.outcome?.reasons?.map((reason, index) => (
                 <li key={index}>{reason}</li>
               ))}
             </ul>
             {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
-            <p>{(isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
+            <p>{isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish request is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (

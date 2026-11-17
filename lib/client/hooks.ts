@@ -1,5 +1,6 @@
 'use client'
 
+import { PUBLISH_STOP_MESSAGES } from '../publish/stop'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
@@ -9,6 +10,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
+import type { PublishControlState, PublishStop } from '../publish/types'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -112,7 +114,20 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
+export type PublishBaselineStatus =
+  | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
+  | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
+
+export function usePublishControl() {
+  const { user, api } = useSession()
+  const { mutate } = useSWRConfig()
+  const status = useSWR<{ control: PublishControlState | null }>(user ? '/api/publish/control' : null, api.get, { refreshInterval: 30000 })
+  return { ...status, async change(paused: boolean) {
+    const result = await api.send<{ control: PublishControlState }>('POST', '/api/publish/control', { paused })
+    await status.mutate(result, { revalidate: false })
+    await mutate(key => typeof key === 'string' && key.startsWith('/api/batches/') && key.endsWith('/publish')).catch(() => undefined)
+  } }
+}
 
 export function usePublishBaseline(id: string) {
   const { user, api } = useSession()
@@ -130,19 +145,20 @@ export function useReviewActions() {
         await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision })
         publishWindows.set(batchId, Date.now() + 30000)
         window.dispatchEvent(new Event('batch-publish-requested'))
-        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`)]).catch(() => undefined)
+        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
         return { ok: true }
       } catch (error) {
         const messages: Record<string, string> = {
           [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
           [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
+          ...PUBLISH_STOP_MESSAGES,
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed since approval and must be re-approved.',
           not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',
           forbidden: 'Only the Owner can Publish.',
           not_found: 'This Batch could not be found.',
         }
-        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`)]).catch(() => undefined)
+        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
         return { ok: false, ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
       }
     },
