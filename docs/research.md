@@ -189,10 +189,11 @@ acceptance on that Preview, and authenticated remote terminal use remain unverif
 The walkthrough is tracked in Herdr Tasks. Search-provider credentials are also
 still missing; Wikipedia works without them.
 
-Before integrating this branch, rebase onto PR #174's shared story validators.
+This branch is rebased onto merged PR #174 and imports its shared story validators.
 That PR owns the canonical shape: at most four facts and eight read-more links,
-link title at most 200 characters, required site at most 120, fact source title at
-most 300, and HTTP(S) URLs at most 2048. Eve may generate at most four links. Its
-acceptance must use the shared story validator; the local pipeline flag belongs
-only at direct Batch-edit input. Preserve the scoped review transaction and image
-provenance during that rebase.
+link title and site at most 200 characters, fact source title at most 200, and
+HTTP(S) URLs at most 2048. Eve always provides a non-empty site and may generate at most four links. Its
+acceptance uses the shared story validator; the local pipeline flag gates direct
+Batch-edit input. The domain preserves validated story fields with that flag off,
+as do Standard rebuilds and unrelated edits. The scoped review transaction and
+image provenance are preserved.

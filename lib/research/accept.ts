@@ -2,12 +2,18 @@ import type { Actor, EditableFields, Outcome, ReviewBatch } from '../review/type
 import type { Plate } from '../catalog/types'
 import { proposeEdit } from '../review/batch'
 import { plateRevision } from '../review/revision'
-import { parseEditableFields } from '../review/fields'
+import { parseEditableFields, parseStoryFields } from '../review/fields'
 import type { ResearchDeps, ResearchError } from './jobs'
+import type { EvidenceSource } from './types'
 import { validateResearchResult } from './validate'
 
 export const researchFields = ['description', 'funFacts', 'readMore', 'wikiUrl'] as const
 export type ResearchField = typeof researchFields[number]
+
+function citationLabels(source: EvidenceSource) {
+  const site = new URL(source.url).hostname.slice(0, 200)
+  return { title: source.title.trim().slice(0, 200) || site, site }
+}
 
 export async function acceptResearch(deps: ResearchDeps, actor: Actor, request: { jobId: string; baseRevision: string; fields: string[]; draft?: unknown }): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }> | { ok: false; error: ResearchError }> {
   if (!(await deps.active(actor.uid))) return { ok: false, error: 'forbidden' }
@@ -33,13 +39,16 @@ export async function acceptResearch(deps: ResearchDeps, actor: Actor, request: 
     const fields: EditableFields = {}
     for (const field of new Set(request.fields)) {
       if (field === 'description' && draft.description) fields.description = draft.description
-      else if (field === 'funFacts' && draft.funFacts.length) fields.funFacts = draft.funFacts.map(fact => ({ text: fact.text, sourceUrl: sources.get(fact.sourceId)!.url, sourceTitle: sources.get(fact.sourceId)!.title }))
-      else if (field === 'readMore' && draft.readMore.length) fields.readMore = draft.readMore.map(id => { const source = sources.get(id)!; return { title: source.title, url: source.url, site: new URL(source.url).hostname } })
+      else if (field === 'funFacts' && draft.funFacts.length) fields.funFacts = draft.funFacts.map(fact => { const source = sources.get(fact.sourceId)!; return { text: fact.text, sourceUrl: source.url, sourceTitle: citationLabels(source).title } })
+      else if (field === 'readMore' && draft.readMore.length) fields.readMore = draft.readMore.map(id => { const source = sources.get(id)!; return { ...citationLabels(source), url: source.url } })
       else if (field === 'wikiUrl' && draft.wikiSource) fields.wikiUrl = sources.get(draft.wikiSource)!.url
       else return { ok: false as const, error: 'invalid_result' as const }
     }
-    if (!parseEditableFields(fields)) return { ok: false as const, error: 'invalid_result' as const }
-    const result = await proposeEdit(review, actor, { batchId: batch.id, plateId: baseline.id, baseRevision: currentRevision, fields })
+    const { description, ...story } = fields
+    const descriptionFields = description === undefined ? {} : parseEditableFields({ description })
+    const storyFields = Object.keys(story).length ? parseStoryFields(story) : {}
+    if (!descriptionFields || !storyFields) return { ok: false as const, error: 'invalid_result' as const }
+    const result = await proposeEdit(review, actor, { batchId: batch.id, plateId: baseline.id, baseRevision: currentRevision, fields: { ...descriptionFields, ...storyFields } })
     if (result.ok) {
       tx.set({ ...job, acceptedRevision: plateRevision(result.value.plate), acceptedFields: [...new Set([...(job.acceptedFields ?? []), ...request.fields])] })
       superseded = batch.state !== 'open' ? batch : undefined

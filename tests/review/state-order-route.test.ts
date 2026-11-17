@@ -95,3 +95,15 @@ test('deletion PATCH requires authentication and rejects stale plate revisions',
   expect((await patch()).status).toBe(409)
   expect(await context.reviewDeps().store.getEdit('batch', 'one')).toMatchObject({ fields: { deleted: true } })
 })
+
+test('direct PATCH cannot set story fields while local editing is disabled', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  try {
+    const response = await PATCH(new Request('https://example.com/api/batches/batch/plates/one', {
+      method: 'PATCH', body: JSON.stringify({ baseRevision: 'revision', fields: { funFacts: [{ text: 'A cited fact', sourceUrl: 'https://example.com/fact' }] } }),
+    }), { params: Promise.resolve({ id: 'batch', plateId: 'one' }) })
+    expect(response.status).toBe(400)
+    expect(await context.reviewDeps().store.listEdits('batch')).toEqual([])
+    expect((await context.reviewDeps().store.getBatch('batch'))!.revision).toBe(4)
+  } finally { vi.unstubAllEnvs() }
+})
