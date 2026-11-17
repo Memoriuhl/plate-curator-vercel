@@ -5,7 +5,7 @@ export const localStageReasons: Record<string, string> = {
   'Wiki link': 'Needs a reference-search job and draft result',
   Colors: 'Needs a color job and editable color fields',
   Describe: 'Needs a sourced description job and draft result',
-  Story: 'Needs a sourced story job and editable story fields',
+  Story: 'Needs a sourced story job and draft result',
   Group: 'Needs a grouping job and family draft results',
   Order: 'No automatic ordering implementation',
 }

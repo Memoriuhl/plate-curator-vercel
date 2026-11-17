@@ -8,7 +8,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
-import type { Plate } from '../catalog/types'
+import type { Plate, StoryFields } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
@@ -201,7 +201,7 @@ export function useReviewActions() {
   }
 }
 
-export type OverlaidPlate = PlateCardData & { changedInBatch: boolean }
+export type OverlaidPlate = PlateCardData & StoryFields & { changedInBatch: boolean }
 
 function mostRecentBatch(batches: ReviewBatch[] | undefined): ReviewBatch | undefined {
   const updated = (batch: ReviewBatch) => (batch as ReviewBatch & { updatedAt?: string }).updatedAt ?? batch.createdAt
@@ -244,6 +244,10 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
         ...ordered, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
         templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
+        ...('funFacts' in card ? {
+          funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [],
+          firstIssuedYear: proposed.firstIssuedYear ?? null, sourceUrl: proposed.sourceUrl ?? null, wikiUrl: proposed.wikiUrl ?? null,
+        } : {}),
         complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,
       }
     })

@@ -4,7 +4,7 @@ import { useId, useState } from 'react'
 import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
-import type { Plate } from '@/lib/catalog/types'
+import type { Plate, FunFact, ReadMoreLink } from '@/lib/catalog/types'
 
 const changeFields = {
   Edited: [
@@ -19,6 +19,10 @@ const changeFields = {
   Regrouped: ['templateFamily', 'templateRole', 'variantOfPlateId'],
   Reordered: ['sortOrder'],
 }
+const storyKeys = ['funFacts', 'firstIssuedYear', 'readMore']
+const storyChanges = () => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? storyKeys : []
+const factText = (facts?: FunFact[]) => facts?.map(fact => [fact.text, fact.sourceTitle, fact.sourceUrl].filter(Boolean).join('\n')).join('\n\n')
+const linkText = (links?: ReadMoreLink[]) => links?.map(link => `${link.title} · ${link.site}\n${link.url}`).join('\n\n')
 
 export function changeSummary(
   before: Plate,
@@ -27,6 +31,8 @@ export function changeSummary(
   group?: keyof typeof changeFields,
 ) {
   if (after.deleted) return 'Deleted at next Publish'
+  const story = storyChanges()
+  const groupKeys = group ? [...changeFields[group], ...(group === 'Edited' ? story : [])] : null
   return (
     [
       'image',
@@ -40,8 +46,9 @@ export function changeSummary(
       'isStandard',
       'sourceUrl',
       'wikiUrl',
+      ...story,
     ]
-      .filter((key) => !group || changeFields[group].includes(key))
+      .filter((key) => !groupKeys || groupKeys.includes(key))
       .flatMap((key) => {
         if (JSON.stringify(before[key]) === JSON.stringify(after[key]))
           return []
@@ -95,6 +102,7 @@ export function DiffTable({
 }) {
   const [visibleSide, setVisibleSide] = useState<'before' | 'after'>('before')
   const comparisonId = useId()
+  const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
   const position = (plate: Plate) =>
     `${order.indexOf(plate.id) + 1} of ${order.length}`
   const rows = [
@@ -129,7 +137,11 @@ export function DiffTable({
       after.isStandard ? 'Yes' : 'No',
     ],
     ['Rarity', 'not available', 'not available'],
-    ['Fun facts', 'none', 'none'],
+    ['Fun facts', local ? factText(before.funFacts) : 'none', local ? factText(after.funFacts) : 'none'],
+    ...(local ? [
+      ['First issued', before.firstIssuedYear, after.firstIssuedYear],
+      ['Read more', linkText(before.readMore), linkText(after.readMore)],
+    ] : []),
     [
       'Links',
       [before.sourceUrl, before.wikiUrl].filter(Boolean).join(', '),
@@ -162,7 +174,7 @@ export function DiffTable({
           ? 'bg-[var(--danger-tint)]'
           : 'bg-[var(--success-tint)]'
         return (
-          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-14 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
+          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:grid md:grid-rows-subgrid', local ? 'md:row-span-16' : 'md:row-span-14', visibleSide === side ? 'grid' : 'hidden')}>
             <h3 className="font-semibold">{side === 'before' ? `Before · Catalog v${version}` : `After · rev ${revision}`}</h3>
             {rows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
@@ -212,7 +224,7 @@ export function groupChanges(plates: BatchDetail['plates']) {
     )
   return {
     Deleted: plates.filter(entry => entry.proposed.deleted === true),
-    Edited: plates.filter((entry) => changed(entry, changeFields.Edited)),
+    Edited: plates.filter((entry) => changed(entry, [...changeFields.Edited, ...storyChanges()])),
     Regrouped: plates.filter((entry) => changed(entry, changeFields.Regrouped)),
     Reordered: plates.filter((entry) =>
       !entry.proposed.deleted && (entry.order !== undefined || changed(entry, changeFields.Reordered)),

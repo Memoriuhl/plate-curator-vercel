@@ -1,4 +1,14 @@
-export type Plate = {
+export type FunFact = { text: string; sourceUrl: string; sourceTitle?: string }
+export type ReadMoreLink = { title: string; site: string; url: string }
+export type StoryFields = {
+  funFacts?: FunFact[]
+  firstIssuedYear?: number | null
+  sourceUrl?: string | null
+  wikiUrl?: string | null
+  readMore?: ReadMoreLink[]
+}
+
+export type Plate = StoryFields & {
   deleted?: boolean
   id: string
   state: string
