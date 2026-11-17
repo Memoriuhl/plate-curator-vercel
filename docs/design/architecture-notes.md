@@ -33,3 +33,30 @@ Until decision 25 (browser Firestore listeners) is settled, "live" reads use the
 - Disabled while the contract check fails or the batch is older than live.
 - Region picker: jurisdiction lists are server-rendered per region; codes are unique across the catalog.
 
+
+
+## Shared Batch live reads
+
+Batch creation and every successful review commit write exactly `{ revision }` to
+`curatorLive/{encodeURIComponent(reviewEnv())}/batchRevisions/{batchId}` in the
+same transaction as the draft. A rejected or failed commit cannot announce a new
+revision. The authenticated Batch detail API reads metadata and proposed edits
+in one read-only transaction; draft contents stay behind that API.
+
+`POST /api/live-access` uses the existing Member or configured Owner authorization
+and merges a one-hour Firestore Timestamp into
+`curatorLiveAccess/{uid}.envs[envKey]`. Removing a bound Member deletes the grant
+in the same transaction. The versioned rule permits only individual signal reads
+with a fresh grant for that environment. Client writes, listing, grant reads and
+all other document access are denied.
+
+Existing staging Batches can receive missing signals with `npm run backfill:signals`.
+The script checks the staging project before accessing Firestore, scopes the scan
+to the current review environment, and transactionally initializes only missing
+signals from the current batch revision. It does not overwrite an existing signal.
+The script is provided for a separate staging operation; it is not run as part of
+implementation or deployment.
+
+Rules are not deployed from this repository. Staging rules belong to
+`License-Plate-Game/firestore.rules`; deploying requires merging the live signal
+and grant blocks into that file while retaining the game's existing rules.

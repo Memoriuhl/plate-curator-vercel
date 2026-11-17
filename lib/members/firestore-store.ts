@@ -27,7 +27,10 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
         if (owners.docs.filter(doc => isActiveOwner(doc.data() as Member)).length <= 1) return 'last_owner'
       }
       if (role) transaction.update(document, { role })
-      else transaction.delete(document)
+      else {
+        transaction.delete(document)
+        if (member.uid) transaction.delete(db.doc(`curatorLiveAccess/${member.uid}`))
+      }
       return 'ok'
     })
   }
@@ -73,8 +76,11 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
     async remove(email) {
       return db.runTransaction(async transaction => {
         const document = ref(email)
-        if (!(await transaction.get(document)).exists) return 'not_found'
+        const snapshot = await transaction.get(document)
+        if (!snapshot.exists) return 'not_found'
+        const member = snapshot.data() as Member
         transaction.delete(document)
+        if (member.uid) transaction.delete(db.doc(`curatorLiveAccess/${member.uid}`))
         return 'ok'
       })
     },

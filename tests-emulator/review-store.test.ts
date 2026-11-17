@@ -14,11 +14,13 @@ const edit: ProposedEdit = { plateId: 'one', baseRevision: 'before', fields: { t
 
 beforeEach(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
+  await db.recursiveDelete(db.collection('curatorLive'))
   await db.doc('reviewBatches/batch').set({ ...batch, env })
 })
 
 afterAll(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
+  await db.recursiveDelete(db.collection('curatorLive'))
   await db.terminate()
 })
 
@@ -50,6 +52,7 @@ test('a batch from another env is invisible', async () => {
   await db.doc('reviewBatches/batch/edits/one').set(edit)
   const otherStore = firestoreReviewStore(db, 'production')
   expect(await otherStore.getBatch('batch')).toBeNull()
+  expect(await otherStore.readBatch('batch')).toBeNull()
   expect(await otherStore.getEdit('batch', 'one')).toBeNull()
   expect(await otherStore.listEdits('batch')).toEqual([])
   expect(await otherStore.commit('batch', 4, { batch: { ...batch, revision: 5 }, deleteEditFor: 'one' })).toBe('revision_mismatch')
@@ -81,6 +84,7 @@ test('a failed edit write leaves the batch unchanged', async () => {
 
 reviewQueryScenarios(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
+  await db.recursiveDelete(db.collection('curatorLive'))
   return firestoreReviewStore(db, env)
 })
 
@@ -103,6 +107,49 @@ test('legacy batches read back with a null creator name without migration', asyn
   await db.doc('reviewBatches/batch').set(legacy)
   expect(await store.getBatch('batch')).toEqual({ ...batch, createdByName: null })
   expect(await store.list({})).toEqual([{ ...batch, createdByName: null }])
+  expect(await store.readBatch('batch')).toEqual({ batch: { ...batch, createdByName: null }, edits: [] })
   expect((await db.doc('reviewBatches/batch').get()).data()).not.toHaveProperty('createdByName')
   expect((await db.doc('reviewBatches/batch').get()).data()).not.toHaveProperty('stateOrders')
+})
+
+test('create initializes the revision signal and duplicate creation preserves it', async () => {
+  const created = { ...batch, id: randomUUID(), revision: 0 }
+  expect(await store.create(created)).toBe('ok')
+  expect((await db.doc(`curatorLive/preview-test/batchRevisions/${created.id}`).get()).data()).toEqual({ revision: 0 })
+  expect(await store.create({ ...created, revision: 10 })).toBe('exists')
+  expect((await db.doc(`curatorLive/preview-test/batchRevisions/${created.id}`).get()).data()).toEqual({ revision: 0 })
+})
+
+test('signal and coherent draft advance together, including under concurrent reads', async () => {
+  await db.doc('curatorLive/preview-test/batchRevisions/batch').set({ revision: 4 })
+  for (let revision = 5; revision <= 8; revision += 1) {
+    const [observed] = await Promise.all([
+      db.runTransaction(async tx => {
+        const batchDoc = await tx.get(db.doc('reviewBatches/batch'))
+        const signal = await tx.get(db.doc('curatorLive/preview-test/batchRevisions/batch'))
+        return [batchDoc.get('revision'), signal.get('revision')]
+      }, { readOnly: true }),
+      store.commit('batch', revision - 1, { batch: { ...batch, revision }, edit }),
+    ])
+    expect(observed[0]).toBe(observed[1])
+  }
+  expect(await store.readBatch('batch')).toEqual({ batch: { ...batch, revision: 8 }, edits: [edit] })
+  expect((await db.doc('curatorLive/preview-test/batchRevisions/batch').get()).data()).toEqual({ revision: 8 })
+})
+
+test.each(['stale', 'reserved', 'wrong-env', 'invalid-write'])('%s rejection preserves both draft and signal', async reason => {
+  const signal = db.doc('curatorLive/preview-test/batchRevisions/batch')
+  await signal.set({ revision: 4 })
+  if (reason === 'reserved') await db.doc('reviewBatches/batch').update({ publishReservation: { token: 'reserved', recordId: 'missing' } })
+  const before = (await db.doc('reviewBatches/batch').get()).data()
+  const committing = (reason === 'wrong-env' ? firestoreReviewStore(db, 'production') : store).commit('batch', reason === 'stale' ? 3 : 4, {
+    batch: { ...batch, revision: 5 }, edit: reason === 'invalid-write' ? { ...edit, fields: { templateFamily: undefined } } : edit,
+    ...(reason === 'reserved' ? { publishToken: 'reserved' } : {}),
+  })
+  if (reason === 'invalid-write') await expect(committing).rejects.toThrow()
+  else expect(await committing).toBe('revision_mismatch')
+  expect((await db.doc('reviewBatches/batch').get()).data()).toEqual(before)
+  expect((await signal.get()).data()).toEqual({ revision: 4 })
+  expect((await db.doc('curatorLive/production/batchRevisions/batch').get()).exists).toBe(false)
+  expect(await store.getEdit('batch', 'one')).toBeNull()
 })

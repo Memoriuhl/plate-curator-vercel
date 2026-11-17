@@ -34,6 +34,7 @@ export interface ReviewStore {
   create(batch: ReviewBatch): Promise<'ok' | 'exists'>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
+  readBatch(batchId: string): Promise<{ batch: ReviewBatch; edits: ProposedEdit[] } | null>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
   recordRun(batchId: string, revision: number, runId: string): Promise<boolean>

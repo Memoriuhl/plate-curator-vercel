@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /curatorLive/{envKey}/batchRevisions/{batchId} {
+      allow get: if request.auth != null
+        && get(/databases/$(database)/documents/curatorLiveAccess/$(request.auth.uid)).data.envs[envKey] > request.time;
+    }
+    match /curatorLiveAccess/{uid} {
+      allow read, write: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

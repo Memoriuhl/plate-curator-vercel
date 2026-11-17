@@ -1,13 +1,18 @@
 import type { Firestore } from '@google-cloud/firestore'
+import { liveEnvKey, signalPath } from './live-signal'
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
 export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
   const batches = db.collection('reviewBatches')
+  const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
 
   return {
     async create(batch) {
       try {
-        await batches.doc(batch.id).create({ ...batch, env })
+        await db.runTransaction(async transaction => {
+          transaction.create(batches.doc(batch.id), { ...batch, env })
+          transaction.set(signal(batch.id), { revision: batch.revision })
+        })
         return 'ok'
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 6) return 'exists'
@@ -33,6 +38,21 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
         if (!batch.exists || batch.get('env') !== env) return []
         const edits = await transaction.get(batchRef.collection('edits'))
         return edits.docs.map(doc => doc.data() as ProposedEdit)
+      }, { readOnly: true })
+    },
+    async readBatch(batchId) {
+      return db.runTransaction(async transaction => {
+        const ref = batches.doc(batchId)
+        const snapshot = await transaction.get(ref)
+        if (!snapshot.exists || snapshot.get('env') !== env) return null
+        const edits = await transaction.get(ref.collection('edits'))
+        const batch = snapshot.data()!
+        delete batch.env
+        delete batch.publishReservation
+        return {
+          batch: { ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} } as ReviewBatch,
+          edits: edits.docs.map(doc => doc.data() as ProposedEdit),
+        }
       }, { readOnly: true })
     },
     async getBatch(id) {
@@ -87,6 +107,7 @@ export function firestoreReviewStore(db: Firestore, env: string): ReviewStore {
           ...(batch.get('publishRequestedAt') && ['approved', 'published'].includes(next.batch.state) ? { publishRequestedAt: batch.get('publishRequestedAt') } : {}),
           env,
         })
+        transaction.set(signal(batchId), { revision: next.batch.revision })
         if (next.deleteEditFor !== undefined) {
           transaction.delete(batchRef.collection('edits').doc(next.deleteEditFor))
         }

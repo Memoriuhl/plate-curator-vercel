@@ -112,6 +112,29 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     expect(await store.listEdits(input.id)).toEqual([await store.getEdit(input.id, 'one')])
   })
 
+  test('reads a coherent batch and edits through concurrent commits', async () => {
+    const { deps, store } = await setup()
+    await createBatch(deps, editor, input)
+    expect(await store.readBatch('missing')).toBeNull()
+    const created = (await store.getBatch(input.id))!
+    for (let revision = 1; revision <= 3; revision += 1) {
+      const edit = { plateId: 'one', baseRevision: 'base', fields: { tags: [String(revision)] }, authorId: editor.uid, updatedAt: createdAt, resultRevision: String(revision) }
+      const [snapshot] = await Promise.all([
+        store.readBatch(input.id),
+        store.commit(input.id, revision - 1, { batch: { ...created, revision }, edit }),
+      ])
+      expect(snapshot).not.toBeNull()
+      expect(snapshot!.edits).toEqual(snapshot!.batch.revision === 0 ? [] : [{ ...edit, fields: { tags: [String(snapshot!.batch.revision)] }, resultRevision: String(snapshot!.batch.revision) }])
+    }
+    const saved = (await store.readBatch(input.id))!
+    expect(saved.batch.revision).toBe(3)
+    saved.batch.name = 'Outside'
+    saved.edits[0].fields.tags!.push('outside')
+    expect(await store.readBatch(input.id)).toMatchObject({ batch: { name: input.name }, edits: [{ fields: { tags: ['3'] } }] })
+    const detail = await batchDetail({ ...deps, store: { ...store, getBatch: async () => { throw new Error('split batch read') }, listEdits: async () => { throw new Error('split edits read') } } }, input.id)
+    expect(detail).toMatchObject({ ok: true, value: { batch: { revision: 3 }, plates: [{}, { proposed: { tags: ['3'] } }] } })
+  })
+
   test('detail revision round-trips into proposeEdit', async () => {
     const { deps } = await setup()
     await createBatch(deps, editor, input)
