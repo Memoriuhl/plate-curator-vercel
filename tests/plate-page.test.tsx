@@ -362,3 +362,23 @@ test.each([1, 2])('templates with %i linked variants cannot be added', count => 
   expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(state.edit).not.toHaveBeenCalled()
 })
+
+test('delete requires confirmation and Cancel leaves the batch unchanged', async () => {
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
+  expect(screen.getByRole('alertdialog')).toBeTruthy()
+  expect(screen.getByText('It is removed from the game at the next Publish. You can undo until then.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(state.edit).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(state.edit).toHaveBeenCalledWith(expect.objectContaining({ id: army.id }), { deleted: true }))
+})
+
+test('pending deletion remains visible and can be undone', async () => {
+  state.remote = { ...army, deleted: true }
+  state.refreshed = true
+  render(<PlatePage {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
+  await waitFor(() => expect(state.edit).toHaveBeenCalledWith(expect.objectContaining({ id: army.id }), { deleted: false }))
+})

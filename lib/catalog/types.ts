@@ -1,4 +1,5 @@
 export type Plate = {
+  deleted?: boolean
   id: string
   state: string
   slug: string

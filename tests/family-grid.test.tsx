@@ -130,6 +130,7 @@ test('server projection contains only grid fields and check statuses, never full
   const slim = projectFamilyPlate(base)
   expect(Object.keys(slim).sort()).toEqual(
     [
+      'deleted',
       'id',
       'revision',
       'displayName',
@@ -181,4 +182,13 @@ test('large families server-render only a bounded variant window and retain the 
   expect(html).toContain('aria-setsize="990"')
   expect(html).not.toContain('href="/plates/variant-989"')
   expect(html).toContain('role="listitem"')
+})
+
+test('pending deletions remain in the family grid with an undo action', () => {
+  const deleted = { ...head, deleted: true }
+  expect(expandFamilyPlate(projectFamilyPlate(deleted)).deleted).toBe(true)
+  const html = renderToStaticMarkup(<FamilyCard template={deleted} variants={[variant]} canEdit onUndoDelete={() => {}} />)
+  expect(html).toContain('Undo delete')
+  expect(html).toContain('line-through')
+  expect(html).toContain(variant.displayName)
 })

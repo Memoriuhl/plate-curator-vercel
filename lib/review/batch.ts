@@ -5,7 +5,7 @@ import { limits } from './fields'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps } from './types'
 
-const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description'] as const
+const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
 
 export async function proposeEdit(
   d: ReviewDeps,
@@ -28,6 +28,7 @@ export async function proposeEdit(
       .filter(key => i.fields[key] !== undefined)
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
+    if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
     const fields: EditableFields = Object.fromEntries(editableKeys
       .filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key]))
       .map(key => [key, plate[key]]))

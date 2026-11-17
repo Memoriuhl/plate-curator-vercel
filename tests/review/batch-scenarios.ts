@@ -31,6 +31,28 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     return { deps, store, input }
   }
 
+  test('undoing a deletion alone removes the proposal and restores its revision', async () => {
+    const { deps, store, input } = await setup()
+    const deleted = await proposeEdit(deps, editor, { ...input, fields: { deleted: true } })
+    if (!deleted.ok) throw new Error('expected deletion')
+    const undone = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(deleted.value.plate), fields: { deleted: false } })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    if (!undone.ok) throw new Error('expected undo')
+    expect(plateRevision(undone.value.plate)).toBe(input.baseRevision)
+  })
+
+  test('deletion guards revisions and undo preserves other edits', async () => {
+    const { deps, store, input } = await setup()
+    const changed = await proposeEdit(deps, editor, input)
+    if (!changed.ok) throw new Error('expected edit')
+    const deleted = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(changed.value.plate), fields: { deleted: true } })
+    if (!deleted.ok) throw new Error('expected deletion')
+    expect(await proposeEdit(deps, editor, { ...input, fields: { deleted: false } })).toMatchObject({ ok: false, error: 'stale_plate' })
+    expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: { deleted: true, tags: ['changed'] } })
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(deleted.value.plate), fields: { deleted: false } })).toMatchObject({ ok: true })
+    expect((await store.getEdit('batch', 'one'))?.fields).toEqual({ tags: ['changed'] })
+  })
+
   test('other editors cannot edit or submit a batch', async () => {
     const { deps, store, input } = await setup()
     const other = { ...editor, uid: 'other' }

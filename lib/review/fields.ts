@@ -1,7 +1,7 @@
 import type { EditableFields } from './types'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
-const keys = new Set(['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description'])
+const keys = new Set(['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -34,9 +34,9 @@ export function parseEditableFields(input: unknown): EditableFields | null {
     } else if (key === 'templateRole') {
       if (value !== 'template' && value !== 'variant') return null
       fields.templateRole = value
-    } else if (key === 'isStandard') {
+    } else if (key === 'isStandard' || key === 'deleted') {
       if (typeof value !== 'boolean') return null
-      fields.isStandard = value
+      fields[key] = value
     } else {
       const text = boundedText(value, limits.text)
       if (text === null) return null

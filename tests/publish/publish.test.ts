@@ -396,3 +396,17 @@ test('committed legacy receipt completes bookkeeping despite the old baseline', 
   expect(advance).not.toHaveBeenCalled()
   expect([...f.blobs.keys()]).toEqual([1, 2])
 })
+
+test('publish removes a template and detaches its variants without deleting images', async () => {
+  const f = fixture()
+  const template = { ...snapshot.plates[0], templateRole: 'template', templateFamily: 'family' }
+  const variant = { ...snapshot.plates[1], templateRole: 'variant', templateFamily: 'family', variantOfPlateId: template.id }
+  f.blobs.set(1, Buffer.from(JSON.stringify({ version: 1, plates: [template, variant] })))
+  f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { deleted: true }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  const next = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+  expect(next.plates).toHaveLength(1)
+  expect(next.plates[0]).toMatchObject({ id: 'two', image: variant.image })
+  expect(next.plates[0]).not.toHaveProperty('variantOfPlateId')
+  expect(next.plates[0]).not.toHaveProperty('deleted')
+})

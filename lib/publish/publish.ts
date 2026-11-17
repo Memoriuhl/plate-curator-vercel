@@ -90,14 +90,16 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       const orders = new Map(Object.entries(batch.stateOrders).map(([state, order]) => [state, new Map(order.map((id, index) => [id, index]))]))
       const toVersion = record?.toVersion ?? await d.records.nextVersion(lease.token, d.now())
       if (toVersion === null) return { ok: false, error: 'lock_lost' }
-      const next = { version: toVersion, plates: baseline.plates.map(plate => {
+      const deleted = new Set(edits.filter(edit => edit.fields.deleted === true).map(edit => edit.plateId))
+      const next = { version: toVersion, plates: baseline.plates.filter(plate => !deleted.has(plate.id)).map(plate => {
         const edited = { ...plate, ...fields.get(plate.id) }
-        if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
+        delete edited.deleted
+        if (fields.get(plate.id)?.variantOfPlateId === null || deleted.has(edited.variantOfPlateId ?? '')) delete edited.variantOfPlateId
         const order = orders.get(plate.state)
         if (order) edited.sortOrder = order.get(plate.id)
         return edited
       }) }
-      const reasons = validateSnapshot(baseline, next)
+      const reasons = validateSnapshot(baseline, next, deleted)
       for (const [state, order] of Object.entries(batch.stateOrders)) {
         const ids = new Set(baseline.plates.filter(plate => plate.state === state).map(plate => plate.id))
         if (order.length !== ids.size || new Set(order).size !== order.length || order.some(id => !ids.has(id))) {
