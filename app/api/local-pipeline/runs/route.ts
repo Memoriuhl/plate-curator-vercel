@@ -1,0 +1,42 @@
+import { enqueueRun, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
+import { currentActor, jobsDeps } from '../../../../lib/server/context'
+import { badRequest, json, readJson } from '../../../../lib/server/respond'
+import { queueResponse, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
+import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
+
+export async function GET(request: Request) {
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth.response
+  const result = await listRuns(jobsDeps(), auth.actor)
+  if (!result.ok) return queueResponse(result)
+  for (const run of result.value) {
+    await startQueueWorkflow(run).catch(() => undefined)
+    const attempt = run.attempts.at(-1)!
+    if (['queued', 'running'].includes(run.status)) {
+      const current = run.jobs.find(job => job.queueAttempt === attempt.number && job.queueStep === attempt.cursor)
+      if (current && current.state !== 'queued' && (current.state !== 'claimed' || run.waitReason === 'resource')) await wakeLocalJob(current)
+    }
+  }
+  const selectedId = new URL(request.url).searchParams.get('detail')
+  const selected = selectedId ? result.value.find(run => run.id === selectedId) : result.value.find(run => run.status === 'running') ?? result.value[0]
+  const summaries = result.value.map(run => ({ ...run,
+    attempts: run.attempts.map(attempt => Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))),
+    jobs: run.jobs.filter(job => job.state === 'claimed').map(job => Object.fromEntries(Object.entries(job).filter(([key]) => key !== 'inputPlate' && key !== 'result'))),
+  }))
+  const detail = selected ? { ...selected, attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
+    Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))) } : undefined
+  const orphanJobs = await listLocalOrphanJobs(jobsDeps(), auth.actor)
+  return json({ runs: summaries, orphanJobs, ...(detail ? { selected: detail } : {}) })
+}
+
+export async function POST(request: Request) {
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth.response
+  const input = parseEnqueue(await readJson(request))
+  if (!input) return badRequest()
+  const result = await enqueueRun(jobsDeps(), auth.actor, input)
+  if (result.ok) {
+    try { await startQueueWorkflow(result.value) } catch { return json({ error: 'start_failed', runId: result.value.id }, 503) }
+  }
+  return queueResponse(result, 202)
+}

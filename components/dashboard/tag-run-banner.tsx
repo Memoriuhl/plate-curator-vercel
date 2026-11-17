@@ -45,7 +45,7 @@ export function TagRunBanner({
   const [savedFields, setSavedFields] = useState<Record<string, string>>({})
   const saving = useRef(false)
   const counts = (state: string) =>
-    entries.filter((entry) => !entry.error && entry.job.state === state).length
+    entries.filter((entry) => !entry.error && entry.job.state === state && (state !== 'completed' || !entry.job.stageError)).length
   const active = starting || counts('queued') + counts('claimed') > 0
   async function acceptSpecialized(entry: RunEntry, payload: SpecializedAccept) {
     if (entry.job.previewOnly || blocked || !batchId || !entry.jobId) throw new Error('Result is unavailable')
@@ -106,6 +106,8 @@ export function TagRunBanner({
           {counts('claimed')} claimed · {entries.filter(entry => entry.job.state === 'completed' && !entry.job.stageError).length} done ·{' '}
           {counts('expired')} expired
           {entries.some(entry => entry.job.state === 'completed' && entry.job.stageError) ? ` · ${entries.filter(entry => entry.job.state === 'completed' && entry.job.stageError).length} no result` : ''}
+          {counts('failed') ? ` · ${counts('failed')} failed` : ''}
+          {counts('cancelled') ? ` · ${counts('cancelled')} cancelled` : ''}
           {entries.some((entry) => entry.error)
             ? ` · ${entries.filter((entry) => entry.error).length} failed`
             : ''}
@@ -121,7 +123,7 @@ export function TagRunBanner({
         {entries
           .filter(
             (entry) =>
-              entry.error || ['completed', 'expired'].includes(entry.job.state),
+              entry.error || ['completed', 'expired', 'failed', 'cancelled'].includes(entry.job.state),
           )
           .map((entry) => {
             const fieldSuggestion = entry.job.stage ? parseFieldSuggestion(entry.job.fieldSuggestion, entry.job.stage) : null
@@ -191,7 +193,9 @@ export function TagRunBanner({
                     )}
                   </div>
                 ) : null}
-                {entry.job.state === 'expired' || entry.error || entry.job.stageError ? (
+                {entry.job.state === 'failed' ? <p role="alert">This stage failed. Later stages did not run.</p> : null}
+                {entry.job.state === 'cancelled' ? <p role="status">Cancelled after the active stage ended.</p> : null}
+                {entry.job.state === 'expired' || entry.job.state === 'failed' || entry.error || entry.job.stageError ? (
                   <div className="flex items-center gap-2">
                     {entry.job.state === 'expired' ? (
                       <span>Timed out; try again</span>

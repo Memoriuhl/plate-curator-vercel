@@ -2,10 +2,10 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
-import { claimJob, claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
+import { claimJob, claimNext, createJob, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
 import { enqueueRun, cancelRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
-import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
-import { failLocalJob } from '../../lib/jobs/queue-failure'
+import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
+import { failLocalJob, listLocalOrphanJobs, recoverLocalOrphanJob } from '../../lib/jobs/queue-failure'
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
 import type { LocalRunStage } from '../../lib/jobs/queue-types'
 
@@ -181,4 +181,68 @@ test('unknown, retired and hosted model choices fail before any durable write; o
   const big = { ...s.deps, baseline: async () => ({ ...s.plates[0], description: 'x'.repeat(400_000) }) }
   expect(await enqueueRun(big, actor, input)).toMatchObject({ error: 'payload_too_large' })
   expect(await s.deps.store.transaction(tx => tx.runs())).toEqual([])
+})
+
+test('all direct local physical claims stay fenced after lease expiry and explicit workflow expiry; production expiry remains terminal', async () => {
+  const s = setup()
+  await createJob(s.deps, { id: 'direct', batchId: 'batch', plateId: 'AK.one', requestedBy: actor.uid, stage: 'describe' })
+  const claim = (await claimNext(s.deps, 'old-worker'))!
+  await s.run('next')
+  s.advance(11 * 60_000)
+  expect(await claimNext({ ...s.deps }, 'new-worker')).toBeNull()
+  expect(await claimJob(s.deps, 'by-id', claim.job.id)).toMatchObject({ error: 'claim_mismatch' })
+  expect(await expireJob(s.deps, claim.job.id)).toMatchObject({ value: { state: 'claimed', recoveryNeededAt: s.deps.now() } })
+  expect(await claimNext(s.deps, 'after-workflow-expiry')).toBeNull()
+  await failLocalJob(s.deps, 'old-worker', claim.job.id, claim.claimId, 'lease_expired')
+  expect(await claimNext(s.deps, 'new-worker')).not.toBeNull()
+  const production = { ...s.deps, localScope: undefined }
+  await createJob(production, { id: 'production', batchId: 'batch', plateId: 'AK.one', requestedBy: actor.uid })
+  expect(await expireJob(production, 'production')).toMatchObject({ value: { state: 'expired' } })
+})
+
+test('list keeps every visible active run after more than fifty newer terminal or invisible records', async () => {
+  const s = setup()
+  const active = await s.run('active-old')
+  await s.deps.store.transaction(async tx => {
+    const [template] = await tx.runs()
+    for (let index = 0; index < 60; index++) tx.setRun({ ...template, id: `history-${index}`, createdAt: 200 + index, status: 'completed' })
+    for (let index = 0; index < 60; index++) tx.setRun({ ...template, id: `invisible-${index}`, createdAt: 300 + index, status: 'completed', batchId: 'missing' })
+  })
+  const listed = await listRuns(s.deps, actor)
+  if (!listed.ok) throw Error(listed.error)
+  expect(listed.value).toHaveLength(51)
+  expect(listed.value.some(run => run.id === active.id && run.status === 'queued')).toBe(true)
+  expect(listed.value.filter(run => run.status === 'completed')).toHaveLength(50)
+})
+
+test('a dead worker stays reserved until explicit exact stale-claim recovery confirms it stopped', async () => {
+  const s = setup()
+  const first = await s.run('dead-worker')
+  const claim = (await claimNext(s.deps, 'dead-worker'))!
+  await s.run('waiting-behind')
+  expect(await confirmStoppedWorker(s.deps, actor, first.id, claim.job.id, claim.claimId)).toMatchObject({ error: 'invalid_state' })
+  s.advance(11 * 60_000)
+  await observeQueueStage({ ...s.deps }, first.id, 1, 0)
+  expect(await claimNext({ ...s.deps }, 'restarted-worker')).toBeNull()
+  expect(await confirmStoppedWorker(s.deps, other, first.id, claim.job.id, claim.claimId)).toMatchObject({ error: 'forbidden' })
+  expect(await confirmStoppedWorker(s.deps, actor, first.id, claim.job.id, 'stale-claim')).toMatchObject({ error: 'invalid_state' })
+  expect(await confirmStoppedWorker({ ...s.deps }, actor, first.id, claim.job.id, claim.claimId)).toMatchObject({ ok: true })
+  await observeQueueStage(s.deps, first.id, 1, 0)
+  expect((await getJob(s.deps, claim.job.id))?.recoveredBy).toBe(actor.uid)
+  expect(await claimNext(s.deps, 'restarted-worker')).not.toBeNull()
+})
+
+test('dead direct-stage jobs are visible and safely recoverable so old local APIs cannot permanently block a new queue', async () => {
+  const s = setup()
+  await createJob(s.deps, { id: 'old-direct', batchId: 'batch', plateId: 'AK.one', requestedBy: actor.uid, stage: 'describe' })
+  const direct = (await claimNext(s.deps, 'dead-direct-worker'))!
+  await s.run('waiting-after-direct')
+  s.advance(11 * 60_000)
+  expect(await claimNext({ ...s.deps }, 'restarted-worker')).toBeNull()
+  expect(await listLocalOrphanJobs(s.deps, other)).toEqual([])
+  expect(await listLocalOrphanJobs(s.deps, actor)).toMatchObject([{ id: direct.job.id, recoveryNeededAt: s.deps.now() }])
+  expect(await recoverLocalOrphanJob(s.deps, other, direct.job.id, direct.claimId)).toMatchObject({ error: 'forbidden' })
+  expect(await recoverLocalOrphanJob({ ...s.deps }, actor, direct.job.id, direct.claimId)).toMatchObject({ ok: true })
+  expect(await claimNext(s.deps, 'restarted-worker')).not.toBeNull()
+  expect(await listLocalOrphanJobs(s.deps, actor)).toEqual([])
 })

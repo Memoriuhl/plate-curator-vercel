@@ -70,7 +70,8 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
   const fingerprint = JSON.stringify({ batchId: parsed.batchId, plateIds: parsed.plateIds, stages: parsed.stages, modelId: parsed.modelId ?? null, options: parsed.options, previewOnly: parsed.previewOnly })
   const id = createHash('sha256').update(JSON.stringify([d.store.env, actor.uid, parsed.requestId])).digest('hex')
   return d.store.transaction(async tx => {
-    const existing = (await tx.runs()).find(run => run.id === id)
+    const runs = await tx.runs()
+    const existing = runs.find(run => run.id === id)
     const batch = await tx.batch(parsed.batchId)
     const error = queuePermission(batch, actor)
     if (error) return { ok: false, error }
@@ -87,7 +88,7 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
     const now = d.now()
     const run: PipelineRun = { ...parsed, modelId: choice.model.id, id, fingerprint, env: d.store.env, localScope: d.localScope!, requestedBy: actor.uid,
       resourceClass: steps.some(step => step.resourceClass === 'gpu') ? 'gpu' : 'io', options: parsed.options!, previewOnly: parsed.previewOnly!,
-      createdAt: now, queuedAt: now, updatedAt: now, status: 'queued', waitReason: 'worker',
+      createdAt: now, queuedAt: now, enqueueSequence: Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1, updatedAt: now, status: 'queued', waitReason: 'worker',
       attempts: [{ number: 1, requestId: parsed.requestId, createdAt: now, jobIds: [], status: 'queued', cursor: 0, completedJobIds: [], steps, choices: {}, projection: snapshotProjection(batch!.baselineVersion, plates) }] }
     if (!queueRecordFits(run)) return { ok: false, error: 'payload_too_large' }
     tx.setRun(run)
@@ -99,7 +100,7 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     const runs = (await tx.runs()).filter(run => run.localScope === d.localScope && (run.requestedBy === actor.uid || actor.role === 'owner'))
-      .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)).slice(0, 50)
+      .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     const jobs = await tx.list()
     const visible: QueueRunView[] = []
     const batches = new Map<string, ReviewBatch | null>()
@@ -108,9 +109,11 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
       const batch = batches.get(run.batchId)
       if (!batch || !canEdit(batch, actor)) continue
       const ids = new Set(run.attempts.flatMap(attempt => attempt.jobIds))
-      visible.push({ ...run, jobs: jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope), editable: batch.state === 'open' })
+      visible.push({ ...run, jobs: jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope), editable: batch.state === 'open',
+        applied: !!batch.pipelineApplications?.[`${run.id}:${run.attempts.at(-1)!.number}`] })
     }
-    return { ok: true, value: visible }
+    return { ok: true, value: [...visible.filter(run => ['queued', 'running'].includes(run.status)),
+      ...visible.filter(run => !['queued', 'running'].includes(run.status)).slice(0, 50)] }
   })
 }
 

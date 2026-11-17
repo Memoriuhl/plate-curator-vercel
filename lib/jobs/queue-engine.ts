@@ -39,6 +39,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     const projected = attempt.projection!.plates[step.plateId]
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
       env: d.store.env, localScope: d.localScope!, queueRunId: id, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
+      queueOrder: run.enqueueSequence,
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
       completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId ? { modelId: run.modelId } : {}),
       ...(run.options[step.stage as keyof typeof run.options] ? { stageOptions: run.options[step.stage as keyof typeof run.options] } : {}),
@@ -71,6 +72,7 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
         }
         return { phase: 'waiting' }
       }
+      if (run.waitReason !== 'inference') { run.waitReason = 'inference'; run.updatedAt = d.now(); tx.setRun(run) }
       return { phase: 'claimed', deadline: job.leaseExpiresAt }
     }
     let error = job.failure
@@ -129,6 +131,22 @@ export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jo
     if (!await currentProjectionMatches(d, tx, run, batch!)) return { ok: false, error: 'stale_input' }
     if (attempt.choices[job.id] && attempt.choices[job.id] !== candidateId) return { ok: false, error: 'invalid_state' }
     attempt.choices[job.id] = candidateId; run.updatedAt = d.now(); tx.setRun(run)
+    return { ok: true, value: run }
+  })
+}
+
+export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string, jobId: string, claimId: string): Promise<QueueOutcome<PipelineRun>> {
+  if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
+  return d.store.transaction(async tx => {
+    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    if (!run) return { ok: false, error: 'not_found' }
+    const error = queuePermission(await tx.batch(run.batchId), actor)
+    if (error) return { ok: false, error }
+    const job = await tx.get(jobId)
+    const attempt = run.attempts.at(-1)!
+    if (!job || job.queueRunId !== run.id || job.queueAttempt !== attempt.number || job.queueStep !== attempt.cursor || job.claimId !== claimId ||
+      job.state !== 'claimed' || job.leaseExpiresAt! > d.now()) return { ok: false, error: 'invalid_state' }
+    tx.set({ ...job, state: run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', endedAt: d.now(), failure: 'worker_confirmed_stopped', recoveredBy: actor.uid })
     return { ok: true, value: run }
   })
 }

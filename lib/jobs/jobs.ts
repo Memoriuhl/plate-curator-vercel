@@ -5,8 +5,8 @@ import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope } from '../review/group-context'
-import { localClaimCandidate } from './queue-claim'
-import { localQueueEnabled, queueStageTimeoutMs } from './queue'
+import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
+import { currentProjectionMatches, queueStageTimeoutMs } from './queue'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -56,7 +56,7 @@ export async function claimNext(d: JobsDeps, workerId: string) {
   return d.store.transaction(async tx => {
     const now = d.now()
     const jobs = await tx.list()
-    const local = localQueueEnabled(d)
+    const local = localClaimsEnabled(d)
     const runs = local ? await tx.runs() : []
     const job = local ? localClaimCandidate(d, jobs, runs) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
@@ -66,7 +66,7 @@ export async function claimNext(d: JobsDeps, workerId: string) {
     tx.set(claimed)
     if (job.queueRunId) {
       const run = runs.find(run => run.id === job.queueRunId)!
-      run.lastDispatchedAt = now; run.status = 'running'; run.updatedAt = now; run.waitReason = 'resource'
+      run.lastDispatchedAt = Math.max(now, ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.updatedAt = now; run.waitReason = 'resource'
       tx.setRun(run)
     }
     return { job: claimed, claimId, leaseExpiresAt }
@@ -87,8 +87,8 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
     if (job.queueRunId) return { ok: false, error: 'forbidden' }
     if (job.state === 'expired') return { ok: false, error: 'claim_expired' }
     if (job.state === 'completed') return { ok: true, value: { job, claimId: job.claimId! } }
-    if (localQueueEnabled(d) && !claimable(job, d.now())) return { ok: false, error: 'claim_mismatch' }
-    if (localQueueEnabled(d) && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
+    if (localClaimsEnabled(d) && job.state !== 'queued') return { ok: false, error: 'claim_mismatch' }
+    if (localClaimsEnabled(d) && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
     const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
     tx.set(claimed)
@@ -136,6 +136,24 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
         if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
       }
     }
+    if (job.queueRunId) {
+      const run = (await tx.runs()).find(run => run.id === job.queueRunId && run.localScope === d.localScope)
+      const attempt = run?.attempts.at(-1)
+      const projected = attempt?.projection?.plates[job.plateId]
+      if (!run || !attempt || attempt.number !== job.queueAttempt || attempt.cursor !== job.queueStep || !projected ||
+        job.inputHash !== projected.batchInputHash || job.executionHash !== projected.executionHash || !job.inputPlate ||
+        plateRevision(job.inputPlate) !== projected.executionHash) return { ok: false, error: 'stale_input' }
+      if (job.stage === 'group') {
+        const entries = Object.values(attempt.projection!.plates)
+        if (!job.groupScope || job.groupScope.length !== entries.length || new Set(job.groupScope.map(member => member.plate.id)).size !== entries.length ||
+          job.groupScope.some(member => {
+            const expected = attempt.projection!.plates[member.plate.id]
+            return !expected || member.baseRevision !== expected.batchInputHash || plateRevision(member.plate) !== expected.executionHash
+          })) return { ok: false, error: 'invalid_result' }
+        const batch = await tx.batch(job.batchId)
+        if (!batch || !await currentProjectionMatches(d, tx, run, batch)) return { ok: false, error: 'stale_input' }
+      }
+    }
     const current = await currentPlate(d, tx, job.batchId, job.plateId)
     if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
@@ -158,7 +176,14 @@ export async function expireJob(d: JobsDeps, id: string): Promise<Outcome<Taggin
   return d.store.transaction(async tx => {
     const job = await tx.get(id)
     if (!job) return { ok: false, error: 'not_found' }
+    if (d.localScope && job.localScope !== d.localScope) return { ok: false, error: 'forbidden' }
     if (job.state === 'completed' || job.state === 'expired') return { ok: true, value: job }
+    if (localClaimsEnabled(d) && job.localScope === d.localScope && job.state === 'claimed') {
+      const pending = { ...job, recoveryNeededAt: job.recoveryNeededAt ?? d.now() }
+      tx.set(pending)
+      return { ok: true, value: pending }
+    }
+    if (localClaimsEnabled(d) && (job.state === 'failed' || job.state === 'cancelled')) return { ok: true, value: job }
     const expired: TaggingJob = { ...job, state: 'expired', expiredAt: d.now() }
     tx.set(expired)
     return { ok: true, value: expired }

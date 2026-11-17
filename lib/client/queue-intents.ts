@@ -1,0 +1,38 @@
+import type { EnqueueInput } from '../jobs/queue-types'
+
+type IntentStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+type Intent = { fingerprint: string; requestId: string }
+type Intents = { version: 1; intents: Intent[] }
+
+function read(storage: IntentStorage, key: string): Intents {
+  try {
+    const value = JSON.parse(storage.getItem(key) ?? 'null') as Intents | null
+    if (value?.version === 1 && Array.isArray(value.intents)) return value
+  } catch { return { version: 1, intents: [] } }
+  return { version: 1, intents: [] }
+}
+
+export function queueRequestId(storage: IntentStorage, uid: string, operation: string, payload: unknown, id: () => string): string {
+  const key = `local-pipeline-intent:${uid}:${operation}`
+  const fingerprint = JSON.stringify(payload)
+  const saved = read(storage, key)
+  const previous = saved.intents.find(intent => intent.fingerprint === fingerprint)
+  if (previous?.fingerprint === fingerprint && typeof previous.requestId === 'string') return previous.requestId
+  if (saved.intents.length >= 20) throw Error('Too many unconfirmed queue requests; refresh saved runs first')
+  const requestId = id()
+  saved.intents.push({ fingerprint, requestId })
+  storage.setItem(key, JSON.stringify(saved))
+  return requestId
+}
+
+export function confirmQueueRequest(storage: IntentStorage, uid: string, operation: string, requestId: string) {
+  const key = `local-pipeline-intent:${uid}:${operation}`
+  const saved = read(storage, key)
+  saved.intents = saved.intents.filter(intent => intent.requestId !== requestId)
+  if (!saved.intents.length) storage.removeItem(key)
+  else storage.setItem(key, JSON.stringify(saved))
+}
+
+export function enqueueIntent(storage: IntentStorage, uid: string, input: Omit<EnqueueInput, 'requestId'>, id: () => string): EnqueueInput {
+  return { ...input, requestId: queueRequestId(storage, uid, 'enqueue', input, id) }
+}

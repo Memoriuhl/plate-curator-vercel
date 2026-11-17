@@ -34,6 +34,7 @@ export type TaggingJob = {
   queueAttempt?: number
   enqueuedBy?: string
   queueStep?: number
+  queueOrder?: number
   completionHook?: string
   stageOptions?: PipelineOptions[keyof PipelineOptions]
   resourceClass?: ResourceClass
@@ -42,6 +43,7 @@ export type TaggingJob = {
   state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
   endedAt?: number
   recoveryNeededAt?: number
+  recoveredBy?: string
   claimId?: string
   workerId?: string
   leaseExpiresAt?: number

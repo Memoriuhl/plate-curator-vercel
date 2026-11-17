@@ -33,6 +33,10 @@ interface Claim {
   standardId?: string
   stageOptions?: ImageGroupOptions
   plate: WorkerPlate
+  local?: boolean
+  queueRunId?: string
+  groupScope?: { plate: Plate; baseRevision: string }[]
+  stageOptions?: PipelineOptions[keyof PipelineOptions]
 }
 
 export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
@@ -45,7 +49,28 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   if (response.status === 204) return 'idle'
   if (!response.ok) throw new Error(`Claim failed: ${response.status}`)
   const claim = await response.json() as Claim
-  return withCapabilityHeartbeat(deps, () => executeClaim(deps, claim, headers, base))
+  return withCapabilityHeartbeat(deps, async () => {
+  if (!claim.local) return executeClaim(deps, claim, headers, base)
+  let reported = false
+  let failure = claim.stage && !deps.suggestFields ? 'no_handler' : 'report_failed'
+  try {
+    if (failure === 'no_handler') return 'dropped'
+    const outcome = await executeClaim(deps, claim, headers, base)
+    reported = outcome === 'reported'
+    if (deps.now() >= Date.parse(claim.leaseExpiresAt)) failure = 'lease_expired'
+    return outcome
+  } catch (error) {
+    failure = 'stage_failed'
+    throw error
+  } finally {
+    if (!reported) {
+      await deps.fetch(`${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/fail`, { method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ claimId: claim.claimId, error: failure }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => { deps.log('Stage ended; failure acknowledgement needs recovery') })
+    }
+  }
+  })
 }
 
 async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<string, string>, base: string): Promise<Outcome> {

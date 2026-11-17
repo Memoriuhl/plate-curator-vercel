@@ -23,6 +23,7 @@ export type ReviewBatch = {
   publishRequestedAt?: string | null
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
+  pipelineApplications?: Record<string, { by: string; at: string }>
 }
 export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description' | 'colorDetail' | 'lineageColor'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
 export type ProposedEdit = {
