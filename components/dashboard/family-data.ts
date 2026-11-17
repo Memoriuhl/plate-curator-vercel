@@ -86,19 +86,18 @@ export type FamilyPlate = Pick<
 
 export const NEEDS_WORK_CHECKS = [
   { key: 'missingDescription', label: 'No description', checkKey: 'description' },
-  { key: 'missingImage', label: 'No / corrupt image', checkKey: 'image' },
+  { key: 'missingImage', label: 'No image', checkKey: 'image' },
   { key: 'undertagged', label: 'Under-tagged', checkKey: 'tags' },
   { key: 'noFamily', label: 'No family', checkKey: 'family' },
   { key: 'generic', label: 'Generic description', checkKey: 'description' },
-  { key: 'unsourcedFact', label: 'Unsourced fact', checkKey: 'link' },
-  { key: 'standardPlate', label: 'States without exactly one standard plate', checkKey: 'family' },
+  { key: 'standardPlate', label: 'Standard plate issues', checkKey: 'family' },
   { key: 'nofunfacts', label: 'No fun facts', checkKey: 'funFacts' },
 ] as const satisfies readonly { key: string; label: string; checkKey: PlateCheckKey }[]
 
 const NEEDS_WORK_KEYS = new Set<string>(NEEDS_WORK_CHECKS.map(check => check.key))
 
 export type NeedsWorkKey = (typeof NEEDS_WORK_CHECKS)[number]['key']
-type CheckGroup = { missing: number; weak: number; total: number; ids: string[] }
+type CheckGroup = { missing: number; weak: number; total: number }
 export type FilterCounts = {
   all: number
   nofunfacts: number
@@ -112,9 +111,8 @@ function matchesCheck(plate: PlateCardData, key: string): boolean {
     case 'missingDescription': return plate.checks.description.status === 'missing'
     case 'missingImage': return plate.checks.image.status !== 'good'
     case 'undertagged': return plate.checks.tags.status !== 'good'
-    case 'noFamily': return plate.checks.family.status !== 'good'
-    case 'generic': return plate.checks.description.status !== 'good'
-    case 'unsourcedFact': return plate.checks.funFacts.status !== 'missing' && plate.checks.link.status === 'missing'
+    case 'noFamily': return plate.templateRole !== 'template' && !plate.variantOfPlateId
+    case 'generic': return plate.checks.description.status === 'weak'
     case 'nofunfacts': return plate.checks.funFacts.status === 'missing'
     default: return false
   }
@@ -136,7 +134,7 @@ function standardFixIds(states: Map<string, StateStandards>) {
     standards.length === 1 ? [] : standards.length ? standards : [candidate.id])
 }
 
-export function plateIdsForCheck(plates: readonly PlateCardData[], key: string): string[] {
+function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string): string[] {
   if (key === 'standardPlate') {
     const states = new Map<string, StateStandards>()
     for (const plate of plates) recordStandard(states, plate)
@@ -149,25 +147,32 @@ export function plateIdsForCheck(plates: readonly PlateCardData[], key: string):
   }).map(plate => plate.id)
 }
 
+export function plateIdsForCheck(plates: readonly PlateCardData[], key: string, query = ''): string[] {
+  const ids = uncheckedPlateIdsForCheck(plates, key)
+  if (!query.trim()) return ids
+  const matching = new Set(ids)
+  const changed = new Set<string>()
+  return plates.filter(plate => matching.has(plate.id) && matchesPlate(plate, 'all', query, changed)).map(plate => plate.id)
+}
+
 export function filterCounts(plates: readonly PlateCardData[]): FilterCounts {
   const groups = Object.fromEntries(NEEDS_WORK_CHECKS.map(({ key }) =>
-    [key, { missing: 0, weak: 0, total: 0, ids: [] as string[] }])) as FilterCounts['groups']
+    [key, { missing: 0, weak: 0, total: 0 }])) as FilterCounts['groups']
   const states = new Map<string, StateStandards>()
   for (const plate of plates) {
     recordStandard(states, plate)
     for (const { key, checkKey } of NEEDS_WORK_CHECKS) {
       if (!matchesCheck(plate, key)) continue
       const group = groups[key]
-      group.ids.push(plate.id)
       group.total++
-      const status = plate.checks[checkKey].status
+      const status = key === 'noFamily' ? 'missing' : plate.checks[checkKey].status
       if (status !== 'good') group[status]++
     }
   }
   const standardIds = standardFixIds(states)
   const missingStandardStates = [...states.values()].filter(state => !state.standards.length).length
   groups.standardPlate = {
-    ids: standardIds, total: standardIds.length,
+    total: standardIds.length,
     missing: missingStandardStates, weak: standardIds.length - missingStandardStates,
   }
   return { all: plates.length, nofunfacts: groups.nofunfacts.total,

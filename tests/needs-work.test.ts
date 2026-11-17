@@ -11,25 +11,29 @@ const plates = ['missing', 'weak', 'good'].map((status, index) => ({
 test('every available health category counts exactly the IDs returned by its helper', () => {
   const counts = filterCounts(plates)
   for (const { key } of NEEDS_WORK_CHECKS) {
-    expect(counts.groups[key].ids).toEqual(plateIdsForCheck(plates, key))
     expect(counts.groups[key].total).toBe(plateIdsForCheck(plates, key).length)
   }
   expect(counts.groups.missingDescription).toMatchObject({ missing: 1, weak: 0, total: 1 })
-  expect(counts.groups.generic).toMatchObject({ missing: 1, weak: 1, total: 2 })
+  expect(counts.groups.generic).toMatchObject({ missing: 0, weak: 1, total: 1 })
   expect(counts.groups.undertagged).toMatchObject({ missing: 1, weak: 1, total: 2 })
-  expect(counts.groups.noFamily.total).toBe(2)
+  expect(counts.groups.noFamily.total).toBe(plates.filter(plate => plate.templateRole !== 'template' && !plate.variantOfPlateId).length)
   expect(counts.groups.nofunfacts.total).toBe(1)
 })
 
-test('unsourced facts require an existing fact and a missing link', () => {
-  const unsourced = { ...plates[2], checks: { ...plates[2].checks, link: { status: 'missing' as const, value: null } } }
-  expect(plateIdsForCheck([...plates, unsourced], 'unsourcedFact')).toEqual([unsourced.id])
+test('family groups use legacy role and parent semantics, not check status', () => {
+  const input = [
+    { ...plates[0], templateRole: 'template' as const, variantOfPlateId: null },
+    { ...plates[1], templateRole: 'variant' as const, variantOfPlateId: 'AK.0' },
+    { ...plates[2], templateRole: null, variantOfPlateId: null },
+  ]
+  expect(plateIdsForCheck(input, 'noFamily')).toEqual(['AK.2'])
+  expect(filterCounts(input).groups.noFamily.total).toBe(1)
 })
 
 test('legacy URLs retain their missing-only or non-good behavior', () => {
   expect(plateIdsForCheck(plates, 'nofunfacts')).toEqual(['AK.0'])
   expect(plateIdsForCheck(plates, 'undertagged')).toEqual(['AK.0', 'AK.1'])
-  expect(plateIdsForCheck(plates, 'generic')).toEqual(['AK.0', 'AK.1'])
+  expect(plateIdsForCheck(plates, 'generic')).toEqual(['AK.1'])
   for (const { key } of NEEDS_WORK_CHECKS.filter(check => check.key !== 'standardPlate')) {
     expect(plates.filter(plate => matchesPlate(plate, key, '', new Set())).map(plate => plate.id)).toEqual(plateIdsForCheck(plates, key))
   }
@@ -46,7 +50,7 @@ test('standard-plate fixes span states, selecting duplicates or the first candid
   ]
   const ids = plateIdsForCheck(input, 'standardPlate')
   expect(ids).toEqual(['AK.0', 'AK.1', 'NY.first'])
-  expect(filterCounts(input).groups.standardPlate.ids).toEqual(ids)
+  expect(filterCounts(input).groups.standardPlate.total).toBe(ids.length)
   expect(input.filter(plate => matchesPlate(plate, 'standardPlate', '', new Set(), new Set(ids))).map(plate => plate.id)).toEqual(ids)
   expect(matchesPlate(input[0], 'standardPlate', 'no match', new Set(), new Set(ids))).toBe(false)
 })

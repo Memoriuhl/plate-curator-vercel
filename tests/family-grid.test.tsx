@@ -60,7 +60,7 @@ describe('filters', () => {
           : show === 'undertagged'
             ? base.checks.tags.status !== 'good'
             : show === 'generic'
-              ? base.checks.description.status !== 'good'
+              ? base.checks.description.status === 'weak'
               : true
       expect(matchesPlate(base, show, '', changed)).toBe(expected)
       if (show === 'changed')
@@ -163,7 +163,7 @@ test('server counts preserve every filter definition', () => {
     all: 1,
     nofunfacts: Number(base.checks.funFacts.status === 'missing'),
     undertagged: Number(base.checks.tags.status !== 'good'),
-    generic: Number(base.checks.description.status !== 'good'),
+    generic: Number(base.checks.description.status === 'weak'),
   })
 })
 

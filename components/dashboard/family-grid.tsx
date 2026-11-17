@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import { FilterBar } from './filter-bar'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -21,6 +22,7 @@ import { UserAvatar, userAvatarName } from '@/components/app/user-avatar'
 import { useSession } from '@/lib/client/session'
 import {
   groupFamilies,
+  filterCounts,
   matchesPlate,
   plateIdsForCheck,
   expandFamilyPlate,
@@ -39,12 +41,17 @@ export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
   return useDraftOverlay(baselines)
 }
 
-export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
+export function FamilyGrid({ plates, code, onSelectGroup }: {
+  plates: FamilyPlate[]
+  code?: string
+  onSelectGroup?(key: string, ids: string[]): void
+}) {
   const params = useSearchParams()
   const pathname = usePathname()
   const latestOverlay = useFamilyBatchOverlay(plates)
   const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(null)
   const overlaid = heldOverlay ?? latestOverlay
+  const counts = useMemo(() => filterCounts(overlaid), [overlaid])
   const workspace = useWorkspaceBatch()
   const changedIds = useMemo(
     () =>
@@ -245,6 +252,7 @@ export function FamilyGrid({ plates }: { plates: FamilyPlate[] }) {
     : undefined
   return (
     <section aria-label="Plate families" id="families">
+      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query)} onSelectGroup={onSelectGroup} /> : null}
       {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (

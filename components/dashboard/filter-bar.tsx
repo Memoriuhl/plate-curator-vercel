@@ -10,9 +10,13 @@ import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 export function FilterBar({
   counts,
   code,
+  resolveGroup,
+  onSelectGroup,
 }: {
   counts: FilterCounts
   code: string
+  resolveGroup?(key: string): string[]
+  onSelectGroup?(key: string, ids: string[]): void
 }) {
   const workspace = useWorkspaceBatch()
   const batches = useBatches(['open'], { mine: true })
@@ -20,16 +24,18 @@ export function FilterBar({
   const changedCount = new Set(
     batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
   ).size
-  return <FilterBarControls counts={counts} changedCount={changedCount} />
+  return <FilterBarControls counts={counts} changedCount={changedCount} resolveGroup={resolveGroup} onSelectGroup={onSelectGroup} />
 }
 
 export function FilterBarControls({
   counts,
   changedCount,
+  resolveGroup,
   onSelectGroup,
 }: {
   counts: FilterCounts
   changedCount: number
+  resolveGroup?(key: string): string[]
   onSelectGroup?(key: string, ids: string[]): void
 }) {
   const params = useSearchParams()
@@ -41,7 +47,6 @@ export function FilterBarControls({
     ...NEEDS_WORK_CHECKS.map(({ key, label, checkKey }) => ({
       key, label, icon: CHECK_META[checkKey].icon,
       count: counts.groups[key].total,
-      ids: counts.groups[key].ids,
       detail: key === 'standardPlate'
         ? 'Standard plates in states with several, or the first plate in states with none'
         : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
@@ -61,9 +66,11 @@ export function FilterBarControls({
                 <Toggle
                   count={filter.count}
                   onClick={event => {
-                    if (event.shiftKey && onSelectGroup && 'ids' in filter) {
+                    if (event.shiftKey && 'detail' in filter && (!filter.count || (onSelectGroup && resolveGroup))) {
                       event.preventDefault()
-                      onSelectGroup(filter.key, [...filter.ids])
+                      if (!filter.count || !onSelectGroup || !resolveGroup) return
+                      const ids = resolveGroup(filter.key)
+                      if (ids.length) onSelectGroup(filter.key, ids)
                     }
                   }}
                   pressed={selected === filter.key}
@@ -79,7 +86,7 @@ export function FilterBarControls({
               </TooltipTrigger>
               <TooltipContent>
                 {'detail' in filter ? filter.detail : filter.label}
-                {onSelectGroup && 'ids' in filter ? '; Shift-click to select group' : ''}
+                {onSelectGroup && resolveGroup && filter.count > 0 && 'detail' in filter ? '; Shift-click to select group' : ''}
               </TooltipContent>
             </Tooltip>
           </span>
