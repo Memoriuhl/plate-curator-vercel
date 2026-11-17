@@ -27,7 +27,7 @@ export function createColorStageHandler(options: { url: string; fetch?: typeof f
       ...plate.tags.map(tag => tag.trim().toLowerCase()).filter(tag => !(tag.endsWith(' text') && color(tag.slice(0, -5)))),
       ...textColors.map(color => `${color} text`),
     ])]
-    const fields = { colorDetail: background, lineageColor: broad[background] ?? background, ...(textColors.length ? { tags } : {}) }
+    const fields = { colorDetail: background, lineageColor: broad[background] ?? background, ...(textColors.length && tags.length <= 50 ? { tags } : {}) }
     const fieldSuggestion = parseFieldSuggestion({ kind: 'fields', stage: 'colors', fields, sources: [] }, 'colors')
     return fieldSuggestion ? { ...metadata, fieldSuggestion, usage: result.usage } : { ...metadata, stageError: 'no_supported_fields' }
   }

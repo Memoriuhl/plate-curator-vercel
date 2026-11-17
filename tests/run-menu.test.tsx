@@ -517,6 +517,16 @@ test('Story skips existing stories until Redo is enabled', () => {
   expect(start).toHaveBeenCalledWith([existing], false, 'desktop-gemma4-12b', 'story')
 })
 
+test.each([['Wiki link', 'wiki-link', undefined], ['Colors', 'colors', 'desktop-gemma4-12b']])('local %s starts through the typed stage contract', (label, stage, model) => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const start = vi.fn()
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Maryland" disabled={false} start={start} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: label }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(start).toHaveBeenCalledWith([plate], false, model, stage)
+})
+
 test('stage retries retain both the selected model and stage', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const { result } = renderHook(useTagRun)

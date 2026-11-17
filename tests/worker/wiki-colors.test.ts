@@ -14,6 +14,15 @@ test('Wiki link selects a relevant Wikipedia search hit without any model reques
   expect(String(fetch.mock.calls[0][0])).toMatch(/^https:\/\/en.wikipedia.org\/w\/api.php/)
 })
 
+test('Wiki link does not mistake a generic shared subject word for the named organization', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(Response.json({ query: { search: [{ title: 'Blackwater National Wildlife Refuge' }] } }))
+    .mockResolvedValueOnce(Response.json({ query: { pages: [{ title: 'Vehicle registration plates of Maryland' }] } }))
+  const result = await findWikipediaLink({ displayName: 'Wildlife Forever', state: 'MD', image: '', tags: [] }, fetch)
+  expect(result.fieldSuggestion?.fields.wikiUrl).toBe('https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Maryland')
+})
+
 test('Colors proposes legacy color fields and text-color tags while preserving unrelated tags', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ primaryColor: 'white', textColors: ['black', 'invalid'], colors: ['white'], subjects: [], themes: [], motifs: [] }) } }))

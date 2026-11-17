@@ -43,3 +43,12 @@ test('validates the actor, stage, local model and Batch ownership before startin
   expect((await POST(request({ stage: 'story' }), ctx)).status).toBe(403)
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })
+
+test('Wiki link does not require any configured model', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  mocks.choose.mockReturnValue({ ok: false, error: 'unavailable' })
+  const response = await POST(request({ stage: 'wiki-link' }), ctx)
+  expect(response.status).toBe(202)
+  expect(mocks.choose).not.toHaveBeenCalled()
+  expect(await response.json()).not.toHaveProperty('model')
+})

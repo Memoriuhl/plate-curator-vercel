@@ -15,6 +15,7 @@ import type { TaggingModelId } from '@/lib/tagging/models'
 import type { RunPlate } from './use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
+import { LOCAL_STAGE_DEFINITIONS } from '@/lib/jobs/stages'
 
 const stages = [
   [
@@ -84,9 +85,9 @@ export function RunMenu({
   const [stageName, setStageName] = useState('Tag')
   const [redoStory, setRedoStory] = useState(false)
   const activeStage = local ? stageName : 'Tag'
-  const textStage = activeStage === 'Describe' || activeStage === 'Story'
-  const localModel = textStage || activeStage === 'Colors'
-  const pipelineStage = local && activeStage !== 'Tag'
+  const definition = local ? LOCAL_STAGE_DEFINITIONS.find(stage => stage.label === activeStage) : undefined
+  const localModel = definition?.needsModel ?? false
+  const pipelineStage = definition?.stage
   const desktopModels = choice.data?.models.filter(model => model.runsOn === 'desktop')
   const textChoice = { ...choice, modelId: desktopModels?.find(model => model.id === choice.modelId)?.id as TaggingModelId | undefined ?? desktopModels?.[0]?.id as TaggingModelId | undefined,
     data: choice.data ? { ...choice.data, models: desktopModels ?? [] } : undefined }
@@ -96,7 +97,7 @@ export function RunMenu({
   const planned = useMemo(() => planTagRun(activeStage === 'Story' && !redoStory ? plates.filter(plate => !(plate.hasStory ?? plate.checks?.funFacts.status === 'good')) : plates, local && activeStage === 'Tag' && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit, activeStage, redoStory])
   const count = planned.length
   const selectedModel = activeChoice.data?.models.find(model => model.id === activeChoice.modelId)
-  const enabled = (name: string) => name === 'Tag' || local && ['Describe', 'Story', 'Wiki link', 'Colors'].includes(name)
+  const enabled = (name: string) => name === 'Tag' || local && LOCAL_STAGE_DEFINITIONS.some(stage => stage.label === name)
   return (
     <>
     <Popover open={open} onOpenChange={setOpen}>
@@ -238,7 +239,7 @@ export function RunMenu({
             <Button
               disabled={disabled || count === 0 || (local && !validLimit) || (localModel && !activeChoice.modelId)}
               onClick={() => {
-                if (pipelineStage) start(planned, false, activeStage === 'Wiki link' ? undefined : activeChoice.modelId, ({ Describe: 'describe', Story: 'story', 'Wiki link': 'wiki-link', Colors: 'colors' } as const)[activeStage as 'Describe' | 'Story' | 'Wiki link' | 'Colors'])
+                if (pipelineStage) start(planned, false, definition?.needsModel ? activeChoice.modelId : undefined, pipelineStage)
                 else start(planned, false, choice.modelId)
                 setOpen(false)
               }}

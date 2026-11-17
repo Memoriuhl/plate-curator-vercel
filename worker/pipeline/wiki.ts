@@ -11,7 +11,7 @@ export async function findWikipediaLink(plate: WorkerPlate, request: typeof fetc
   const words = plate.displayName.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 2 && !['the', 'and', 'plate', 'plates', ...(state?.toLowerCase().split(' ') ?? [])].includes(word))
   const hits = (body.query?.search ?? []).filter((hit: { title?: unknown }) => typeof hit.title === 'string' && !/^(File|Category|Template|Special):|^(list|bibliography) of |\((film|song|album|disambiguation|video game|novel)\)/i.test(hit.title)) as { title: string }[]
   const ranked = hits.map(hit => ({ ...hit, score: words.length ? words.filter(word => hit.title.toLowerCase().includes(word)).length / words.length : 0 })).sort((a, b) => b.score - a.score)
-  let title = ranked[0]?.score >= 0.5 ? ranked[0].title : null
+  let title = ranked[0]?.score >= (words.length <= 2 ? 1 : 0.75) ? ranked[0].title : null
   if (!title && state) {
     const fallback = await wikipediaQuery({ action: 'query', prop: 'info', titles: `Vehicle registration plates of ${state}`, redirects: '1' }, request)
     title = fallback.query?.pages?.find((page: { missing?: boolean; title?: unknown }) => !page.missing && typeof page.title === 'string')?.title ?? null
