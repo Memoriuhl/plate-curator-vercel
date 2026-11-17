@@ -1,4 +1,4 @@
-export const VARIANT_ROW_HEIGHT = 42
+export const VARIANT_ROW_HEIGHT = 62
 export const VARIANT_ROW_GAP = 8
 
 export function variantListCap(rows: { start: number; size: number }[]) {

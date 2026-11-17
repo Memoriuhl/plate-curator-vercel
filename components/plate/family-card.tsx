@@ -168,6 +168,7 @@ export function FamilyCard({
         }}
         className={cn(
           'relative flex items-start gap-3',
+          small && 'variant-row',
           drag?.enabled && !plate.deleted ? 'cursor-grab!' : 'cursor-pointer',
           plate.deleted && 'opacity-60 [&_h3]:line-through',
           matches && !matches(plate) && 'opacity-35',
@@ -259,7 +260,7 @@ export function FamilyCard({
     >
       {plateContent(template, false)}
       {variants.length ? (
-        <div className="mt-3 flex flex-col gap-2 pl-8">
+        <div className="mt-3 ml-1 flex flex-col gap-2 border-l-2 border-[var(--hairline)] pl-2.5">
           {variants.length >= 6 ? (
             <VirtualizedVariants
               plates={variants}
