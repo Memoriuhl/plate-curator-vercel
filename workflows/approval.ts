@@ -18,14 +18,14 @@ export async function approvalRun(batchId: string, revision: number) {
   const approved = await readBatch(batchId)
   if (approved?.state !== 'approved' || approved.approval?.revision !== revision) return { outcome: 'superseded' as const }
 
-  const command = createHook<{ ownerUid: string } | { superseded: true }>({ token: `publish:${batchId}:${approved.revision}` })
+  const command = createHook<{ ownerUid: string; generation?: number; commandId?: string } | { superseded: true }>({ token: `publish:${batchId}:${approved.revision}` })
   const current = await readBatch(batchId)
   if (current?.state !== 'approved' || current.revision !== approved.revision) return { outcome: 'superseded' as const }
   const requested = await Promise.race([command, sleep('7d').then(() => 'timeout' as const)])
   if (requested === 'timeout') return { outcome: 'publish_timeout' as const }
   if ('superseded' in requested) return { outcome: 'superseded' as const }
 
-  const outcome = await runPublish(batchId, approved.revision, requested.ownerUid)
+  const outcome = await runPublish(batchId, approved.revision, requested.ownerUid, requested.generation, requested.commandId)
   if (outcome.outcome === 'published') return { ...outcome, push: await catalogPush(outcome.version) }
   return outcome
 }
@@ -35,11 +35,11 @@ async function readBatch(batchId: string) {
   return reviewDeps().store.getBatch(batchId)
 }
 
-async function runPublish(batchId: string, revision: number, ownerUid: string) {
+async function runPublish(batchId: string, revision: number, ownerUid: string, generation?: number, commandId?: string) {
   'use step'
   const batch = await reviewDeps().store.getBatch(batchId)
   if (!batch || (batch.state !== 'published' && (batch.state !== 'approved' || batch.revision !== revision || batch.approval?.revision !== revision - 1))) return { outcome: 'superseded' as const }
-  const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision })
+  const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision, ...(generation !== undefined ? { generation } : {}), ...(commandId ? { commandId } : {}) })
   if (outcome.ok) catalogChanged()
   if (!outcome.ok && (outcome.error === 'locked' || outcome.error === 'unavailable')) {
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })

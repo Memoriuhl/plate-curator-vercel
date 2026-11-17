@@ -9,6 +9,7 @@ import type { Plate } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
+import type { PublishControlState, PublishStop } from '../publish/types'
 import { ApiError } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
@@ -112,11 +113,24 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
+export type PublishBaselineStatus =
+  | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
+  | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
+
+export function usePublishControl() {
+  const { user, api } = useSession()
+  const { mutate } = useSWRConfig()
+  const status = useSWR<{ control: PublishControlState | null }>(user ? '/api/publish/control' : null, api.get, { refreshInterval: 5000 })
+  return { ...status, async change(paused: boolean) {
+    const result = await api.send<{ control: PublishControlState }>('POST', '/api/publish/control', { paused })
+    await status.mutate(result, { revalidate: false })
+    await mutate(key => typeof key === 'string' && key.startsWith('/api/batches/') && key.endsWith('/publish')).catch(() => undefined)
+  } }
+}
 
 export function usePublishBaseline(id: string) {
   const { user, api } = useSession()
-  return useSWR<PublishBaselineStatus>(user ? `/api/batches/${id}/publish` : null, api.get)
+  return useSWR<PublishBaselineStatus>(user ? `/api/batches/${id}/publish` : null, api.get, { refreshInterval: 5000 })
 }
 
 export function useReviewActions() {
@@ -136,6 +150,9 @@ export function useReviewActions() {
         const messages: Record<string, string> = {
           [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
           [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
+          paused: 'Catalog publishing is paused. An Owner must resume publishing before a new Publish request.',
+          publish_not_enabled: 'Catalog publishing is not enabled yet. An Owner must Resume publishing.',
+          superseded: 'This Publish command was stopped. Resume does not restart it.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed since approval and must be re-approved.',
           not_waiting: 'This run is no longer waiting for Publish. Refresh to see its status.',

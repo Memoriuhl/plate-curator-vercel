@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import type { Snapshot } from '../../lib/catalog/types'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewBatch } from '../../lib/review/types'
-import type { CatalogPointer, PublishDeps, PublishLease, PublishRecord } from '../../lib/publish/types'
+import type { CatalogPointer, PublishDeps, PublishLease, PublishRecord, PublishControlState, PublishStop } from '../../lib/publish/types'
+import { publishControlStop } from '../../lib/publish/control'
 
 export const owner = { uid: 'owner', name: null, role: 'owner' } as const
 export const batch: ReviewBatch = {
@@ -11,7 +12,7 @@ export const batch: ReviewBatch = {
   state: 'approved', revision: 2, baselineVersion: 1, plateIds: ['one'],
   approval: { revision: 1, by: owner.uid, at: '2026-11-15T12:00:00Z' },
 }
-export const command = { batchId: batch.id, revision: batch.revision }
+export const command = { batchId: batch.id, revision: batch.revision, generation: 1, commandId: 'command' }
 export const snapshot: Snapshot = { version: 1, plates: [
   { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: ['original'] },
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', image: 'two.png', tags: [] },
@@ -22,6 +23,17 @@ export function fixture(seed: ReviewBatch = batch) {
   const blobs = new Map<number, Uint8Array>([[1, Buffer.from(JSON.stringify(snapshot))]])
   const records = new Map<string, PublishRecord>()
   const stateOrder: Record<string, string[]> = { NY: ['existing'] }
+  let control: PublishControlState | null = { paused: false, generation: 1, changedBy: { uid: 'owner', email: 'owner@example.com' }, changedAt: '2026-11-16T12:00:00Z' }
+  const stops = new Map<string, PublishStop>()
+  const check = async (cmd: { batchId: string; revision: number; generation?: number; commandId?: string }) => {
+    if (records.get(`${cmd.batchId}@${cmd.revision}`)?.committedAt) return null
+    const key = cmd.commandId ?? `${cmd.batchId}@${cmd.revision}:legacy`
+    const stopped = stops.get(key)
+    if (stopped) return stopped
+    const reason = publishControlStop(control, cmd)
+    if (reason) stops.set(key, reason)
+    return reason
+  }
   let pointer: CatalogPointer = { version: 1 }
   let lease: PublishLease | null = null
   let reservation: string | null = null
@@ -35,6 +47,7 @@ export function fixture(seed: ReviewBatch = batch) {
     return result
   }
   const deps: PublishDeps = {
+    control: { read: async () => control, check },
     stateBaseline: async (_version, state) => snapshot.plates.filter(plate => plate.state === state),
     store, baselineAtVersion: async (_version, id) => snapshot.plates.find(plate => plate.id === id) ?? null, baseline: async id => snapshot.plates.find(plate => plate.id === id) ?? null,
     now: () => time, leaseMs: 60000,
@@ -53,6 +66,8 @@ export function fixture(seed: ReviewBatch = batch) {
         if (current?.revision !== record.revision || current.state !== 'approved') return 'superseded_revision'
         const saved = records.get(record.id)
         if (saved?.committedAt) return 'advanced'
+        const stop = await check(record)
+        if (stop) return stop
         if (pointer.version !== record.fromVersion) return 'pointer_moved'
         if (!record.url) return 'superseded_revision'
         pointer = { version: record.toVersion, url: record.url, blobSha256: record.blobSha256, publishedAt: now }
@@ -99,5 +114,5 @@ export function fixture(seed: ReviewBatch = batch) {
       },
     },
   }
-  return { deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
+  return { setControl: (value: PublishControlState | null) => { control = value }, deps, blobs, records, stateOrder, pointer: () => pointer, lease: () => lease, setTime: (value: string) => { time = value } }
 }

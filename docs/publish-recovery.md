@@ -1,4 +1,46 @@
-# Stale Publish recovery (#119)
+# Publish controls and recovery (#126, #119)
+
+## Pause and Resume
+
+Active Owners use the Catalog publishing control in Publish to Pause or Resume.
+The screen shows the last actor and time. Editors cannot change the control.
+Draft edits, Submit and Approve continue while publishing is paused. Existing
+deployment restrictions still apply to changing the control and requesting Publish.
+
+`config/publishControl` sits beside `config/catalog`, shared by every deployment
+targeting that Catalog, independently of the dashboard environment key. Every
+Pause and every Resume transaction increments its generation and records the
+Owner's UID, email and timestamp. Missing or malformed control data fails closed:
+no new command or pointer advance is allowed. An active Owner's first Resume
+creates a missing control at generation 1. Malformed existing data needs triage.
+
+Each accepted Publish has a distinct command ID and carries its accepted
+generation into the Workflow and immutable release receipt. The command shape
+can gain a requester authority marker alongside the generation without changing
+existing receipts. Requester revocation enforcement belongs to #127.
+
+Firestore decides the race at the pointer commit. The transaction reads the
+shared control alongside the lease, Batch, receipt and pointer. If Pause commits
+first, the command stops without advancing the pointer. A quick Pause and Resume
+changes the generation, so the old command is superseded even when publishing is
+enabled again. Missing control also stops the command. Terminal reasons persist
+in `publishCommandStops` by command ID, so step retries reproduce the same stop.
+The lease and reservation are released, the Batch stays approved with its history,
+and an uploaded but uncommitted Snapshot and receipt remain intact.
+
+If Publish committed first, its receipt wins: retries finish the bookkeeping and
+report the same published version even after Pause or a generation change. They
+never advance the pointer a second time or replace that outcome with a stop.
+Pause does not roll back a published Catalog.
+
+Resume only permits new requests. It never restarts a stopped Workflow. Publishing
+a stopped Batch requires an explicit fresh Publish command under the current
+generation. The dedicated retry UI and prepared Snapshot reuse are tracked in
+#128; Snapshot abandonment remains #129. Until those recovery paths are available,
+keep stopped receipts and Snapshots for triage rather than deleting or restarting
+their commands.
+
+## Stale baseline
 
 A fresh Publish reads `config/catalog` under the Publish lease. If its version
 is different from the approved Batch's `baselineVersion`, it returns
@@ -54,6 +96,18 @@ Existing approval Workflow runs can continue on the deployment that started them
 Updating routes or promoting a deployment does not retrofit the new guard into
 those older steps. New route preflight alone is insufficient: an already accepted
 command can execute the older publisher.
+
+Before relying on Pause, inventory and drain older waiting or executing approval
+Workflows as well. They run their original deployment's code and carry no
+publication generation. Allow already committed receipts to finish bookkeeping.
+Supersede uncommitted waiting runs through the normal edit/resubmit flow, then
+Submit and Approve again on this deployment (or copy stale proposals for fresh
+review). Verify that no older waiting run can receive Publish. A route update or
+Resume alone does not retrofit this protection into those runs. Commands without
+a generation that reach the new publisher are treated as superseded once the
+control document exists; they never adopt the current generation. Missing control
+also fails closed. Hosted verification must use newly started runs before the
+control is relied on for a release.
 
 Before relying on this guard for a release, inventory waiting and executing
 approval runs by Batch, revision and deployment. Let already committed attempts

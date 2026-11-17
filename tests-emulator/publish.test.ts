@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, expect, test } from 'vitest'
-import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
+import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../lib/publish/firestore'
 import { publishBatch } from '../lib/publish/publish'
 import type { PublishLease, PublishRecord } from '../lib/publish/types'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
 import { db } from './setup'
+import type { Firestore, Transaction } from '@google-cloud/firestore'
 
 const env = 'publish-test'
 const now = '2026-11-15T12:00:00Z'
@@ -14,8 +15,14 @@ const lock = firestorePublishLock(db, env)
 const pointer = firestorePublishPointer(db, env)
 const records = firestorePublishRecords(db, env)
 const store = firestoreReviewStore(db, env)
+const control = firestorePublishControl(db)
+const controlActor = { uid: 'owner', email: 'owner@example.com' }
+const enabled = { paused: false, generation: 1, changedBy: controlActor, changedAt: now }
 
 beforeEach(async () => {
+  await db.doc('config/publishControl').set(enabled)
+  await db.doc('members/owner%40example.com').set({ ...controlActor, role: 'owner', status: 'active' })
+  await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.doc('locks/publish').delete()
   await db.recursiveDelete(db.collection('publishRecords'))
   await db.doc('reviewBatches/batch').set({ ...batch, env })
@@ -24,6 +31,9 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
+  await db.doc('config/publishControl').delete()
+  await db.doc('members/owner%40example.com').delete()
+  await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.doc('locks/publish').delete()
   await db.doc('config/catalog').delete()
   await db.recursiveDelete(db.collection('publishRecords'))
@@ -54,6 +64,8 @@ test('records reject stale writers and changes to release identity', async () =>
   await lock.claim(lease, now)
   expect(await records.save(record, lease.token, now)).toBe(true)
   expect(await records.save({ ...record, blobSha256: 'different' }, lease.token, now)).toBe(false)
+  expect(await records.save({ ...record, generation: 2 }, lease.token, now)).toBe(false)
+  expect(await records.save({ ...record, commandId: 'another-command' }, lease.token, now)).toBe(false)
   expect(await records.save(record, 'other', now)).toBe(false)
   expect(await firestorePublishRecords(db, 'other').get(record.id)).toBeNull()
   expect(await records.get(record.id)).toEqual(record)
@@ -172,4 +184,102 @@ test('a pointer change after upload is distinguished from an initially stale bas
   expect(await store.getBatch(batch.id)).toEqual(batch)
   expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
   expect((await db.doc('locks/publish').get()).exists).toBe(false)
+})
+
+test.each([env, 'another-deployment'])('pause committing first stops the pointer at the commit seam for %s', async deployment => {
+  const targetStore = firestoreReviewStore(db, deployment)
+  await db.doc('reviewBatches/batch').set({ ...batch, env: deployment })
+  const f = fixture()
+  const targetPointer = firestorePublishPointer(db, deployment)
+  const deps = { ...f.deps, control, store: targetStore, lock: firestorePublishLock(db, deployment), records: firestorePublishRecords(db, deployment), pointer: targetPointer, curator: firestorePublishCurator(db, deployment) }
+  const advance = targetPointer.advance
+  deps.pointer = { ...targetPointer, advance: async (...args) => {
+    expect(await control.change(true, controlActor, now)).toMatchObject({ paused: true, generation: 2 })
+    return advance(...args)
+  } }
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'paused' })
+  expect((await targetPointer.read()).version).toBe(1)
+  expect(await deps.records.get(record.id)).toMatchObject({ state: 'uploaded', generation: 1 })
+  expect((await db.doc('reviewBatches/batch').get()).get('publishReservation')).toBeUndefined()
+  expect(await targetStore.getBatch(batch.id)).toEqual(batch)
+  await control.change(false, controlActor, now)
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'paused' })
+  expect((await targetPointer.read()).version).toBe(1)
+})
+
+test('Publish commits first, then Pause, and retries reconcile the same version', async () => {
+  const f = fixture()
+  let advances = 0
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+    advances++
+    const result = await pointer.advance(...args)
+    await control.change(true, controlActor, now)
+    expect(await pointer.advance(...args)).toBe('advanced')
+    expect(result).toBe('advanced')
+    throw new Error('lost commit response')
+  } }, curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ error: 'unavailable' })
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+  expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: true, value: { toVersion: 2 } })
+  expect(advances).toBe(1)
+  expect((await pointer.read()).version).toBe(2)
+})
+
+test('quick Pause and Resume supersedes the accepted generation at the pointer transaction', async () => {
+  await lock.claim(lease, now)
+  await records.save(record, lease.token, now)
+  await control.change(true, controlActor, now)
+  await control.change(false, controlActor, now)
+  expect(await pointer.advance(record, lease, now)).toBe('superseded')
+  expect((await pointer.read()).version).toBe(1)
+  expect((await records.get(record.id))?.committedAt).toBeUndefined()
+})
+
+test.each([null, { ...enabled, generation: '1' }, { ...enabled, changedBy: null }])('missing or malformed authoritative control fails closed: %j', async value => {
+  await lock.claim(lease, now)
+  await records.save(record, lease.token, now)
+  if (value) await db.doc('config/publishControl').set(value)
+  else await db.doc('config/publishControl').delete()
+  expect(await pointer.advance(record, lease, now)).toBe('publish_not_enabled')
+  expect((await pointer.read()).version).toBe(1)
+})
+
+test('first Resume initializes generation one; every Pause and Resume increments with audit', async () => {
+  await db.doc('config/publishControl').delete()
+  expect(await control.read()).toBeNull()
+  expect(await control.change(false, controlActor, now)).toEqual(enabled)
+  expect(await control.change(true, controlActor, now)).toMatchObject({ paused: true, generation: 2, changedBy: controlActor, changedAt: now })
+  expect(await control.change(false, controlActor, now)).toMatchObject({ paused: false, generation: 3 })
+  expect(await control.change(false, controlActor, now)).toMatchObject({ generation: 4 })
+  await db.doc('members/owner%40example.com').update({ role: 'editor' })
+  expect(await control.change(true, controlActor, now)).toBeNull()
+  expect((await control.read())?.generation).toBe(4)
+})
+
+test('a legacy command is superseded even with an enabled control', async () => {
+  await lock.claim(lease, now)
+  const { generation, commandId, ...legacy } = record
+  expect(generation).toBe(1)
+  expect(commandId).toBeDefined()
+  await records.save(legacy, lease.token, now)
+  expect(await pointer.advance(legacy, lease, now)).toBe('superseded')
+  expect((await pointer.read()).version).toBe(1)
+})
+
+test('unavailable control at the pointer read cannot commit even after successful preflight', async () => {
+  const f = fixture()
+  const unavailable = {
+    doc: db.doc.bind(db),
+    runTransaction: (run: (transaction: Transaction) => Promise<unknown>) => db.runTransaction(transaction => run(new Proxy(transaction, {
+      get(target, property) {
+        if (property === 'getAll') return async () => { throw new Error('control read unavailable') }
+        const value = Reflect.get(target, property)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    }))),
+  } as Firestore
+  const deps = { ...f.deps, control, store, lock, records, pointer: firestorePublishPointer(unavailable, env), curator: firestorePublishCurator(db, env) }
+  expect(await publishBatch(deps, owner, command)).toEqual({ ok: false, error: 'unavailable' })
+  expect((await pointer.read()).version).toBe(1)
+  expect((await records.get(record.id))?.committedAt).toBeUndefined()
 })

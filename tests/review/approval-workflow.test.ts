@@ -59,3 +59,12 @@ test('failed Publish sends no push', async () => {
   expect(await approvalRun('batch', 1)).toMatchObject({ outcome: 'publish_failed' })
   expect(mocks.catalogPush).not.toHaveBeenCalled()
 })
+
+test.each(['paused', 'superseded', 'publish_not_enabled'])('a generation-bound command returns terminal %s without retrying', async error => {
+  mocks.createHook.mockResolvedValue({ ownerUid: 'owner', generation: 3, commandId: 'fresh-command' })
+  mocks.publishBatch.mockResolvedValue({ ok: false, error })
+  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'publish_failed', error, reasons: [] })
+  expect(mocks.publishBatch).toHaveBeenCalledWith({}, { uid: 'owner', name: null, role: 'owner' }, { batchId: 'batch', revision: 2, generation: 3, commandId: 'fresh-command' })
+  expect(mocks.publishBatch).toHaveBeenCalledTimes(1)
+  expect(mocks.catalogPush).not.toHaveBeenCalled()
+})

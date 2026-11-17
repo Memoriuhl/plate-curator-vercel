@@ -7,6 +7,7 @@ import { batch, owner, snapshot, fixture } from '../publish/fixture'
 
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), publishDeps: vi.fn(), reviewDeps: vi.fn(), reviewEnv: () => 'test' }))
 vi.mock('../../lib/server/context', () => mocks)
+vi.mock('../../lib/server/members', () => ({ membersStore: () => ({}) }))
 const ctx = { params: Promise.resolve({ id: batch.id }) }
 const request = (body: unknown) => new Request('http://localhost/api/batches/batch/copy', { method: 'POST', body: JSON.stringify(body) })
 

@@ -22,6 +22,9 @@ const phases = [
   'published',
 ]
 const failures: Record<string, string> = {
+  paused: 'Catalog publishing was paused before this release committed. The Catalog did not advance.',
+  superseded: 'This Publish command was superseded before commit. The Catalog did not advance.',
+  publish_not_enabled: 'Publishing is not enabled. The Catalog did not advance.',
   [BASELINE_ERRORS.stale]: 'The Catalog changed since this Batch was reviewed.',
   [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
   pointer_moved: 'The Catalog moved during Publish.',
@@ -98,7 +101,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               ))}
             </ul>
             {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
-            <p>{(isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
+            <p>{['paused', 'superseded', 'publish_not_enabled'].includes(run.outcome?.error ?? '') ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish request is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (

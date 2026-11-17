@@ -16,7 +16,7 @@ import { gatewayAdapter } from '../../worker/model'
 import { firestoreJobsStore } from '../jobs/firestore-store'
 import { verifyWorkerToken } from '../jobs/tokens'
 import type { Environment, JobsDeps } from '../jobs/types'
-import { firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
+import { firestorePublishControl, firestorePublishCurator, firestorePublishLock, firestorePublishPointer, firestorePublishRecords } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
 import type { PublishDeps } from '../publish/types'
 import { expoPushSender, firestoreCatalogPushStore, type CatalogPushDeps } from '../publish/catalog-push'
@@ -146,11 +146,14 @@ export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
   }
 }
 
+export function publishControl() { return firestorePublishControl(stagingFirestore()) }
+
 export function publishDeps(): PublishDeps {
   const db = stagingFirestore()
   const env = reviewEnv()
   return {
     ...reviewDeps(),
+    control: publishControl(),
     curator: firestorePublishCurator(db, env),
     pointer: firestorePublishPointer(db, env),
     records: firestorePublishRecords(db, env),

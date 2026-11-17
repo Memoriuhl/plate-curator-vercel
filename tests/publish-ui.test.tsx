@@ -9,6 +9,7 @@ import type { BatchDetail } from '../lib/client/hooks'
 
 const state = vi.hoisted(() => ({ role: 'owner' }))
 vi.mock('../lib/client/hooks', () => ({
+  usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
   useMe: () => ({ data: { role: state.role } }),
   useBatchRun: () => ({}),
   useBatch: () => ({}),
