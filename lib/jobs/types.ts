@@ -2,8 +2,10 @@ import type { Plate } from '../catalog/types'
 import type { EditableFields } from '../review/types'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
-export type JobResult = { suggestions: string[]; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
-export type ReportInput = Omit<JobResult, 'suggestions'> & { suggestions: unknown }
+export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
+export type FieldSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
+export type JobResult = { suggestions: string[]; fieldSuggestion?: FieldSuggestion; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
+export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion'> & { suggestions?: unknown; fieldSuggestion?: unknown }
 export type TaggingJob = {
   id: string
   batchId: string
@@ -14,6 +16,8 @@ export type TaggingJob = {
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
+  stage?: PipelineStage
+  localScope?: string
   createdAt: number
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   claimId?: string
@@ -38,6 +42,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; now(): number; id(): string; leaseMs: number }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; now(): number; id(): string; leaseMs: number; localScope?: string }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

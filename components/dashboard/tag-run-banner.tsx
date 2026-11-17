@@ -4,6 +4,9 @@ import { useRef, useState } from 'react'
 import { useBatch, useEditPlate, useWorkspaceBatch } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
 import { editErrors, type RunEntry, type RunPlate } from './use-tag-run'
+import { parseFieldSuggestion } from '@/lib/jobs/suggestions'
+import type { FieldSuggestion as Suggestion } from '@/lib/jobs/types'
+import { FieldSuggestion } from './field-suggestion'
 
 export function mergeTags(tags: string[], accepted: string[]) {
   return [
@@ -34,10 +37,22 @@ export function TagRunBanner({
   const { edit, pending } = useEditPlate()
   const [messages, setMessages] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState<Record<string, string[]>>({})
+  const [savedFields, setSavedFields] = useState<Record<string, string>>({})
   const saving = useRef(false)
   const counts = (state: string) =>
     entries.filter((entry) => !entry.error && entry.job.state === state).length
   const active = starting || counts('queued') + counts('claimed') > 0
+  async function acceptFields(entry: RunEntry, suggestion: Suggestion) {
+    if (saving.current || blocked || !batchId || !entry.job.inputHash) return
+    saving.current = true
+    try {
+      const result = await edit(entry.plate as Parameters<typeof edit>[0], suggestion.fields, { batchId, baseRevision: entry.job.inputHash })
+      setMessages(current => ({ ...current, [entry.plate.id]: result.ok ? 'Saved to your batch' : editErrors[result.error] }))
+      if (result.ok) setSavedFields(current => ({ ...current, [entry.plate.id]: entry.jobId ?? entry.job.inputHash! }))
+    } catch {
+      setMessages(current => ({ ...current, [entry.plate.id]: 'Could not save. Check your connection and try again.' }))
+    } finally { saving.current = false }
+  }
   async function accept(plate: RunPlate, suggestions: string[], revision: string) {
     if (saving.current || blocked || !batchId) return
     saving.current = true
@@ -74,7 +89,7 @@ export function TagRunBanner({
     <section className="col-span-full basis-full rounded-xl bg-[var(--card)] p-4 text-[var(--ink)]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" aria-live="polite">
-          Tagging {entries.length} plates · {counts('queued')} queued ·{' '}
+          {entries.some(entry => entry.job.stage) ? 'Running pipeline on' : 'Tagging'} {entries.length} plates · {counts('queued')} queued ·{' '}
           {counts('claimed')} claimed · {counts('completed')} done ·{' '}
           {counts('expired')} expired
           {entries.some((entry) => entry.error)
@@ -95,6 +110,7 @@ export function TagRunBanner({
               entry.error || ['completed', 'expired'].includes(entry.job.state),
           )
           .map((entry) => {
+            const fieldSuggestion = entry.job.stage ? parseFieldSuggestion(entry.job.fieldSuggestion, entry.job.stage) : null
             const tags =
               detail.data?.plates.find(
                 (item) => item.proposed.id === entry.plate.id,
@@ -110,11 +126,19 @@ export function TagRunBanner({
                 className="grid gap-2 border-t border-[var(--hairline)] py-3"
               >
                 <strong>{entry.plate.displayName}</strong>
-                <p className="caption">
+                {!entry.job.stage ? <p className="caption">
                   Current tags: {tags.join(', ') || 'None'}
-                </p>
+                </p> : null}
                 {entry.error ? <p role="alert">{entry.error}</p> : null}
-                {entry.job.state === 'completed' && !entry.error ? (
+                {entry.job.state === 'completed' && !entry.error && fieldSuggestion ? <FieldSuggestion
+                  suggestion={fieldSuggestion}
+                  before={detail.data?.plates.find(item => item.proposed.id === entry.plate.id)?.proposed}
+                  blocked={pending || blocked || !entry.job.inputHash}
+                  accepted={!!entry.job.inputHash && savedFields[entry.plate.id] === (entry.jobId ?? entry.job.inputHash)}
+                  accept={() => void acceptFields(entry, fieldSuggestion)}
+                /> : null}
+                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">This stage result is unavailable or invalid.</p> : null}
+                {entry.job.state === 'completed' && !entry.error && !entry.job.stage ? (
                   <div className="flex flex-wrap gap-2">
                     {suggestions.map((tag) => (
                       <Button

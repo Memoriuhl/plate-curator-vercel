@@ -17,6 +17,6 @@ export async function POST(request: Request, ctx: RouteContext<'/api/worker/jobs
   const outcome = await reportResult(jobsDeps(), worker.workerId, id, body.claimId, body as unknown as ReportInput)
   if (!outcome.ok) return json({ error: outcome.error }, statusFor[outcome.error])
 
-  await resumeHook(`tagging:${id}`, { jobId: id }).catch(() => undefined)
+  await resumeHook(`${outcome.value.stage ? 'pipeline' : 'tagging'}:${id}`, { jobId: id }).catch(() => undefined)
   return json({ state: outcome.value.state })
 }

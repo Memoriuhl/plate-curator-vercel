@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 import type { TaggingModelId } from '@/lib/tagging/models'
+import type { FieldSuggestion, PipelineStage } from '@/lib/jobs/types'
 
 export type RunPlate = {
   id: string
@@ -18,6 +19,8 @@ export type TagJob = {
   state: 'queued' | 'claimed' | 'completed' | 'expired'
   suggestions: string[]
   inputHash?: string
+  stage?: PipelineStage
+  fieldSuggestion?: FieldSuggestion | null
 }
 export type RunEntry = {
   plate: RunPlate
