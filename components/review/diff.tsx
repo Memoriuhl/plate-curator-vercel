@@ -1,3 +1,6 @@
+'use client'
+
+import { useId, useState } from 'react'
 import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
@@ -89,6 +92,8 @@ export function DiffTable({
   positions?: BatchDetail['plates'][number]['order']
   order: string[]
 }) {
+  const [visibleSide, setVisibleSide] = useState<'before' | 'after'>('before')
+  const comparisonId = useId()
   const position = (plate: Plate) =>
     `${order.indexOf(plate.id) + 1} of ${order.length}`
   const rows = [
@@ -131,7 +136,21 @@ export function DiffTable({
   ]
   const imageChanged = before.image !== after.image
   return (
-    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+    <div className="grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-2">
+      <div role="group" aria-label="Comparison view" className="flex rounded-full bg-muted p-1 md:hidden">
+        {(['before', 'after'] as const).map(side => (
+          <button
+            key={side}
+            type="button"
+            aria-pressed={visibleSide === side}
+            aria-controls={`${comparisonId}-${side}`}
+            onClick={() => setVisibleSide(side)}
+            className={cn('min-h-10 flex-1 rounded-full px-3 py-2 font-semibold', visibleSide === side && 'bg-primary text-primary-foreground')}
+          >
+            {side === 'before' ? 'Before' : 'After'}
+          </button>
+        ))}
+      </div>
       {(['before', 'after'] as const).map((side, index) => {
         const plate = side === 'before' ? before : after
         const imageUrl = side === 'before'
@@ -141,7 +160,7 @@ export function DiffTable({
           ? 'bg-[var(--danger-tint)]'
           : 'bg-[var(--success-tint)]'
         return (
-          <section key={side} aria-label={side === 'before' ? 'Before' : 'After'} className="grid min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-13 md:grid-rows-subgrid">
+          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-13 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
             <h3 className="font-semibold">{side === 'before' ? `Before · live v${version}` : `After · rev ${revision}`}</h3>
             {rows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
@@ -161,7 +180,7 @@ export function DiffTable({
                     <div className="flex flex-wrap gap-2">
                       {(value as string[]).length ? (value as string[]).map((tag) => (
                         <span key={tag} className={cn(
-                          'label rounded-full px-3 py-1',
+                          'label min-w-0 max-w-full rounded-full px-3 py-1 [overflow-wrap:anywhere]',
                           !(side === 'before' ? after.tags : before.tags).includes(tag)
                             ? tint : 'bg-[var(--fill)]',
                         )}>{tag}</span>
