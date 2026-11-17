@@ -241,7 +241,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
       const { proposed } = entry
       const checks = plateChecks(proposed, card.imageUrl)
       return {
-        ...ordered, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
+        ...ordered, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
         templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
         complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,

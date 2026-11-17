@@ -111,6 +111,15 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     closePreview: close,
     reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
   })
+  async function undoDelete(plate: PlateCardData) {
+    setResolutionError('')
+    try {
+      const result = await edits.edit(plate, { deleted: false })
+      if (!result.ok) setIssue({ plate, fields: { deleted: false }, result })
+    } catch {
+      setResolutionError('Could not undo deletion. Check your connection and try again.')
+    }
+  }
   async function resolveConflict(reapply: boolean) {
     if (!issue || issue.result.error !== 'stale_plate' || resolving || edits.pending) return
     setResolving(true)
@@ -287,6 +296,8 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
                     {...family}
                     drag={drag}
                     canEdit={canEdit}
+                    onUndoDelete={plate => void undoDelete(plate)}
+                    undoPending={edits.pending || resolving || !!issue || drag.saving || !!drag.active}
                     last={family.number === families.length}
                     matches={matches}
                     prefetchedIds={prefetchedIds}

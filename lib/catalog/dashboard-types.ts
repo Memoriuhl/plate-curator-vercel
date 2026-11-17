@@ -26,6 +26,7 @@ export type JurisdictionSummary = {
 }
 
 export type PlateCardData = {
+  deleted?: boolean
   id: string
   state: string
   slug: string

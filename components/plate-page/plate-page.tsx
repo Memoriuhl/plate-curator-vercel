@@ -20,6 +20,8 @@ import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
 import { PlateTagActions } from '@/components/dashboard/plate-tag-actions'
 import {
   AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogHeader,
   AlertDialogContent,
   AlertDialogTitle,
   AlertDialogDescription,
@@ -203,6 +205,11 @@ export function PlatePage(props: PlatePageProps) {
       ? member.templateFamily === current.templateFamily
       : member.id === current.id,
   )
+  const linkedPlateCount = plates.filter(member => member.id !== current.id && !member.deleted
+    && (member.variantOfPlateId === current.id || current.templateRole === 'template' && member.templateRole !== 'template'
+      && !!current.templateFamily && member.templateFamily === current.templateFamily)).length
+  const deleteReason = current.isStandard ? 'Set another Standard plate first.'
+    : linkedPlateCount > 0 ? `Move or detach its ${linkedPlateCount} linked plates first.` : null
   const others = useMemo(() => {
     const outside = plates.filter(member => current.templateFamily
       ? member.templateFamily !== current.templateFamily
@@ -329,7 +336,7 @@ export function PlatePage(props: PlatePageProps) {
             <IoChevronBack />
             {plate.state}
           </Link>
-          <h1 className="page-title">{current.displayName}</h1>
+          <h1 className={cn("page-title", current.deleted && "line-through opacity-60")}>{current.displayName}</h1>
           <span className="id text-[var(--ink-2)]">
             {current.id} ·{' '}
             {current.templateRole === null
@@ -391,7 +398,7 @@ export function PlatePage(props: PlatePageProps) {
                   alt={`${plate.displayName} plate`}
                   unoptimized
                   priority
-                  className="max-w-full object-contain"
+                  className={cn("max-w-full object-contain", current.deleted && "opacity-60")}
                 />
               ) : (
                 <p>No image available</p>
@@ -406,6 +413,23 @@ export function PlatePage(props: PlatePageProps) {
               </p>
               <Parked>Replace or crop</Parked>
             </div>
+            {fieldIssue('deleted')}
+            {!current.deleted && deleteReason ? <p id="delete-plate-reason" className="caption text-[var(--ink-2)]">{deleteReason}</p> : null}
+            {current.deleted ? <Button variant="outline" disabled={blocked} onClick={() => void save(current, { deleted: false })}>Undo delete</Button> : (
+              <AlertDialog>
+                <AlertDialogTrigger asChild><Button variant="outline" className="text-[var(--danger)]" disabled={blocked || !!deleteReason} aria-describedby={deleteReason ? 'delete-plate-reason' : undefined}>Delete plate</Button></AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {current.displayName}?</AlertDialogTitle>
+                    <AlertDialogDescription>It is removed from the game at the next Publish. You can undo until then.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction className="bg-[var(--danger)] text-white" disabled={blocked || !!deleteReason} onClick={() => void save(current, { deleted: true })}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </Card>
           <Card title="Rarity">
             <RarityMark />

@@ -3,7 +3,7 @@ import type { Snapshot } from '../catalog/types'
 
 const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
 
-export function validateSnapshot(baseline: Snapshot, candidate: unknown): string[] {
+export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted: ReadonlySet<string> = new Set()): string[] {
   if (!candidate || typeof candidate !== 'object' || !('plates' in candidate) || !Array.isArray(candidate.plates)) {
     return ['Snapshot must contain a plates array']
   }
@@ -14,6 +14,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown): string
   const families = new Map<string, number>()
   const baselinePlates = new Map(baseline.plates.map(plate => [plate.id, plate]))
   const baselineTemplateCounts = new Map<string, number>()
+  const baselineFamilies = new Set(baseline.plates.flatMap(plate => typeof plate.templateFamily === 'string' ? [plate.templateFamily] : []))
   const touchedFamilies = new Set<string>()
   for (const plate of baseline.plates) {
     if (typeof plate.templateFamily === 'string' && plate.templateRole === 'template') {
@@ -45,12 +46,19 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown): string
       else families.set(plate.templateFamily, (families.get(plate.templateFamily) ?? 0) + (plate.templateRole === 'template' ? 1 : 0))
     }
   }
-  for (const plate of baseline.plates) if (!ids.has(plate.id)) reasons.push(`Missing baseline plate: ${plate.id}`)
+  for (const plate of baseline.plates) {
+    if (ids.has(plate.id)) continue
+    if (!deleted.has(plate.id)) reasons.push(`Missing baseline plate: ${plate.id}`)
+    if (plate.templateRole === 'template' && plate.templateFamily && families.has(plate.templateFamily)) touchedFamilies.add(plate.templateFamily)
+  }
   for (const [state, count] of standards) if (count > 1) reasons.push(`Multiple standard plates in state: ${state}`)
+  for (const plate of candidate.plates) {
+    if (plate && typeof plate === 'object' && typeof plate.variantOfPlateId === 'string' && !ids.has(plate.variantOfPlateId)) reasons.push(`Missing Variant parent: ${plate.variantOfPlateId} (${plate.id})`)
+  }
   for (const family of touchedFamilies) {
     const count = families.get(family) ?? 0
     if (count > 1) reasons.push(`Family must have at most one template: ${family}`)
-    else if (baselineTemplateCounts.get(family) === 1 && count !== 1) reasons.push(`Family must retain exactly one template: ${family}`)
+    else if ((!baselineFamilies.has(family) || baselineTemplateCounts.get(family) === 1) && families.has(family) && count === 0) reasons.push(`Family must retain exactly one template: ${family}`)
   }
   return reasons
 }

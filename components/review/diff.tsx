@@ -26,6 +26,7 @@ export function changeSummary(
   order?: BatchDetail['plates'][number]['order'],
   group?: keyof typeof changeFields,
 ) {
+  if (after.deleted) return 'Deleted at next Publish'
   return (
     [
       'image',
@@ -97,6 +98,7 @@ export function DiffTable({
   const position = (plate: Plate) =>
     `${order.indexOf(plate.id) + 1} of ${order.length}`
   const rows = [
+    ['Status', 'In catalog', after.deleted ? 'Deleted at next Publish' : 'In catalog'],
     ['Image', before.image, after.image],
     ['Name', before.displayName, after.displayName],
     ['Description', before.description, after.description],
@@ -160,7 +162,7 @@ export function DiffTable({
           ? 'bg-[var(--danger-tint)]'
           : 'bg-[var(--success-tint)]'
         return (
-          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-13 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
+          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:row-span-14 md:grid md:grid-rows-subgrid', visibleSide === side ? 'grid' : 'hidden')}>
             <h3 className="font-semibold">{side === 'before' ? `Before · Catalog v${version}` : `After · rev ${revision}`}</h3>
             {rows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
@@ -203,16 +205,17 @@ export function DiffTable({
 
 export function groupChanges(plates: BatchDetail['plates']) {
   const changed = (entry: BatchDetail['plates'][number], keys: string[]) =>
-    keys.some(
+    !entry.proposed.deleted && keys.some(
       (key) =>
         JSON.stringify(entry.baseline[key]) !==
         JSON.stringify(entry.proposed[key]),
     )
   return {
+    Deleted: plates.filter(entry => entry.proposed.deleted === true),
     Edited: plates.filter((entry) => changed(entry, changeFields.Edited)),
     Regrouped: plates.filter((entry) => changed(entry, changeFields.Regrouped)),
     Reordered: plates.filter((entry) =>
-      entry.order !== undefined || changed(entry, changeFields.Reordered),
+      !entry.proposed.deleted && (entry.order !== undefined || changed(entry, changeFields.Reordered)),
     ),
   }
 }

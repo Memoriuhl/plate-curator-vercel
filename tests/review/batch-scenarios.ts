@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { approveBatch, proposeEdit, reorderState, submitBatch } from '../../lib/review/batch'
 import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
@@ -30,6 +30,108 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     const input = { batchId: batch.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
     return { deps, store, input }
   }
+
+  test.each(['link', 'family'] as const)('new draft families reject deletion and joins in either order: %s', join => {
+    return (async () => {
+      for (const deletionFirst of [false, true]) {
+        const { deps, input } = await setup()
+        const promoted = await proposeEdit(deps, editor, { ...input, fields: { templateRole: 'template', templateFamily: 'new-family' } })
+        if (!promoted.ok) throw new Error('expected promotion')
+        const deletion = { ...input, baseRevision: plateRevision(promoted.value.plate), fields: { deleted: true } }
+        const addition = { ...input, plateId: 'two', baseRevision: plateRevision(baseline[1]), fields: { templateRole: 'variant' as const, ...(join === 'link' ? { variantOfPlateId: 'one' } : { templateFamily: 'new-family' }) } }
+        if (deletionFirst) {
+          expect(await proposeEdit(deps, editor, deletion)).toMatchObject({ ok: true })
+          expect(await proposeEdit(deps, editor, addition)).toEqual({ ok: false, error: 'invalid_state' })
+        } else {
+          expect(await proposeEdit(deps, editor, addition)).toMatchObject({ ok: true })
+          expect(await proposeEdit(deps, editor, deletion)).toEqual({ ok: false, error: 'invalid_state' })
+        }
+      }
+    })()
+  })
+
+  test('a deleted Variant cannot be promoted by a reorder', async () => {
+    const { deps, input, store } = await setup()
+    const variant = { ...baseline[0], templateRole: 'variant' as const }
+    deps.baselineAtVersion = async () => variant
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(variant), fields: { deleted: true } })).toMatchObject({ ok: true })
+    expect(await reorderState(deps, editor, { batchId: input.batchId, state: 'CA', batchRevision: 5, order: ['two', 'one'], promotion: { plateId: 'one', templateFamily: 'new-family' } })).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getBatch(input.batchId)).toMatchObject({ revision: 5 })
+  })
+
+  test.each(['template', 'variant', undefined] as const)('deletion rejects live explicit links to a parent with role %s', async role => {
+    const { deps, input, store } = await setup()
+    const parent = { ...baseline[0], templateRole: role }
+    const child = { ...baseline[1], templateRole: 'template' as const, variantOfPlateId: parent.id }
+    deps.baselineAtVersion = async (_version, id) => id === parent.id ? parent : child
+    deps.stateBaseline = async () => [parent, child]
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } })).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getEdit(input.batchId, parent.id)).toBeNull()
+    expect(await proposeEdit(deps, editor, { ...input, plateId: child.id, baseRevision: plateRevision(child), fields: { variantOfPlateId: null } })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } })).toMatchObject({ ok: true })
+  })
+
+  test('Template deletion counts role-less family members and ignores their draft deletions', async () => {
+    const { deps, input } = await setup()
+    const parent = { ...baseline[0], templateRole: 'template' as const, templateFamily: 'family' }
+    const child = { ...baseline[1], templateFamily: 'family' }
+    deps.baselineAtVersion = async (_version, id) => id === parent.id ? parent : child
+    deps.stateBaseline = async () => [parent, child]
+    const deletion = { ...input, baseRevision: plateRevision(parent), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, deletion)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await proposeEdit(deps, editor, { ...input, plateId: child.id, baseRevision: plateRevision(child), fields: { deleted: true } })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, deletion)).toMatchObject({ ok: true })
+  })
+
+  test('Standard plates cannot be deleted until their draft Standard flag is cleared', async () => {
+    const { deps, store, input } = await setup()
+    const standard = { ...baseline[0], isStandard: true }
+    deps.baselineAtVersion = async () => standard
+    const proposal = { ...input, baseRevision: plateRevision(standard), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, proposal)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    const cleared = await proposeEdit(deps, editor, { ...proposal, fields: { isStandard: false } })
+    if (!cleared.ok) throw new Error('expected Standard edit')
+    expect(await proposeEdit(deps, editor, { ...proposal, baseRevision: plateRevision(cleared.value.plate) })).toMatchObject({ ok: true })
+  })
+
+  test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion requires its Variants to be %s in the batch view', async action => {
+    const { deps, store, input } = await setup()
+    const template: Plate = { ...baseline[0], templateRole: 'template', templateFamily: 'family' }
+    const variant: Plate = { ...baseline[1], templateRole: 'variant', templateFamily: 'family', variantOfPlateId: 'one' }
+    deps.baselineAtVersion = async (_version, id) => id === 'one' ? template : variant
+    deps.stateBaseline = async () => [template, variant]
+    const proposal = { ...input, baseRevision: plateRevision(template), fields: { deleted: true } }
+    expect(await proposeEdit(deps, editor, proposal)).toEqual({ ok: false, error: 'invalid_state' })
+    expect(await store.getBatch('batch')).toMatchObject({ revision: 4 })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    const fields = action === 'moved' ? { templateFamily: 'other', variantOfPlateId: null }
+      : action === 'promoted' ? { templateRole: 'template' as const, variantOfPlateId: null } : { deleted: true }
+    expect(await proposeEdit(deps, editor, { ...input, plateId: 'two', baseRevision: plateRevision(variant), fields })).toMatchObject({ ok: true })
+    expect(await proposeEdit(deps, editor, proposal)).toMatchObject({ ok: true })
+  })
+
+  test('undoing a deletion alone removes the proposal and restores its revision', async () => {
+    const { deps, store, input } = await setup()
+    const deleted = await proposeEdit(deps, editor, { ...input, fields: { deleted: true } })
+    if (!deleted.ok) throw new Error('expected deletion')
+    const undone = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(deleted.value.plate), fields: { deleted: false } })
+    expect(await store.getEdit('batch', 'one')).toBeNull()
+    if (!undone.ok) throw new Error('expected undo')
+    expect(plateRevision(undone.value.plate)).toBe(input.baseRevision)
+  })
+
+  test('deletion guards revisions and undo preserves other edits', async () => {
+    const { deps, store, input } = await setup()
+    const changed = await proposeEdit(deps, editor, input)
+    if (!changed.ok) throw new Error('expected edit')
+    const deleted = await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(changed.value.plate), fields: { deleted: true } })
+    if (!deleted.ok) throw new Error('expected deletion')
+    expect(await proposeEdit(deps, editor, { ...input, fields: { deleted: false } })).toMatchObject({ ok: false, error: 'stale_plate' })
+    expect(await store.getEdit('batch', 'one')).toMatchObject({ fields: { deleted: true, tags: ['changed'] } })
+    expect(await proposeEdit(deps, editor, { ...input, baseRevision: plateRevision(deleted.value.plate), fields: { deleted: false } })).toMatchObject({ ok: true })
+    expect((await store.getEdit('batch', 'one'))?.fields).toEqual({ tags: ['changed'] })
+  })
 
   test('other editors cannot edit or submit a batch', async () => {
     const { deps, store, input } = await setup()

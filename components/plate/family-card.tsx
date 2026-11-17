@@ -35,6 +35,8 @@ export type FamilyCardProps = {
   onDismissPreview?: () => void
   prefetchedIds?: Set<string>
   drag?: ReturnType<typeof usePlateDrag>
+  onUndoDelete?: (plate: PlateCardData) => void
+  undoPending?: boolean
   canEdit?: boolean
   last?: boolean
 }
@@ -55,6 +57,8 @@ export function FamilyCard({
   onLeaveCheck,
   onDismissPreview,
   drag,
+  onUndoDelete,
+  undoPending,
   canEdit,
 }: FamilyCardProps) {
   const batchId = useSelectedBatchId()
@@ -136,11 +140,14 @@ export function FamilyCard({
         } : undefined}
         className={cn(
           'relative flex items-center gap-3',
+          plate.deleted && 'opacity-60 [&_h3]:line-through',
           small && 'min-h-[66px]',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
+        {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
+        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} disabled={plate.deleted}
+          aria-disabled={!drag?.enabled || !!plate.deleted} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !plate.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
@@ -224,10 +231,11 @@ export function FamilyCard({
           data-family-handle
           data-drag-handle-id={template.id}
           aria-label={'Move ' + template.displayName + ' family'}
-          aria-disabled={!drag?.enabled}
+          disabled={template.deleted}
+          aria-disabled={!drag?.enabled || !!template.deleted}
           title={drag?.handleTitle}
           onKeyDown={event => { if (!entranceRunning(event.currentTarget)) drag?.onKeyDown(item, event) }}
-          className={cn('flex shrink-0 flex-col items-center justify-center self-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
+          className={cn('flex shrink-0 flex-col items-center justify-center self-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled && !template.deleted ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
         ><IoReorderThreeOutline size={20} aria-hidden="true" />{number}</button> : <span
           aria-hidden="true"
           className="flex shrink-0 flex-col items-center justify-center self-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"

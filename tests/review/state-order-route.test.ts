@@ -84,3 +84,14 @@ test('detail resolves thumbnail URLs without changing reviewed plate fields', as
     expect(await response.json()).toMatchObject({ plates: [{ baseline, proposed: baseline, beforeImageUrl: 'https://images.example.com/plates/AK/one.webp', afterImageUrl: 'https://images.example.com/plates/AK/one.webp' }] })
   } finally { vi.unstubAllEnvs() }
 })
+
+test('deletion PATCH requires authentication and rejects stale plate revisions', async () => {
+  const plate = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
+  context.reviewDeps().baselineAtVersion = async () => plate
+  const patch = () => PATCH(new Request('https://example.com/api/batches/batch/plates/one', { method: 'PATCH', body: JSON.stringify({ baseRevision: plateRevision(plate), fields: { deleted: true } }) }), { params: Promise.resolve({ id: 'batch', plateId: 'one' }) })
+  context.currentActor.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
+  expect((await patch()).status).toBe(401)
+  expect((await patch()).status).toBe(200)
+  expect((await patch()).status).toBe(409)
+  expect(await context.reviewDeps().store.getEdit('batch', 'one')).toMatchObject({ fields: { deleted: true } })
+})

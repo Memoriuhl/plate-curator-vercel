@@ -44,6 +44,7 @@ export function usePlateDrag(options: Options) {
   const focusRoot = useRef<HTMLElement | null>(null)
   useEffect(() => { latest.current = options })
   const enabled = options.canEdit && options.show === 'all' && !options.query && !options.edits.pending && !options.ordering.pending && !saving
+  const deletedFamilyIds = useMemo(() => new Set(options.families.filter(family => family.template.deleted).map(family => family.template.id)), [options.families])
 
   function update(value: Active | null) {
     if (value && current.current && sameDropTarget(value.target, current.current.target)) value.target = current.current.target
@@ -55,6 +56,7 @@ export function usePlateDrag(options: Options) {
     pressed.current = null
   }
   function lift(item: DragItem, x: number, y: number, keyboard: boolean) {
+    if (item.plate.deleted) return
     focusRoot.current = dragElement(item)?.closest('section') ?? null
     latest.current.holdOverlay?.(true)
     latest.current.closePreview()
@@ -86,7 +88,9 @@ export function usePlateDrag(options: Options) {
     const { families, targets } = latest.current
     const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
     const stable = stableTargets.current(targets(), window.scrollX, window.scrollY)
-    return targetAt(x, y, stable.filter(({ target }) => target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id)))
+    return targetAt(x, y, stable.filter(({ target }) =>
+      (target.kind === 'family-slot' || !deletedFamilyIds.has(target.familyId))
+      && (target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id))))
   }
   async function drop() {
     const drag = current.current
@@ -96,7 +100,7 @@ export function usePlateDrag(options: Options) {
     const { families, edits, ordering, reload } = latest.current
     const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
-    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (!source || item.plate.deleted || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination.template.deleted || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     setSaving(true)
     const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
     if (order) setOptimisticOrder(order)
@@ -209,14 +213,14 @@ export function usePlateDrag(options: Options) {
   useEffect(() => { if (!enabled && current.current) actions.current.cancel() }, [enabled])
 
   function onPointerDown(item: DragItem, event: PointerEvent<HTMLElement>) {
-    if (!enabled || event.button !== 0) return
+    if (!enabled || item.plate.deleted || event.button !== 0) return
     suppress.current = false
     clearPress()
     pressed.current = { item, x: event.clientX, y: event.clientY, geometry: measureDragGeometry(item, event.clientX, event.clientY, event.currentTarget), pointerId: event.pointerId, timer: null }
     if (event.pointerType === 'touch') pressed.current.timer = setTimeout(() => lift(item, event.clientX, event.clientY, false), 400)
   }
   function onKeyDown(item: DragItem, event: { key: string; preventDefault(): void }) {
-    if (!enabled) return
+    if (!enabled || item.plate.deleted) return
     if (event.key === ' ') {
       event.preventDefault()
       if (current.current) void drop()

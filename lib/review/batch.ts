@@ -5,7 +5,7 @@ import { limits } from './fields'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps } from './types'
 
-const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description'] as const
+const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
 
 export async function proposeEdit(
   d: ReviewDeps,
@@ -28,6 +28,33 @@ export async function proposeEdit(
       .filter(key => i.fields[key] !== undefined)
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
+    if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
+      const edits = await d.store.listEdits(batch.id)
+      const deleted = edits.filter(edit => edit.plateId !== plate.id && edit.fields.deleted)
+      if (deleted.some(edit => edit.plateId === plate.variantOfPlateId)) return { ok: false, error: 'invalid_state' }
+      if (plate.templateFamily) {
+        const parents = await Promise.all(deleted.map(async edit => ({
+          ...await d.baselineAtVersion(batch.baselineVersion, edit.plateId), ...edit.fields,
+        })))
+        if (parents.some(parent => parent.templateRole === 'template' && parent.templateFamily === plate.templateFamily)) return { ok: false, error: 'invalid_state' }
+      }
+    }
+    if (plate.deleted) {
+      if (plate.isStandard) return { ok: false, error: 'invalid_state' }
+      const [plates, edits] = await Promise.all([
+        d.stateBaseline(batch.baselineVersion, plate.state),
+        d.store.listEdits(batch.id),
+      ])
+      const fieldsById = new Map(edits.map(edit => [edit.plateId, edit.fields]))
+      const hasLinkedPlates = plates.some(baseline => {
+        const member = { ...baseline, ...fieldsById.get(baseline.id) }
+        return member.id !== plate.id && !member.deleted
+          && (member.variantOfPlateId === plate.id || plate.templateRole === 'template' && member.templateRole !== 'template'
+            && !!plate.templateFamily && member.templateFamily === plate.templateFamily)
+      })
+      if (hasLinkedPlates) return { ok: false, error: 'invalid_state' }
+    }
+    if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
     const fields: EditableFields = Object.fromEntries(editableKeys
       .filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key]))
       .map(key => [key, plate[key]]))
@@ -95,7 +122,7 @@ export async function reorderState(
     if (!baseline || !ids.has(plateId) || baseline.state !== input.state) return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(batch.id, plateId)
     const current = { ...baseline, ...existing?.fields }
-    if (current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
+    if (current.deleted || current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
     const edits = await d.store.listEdits(batch.id)
     if (plates.some(plate => plate.id !== plateId && (edits.find(entry => entry.plateId === plate.id)?.fields.templateFamily ?? plate.templateFamily) === templateFamily)) return { ok: false, error: 'invalid_state' }
     plateIds = plateIds.includes(plateId) ? plateIds : [...plateIds, plateId]

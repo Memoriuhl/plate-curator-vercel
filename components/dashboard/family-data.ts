@@ -79,6 +79,7 @@ export function matchesPlate(
 
 export type FamilyPlate = Pick<
   PlateCardData,
+  | 'deleted'
   | 'id'
   | 'revision'
   | 'displayName'
@@ -188,6 +189,7 @@ export function filterCounts(plates: readonly PlateCardData[], attachedIds = att
 
 export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
   const {
+    deleted,
     id,
     revision,
     displayName,
@@ -200,6 +202,7 @@ export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
     tags,
   } = plate
   return {
+    deleted,
     id,
     revision,
     displayName,

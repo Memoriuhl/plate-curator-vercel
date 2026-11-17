@@ -7,7 +7,7 @@ import { familyOrder, moveBlock, newFamilySlug, orderForDrop, pastDragThreshold,
 import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-reflow'
 import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
 import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
-import { createStableDragTargets } from '../components/dashboard/drag-target-elements'
+import { collectDragTargets, createStableDragTargets } from '../components/dashboard/drag-target-elements'
 import { variantListCap, estimatedFamilyHeight, VARIANT_ROW_HEIGHT, VARIANT_ROW_GAP } from '../components/dashboard/variant-list-layout'
 import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
@@ -44,7 +44,7 @@ test('threshold, hit targets and scroll edges', () => {
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
-function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false } = {}) {
+function setup({ show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false } = {}) {
   const edit = vi.fn().mockResolvedValue(success)
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
   const move = vi.fn().mockResolvedValue(success)
@@ -52,10 +52,11 @@ function setup({ show = 'all', query = '', canEdit = true, error = false, merge 
   const reload = vi.fn().mockResolvedValue(undefined)
   const closePreview = vi.fn()
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, pending: false }, reload, closePreview,
+    const dragFamilies = families.map(family => ({ ...family, template: family.template.id === b.id ? { ...family.template, deleted: deletedDestination } : family.template }))
+    const drag = usePlateDrag({ families: dragFamilies, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, pending: false }, reload, closePreview,
       targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
-    const item = { kind: variant ? 'variant' as const : 'family' as const, plate: singleton ? b : variant ? v : a }
+    const item = { kind: variant ? 'variant' as const : 'family' as const, plate: deletedSource ? { ...(singleton ? b : variant ? v : a), deleted: true } : singleton ? b : variant ? v : a }
     return <><button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
   }
   render(<Harness />)
@@ -474,4 +475,41 @@ test('handles expose grab and disabled cursors while image hover retains preview
   expect(preview).toHaveBeenCalledWith(a, expect.any(HTMLElement), false)
   view.rerender(<Harness query="army" />)
   for (const handle of view.container.querySelectorAll('[data-family-handle], [data-variant-handle]')) expect(handle.className).toContain('cursor-not-allowed!')
+})
+
+test.each([false, true])('deleted plates cannot start keyboard or pointer drags, Variant %s', variant => {
+  const { handle, edit, reorder, move } = setup({ deletedSource: true, variant })
+  fireEvent.keyDown(handle, { key: ' ' })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 200], ['pointerup', 200]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  expect(screen.queryByText(/Lifted/)).toBeNull()
+  expect(edit).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
+  expect(move).not.toHaveBeenCalled()
+})
+
+test('deleted Templates cannot receive a merge', async () => {
+  const { handle, edit, reorder } = setup({ deletedDestination: true, merge: true, variant: true })
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 200], ['pointerup', 200]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+  }
+  await waitFor(() => expect(screen.getByText('Cancelled')).toBeTruthy())
+  expect(edit).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
+})
+
+test('deleted cards and Variants expose disabled handles and no drop targets', () => {
+  const deleted = { ...b, deleted: true }
+  const deletedVariant = { ...v, deleted: true }
+  const view = render(<section><FamilyCard template={a} variants={[deletedVariant, w]} canEdit /><FamilyCard template={deleted} variants={[]} canEdit /></section>)
+  expect((screen.getByRole('button', { name: 'Move Navy family' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((view.container.querySelector('[data-drag-handle-id="AK.v"]') as HTMLButtonElement).disabled).toBe(true)
+  const targets = collectDragTargets(view.container, [{ template: a, variants: [deletedVariant, w] }, { template: deleted, variants: [] }])
+  expect(targets.some(({ target }) => target.kind === 'merge' && target.familyId === b.id)).toBe(false)
+  expect(targets.some(({ target }) => target.kind === 'variant-slot' && target.index === 0)).toBe(false)
 })
