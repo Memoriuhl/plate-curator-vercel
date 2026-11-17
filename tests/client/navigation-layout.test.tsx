@@ -1,16 +1,16 @@
 import { useEffect } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { ThemeToggle } from '@/components/app/theme-toggle'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
-const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', push: vi.fn(), prefetch: vi.fn() }))
+const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', query: '', push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }))
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mounted.query),
   useParams: () => ({ code: mounted.code, id: mounted.id }),
   usePathname: () => mounted.pathname,
-  useRouter: () => ({ push: mounted.push, prefetch: mounted.prefetch }),
+  useRouter: () => mounted,
 }))
 vi.mock('next/link', () => ({
   default: ({ children, prefetch, scroll, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
@@ -57,14 +57,16 @@ function StatePage() {
   return <p>{code}</p>
 }
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 beforeEach(() => {
   mounted.code = 'AK'
   mounted.id = undefined
   mounted.pathname = '/states/AK'
+  mounted.query = ''
   mounted.push.mockClear()
   mounted.prefetch.mockClear()
+  mounted.replace.mockReset()
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
 })
 test('appearance segments stay open, persist choices, and support arrow keys', () => {
@@ -215,4 +217,224 @@ test('region switch is first in jurisdiction navigation and absent from the head
   view.unmount()
   render(<CuratorHeader />)
   expect(screen.queryByRole('combobox')).toBeNull()
+})
+
+const { DashboardSearch: ActualDashboardSearch } = await vi.importActual<typeof import('@/components/dashboard/search')>('@/components/dashboard/search')
+
+function searchHarness(query = '') {
+  vi.useFakeTimers()
+  mounted.query = query
+  const requests: { href: string; commit(): Promise<void> }[] = []
+  const view = render(<ActualDashboardSearch />)
+  const input = screen.getByRole('searchbox', { name: 'Search every plate by name, id or tag' }) as HTMLInputElement
+  expect(input.value).toBe(new URLSearchParams(query).get('q') ?? '')
+  mounted.replace.mockImplementation((href: string) => {
+    let release!: () => void
+    const committed = new Promise<void>(resolve => { release = resolve }).then(() => {
+      const url = new URL(href, window.location.origin)
+      mounted.pathname = url.pathname
+      mounted.query = url.search.slice(1)
+      view.rerender(<ActualDashboardSearch />)
+    })
+    requests.push({ href, commit: async () => { await act(async () => { release(); await committed }) } })
+  })
+  return {
+    input,
+    requests,
+    type(text: string) {
+      for (const character of text) fireEvent.change(input, { target: { value: input.value + character } })
+    },
+    async publish() { await act(async () => { await vi.advanceTimersByTimeAsync(300) }) },
+    external(nextQuery: string) {
+      mounted.query = nextQuery
+      view.rerender(<ActualDashboardSearch />)
+    },
+    popstate(nextQuery: string) {
+      window.history.replaceState(null, '', `${mounted.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
+      fireEvent.popState(window)
+      mounted.query = nextQuery
+      view.rerender(<ActualDashboardSearch />)
+    },
+    unmount: view.unmount,
+  }
+}
+
+test('search keeps every fast character before the router commits and coalesces the URL update', async () => {
+  const search = searchHarness('batch=shared&show=undertagged&custom=keep')
+  search.type('motorcycle')
+  expect(search.input.value).toBe('motorcycle')
+  await search.publish()
+  expect(search.requests).toHaveLength(1)
+  expect(search.requests[0].href).toBe('/states/AK?batch=shared&show=undertagged&custom=keep&q=motorcycle')
+  expect(new URLSearchParams(mounted.query).has('q')).toBe(false)
+  await search.requests[0].commit()
+  expect(search.input.value).toBe('motorcycle')
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('motorcycle')
+  await search.publish()
+  expect(search.requests).toHaveLength(1)
+  expect(mounted.replace).toHaveBeenCalledWith(search.requests[0].href, { scroll: false })
+})
+
+test('older search acknowledgements cannot replace newer typing and out-of-order commits converge', async () => {
+  const search = searchHarness()
+  search.type('a')
+  await search.publish()
+  expect(search.requests).toHaveLength(1)
+  search.type('r')
+  await search.publish()
+  expect(search.requests).toHaveLength(2)
+  search.type('m')
+  await search.requests[1].commit()
+  expect(search.input.value).toBe('arm')
+  await search.publish()
+  expect(search.requests).toHaveLength(3)
+  await search.requests[2].commit()
+  expect(search.input.value).toBe('arm')
+  await search.requests[0].commit()
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('a')
+  expect(search.input.value).toBe('arm')
+  await search.publish()
+  expect(search.requests).toHaveLength(4)
+  await search.requests[3].commit()
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('arm')
+  await search.publish()
+  expect(search.requests).toHaveLength(4)
+})
+
+test('search Backspace and clear remove q while preserving Batch, other params, and scroll', async () => {
+  const search = searchHarness('q=army&batch=shared&custom=one&custom=two')
+  fireEvent.change(search.input, { target: { value: search.input.value.slice(0, -1) } })
+  expect(search.input.value).toBe('arm')
+  await search.publish()
+  expect(search.requests).toHaveLength(1)
+  await search.requests[0].commit()
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('arm')
+  fireEvent.change(search.input, { target: { value: '' } })
+  expect(search.input.value).toBe('')
+  await search.publish()
+  expect(search.requests).toHaveLength(2)
+  expect(search.requests[1].href).toBe('/states/AK?batch=shared&custom=one&custom=two')
+  await search.requests[1].commit()
+  expect(new URLSearchParams(mounted.query).has('q')).toBe(false)
+  expect(new URLSearchParams(mounted.query).getAll('custom')).toEqual(['one', 'two'])
+  for (const call of mounted.replace.mock.calls) expect(call[1]).toEqual({ scroll: false })
+})
+
+test('external search navigation replaces the draft and cancels an unpublished edit', async () => {
+  const search = searchHarness('q=army&batch=shared')
+  search.type(' truck')
+  search.external('q=motorcycle&batch=shared&show=all')
+  expect(search.input.value).toBe('motorcycle')
+  await search.publish()
+  expect(search.requests).toHaveLength(0)
+  search.external('q=army&batch=shared')
+  expect(search.input.value).toBe('army')
+  search.external('batch=shared')
+  expect(search.input.value).toBe('')
+  await search.publish()
+  expect(search.requests).toHaveLength(0)
+})
+
+test('external navigation can revisit acknowledged search values and retains the latest other params', async () => {
+  const search = searchHarness('q=army&batch=shared')
+  fireEvent.change(search.input, { target: { value: 'motorcycle' } })
+  await search.publish()
+  await search.requests[0].commit()
+  search.external('q=army&batch=other&custom=keep')
+  expect(search.input.value).toBe('army')
+  search.external('q=motorcycle&batch=other&custom=keep')
+  expect(search.input.value).toBe('motorcycle')
+  fireEvent.change(search.input, { target: { value: '' } })
+  await search.publish()
+  expect(search.requests[1].href).toBe('/states/AK?batch=other&custom=keep')
+})
+
+test('search slash shortcut focuses only from outside editable fields and cleans up on unmount', () => {
+  const search = searchHarness()
+  expect(document.activeElement).not.toBe(search.input)
+  fireEvent.keyDown(document.body, { key: '/', ctrlKey: true })
+  expect(document.activeElement).not.toBe(search.input)
+  fireEvent.keyDown(document.body, { key: '/' })
+  expect(document.activeElement).toBe(search.input)
+  const textarea = document.createElement('textarea')
+  document.body.append(textarea)
+  try {
+    textarea.focus()
+    fireEvent.keyDown(textarea, { key: '/' })
+    expect(document.activeElement).toBe(textarea)
+    const focus = vi.spyOn(search.input, 'focus')
+    search.unmount()
+    fireEvent.keyDown(document.body, { key: '/' })
+    expect(focus).not.toHaveBeenCalled()
+    focus.mockRestore()
+  } finally {
+    textarea.remove()
+  }
+})
+
+test('back/forward overrides a pending own value and cancels newer unpublished typing', async () => {
+  const initialUrl = window.location.href
+  const search = searchHarness('q=a&batch=shared')
+  try {
+    search.type('r')
+    await search.publish()
+    expect(search.requests).toHaveLength(1)
+    expect(new URL(search.requests[0].href, window.location.origin).searchParams.get('q')).toBe('ar')
+    search.type('m')
+    search.popstate('q=ar&batch=shared')
+    expect(search.input.value).toBe('ar')
+    await search.publish()
+    expect(search.requests).toHaveLength(1)
+  } finally {
+    window.history.replaceState(null, '', initialUrl)
+  }
+})
+
+test('an external query stays selected if an outstanding own acknowledgement arrives afterwards', async () => {
+  const search = searchHarness('batch=shared')
+  search.type('army')
+  await search.publish()
+  search.external('q=motorcycle&batch=shared')
+  expect(search.input.value).toBe('motorcycle')
+  await search.requests[0].commit()
+  expect(search.input.value).toBe('motorcycle')
+  await search.publish()
+  await search.requests[1].commit()
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('motorcycle')
+  await search.publish()
+  expect(search.requests).toHaveLength(2)
+})
+
+test('Backspace through the final character removes q and leaves the bare pathname', async () => {
+  const search = searchHarness('q=ar')
+  while (search.input.value) fireEvent.change(search.input, { target: { value: search.input.value.slice(0, -1) } })
+  expect(search.input.value).toBe('')
+  await search.publish()
+  expect(search.requests).toHaveLength(1)
+  expect(search.requests[0].href).toBe('/states/AK')
+  await search.requests[0].commit()
+  expect(new URLSearchParams(mounted.query).has('q')).toBe(false)
+})
+
+test('unmount cancels an unpublished search navigation', async () => {
+  const search = searchHarness('batch=shared')
+  search.type('army')
+  search.unmount()
+  await search.publish()
+  expect(search.requests).toHaveLength(0)
+})
+
+test('a query from a canceled own navigation can be typed and published again', async () => {
+  const search = searchHarness('batch=shared')
+  search.type('army')
+  await search.publish()
+  search.external('q=motorcycle&batch=shared')
+  expect(search.input.value).toBe('motorcycle')
+  fireEvent.change(search.input, { target: { value: 'army' } })
+  await search.publish()
+  expect(search.requests).toHaveLength(2)
+  expect(new URL(search.requests[1].href, window.location.origin).searchParams.get('q')).toBe('army')
+  await search.requests[1].commit()
+  expect(search.input.value).toBe('army')
+  expect(new URLSearchParams(mounted.query).get('q')).toBe('army')
 })

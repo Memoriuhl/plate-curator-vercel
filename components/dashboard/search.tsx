@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { IoSearchOutline } from 'react-icons/io5'
 
@@ -9,7 +9,36 @@ export function DashboardSearch() {
   const router = useRouter()
   const pathname = usePathname()
   const input = useRef<HTMLInputElement>(null)
+  const query = params.get('q') ?? ''
+  const queryString = params.toString()
+  const [search, setSearch] = useState(() => ({ value: query, query, pending: [] as string[] }))
+  const value = search.value
+  if (search.query !== query) {
+    setSearch(current => {
+      const acknowledgement = current.pending.indexOf(query)
+      return {
+        value: acknowledgement < 0 ? query : current.value,
+        query,
+        pending: current.pending.filter((_, index) => index !== acknowledgement),
+      }
+    })
+  }
   useEffect(() => {
+    if (value === query) return
+    const timer = setTimeout(() => {
+      const next = new URLSearchParams(queryString)
+      if (value) next.set('q', value)
+      else next.delete('q')
+      setSearch(current => ({ ...current, pending: [...current.pending, value] }))
+      router.replace(`${pathname}${next.size ? `?${next}` : ''}`, { scroll: false })
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [value, query, queryString, pathname, router])
+  useEffect(() => {
+    function historyChange() {
+      const value = new URLSearchParams(window.location.search).get('q') ?? ''
+      setSearch(current => ({ ...current, value }))
+    }
     function shortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (
@@ -24,7 +53,11 @@ export function DashboardSearch() {
       }
     }
     document.addEventListener('keydown', shortcut)
-    return () => document.removeEventListener('keydown', shortcut)
+    window.addEventListener('popstate', historyChange)
+    return () => {
+      document.removeEventListener('keydown', shortcut)
+      window.removeEventListener('popstate', historyChange)
+    }
   }, [])
   return (
     <label className="dashboard-search">
@@ -34,14 +67,10 @@ export function DashboardSearch() {
         type="search"
         aria-label="Search every plate by name, id or tag"
         placeholder="Search every plate by name, id or tag"
-        value={params.get('q') ?? ''}
-        onChange={(event) => {
-          const next = new URLSearchParams(params)
-          if (event.target.value) next.set('q', event.target.value)
-          else next.delete('q')
-          router.replace(`${pathname}${next.size ? `?${next}` : ''}`, {
-            scroll: false,
-          })
+        value={search.value}
+        onChange={event => {
+          const value = event.target.value
+          setSearch(current => ({ ...current, value }))
         }}
       />
       <kbd aria-hidden="true">/</kbd>
