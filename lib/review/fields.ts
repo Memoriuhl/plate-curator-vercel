@@ -1,8 +1,9 @@
 import type { EditableFields } from './types'
+import { storyFieldKeys } from './story'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
 const baseKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted'] as const
-const storyKeys = ['funFacts', 'firstIssuedYear', 'sourceUrl', 'wikiUrl', 'readMore'] as const
+const storyKeys = storyFieldKeys
 export const persistedEditableKeys = [...baseKeys, ...storyKeys]
 export const editableKeys = persistedEditableKeys
 export function editableFieldKeys() {
@@ -28,9 +29,8 @@ function boundedText(value: unknown, max: number): string | null {
   return text.length > 0 && text.length <= max ? text : null
 }
 
-export function parseEditableFields(input: unknown): EditableFields | null {
+function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields | null {
   if (!isRecord(input)) return null
-  const keys = new Set<string>(editableFieldKeys())
   const entries = Object.entries(input)
   if (entries.length === 0 || entries.some(([key]) => !keys.has(key))) return null
 
@@ -91,6 +91,14 @@ export function parseEditableFields(input: unknown): EditableFields | null {
     }
   }
   return fields
+}
+
+export function parseEditableFields(input: unknown): EditableFields | null {
+  return parseFields(input, new Set(editableFieldKeys()))
+}
+
+export function parseStoryFields(input: unknown): EditableFields | null {
+  return parseFields(input, new Set(storyKeys))
 }
 
 export function parseBatchInput(input: unknown): { name: string; plateIds: string[] } | null {

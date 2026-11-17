@@ -17,7 +17,7 @@ test('requires a citation before a fact can be saved to the captured plate revis
   expect(screen.getByRole('button', { name: 'Save story to Batch' }).hasAttribute('disabled')).toBe(true)
   fireEvent.change(screen.getByRole('textbox', { name: 'Fact 1 sourceUrl' }), { target: { value: 'https://example.org/fact' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save story to Batch' }))
-  await waitFor(() => expect(save).toHaveBeenCalledWith(plate, expect.objectContaining({ firstIssuedYear: 1976, funFacts: [{ text: 'A sourced fact.', sourceUrl: 'https://example.org/fact' }] })))
+  await waitFor(() => expect(save).toHaveBeenCalledWith(plate, { funFacts: [{ text: 'A sourced fact.', sourceUrl: 'https://example.org/fact' }] }))
   expect(screen.getByRole('status').textContent).toContain('Story saved')
 })
 
@@ -45,4 +45,15 @@ test('a failed save retains the entered draft for retry', async () => {
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   expect((screen.getByRole('spinbutton', { name: 'First issued year' }) as HTMLInputElement).value).toBe('1980')
   expect(screen.queryByRole('status')).toBeNull()
+})
+
+test('saving an unchanged story produces no request or edit', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const save = vi.fn()
+  render(<StoryEditor plate={plateCards[0]} pending={false} save={save} />)
+  const button = screen.getByRole('button', { name: 'Save story to Batch' })
+  expect(button.hasAttribute('disabled')).toBe(true)
+  fireEvent.click(button)
+  fireEvent.submit(button.closest('form')!)
+  expect(save).not.toHaveBeenCalled()
 })

@@ -6,6 +6,7 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import type { StoryFields } from '@/lib/catalog/types'
 import type { EditableFields } from '@/lib/review/types'
 import { parseEditableFields } from '@/lib/review/fields'
+import { changedStoryFields } from '@/lib/review/story'
 
 const input = 'w-full min-w-0 rounded-[var(--radius-md)] bg-[var(--fill)] px-3 py-2 text-[var(--ink)]'
 
@@ -21,14 +22,16 @@ export function StoryEditor({ plate, pending, save }: {
     sourceUrl: plate.sourceUrl ?? null, wikiUrl: plate.wikiUrl ?? null,
   }))
   const [saved, setSaved] = useState(false)
-  const valid = parseEditableFields(draft) !== null
+  const changes = changedStoryFields(target, draft)
+  const dirty = Object.keys(changes).length > 0
+  const valid = !dirty || parseEditableFields(changes) !== null
   function change(fields: StoryFields) {
     setSaved(false)
     setDraft(previous => ({ ...previous, ...fields }))
   }
   return <form onSubmit={async event => {
     event.preventDefault()
-    if (!pending && valid) setSaved(await save(target, draft))
+    if (!pending && valid && dirty) setSaved(await save(target, changes))
   }} className="grid gap-[var(--stack-gap)]">
     <fieldset disabled={pending} className="grid min-w-0 gap-[var(--stack-gap)]">
       <legend className="sr-only">Edit sourced story</legend>
@@ -64,7 +67,7 @@ export function StoryEditor({ plate, pending, save }: {
         <Button type="button" size="sm" variant="ghost" onClick={() => change({ readMore: draft.readMore!.filter((_, at) => at !== index) })}>Remove link {index + 1}</Button>
       </fieldset>)}
       {!valid ? <p role="alert" className="caption">Use a year from 1800 to 2100, bounded text, and HTTP or HTTPS source links.</p> : null}
-      <Button type="submit" disabled={!valid || saved}>Save story to Batch</Button>
+      <Button type="submit" disabled={!valid || !dirty || saved}>Save story to Batch</Button>
     </fieldset>
     {saved ? <p role="status">Story saved to your Batch.</p> : null}
   </form>

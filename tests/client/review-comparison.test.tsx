@@ -6,7 +6,7 @@ import type { Plate } from '../../lib/catalog/types'
 afterEach(() => { cleanup(); vi.unstubAllEnvs() })
 
 test('local comparison displays sourced facts, first-issued year and read-more values', () => {
-  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
   const before: Plate = { id: 'AK.one', state: 'AK', slug: 'one', image: '', displayName: 'One', tags: [] }
   const after = { ...before, firstIssuedYear: 1976, funFacts: [{ text: 'Sourced fact', sourceUrl: 'https://example.org/fact' }], readMore: [{ title: 'Reference', site: 'Example', url: 'https://example.org/reference' }] }
   render(<DiffTable before={before} after={after} version={1} revision={2} order={[before.id]} />)

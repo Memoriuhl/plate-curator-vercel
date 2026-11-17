@@ -2,7 +2,8 @@ import { standardEdits, standardOrderProblems } from './standard'
 import { canEdit, editableStates } from './access'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
-import { editableKeys, limits } from './fields'
+import { editableFieldKeys, editableKeys, limits } from './fields'
+import { sameEditableValue } from './story'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
@@ -23,8 +24,8 @@ export async function proposeEdit(
     const existing = await d.store.getEdit(i.batchId, i.plateId)
     const current = { ...baseline, ...existing?.fields }
     if (plateRevision(current) !== i.baseRevision) return { ok: false, error: 'stale_plate', current }
-    const changes = Object.fromEntries(editableKeys
-      .filter(key => i.fields[key] !== undefined)
+    const changes = Object.fromEntries(editableFieldKeys()
+      .filter(key => i.fields[key] !== undefined && !sameEditableValue(key, current[key], i.fields[key]))
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }
     if (current.isStandard && (i.fields.isStandard === false || i.fields.templateRole !== undefined && plate.templateRole !== 'template')) return { ok: false, error: 'standard_required' }
@@ -56,7 +57,7 @@ export async function proposeEdit(
     }
     if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
     const fields: EditableFields = Object.fromEntries(editableKeys
-      .filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key]))
+      .filter(key => !sameEditableValue(key, baseline[key], plate[key]))
       .map(key => [key, plate[key]]))
     const nextBatch: ReviewBatch = { ...batch, plateIds, state: 'open', revision: batch.revision + 1, approval: null }
     const edit = {
@@ -166,7 +167,7 @@ export async function reorderState(
   const edits = [...changes].map(([plateId, fields]) => {
     const baseline = plates.find(plate => plate.id === plateId)!
     const plate = { ...baseline, ...effectiveFields.get(plateId), ...fields }
-    const delta = Object.fromEntries(editableKeys.filter(key => JSON.stringify(plate[key]) !== JSON.stringify(baseline[key])).map(key => [key, plate[key]]))
+    const delta = Object.fromEntries(editableKeys.filter(key => !sameEditableValue(key, baseline[key], plate[key])).map(key => [key, plate[key]]))
     return { plateId, fields: delta, baseRevision: plateRevision(baseline), resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: d.now() }
   })
   const combined = preserveLegacy

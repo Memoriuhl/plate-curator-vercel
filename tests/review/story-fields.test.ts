@@ -63,6 +63,8 @@ test('story edits persist for review, remain when the flag is off, and can be re
   expect(changeSummary(plate, result.value.plate, undefined, 'Edited')).toContain('funFacts')
   expect(groupChanges([{ baseline: plate, proposed: result.value.plate, revision: '1', edit: null }]).Edited).toHaveLength(1)
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  expect(changeSummary(plate, result.value.plate, undefined, 'Edited')).toContain('funFacts')
+  expect(groupChanges([{ baseline: plate, proposed: result.value.plate, revision: '1', edit: null }]).Edited).toHaveLength(1)
   const updated = await proposeEdit(deps, actor, { ...request, baseRevision: plateRevision(result.value.plate), fields: { tags: ['changed'] } })
   expect(updated.ok).toBe(true)
   expect((await store.getEdit(request.batchId, plate.id))?.fields).toMatchObject(story)
@@ -70,5 +72,15 @@ test('story edits persist for review, remain when the flag is off, and can be re
   if (!updated.ok) return
   const removed = await proposeEdit(deps, actor, { ...request, baseRevision: plateRevision(updated.value.plate), fields: { firstIssuedYear: null, sourceUrl: null, wikiUrl: null, funFacts: [], readMore: [], tags: [] } })
   expect(removed.ok).toBe(true)
-  expect((await store.getEdit(request.batchId, plate.id))?.fields).toEqual({ firstIssuedYear: null, sourceUrl: null, wikiUrl: null, funFacts: [], readMore: [] })
+  expect(await store.getEdit(request.batchId, plate.id)).toBeNull()
+})
+
+test('server treats missing story fields and empty draft values as the same no-edit state', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const plate: Plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', tags: [], image: '' }
+  const actor = { uid: 'story-editor', name: null, role: 'editor' as const }
+  const store = createMemoryStore([{ id: 'empty-story', name: 'Story', baselineVersion: 1, plateIds: [plate.id], revision: 0, approval: null, state: 'open', createdAt: '2026-11-17', createdBy: actor.uid }])
+  const deps: ReviewDeps = { store, baseline: async () => plate, baselineAtVersion: async () => plate, stateBaseline: async () => [plate], now: () => '2026-11-17' }
+  expect(await proposeEdit(deps, actor, { batchId: 'empty-story', plateId: plate.id, baseRevision: plateRevision(plate), fields: { firstIssuedYear: null, sourceUrl: null, wikiUrl: null, funFacts: [], readMore: [] } })).toMatchObject({ ok: true })
+  expect(await store.listEdits('empty-story')).toEqual([])
 })
