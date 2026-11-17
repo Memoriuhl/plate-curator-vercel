@@ -8,7 +8,7 @@ import { reflowForDrop, sameDropTarget } from '../components/dashboard/drag-refl
 import { measureDragPositions, playDragFlip } from '../components/dashboard/use-drag-flip'
 import { DragPlaceholder, DragPreview } from '../components/dashboard/drag-preview'
 import { createStableDragTargets } from '../components/dashboard/drag-target-elements'
-import { variantListCap, estimatedFamilyHeight } from '../components/dashboard/variant-list-layout'
+import { variantListCap, estimatedFamilyHeight, VARIANT_ROW_HEIGHT, VARIANT_ROW_GAP } from '../components/dashboard/variant-list-layout'
 import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -357,6 +357,9 @@ test('cap uses the rendered sixth row, including unequal row heights and gaps', 
   const rows = sizes.map(size => { const row = { start, size }; start += size + 12; return row })
   expect(variantListCap(rows.slice(0, 5))).toBeUndefined()
   expect(variantListCap(rows)).toBe(655)
+  expect(VARIANT_ROW_HEIGHT).toBe(48)
+  expect(VARIANT_ROW_GAP).toBe(12)
+  expect(estimatedFamilyHeight(6) - estimatedFamilyHeight(5)).toBe(36)
   expect(estimatedFamilyHeight(100)).toBe(estimatedFamilyHeight(6))
   expect(estimatedFamilyHeight(5)).toBeLessThan(estimatedFamilyHeight(6))
 })
@@ -394,6 +397,8 @@ test('nested virtualization observes the list scroll element and retains the fir
     const view = render(<VirtualizedVariants familyId={a.id} plates={plates} renderPlate={plate => <a href={'/plates/' + plate.id}>{plate.id}</a>} />)
     const options = vi.mocked(useVirtualizer).mock.calls.at(-1)![0]
     expect(options.enabled).toBe(true)
+    expect(options.estimateSize(0)).toBe(48)
+    expect(options.gap).toBe(12)
     expect(options.getScrollElement()).toBe(view.getByRole('list'))
     expect(options.rangeExtractor!({ startIndex: 20, endIndex: 24, overscan: 2, count: 30 })).toEqual(expect.arrayContaining([0, 1, 2, 3, 4, 5, 20, 24]))
   } finally { vi.unstubAllGlobals() }
@@ -447,26 +452,13 @@ test('scrolling the nested list does not create a false FLIP movement', () => {
   expect(row.animate).not.toHaveBeenCalled()
 })
 
-test('plate ids measure overflow and preserve the full title without wrapping', () => {
+test('family and variant ids remain available on hover without visible id lines', () => {
   const { container } = render(<FamilyCard template={a} variants={[v]} />)
-  const line = container.querySelector('p.id') as HTMLElement
-  expect(line.title).toBe(a.id)
-  expect(line.className).toContain('whitespace-nowrap')
-  expect(line.className).not.toContain('break-all')
-  expect(line.style.getPropertyValue('--id-offset')).toBe('-0px')
-  Object.defineProperties(HTMLElement.prototype, {
-    scrollWidth: { configurable: true, get: () => 260 },
-    clientWidth: { configurable: true, get: () => 100 },
-  })
-  try {
-    const view = render(<FamilyCard template={{ ...a, id: 'long-id' }} variants={[]} />)
-    const long = view.container.querySelector('p.id') as HTMLElement
-    expect(long.style.getPropertyValue('--id-offset')).toBe('-160px')
-    expect(long.style.getPropertyValue('--id-duration')).toBe('4000ms')
-  } finally {
-    Reflect.deleteProperty(HTMLElement.prototype, 'scrollWidth')
-    Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
-  }
+  expect(container.querySelector('p.id')).toBeNull()
+  expect(container.textContent).not.toContain(a.id)
+  expect(container.textContent).not.toContain(v.id)
+  expect(container.querySelector('a[title="' + a.id + '"]')).toBeTruthy()
+  expect(container.querySelector('a[title="' + v.id + '"]')).toBeTruthy()
 })
 
 test('handles expose grab and disabled cursors while image hover retains preview', () => {

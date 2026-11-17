@@ -10,7 +10,6 @@ import { useRouter } from 'next/navigation'
 import { IoReorderThreeOutline, IoStar } from 'react-icons/io5'
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { ScrollingPlateId } from './scrolling-plate-id'
 import { CheckStrip } from './check-strip'
 import { VirtualizedVariants } from './virtualized-variants'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
@@ -137,13 +136,15 @@ export function FamilyCard({
         } : undefined}
         className={cn(
           'relative flex items-center gap-3',
+          small && 'min-h-12',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
-        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
+        {small && canEdit ? <button type="button" data-variant-handle data-drag-handle-id={plate.id} aria-label={'Move ' + plate.displayName} aria-disabled={!drag?.enabled} title={drag?.handleTitle} className={cn('flex shrink-0 items-center justify-center self-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')} onKeyDown={event => {
           if (!entranceRunning(event.currentTarget)) drag?.onKeyDown({ kind: 'variant', plate }, event)
         }}><IoReorderThreeOutline aria-hidden="true" /></button> : null}
         <Link
+          title={plate.id}
           prefetch={false}
           href={'/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')}
           className={cn('group/plate flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', !small && 'flex-col @min-[340px]:flex-row')}
@@ -179,7 +180,7 @@ export function FamilyCard({
               <span className="caption">No image</span>
             )}
           </div>
-          <div className="flex w-full min-w-0 flex-1 flex-col gap-1">
+          <div className="family-plate-details flex w-full min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-start justify-between gap-2">
               <h3 className="plate-name min-w-0 whitespace-normal [overflow-wrap:anywhere]">
                 {plate.displayName}
@@ -194,7 +195,6 @@ export function FamilyCard({
                 </span>
               ) : null}
             </div>
-            <ScrollingPlateId id={plate.id} />
             <CheckStrip checks={plate.checks} />
           </div>
           {marker ? <span data-batch-marker>{marker}</span> : null}
@@ -225,10 +225,10 @@ export function FamilyCard({
           aria-disabled={!drag?.enabled}
           title={drag?.handleTitle}
           onKeyDown={event => { if (!entranceRunning(event.currentTarget)) drag?.onKeyDown(item, event) }}
-          className={cn('flex shrink-0 flex-col items-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
+          className={cn('flex shrink-0 flex-col items-center justify-center self-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]', drag?.enabled ? 'touch-none cursor-grab!' : 'cursor-not-allowed!')}
         ><IoReorderThreeOutline size={20} aria-hidden="true" />{number}</button> : <span
           aria-hidden="true"
-          className="flex shrink-0 flex-col items-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
+          className="flex shrink-0 flex-col items-center justify-center self-center rounded-[var(--radius-sm)] bg-[var(--fill)] p-1 text-[var(--ink-3)]"
         >
           <IoReorderThreeOutline size={20} />
           {number}

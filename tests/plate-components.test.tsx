@@ -11,12 +11,12 @@ import { plateCards } from '../fixtures/plate-cards'
 import { PLATE_CHECK_KEYS } from '../lib/catalog/dashboard-types'
 
 describe('StatusIcon', () => {
-  test.each(['good', 'weak', 'missing'] as const)('names and distinguishes %s without color alone', status => {
+  test.each(['good', 'weak', 'missing'] as const)('names the %s status accessibly', status => {
     const html = renderToStaticMarkup(<StatusIcon checkKey="tags" check={{ status, value: 'Full tag value' }} />)
     expect(html).toContain(`aria-label="Tags: ${status}"`)
     expect(html).toContain('role="img"')
     expect(html).not.toContain('<button')
-    expect(html.includes('data-status-dot')).toBe(status === 'weak')
+    expect(html).not.toContain('data-status-dot')
     expect(html.includes('data-status-slash')).toBe(status === 'missing')
     expect(html).toContain('data-check="tags"')
     expect(html).not.toContain('title=')
@@ -27,6 +27,8 @@ test('CheckStrip preserves the seven contract checks in decision order', () => {
   const html = renderToStaticMarkup(<CheckStrip checks={plateCards[0].checks} />)
   const labels = ['Description', 'Fun facts', 'Link', 'Tags', 'Family', 'Image', 'Rarity']
   expect(PLATE_CHECK_KEYS).toHaveLength(7)
+  expect(html).toContain('flex-nowrap')
+  expect(html).not.toContain('flex-wrap')
   const offsets = labels.map(label => html.indexOf(`aria-label="${label}:`))
   expect(offsets.every(offset => offset >= 0)).toBe(true)
   expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
