@@ -56,7 +56,7 @@ export function BatchActions({
         tags,
       })) ?? []
   const edits =
-    detail.data?.plates.filter((plate) => plate.edit !== null).length ?? 0
+    detail.data?.plates.filter((plate) => plate.edit !== null || plate.order !== undefined).length ?? 0
   return (
     <>
       <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
@@ -72,6 +72,7 @@ export function BatchActions({
                 {workspace.mode === 'selected' ? 'Selected batch:' : 'Your batch:'}{' '}
                 {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
               </span>
+              {workspace.mode === 'selected' ? <span>{batch.state}</span> : null}
             </>
           ) : null}
         </span>

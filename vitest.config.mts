@@ -8,7 +8,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'client',
-          include: ['tests/shared-batch-live.test.tsx', 'tests/invite-page.test.tsx', 'tests/members-page.test.tsx', 'tests/sign-in-form.test.tsx', 'tests/client/session.test.tsx', 'tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx', 'tests/plate-drag.test.tsx', 'tests/client/navigation-layout.test.tsx'],
+          include: ['tests/shared-batch-live.test.tsx', 'tests/shared-batch-lifecycle.test.tsx', 'tests/invite-page.test.tsx', 'tests/members-page.test.tsx', 'tests/sign-in-form.test.tsx', 'tests/client/session.test.tsx', 'tests/client/hooks.test.ts', 'tests/plate-page.test.tsx', 'tests/grid-feel-interactions.test.tsx', 'tests/plate-drag.test.tsx', 'tests/client/navigation-layout.test.tsx'],
           environment: 'jsdom',
         },
       },
@@ -19,6 +19,7 @@ export default defineConfig({
           exclude: [
             ...configDefaults.exclude,
             'tests/shared-batch-live.test.tsx',
+            'tests/shared-batch-lifecycle.test.tsx',
             'tests/invite-page.test.tsx',
             'tests/members-page.test.tsx',
             'tests/sign-in-form.test.tsx',
