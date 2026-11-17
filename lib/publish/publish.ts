@@ -1,5 +1,5 @@
 import { isPublishStop, PUBLISH_ERRORS } from './stop'
-import { isSuperseded, receiptId } from './command'
+import { claimSupersedes, isSuperseded, receiptId } from './command'
 import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
@@ -21,6 +21,11 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   const batch = await d.store.getBatch(command.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
   let record = await d.records.get(id)
+  if (claimSupersedes(batch, command)) return { ok: false, error: PUBLISH_ERRORS.superseded }
+  if (!record) {
+    const stopped = await d.records.stopped(command)
+    if (stopped) return { ok: false, error: stopped }
+  }
   if (isSuperseded(record, command)) return { ok: false, error: PUBLISH_ERRORS.superseded }
   if (record?.state === 'done' && record.committedAt && batch.state === 'published' && batch.revision === command.revision + 1) {
     if (record.completionToken) await d.lock.release(record.completionToken, false)
@@ -82,7 +87,9 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       const edits = await d.store.listEdits(command.batchId)
       const fields = new Map(edits.map(edit => [edit.plateId, edit.fields]))
       const orders = new Map(Object.entries(batch.stateOrders).map(([state, order]) => [state, new Map(order.map((id, index) => [id, index]))]))
-      const next = { version: fromVersion + 1, plates: baseline.plates.map(plate => {
+      const toVersion = record?.toVersion ?? await d.records.nextVersion(lease.token, d.now())
+      if (toVersion === null) return { ok: false, error: 'lock_lost' }
+      const next = { version: toVersion, plates: baseline.plates.map(plate => {
         const edited = { ...plate, ...fields.get(plate.id) }
         if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
         const order = orders.get(plate.state)
@@ -111,7 +118,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
         if (typeof adopted === 'string') { keepFrozen = false; return { ok: false, error: adopted } }
         record = adopted
       }
-      record ??= { id, ...command, fromVersion, toVersion: fromVersion + 1, blobSha256: checksum, state: 'started' }
+      record ??= { id, ...command, fromVersion, toVersion, blobSha256: checksum, state: 'started' }
       if (!await d.records.save(record, lease.token, d.now()) || !await renew()) return { ok: false, error: 'lock_lost' }
       const uploadStop = await d.records.checkUpload(record, command, checksum, lease.token, d.now())
       if (uploadStop) { keepFrozen = false; return { ok: false, error: uploadStop } }

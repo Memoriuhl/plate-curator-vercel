@@ -287,7 +287,7 @@ The Workflow run view is the evidence for each.
   - recovery when the GPU server stops
   - why approval names a revision
   - why staging can't reach production
-  - catalog rollback (publish old content as a higher version) versus dashboard rollback (revert the Vercel deployment). They're independent.
+  - catalog rollback (publish old content as a higher version) versus dashboard rollback (revert the Vercel deployment). They're independent; follow the [release-control rollback requirements](publish-recovery.md#deployment-compatibility-and-release-gate) before reverting to older code.
 - **Sources:**
   - Firebase, separate projects per environment: https://firebase.google.com/docs/projects/dev-workflows/general-best-practices
   - Vercel OIDC to Google Cloud: https://vercel.com/docs/oidc/gcp

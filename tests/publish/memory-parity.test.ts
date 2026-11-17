@@ -1,6 +1,14 @@
 import { expect, test } from 'vitest'
-import { command, fixture } from './fixture'
+import { batch, command, fixture } from './fixture'
 import type { PublishRecord } from '../../lib/publish/types'
+
+test('a stale Batch read cannot erase abandonment audit on a later commit', async () => {
+  const f = fixture()
+  const disposition = { receiptId: 'batch@2--command', commandId: 'command', burnedVersion: 2, by: command.requestedBy, at: f.deps.now(), reason: 'Choose B', object: null }
+  await f.deps.store.updatePublishMetadata(batch.id, 2, { publishAbandonment: disposition })
+  expect(await f.deps.store.commit(batch.id, 2, { batch: { ...batch, state: 'open', revision: 3 } })).toBe('ok')
+  expect((await f.deps.store.getBatch(batch.id))?.publishAbandonment).toEqual(disposition)
+})
 
 test.each(['paused', 'revoked', 'stale_baseline'])('memory eligibility and acceptance refuse %s like Firestore', async reason => {
   const f = fixture()

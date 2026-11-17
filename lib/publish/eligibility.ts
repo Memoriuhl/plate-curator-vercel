@@ -41,6 +41,12 @@ export async function resolveClaimRun(claim: EligibilityInput['claim'], lookup: 
   } catch { return { claim, status: undefined } }
 }
 
+export function claimTakeoverEligible(claim: NonNullable<EligibilityInput['claim']>, stop: PublishStop | null | undefined, status: string | null | undefined, now: string, ttl = CLAIM_TTL_MS): boolean {
+  const absent = !claim.runId && status === null || status === 'not_found'
+  const expired = absent && Number.isFinite(Date.parse(claim.acceptedAt)) && Date.parse(now) - Date.parse(claim.acceptedAt) >= ttl
+  return !!stop || terminalRun(status) || expired
+}
+
 export function retryEligibility(input: EligibilityInput): RetryEligibility {
   const { command, batch, control, receipt, liveVersion, claim, now } = input
   const denied = (reason: PublishError): RetryEligibility => ({ canRetry: false, reason, ...(batch ? { reviewedVersion: batch.baselineVersion, liveVersion } : {}) })
@@ -54,9 +60,7 @@ export function retryEligibility(input: EligibilityInput): RetryEligibility {
   if (receipt?.committedAt) return denied(PUBLISH_ERRORS.superseded)
   if (claim && claim.command.revision === command.revision) {
     if (input.replay && claim.command.commandId === command.commandId) return { canRetry: true, reason: null }
-    const absent = !claim.runId && input.runStatus === null || input.runStatus === 'not_found'
-    const expired = absent && Number.isFinite(Date.parse(claim.acceptedAt)) && Date.parse(now) - Date.parse(claim.acceptedAt) >= (input.claimTtlMs ?? CLAIM_TTL_MS)
-    if (!input.claimStop && !terminalRun(input.runStatus) && !expired) return denied('locked')
+    if (!claimTakeoverEligible(claim, input.claimStop, input.runStatus, now, input.claimTtlMs)) return denied('locked')
     return { canRetry: true, reason: null }
   }
   if (input.receiptStop || terminalRun(input.runStatus) || batch?.approvalRun?.revision !== command.revision - 1 && !receipt) return { canRetry: true, reason: null }

@@ -1,4 +1,4 @@
-import type { RequesterAuthority } from '../publish/types'
+import type { Abandonment, RequesterAuthority } from '../publish/types'
 import type { Plate } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
@@ -17,6 +17,7 @@ export type ReviewBatch = {
   baselineOrders?: Record<string, string[]>
   plateIds: string[]
   approvalRun?: { runId: string; revision: number }
+  publishAbandonment?: Abandonment
   publishCommand?: { commandId: string; revision: number }
   publishRequestedBy?: RequesterAuthority | null
   publishRequestedAt?: string | null
@@ -47,7 +48,7 @@ export interface ReviewStore {
   requestPublish(batchId: string, revision: number, at: string, requestedBy?: RequesterAuthority): Promise<boolean>
   commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
 }
-export type PublishMetadata = Partial<Pick<ReviewBatch, 'publishCommand' | 'approvalRun' | 'publishRequestedAt' | 'publishRequestedBy'>>
+export type PublishMetadata = Partial<Pick<ReviewBatch, 'publishAbandonment' | 'publishCommand' | 'approvalRun' | 'publishRequestedAt' | 'publishRequestedBy'>>
 export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }
 export type ReviewDeps = {
   store: ReviewStore

@@ -68,6 +68,7 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       if (batches.get(batchId)?.revision !== expectedRevision) return 'revision_mismatch'
       const saved = structuredClone(next)
       const current = batches.get(batchId)!
+      if (current.publishAbandonment) saved.batch.publishAbandonment = structuredClone(current.publishAbandonment)
       if (current.approvalRun) saved.batch.approvalRun = structuredClone(current.approvalRun)
       if (current.publishRequestedAt && ['approved', 'published'].includes(saved.batch.state)) { saved.batch.publishRequestedAt = current.publishRequestedAt; if (current.publishRequestedBy) saved.batch.publishRequestedBy = structuredClone(current.publishRequestedBy) }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()

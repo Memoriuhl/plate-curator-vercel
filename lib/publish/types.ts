@@ -17,6 +17,7 @@ export interface PublishControl {
 }
 export type PublishError = PublishStop | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
+  abandonment?: Abandonment
   object?: SnapshotObject
   supersededCommands?: PublishCommand[]
   requestedBy?: RequesterAuthority
@@ -29,12 +30,12 @@ export type PublishRecord = {
   toVersion: number
   blobSha256: string
   url?: string
-  state: 'started' | 'uploaded' | 'done' | 'failed'
+  state: 'started' | 'uploaded' | 'done' | 'failed' | 'abandoned'
   committedAt?: string
   completionToken?: string
   failure?: PublishError
 }
-export type PublishLease = { token: string; batchId: string; revision: number; expiresAt: string }
+export type PublishLease = { token: string; batchId: string; revision: number; expiresAt: string; purpose?: 'abandon' }
 export interface PublishPointer {
   read(): Promise<CatalogPointer>
   advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'version_taken' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
@@ -48,6 +49,9 @@ export interface PublishSnapshots {
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  nextVersion(token: string, now: string): Promise<number | null>
+  abandon(record: PublishRecord, actor: RequesterAuthority, reason: string, object: SnapshotObject | null, token: string, now: string): Promise<AbandonResult>
+  abandonmentEligibility(record: PublishRecord, now: string): Promise<PublishError | null>
   checkUpload(record: PublishRecord, command: PublishCommand, checksum: string, token: string, now: string): Promise<PublishError | null>
   eligibility(command: PublishCommand, now: string): Promise<RetryEligibility>
   command(commandId: string): Promise<{ command: PublishCommand; runId?: string } | null>
@@ -58,6 +62,8 @@ export interface PublishRecords {
   get(id: string): Promise<PublishRecord | null>
   save(record: PublishRecord, token: string, now: string): Promise<boolean>
 }
+export type Abandonment = { receiptId: string; commandId: string; burnedVersion: number; by: RequesterAuthority; at: string; reason: string; object: SnapshotObject | null }
+export type AbandonResult = { ok: true; value: Abandonment } | { ok: false; error: PublishError }
 export interface PublishLock {
   claim(lease: PublishLease, now: string): Promise<boolean>
   renew(lease: PublishLease, now: string): Promise<boolean>

@@ -6,7 +6,7 @@ import { ApiError } from '../lib/client/api'
 import { batch, command, fixture } from './publish/fixture'
 import { publishBaselineStatus } from '../lib/publish/baseline-status'
 
-const mocks = vi.hoisted(() => ({ runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
+const mocks = vi.hoisted(() => ({ abandon: vi.fn(), prepared: false, disposition: false, runId: 'old-run', publish: vi.fn(), canRetry: true, phase: 'failed', role: 'owner', copy: vi.fn(), push: vi.fn(), live: 2, run: false, runError: 'stale_baseline', baselineError: undefined as string | null | undefined }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('../lib/client/hooks', () => ({
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
@@ -14,12 +14,32 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: { batch, plates: [] } }),
   useBatches: () => ({ data: [batch] }),
   useBatchRun: () => ({ data: mocks.run ? { runId: mocks.runId, phase: mocks.phase, outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' } }),
-  usePublishBaseline: () => ({ data: mocks.baselineError === 'paused' ? { error: 'paused', canRetry: false } : { canRetry: mocks.canRetry, retryReason: mocks.canRetry ? null : 'locked', error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
+  usePublishBaseline: () => ({ data: mocks.prepared ? { error: 'paused', canRetry: false, canAbandon: true, prepared: { commandId: 'command', toVersion: 2 }, ...(mocks.disposition ? { abandonment: { by: { email: 'owner@example.com' }, at: '2026-11-15T12:00:00Z', burnedVersion: 2 } } : {}) } : mocks.baselineError === 'paused' ? { error: 'paused', canRetry: false } : { canRetry: mocks.canRetry, retryReason: mocks.canRetry ? null : 'locked', error: mocks.baselineError !== undefined ? mocks.baselineError : mocks.run ? null : 'stale_baseline', reviewedVersion: 1, liveVersion: mocks.live } }),
   usePlateDetail: () => ({}),
-  useReviewActions: () => ({ copy: mocks.copy, publish: mocks.publish }),
+  useReviewActions: () => ({ copy: mocks.copy, publish: mocks.publish, abandon: mocks.abandon }),
 }))
-beforeEach(() => { vi.clearAllMocks(); mocks.runId = 'old-run'; mocks.publish.mockResolvedValue({ ok: true }); mocks.canRetry = true; mocks.phase = 'failed'; mocks.role = 'owner'; mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
+beforeEach(() => { vi.clearAllMocks(); mocks.prepared = false; mocks.disposition = false; mocks.abandon.mockResolvedValue(undefined); mocks.runId = 'old-run'; mocks.publish.mockResolvedValue({ ok: true }); mocks.canRetry = true; mocks.phase = 'failed'; mocks.role = 'owner'; mocks.live = 2; mocks.run = false; mocks.runError = 'stale_baseline'; mocks.baselineError = undefined; mocks.copy.mockResolvedValue({ id: 'fresh' }) })
 afterEach(cleanup)
+
+test('eligible Owner can abandon while paused and sees the burned disposition', async () => {
+  mocks.prepared = true
+  const view = render(<PublishWorkspace />)
+  fireEvent.change(screen.getByLabelText('Reason for abandonment'), { target: { value: 'Publish another Batch' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Abandon prepared Snapshot' }))
+  await waitFor(() => expect(mocks.abandon).toHaveBeenCalledWith(batch.id, 2, 'command', 'Publish another Batch'))
+  mocks.disposition = true
+  view.rerender(<PublishWorkspace />)
+  expect(screen.getByText(/owner@example.com.*burned v2/)).toBeTruthy()
+})
+
+test('abandon refusal explains the live-run race', async () => {
+  mocks.prepared = true
+  mocks.abandon.mockRejectedValue(new ApiError(409, 'locked', {}))
+  render(<PublishWorkspace />)
+  fireEvent.change(screen.getByLabelText('Reason for abandonment'), { target: { value: 'Choose B' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Abandon prepared Snapshot' }))
+  expect(await screen.findByText(/A live Publish run or lease owns this attempt/)).toBeTruthy()
+})
 
 test('server eligibility permits another click after the fresh run ends without a stop reason', async () => {
   mocks.run = true
