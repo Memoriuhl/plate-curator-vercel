@@ -39,3 +39,14 @@ test('missing local images return an explicit result without model inference', a
   expect(await handler({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'missing.webp', tags: [] } })).toMatchObject({ stageError: 'missing_image' })
   expect(fetch).not.toHaveBeenCalled()
 })
+
+test.each(['https://upload.wikimedia.org/example.webp', '', null])('Colors prefers a projected image URL and keeps provenance unchanged: %s', async imageUrl => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ primaryColor: 'white', textColors: [] }) } }))
+  const readImage = vi.fn(async () => 'base64')
+  const plate = { displayName: 'One', state: 'MD', image: 'MD/one.webp', imageUrl, sourceUrl: 'https://example.org/image-provenance', tags: [] }
+  const result = await createColorStageHandler({ url: 'http://localhost:11434', fetch, readImage })({ stage: 'colors', plate })
+  expect(readImage).toHaveBeenCalledWith(imageUrl || plate.image)
+  expect(result.fieldSuggestion?.fields).not.toHaveProperty('sourceUrl')
+  expect(plate.sourceUrl).toBe('https://example.org/image-provenance')
+})

@@ -12,8 +12,9 @@ export function createColorStageHandler(options: { url: string; fetch?: typeof f
     const model = requested ?? taggingModel(DEFAULT_TAGGING_MODEL)!.model
     if (!TAGGING_MODELS.some(choice => choice.runsOn === 'desktop' && choice.model === model)) throw Error('Select an enabled local model for Colors')
     const metadata = { backend: 'ollama', model, promptVersion: 'colors-v1' }
+    const image = 'imageUrl' in plate && typeof plate.imageUrl === 'string' && plate.imageUrl ? plate.imageUrl : plate.image
     let imageB64: string
-    try { imageB64 = await options.readImage(plate.image) } catch (error) {
+    try { imageB64 = await options.readImage(image) } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...metadata, stageError: 'missing_image' }
       throw error
     }
