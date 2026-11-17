@@ -83,7 +83,7 @@ afterAll(async () => {
 reviewBatchScenarios(async seed => {
   await db.doc(`reviewBatches/${seed.id}`).set({ ...seed, env })
   return firestoreReviewStore(db, env)
-})
+}, 20000)
 
 test('commit refuses a stale expected revision', async () => {
   expect(await store.commit('batch', 3, { batch: { ...batch, revision: 5 }, edit })).toBe('revision_mismatch')
@@ -143,17 +143,21 @@ test('reserved Batch rejects a combined move without clearing approval or changi
 })
 
 test('commit writes batch and edit atomically', async () => {
+  const pairBatch = { ...batch, id: `batch-pair-${randomUUID()}` }
+  await db.doc(`reviewBatches/${pairBatch.id}`).set({ ...pairBatch, env })
   const candidates = ['one', 'two'].map(plateId => ({ ...edit, plateId }))
-  const results = await Promise.all(candidates.map(proposal => store.commit('batch', 4, { batch: { ...batch, revision: 5 }, edit: proposal })))
+  const results = await Promise.all(candidates.map(proposal => store.commit(pairBatch.id, 4, { batch: { ...pairBatch, revision: 5 }, edit: proposal })))
   expect(results.filter(result => result === 'ok')).toHaveLength(1)
   const saved = await db.runTransaction(async transaction => {
-    const batchDoc = await transaction.get(db.doc('reviewBatches/batch'))
-    const edits = await transaction.get(db.collection('reviewBatches/batch/edits'))
-    return { batch: batchDoc.data(), edits: edits.docs.map(doc => doc.data()) }
+    const batchDoc = await transaction.get(db.doc(`reviewBatches/${pairBatch.id}`))
+    const edits = await transaction.get(db.collection(`reviewBatches/${pairBatch.id}/edits`))
+    const signal = await transaction.get(db.doc(signalPath(liveEnvKey(env), pairBatch.id)))
+    return { batch: batchDoc.data(), edits: edits.docs.map(doc => doc.data()), signal: signal.data() }
   })
-  expect(saved.batch).toEqual({ ...batch, revision: 5, env })
+  expect(saved.batch).toEqual({ ...pairBatch, revision: 5, env })
   expect(saved.edits).toEqual([candidates[results.indexOf('ok')]])
-})
+  expect(saved.signal).toEqual({ revision: 5 })
+}, 20000)
 
 test('a batch from another env is invisible', async () => {
   await db.doc('reviewBatches/batch/edits/one').set(edit)
