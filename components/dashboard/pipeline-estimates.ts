@@ -14,6 +14,7 @@ const fallbackSeconds: Record<LocalRunStage, number> = {
   research: 90, 'find-image': 20, 'enhance-image': 5, 'wiki-link': 15, colors: 5, describe: 90, story: 130, tag: 40, group: 60,
 }
 
+/** Load observed run timings for the signed-in curator's pipeline controls. */
 export function useRunTimings(open: boolean) {
   const session = useSession(false)
   const get = session?.api?.get
@@ -21,6 +22,10 @@ export function useRunTimings(open: boolean) {
     get ? ([path]: [string, string]) => get(path) : null, { dedupingInterval: 30_000, shouldRetryOnError: false }).data
 }
 
+/**
+ * Estimate a stage duration from matching device and model samples or the stage
+ * fallback.
+ */
 export function estimateStageMs(stage: LocalRunStage, timings: RunTimings | undefined, models: {
   tag?: string; desktop?: string; research?: string
 }, options: PipelineOptions = {}) {
@@ -32,6 +37,7 @@ export function estimateStageMs(stage: LocalRunStage, timings: RunTimings | unde
   return timings?.[runTimingKey(stage, device, model)] ?? (tag?.measured.p50Seconds ?? fallbackSeconds[stage]) * 1000
 }
 
+/** Format the rounded estimate with the label used in queue menus. */
 export function formatEstimate(ms: number) {
   return `EST ${formatDuration(Math.ceil(ms / 1000) * 1000)}`
 }

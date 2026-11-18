@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), choose: vi.fn(), validate: vi.fn(), start: vi.fn() }))
 vi.mock('workflow/api', () => ({ start: mocks.start }))
-vi.mock('../../lib/server/context', () => ({ currentActor: mocks.actor, chooseModel: mocks.choose, reviewDeps: () => ({}) }))
+vi.mock('../../lib/server/context', () => ({ currentActor: mocks.actor, chooseModel: mocks.choose, /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps: () => ({}) }))
 vi.mock('../../lib/review/tagging', () => ({ validateTagging: mocks.validate }))
 vi.mock('../../workflows/pipeline', () => ({ pipelineRun: vi.fn() }))
 const { POST } = await import('../../app/api/batches/[id]/plates/[plateId]/pipeline/route')
 const ctx = { params: Promise.resolve({ id: 'own-batch', plateId: 'AK.one' }) }
+/** Build the POST request the route fixture passes to its handler. */
 const request = (body: unknown) => new Request('http://localhost/api/batches/own-batch/plates/AK.one/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 beforeEach(() => {
   vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'route-test')

@@ -50,13 +50,16 @@ const card: PlateCardData = {
     rarity: { status: 'missing', value: null },
   },
 }
+/** Build batch detail around the current proposed plate edit and fixture revision. */
 function detail(edit: BatchDetail['plates'][number]['edit'] = null): BatchDetail {
   return { batch, plates: [{ baseline, proposed, edit, revision: 'draft-revision' }] }
 }
+/** Create a private SWR cache and wrapper so hook tests can inspect isolated updates. */
 function harness(fallback: Record<string, unknown> = {}) {
   const cache = new Map()
   return {
     cache,
+    /** Mount the hook under the harness cache with automatic error retries disabled. */
     wrapper: ({ children }: { children: ReactNode }) => createElement(SWRConfig, {
       value: { provider: () => cache, fallback, dedupingInterval: 0, shouldRetryOnError: false },
     }, children),
@@ -95,6 +98,10 @@ test('Publish baseline does not poll and the control waits thirty seconds, with 
 
 test('state hooks fetch on first mount, reuse cached data on revisit, and explicitly refresh after writes', async () => {
   const context = harness()
+  /**
+   * Read the member, batch list and current detail together to observe their shared
+   * cache behavior.
+   */
   const useStateHooks = () => ({ me: useMe(), batches: useBatches(['open'], { mine: true }), batch: useBatch(batch.id, { reuse: true }) })
   const first = renderHook(useStateHooks, context)
   await waitFor(() => expect(first.result.current.batch.data).toBeDefined())
@@ -227,6 +234,7 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
     return { ...usePlateDrag({
     families, canEdit: true, show: 'all', query: '', edits: useEditPlate(),
     ordering, closePreview: vi.fn(), reload: vi.fn(),
+    /** Provide the drop targets used by the drag fixture. */
     targets: () => [{ target: action === 'merge' ? { kind: 'merge', familyId: parent.id } : { kind: 'family-slot', index: 1 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }],
   }), origin: ordering.capture() } }, harness())
   await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))

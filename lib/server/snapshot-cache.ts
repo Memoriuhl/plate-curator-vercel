@@ -8,6 +8,7 @@ import type { CatalogSourceKind } from '../catalog/source-kind'
 import type { Snapshot } from '../catalog/types'
 import { loadSnapshot } from '../gcp/storage'
 
+/** Resolve one immutable snapshot from the requested source and reuse it within a render. */
 const snapshotForVersion = cache(async (version: number, kind: CatalogSourceKind): Promise<Snapshot> => {
   if (kind === 'fixture') {
     const snapshot = await fixtureSource().readSnapshot()
@@ -17,6 +18,7 @@ const snapshotForVersion = cache(async (version: number, kind: CatalogSourceKind
   return loadSnapshot(version)
 })
 
+/** Cache the plates for one jurisdiction by immutable snapshot version. */
 export async function cachedJurisdiction(version: number, code: string, kind: CatalogSourceKind): Promise<Snapshot> {
   'use cache: remote'
   cacheLife('max')
@@ -24,6 +26,7 @@ export async function cachedJurisdiction(version: number, code: string, kind: Ca
   return { version, plates: snapshot.plates.filter(plate => plate.state === code) }
 }
 
+/** Cache jurisdiction summaries from an immutable snapshot and the configured image base. */
 export async function cachedDashboard(version: number, kind: CatalogSourceKind, imageBase: string | null) {
   'use cache: remote'
   cacheLife('max')

@@ -9,6 +9,10 @@ import type { ResearchStateStore } from './state'
 type Response = { toolResults: { output: unknown }[]; providerMetadata?: unknown }
 type Deps = { reserve(): Promise<boolean>; generate(): Promise<Response> }
 
+/**
+ * Reserve a web-search call, run it through Gateway and normalize the returned evidence
+ * links.
+ */
 export async function gatewayParallelSearch(query: string, deps: Deps) {
   if (!query.trim() || query.length > 300) throw new Error('Invalid Gateway search query')
   if (!await deps.reserve()) return { status: 'exhausted', provider: 'gateway-parallel', cached: false, hits: [] }
@@ -23,12 +27,18 @@ export async function gatewayParallelSearch(query: string, deps: Deps) {
   return { status: hits.length ? 'ok' : 'error', provider: 'gateway-parallel', cached: false, hits, usd: reportedGatewayCost(result.providerMetadata) ?? null }
 }
 
+/**
+ * Run Gateway's parallel search for the current research turn and capture its reported
+ * cost.
+ */
 export async function runGatewayParallelSearch(query: string, run: { store: ResearchStateStore; runId: string; deadline: number; reserve(kind: 'web-search'): Promise<boolean> }) {
   const campaign = process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117'
   const sequence = await run.store.update<number, number>(`gateway-search-sequence/${run.runId}`, prior => ({ value: (prior ?? 0) + 1, result: (prior ?? 0) + 1 }))
   const nestedRun = `${run.runId}/parallel/${sequence}`
   return gatewayParallelSearch(query, {
+    /** Charge the current turn's web-search allowance before contacting Gateway. */
     reserve: () => run.reserve('web-search'),
+    /** Run the Gateway search tool with guarded model limits and reconcile its spend. */
     async generate() {
       const model = guardedResearchModel(gateway(DEFAULT_HOSTED_RESEARCH_MODEL), async () => {
         if (process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true' || await reserveResearchCall(run.runId, 'model', { store: run.store, now: Date.now, deadline: run.deadline }) !== 'reserved' || !await reserveResearchSpend(run.store, campaign, nestedRun, 'model', 0.2, Number(process.env.RESEARCH_BUDGET_USD ?? '2'))) throw new Error('Gateway search model budget exhausted')

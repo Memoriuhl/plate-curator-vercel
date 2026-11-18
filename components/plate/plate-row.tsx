@@ -12,6 +12,7 @@ export type PlateRowProps = {
   plate: PlateCardData
 }
 
+/** Render a compact plate summary with its image, identity and completeness checks. */
 export function PlateRow({ plate }: PlateRowProps) {
   return (
     <div

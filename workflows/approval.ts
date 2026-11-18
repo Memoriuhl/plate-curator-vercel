@@ -6,6 +6,10 @@ import { catalogChanged } from '../lib/server/catalog-head'
 import { publishDeps, reviewDeps } from '../lib/server/context'
 import { catalogPush } from './catalog-push'
 
+/**
+ * Wait for the batch's approval or supersession and publish an approved revision under
+ * its command.
+ */
 export async function approvalRun(batchId: string, revision: number) {
   'use workflow'
 
@@ -32,11 +36,15 @@ export async function approvalRun(batchId: string, revision: number) {
   return outcome
 }
 
+/**
+ * Read the current batch in a durable step so the workflow can check its approval state.
+ */
 async function readBatch(batchId: string) {
   'use step'
   return reviewDeps().store.getBatch(batchId)
 }
 
+/** Run a confirmed publish command and send catalog notifications if it commits. */
 export async function publishRun(batchId: string, revision: number, command: PublishRequester) {
   'use workflow'
   const outcome = await runPublish(batchId, revision, command)
@@ -44,6 +52,10 @@ export async function publishRun(batchId: string, revision: number, command: Pub
   return outcome
 }
 
+/**
+ * Execute the release in a step and invalidate catalog caches when the live version
+ * changes.
+ */
 async function runPublish(batchId: string, revision: number, command: PublishRequester) {
   'use step'
   const batch = await reviewDeps().store.getBatch(batchId)

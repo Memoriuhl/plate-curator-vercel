@@ -8,10 +8,14 @@ export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
 export const draftGroupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
 const imageKeys = ['imageUrl', 'sourceUrl'] as const
 export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys, ...colorFieldKeys] as const
+/** List the editable plate fields enabled by the current local pipeline configuration. */
 export function editableFieldKeys() {
   return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys, ...colorFieldKeys].some(localKey => localKey === key))
 }
 
+/**
+ * Normalize a bounded URL for story evidence while accepting only supported protocols.
+ */
 export function storyUrl(value: unknown): string | null {
   const text = boundedText(value, 2048)
   if (!text) return null
@@ -21,16 +25,22 @@ export function storyUrl(value: unknown): string | null {
   } catch { return null }
 }
 
+/** Narrow an incoming field payload to an object so its keys can be validated. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/** Trim a user-entered string and enforce the storage bound for the field. */
 function boundedText(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null
   const text = value.trim()
   return text.length > 0 && text.length <= max ? text : null
 }
 
+/**
+ * Normalize the recognized field values and reject changes outside the supplied
+ * allowlist.
+ */
 function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields | null {
   if (!isRecord(input)) return null
   const entries = Object.entries(input)
@@ -103,6 +113,9 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
   return fields
 }
 
+/**
+ * Validate curator-editable fields and keep an image URL paired with its Commons source.
+ */
 export function parseEditableFields(input: unknown, candidate?: { imageUrl: string; sourceUrl: string }): EditableFields | null {
   if (isRecord(input) && (Object.hasOwn(input, 'sourceUrl') || Object.hasOwn(input, 'imageUrl'))) {
     if (!Object.hasOwn(input, 'sourceUrl') || !Object.hasOwn(input, 'imageUrl')) return null
@@ -111,14 +124,17 @@ export function parseEditableFields(input: unknown, candidate?: { imageUrl: stri
   return parseFields(input, new Set(editableFieldKeys()))
 }
 
+/** Validate only the story fields accepted by enrichment and manual story editing. */
 export function parseStoryFields(input: unknown): EditableFields | null {
   return parseFields(input, new Set(storyKeys))
 }
 
+/** Validate only the color fields supported by the local pipeline. */
 export function parseColorFields(input: unknown): EditableFields | null {
   return parseFields(input, new Set(colorFieldKeys))
 }
 
+/** Parse the requested title and plate IDs before creating a review batch. */
 export function parseBatchInput(input: unknown): { name: string; plateIds: string[] } | null {
   if (!isRecord(input)) return null
   const name = boundedText(input.name, limits.text)

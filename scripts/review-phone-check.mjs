@@ -55,6 +55,10 @@ try {
     const scripts = await page.locator('script[src]').evaluateAll(async nodes =>
       (await Promise.all(nodes.map(node => fetch(node.src).then(response => response.text())))).join('\n'))
     assert(scripts.includes('license-plate-game-staging'), 'Running app must use staging Firebase')
+    /**
+     * Measure the review view and capture its mobile screenshot after checking layout
+     * bounds.
+     */
     const measure = async label => {
       const sizes = await page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }))
       assert(sizes.scrollWidth <= sizes.viewport, `${label}: ${JSON.stringify(sizes)}`)

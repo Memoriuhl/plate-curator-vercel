@@ -22,6 +22,10 @@ const batch: ReviewBatch = {
   id: 'batch', name: 'Order', createdBy: editor.uid, createdByName: null, createdAt: '',
   state: 'open', revision: 4, baselineVersion: 7, plateIds: ['AK.one'], stateOrders: {}, approval: null,
 }
+/**
+ * Prepare the state plate order and draft store used to exercise concurrent ordering
+ * edits.
+ */
 function setup(overrides: Partial<ReviewBatch> = {}) {
   const store = createMemoryStore([{ ...batch, ...overrides }])
   const stateBaseline = vi.fn(async () => plates)

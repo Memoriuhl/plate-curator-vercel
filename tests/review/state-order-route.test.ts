@@ -16,6 +16,10 @@ beforeEach(() => {
   context.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'editor', name: null, role: 'editor' } })
   context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template' as const, isStandard: id === 'one' })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '2026-11-17T16:15:00Z' } satisfies ReviewDeps)
 })
+/**
+ * Send a state order update through its route using the fixture batch and state
+ * parameters.
+ */
 function put(body: unknown) {
   return PUT(new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
 }
@@ -116,6 +120,7 @@ test('detail resolves thumbnail URLs without changing reviewed plate fields', as
 test('deletion PATCH requires authentication and rejects stale plate revisions', async () => {
   const plate = { id: 'one', state: 'AK', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
   context.reviewDeps().baselineAtVersion = async () => plate
+  /** Send the supplied fields through the plate patch route with the fixture revision. */
   const patch = () => PATCH(new Request('https://example.com/api/batches/batch/plates/one', { method: 'PATCH', body: JSON.stringify({ baseRevision: plateRevision(plate), fields: { deleted: true } }) }), { params: Promise.resolve({ id: 'batch', plateId: 'one' }) })
   context.currentActor.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
   expect((await patch()).status).toBe(401)
@@ -143,6 +148,10 @@ test('the Batch endpoint pages a large response and binds continuations to one r
   deps.store = createMemoryStore([draft])
   const details = 'source notes '.repeat(1800)
   deps.baselineAtVersion = async (_version: number, id: string) => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], details })
+  /**
+   * Request batch detail through the route so pagination behavior uses real request
+   * parsing.
+   */
   const get = (page?: string) => GET(new Request('https://example.com/api/batches/batch' + (page ? '?page=' + page : '')), { params: Promise.resolve({ id: 'batch' }) })
   const first = await get()
   const body = await first.text()

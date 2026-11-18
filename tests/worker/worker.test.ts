@@ -3,9 +3,12 @@ import { runOnce, runLoop, type WorkerDeps } from '../../worker/run'
 import { ollamaAdapter } from '../../worker/model'
 
 const claim = { job: { id: 'j', batchId: 'b', plateId: 'p', inputHash: 'h' }, claimId: 'c', leaseExpiresAt: new Date(60000).toISOString(), plate: { id: 'p', state: 'AK', displayName: 'Bear', image: 'AK/bear.webp', tags: [] } }
+/**
+ * Build a worker fixture with controlled service responses, logging and model behavior.
+ */
 function setup(status = 200) {
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(Response.json(claim)).mockImplementation(async () => new Response(null, { status }))
-  const deps: WorkerDeps = { apiBase: 'http://localhost', token: 'secret', protectionBypass: 'bypass', fetch, adapter: { backend: 'ollama', model: 'test', promptVersion: 'abc', suggest: vi.fn(async () => ({ tags: ['bear'], usage: { eval_count: 2 } })) }, readImage: vi.fn(async () => 'base64'), now: () => 0, sleep: vi.fn(async () => {}), log: vi.fn() }
+  const deps: WorkerDeps = { apiBase: 'http://localhost', token: 'secret', protectionBypass: 'bypass', fetch, adapter: { backend: 'ollama', model: 'test', promptVersion: 'abc', suggest: vi.fn(async () => ({ tags: ['bear'], usage: { eval_count: 2 } })) }, readImage: vi.fn(async () => 'base64'), /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0, sleep: vi.fn(async () => {}), log: vi.fn() }
   return { deps, fetch }
 }
 test('runOnce reports suggestions with model metadata', async () => {

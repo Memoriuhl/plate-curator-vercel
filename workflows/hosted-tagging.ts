@@ -5,6 +5,7 @@ import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
 
 type Request = { jobId: string; plateId: string }
 
+/** Create and execute the hosted tagging job, then resolve its final status. */
 export async function hostedTaggingRun(jobId: string, batchId: string, plateId: string, requestedBy: string, modelId: string) {
   'use workflow'
 
@@ -13,6 +14,10 @@ export async function hostedTaggingRun(jobId: string, batchId: string, plateId: 
   return finishHosted(jobId, outcomes[jobId])
 }
 
+/**
+ * Create the batch's hosted jobs and run bounded groups while retaining each plate
+ * outcome.
+ */
 export async function batchTaggingRun(batchId: string, requests: Request[], requestedBy: string, modelId: string) {
   'use workflow'
 
@@ -32,6 +37,7 @@ export async function batchTaggingRun(batchId: string, requests: Request[], requ
   return { created: created.length, skipped: requests.length - created.length, outcomes }
 }
 
+/** Create hosted jobs in a step and recognize IDs already created by a retry. */
 async function createHostedJobs(batchId: string, requests: Request[], requestedBy: string, modelId: string, workflowId: string) {
   'use step'
   const d = jobsDeps()
@@ -43,6 +49,10 @@ async function createHostedJobs(batchId: string, requests: Request[], requestedB
   return created
 }
 
+/**
+ * Run a hosted tagging chunk and ask the workflow engine to retry transient outcomes
+ * with backoff.
+ */
 async function tagChunk(jobIds: string[], modelId: string) {
   'use step'
   const { attempt, maxAttempts } = getStepMetadata()
@@ -53,12 +63,14 @@ async function tagChunk(jobIds: string[], modelId: string) {
 }
 tagChunk.maxRetries = 5
 
+/** Expire jobs left unfinished after the workflow exhausts its attempts. */
 async function expireJobs(jobIds: string[]) {
   'use step'
   const d = jobsDeps()
   for (const id of jobIds) await expireJob(d, id)
 }
 
+/** Resolve one hosted tagging job to its final status and suggestions. */
 async function finishHosted(jobId: string, outcome: FinalOutcome | undefined) {
   'use step'
   const d = jobsDeps()

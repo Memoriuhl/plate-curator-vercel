@@ -3,6 +3,10 @@ import type { JWTVerifyGetKey } from 'jose'
 
 export type VerifiedIdentity = { uid: string; email?: string; name?: string; signInProvider: string | null; emailVerified: boolean }
 
+/**
+ * Verify a Firebase ID token for the configured project and expose the claims used for
+ * sign-in.
+ */
 export async function verifyIdToken(token: string, deps: { projectId: string; jwks: JWTVerifyGetKey; now?: () => number }): Promise<VerifiedIdentity | null> {
   try {
     const now = (deps.now ?? Date.now)()

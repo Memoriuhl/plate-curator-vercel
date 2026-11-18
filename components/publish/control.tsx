@@ -6,6 +6,7 @@ import { useState } from 'react'
 import type { PublishControlState } from '@/lib/publish/types'
 import { Button } from '@/components/ui/button'
 
+/** Show current release controls and offer the available pause or resume action. */
 export function PublishControlView({ control, enabledHere, loading, error, change }: {
   control: PublishControlState | null
   enabledHere?: boolean

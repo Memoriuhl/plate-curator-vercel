@@ -7,8 +7,9 @@ import type { Member } from '../../lib/members/types'
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), membersStore: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.currentActor }))
 vi.mock('../../lib/server/members', () => ({ membersStore: mocks.membersStore }))
-vi.mock('next/server', () => ({ connection: async () => {} }))
+vi.mock('next/server', () => ({ /** Resolve the request barrier without requiring a Next.js request runtime. */ connection: async () => {} }))
 let store = createMemoryMembersStore()
+/** Build the POST request the route fixture passes to its handler. */
 const request = (body: unknown) => new Request('https://example.com/api/members', { method: 'POST', body: JSON.stringify(body) })
 const member: Member = { email: 'person@example.com', role: 'editor', signIn: 'google', status: 'pending', invite: { tokenHash: 'private-hash', issuedAt: '2026-01-01', expiresAt: '2000-01-01' }, uid: 'private-account', invitedBy: 'owner', createdAt: '2026-01-01' }
 

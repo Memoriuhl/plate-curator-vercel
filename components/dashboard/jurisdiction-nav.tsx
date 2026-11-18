@@ -6,6 +6,10 @@ import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { routeRegion } from '@/components/app/regions'
 import { JurisdictionCard } from './jurisdiction-card'
 
+/**
+ * Render jurisdiction navigation with region selection and the active state kept in
+ * view.
+ */
 export function JurisdictionNav({ jurisdictions, children }: { jurisdictions: JurisdictionSummary[]; children?: ReactNode }) {
   const params = useParams()
   const pathname = usePathname()

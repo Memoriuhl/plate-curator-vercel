@@ -4,6 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { plateSelection, useSelectedPlates } from './plate-selection'
 
+/**
+ * Show selection counts by jurisdiction and offer a single action to clear the
+ * selection.
+ */
 export function SelectionBar() {
   const plates = useSelectedPlates()
   if (!plates.length) return null

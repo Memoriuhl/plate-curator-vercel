@@ -3,6 +3,10 @@ import { currentActor, jobsDeps, reviewDeps } from '@/lib/server/context'
 import { catalogChanged } from '@/lib/server/catalog-head'
 import { badRequest, json, readJson, respond } from '@/lib/server/respond'
 
+/**
+ * Accept a stored group suggestion into the batch and invalidate cached catalog data
+ * after success.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/group/accept'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
   const auth = await currentActor(request)

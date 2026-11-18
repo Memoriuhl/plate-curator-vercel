@@ -7,6 +7,9 @@ import { cn } from '@/components/utils'
 import type { DragItem } from './drop-targets'
 import type { DragGeometry } from './drag-geometry'
 
+/**
+ * Render a portal overlay anchored to the pointer while a family or variant is lifted.
+ */
 export function DragPreview({ item, x, y, geometry, variantCount = 0, selectionCount = 1 }: { item: DragItem; x: number; y: number; geometry?: DragGeometry; variantCount?: number; selectionCount?: number }) {
   const [height, setHeight] = useState(0)
   const measurePreview = useCallback((element: HTMLDivElement | null) => {
@@ -29,10 +32,12 @@ export function DragPreview({ item, x, y, geometry, variantCount = 0, selectionC
   )
 }
 
+/** Reserve the lifted item's space so the surrounding grid stays stable during drag. */
 export function DragPlaceholder({ height, variant = false }: { height: number; variant?: boolean }) {
   return <div aria-hidden="true" data-drag-placeholder={variant ? 'variant' : 'family'} className={cn('w-full border border-dashed border-[var(--line)] bg-[var(--fill)]', variant ? 'rounded-[var(--radius-sm)]' : 'rounded-[var(--radius-lg)]')} style={{ height }} />
 }
 
+/** Mark the active insertion slot without adding a focusable control. */
 export function DropIndicator({ active, vertical = false, end = false }: { active: boolean; vertical?: boolean; end?: boolean }) {
   return <span aria-hidden="true" className={cn('pointer-events-none absolute z-10 rounded-full bg-[var(--primary)]', vertical ? cn('inset-y-0 w-[3px]', end ? '-right-2' : '-left-2') : cn('inset-x-0 h-[3px]', end ? '-bottom-2' : '-top-2'), !active && 'hidden')} />
 }

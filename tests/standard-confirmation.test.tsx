@@ -8,14 +8,20 @@ const first = { ...plateCards[0], id: 'first', displayName: 'First', isStandard:
 const second = { ...first, id: 'second', displayName: 'Second', isStandard: false }
 const third = { ...second, id: 'third', displayName: 'Third' }
 afterEach(() => { cleanup(); plateSelection.clear() })
+/** Render the reorder fixture and expose its keyboard drop sequence and save spy. */
 function setup(source = first) {
   const reorder = vi.fn().mockResolvedValue({ ok: true })
+  /**
+   * Connect the keyboard drag to the real standard confirmation dialog and optimistic
+   * order.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [first, second, third].map(template => ({ template, variants: [] })), canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [first, second, third].map(template => ({ template, variants: [] })), canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><button onKeyDown={event => drag.onKeyDown({ kind: 'family', plate: source }, event)}>Move</button>{drag.standardDialog}<output>{drag.optimisticOrder?.join(',')}</output></>
   }
   render(<Harness />)
   const handle = screen.getByRole('button', { name: 'Move' })
+  /** Use the keyboard to lift the plate, move its insertion slot and drop. */
   const drop = () => {
     fireEvent.keyDown(handle, { key: ' ' })
     fireEvent.keyDown(handle, { key: 'ArrowDown' })
@@ -50,8 +56,9 @@ test.each([false, true])('promotion into first place confirms before any write, 
   const variant = { ...second, id: 'variant', displayName: 'Variant', templateRole: 'variant' as const }
   const other = { ...variant, id: 'other' }
   const move = vi.fn().mockResolvedValue({ ok: true, proposed: {}, batchId: 'batch', revision: 'saved' })
+  /** Expose bulk promotion through the real standard change confirmation flow. */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template: first, variants: [variant, other] }, { template: second, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), move, capture: () => ({ batchId: 'batch', revision: 0 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template: first, variants: [variant, other] }, { template: second, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), move, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: 0 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><button onKeyDown={event => drag.onKeyDown({ kind: 'variant', plate: variant }, event)}>Move</button>{drag.standardDialog}</>
   }
   render(<Harness />)
@@ -70,8 +77,12 @@ test.each([false, true])('promotion into first place confirms before any write, 
 
 test('dropping back in the same position never asks to repair a legacy mismatch', () => {
   const reorder = vi.fn()
+  /**
+   * Render the existing legacy order so a no-op drop can be checked for unwanted
+   * confirmation.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template: { ...first, isStandard: false }, variants: [] }, { template: { ...second, isStandard: true }, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template: { ...first, isStandard: false }, variants: [] }, { template: { ...second, isStandard: true }, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><button onKeyDown={event => drag.onKeyDown({ kind: 'family', plate: first }, event)}>Move</button>{drag.standardDialog}</>
   }
   render(<Harness />)

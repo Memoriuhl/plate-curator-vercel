@@ -4,6 +4,7 @@ import { expect, test } from 'vitest'
 const css = readFileSync('app/globals.css', 'utf8')
 const tokens = readFileSync('design-system/tokens.css', 'utf8')
 
+/** Convert a hex color to relative luminance for the focus ring contrast test. */
 function luminance(hex: string) {
   const channels = hex.match(/[a-f\d]{2}/gi)!.map(channel => {
     const value = parseInt(channel, 16) / 255

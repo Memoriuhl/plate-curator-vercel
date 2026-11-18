@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { IoSearchOutline } from 'react-icons/io5'
 
+/**
+ * Synchronize the dashboard text search with the current URL and provide keyboard focus
+ * access.
+ */
 export function DashboardSearch() {
   const params = useSearchParams()
   const router = useRouter()
@@ -40,10 +44,12 @@ export function DashboardSearch() {
     return () => clearTimeout(timer)
   }, [targetHref, href, router])
   useEffect(() => {
+    /** Restore the search field from URL history after browser navigation. */
     function historyChange() {
       const params = new URLSearchParams(window.location.search)
       setSearch(current => ({ ...current, value: params.get('q') ?? '', pathname: window.location.pathname, queryString: params.toString() }))
     }
+    /** Focus the search field on slash unless a focused control already handles input. */
     function shortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (

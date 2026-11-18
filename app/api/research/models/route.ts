@@ -3,6 +3,9 @@ import { currentActor } from '../../../../lib/server/context'
 import { allowedResearchModels } from '../../../../lib/research/models'
 import { json } from '../../../../lib/server/respond'
 
+/**
+ * List available research models and the default for the caller's deployment and role.
+ */
 export async function GET(request: Request) {
   await connection()
   const auth = await currentActor(request)

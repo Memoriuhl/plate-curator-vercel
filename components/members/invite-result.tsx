@@ -5,10 +5,12 @@ import { IoCheckmarkOutline, IoCopyOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import type { MemberInvite } from '@/lib/members/summary'
 
+/** Present the new invitation link with a copy action and accessible feedback. */
 export function InviteResult({ result, onDismiss }: { result: MemberInvite; onDismiss: () => void }) {
   const inputId = useId()
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState(false)
+  /** Copy the invitation link to the clipboard and indicate success or failure. */
   async function copy() {
     setError(false)
     setCopied(false)

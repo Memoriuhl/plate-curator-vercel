@@ -2,6 +2,7 @@ import { researchDeps } from '@/lib/server/research-context'
 import { researchWorkerIdentity } from '@/lib/research/tokens'
 import { claimResearch } from '@/lib/research/jobs'
 
+/** Authenticate a research worker and lease its next eligible job. */
 export async function POST(request: Request) {
   const deps = await researchDeps()
   const worker = await researchWorkerIdentity(deps.store, request)

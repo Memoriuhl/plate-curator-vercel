@@ -1,7 +1,14 @@
 vi.mock('../components/ui/tooltip', () => ({
+  /**
+   * Pass through the tooltip provider so dashboard actions render in the test
+   * environment.
+   */
   TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Keep the fixture tooltip children without opening a Radix portal. */
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Expose the action control directly so the test can click it. */
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Expose tooltip text through its accessible role in the fixture DOM. */
   TooltipContent: ({ children }: { children: React.ReactNode }) => <span role="tooltip">{children}</span>,
 }))
 import { filterCounts } from '../components/dashboard/family-data'
@@ -29,25 +36,42 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/client/hooks', () => ({
+  /**
+   * Leave tagging models unloaded so batch actions render with the intended fixture
+   * state.
+   */
   useTaggingModels: () => ({ data: undefined }),
+  /** Supply the selected batch and its editability for this workspace scenario. */
   useWorkspaceBatch: () => state.selected ? ({ mode: 'selected', id: 'shared', detail: state.detail, status: state.detail ? 'ready' : 'loading' }) : ({ mode: 'personal' }),
+  /** Resolve the fixture batch without creating one through the API. */
   useEnsureBatch: () => vi.fn(),
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: vi.fn(), pending: false }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: (states: string[]) => ({
     data: states.includes('open') ? state.open : state.review,
   }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: () => ({ data: state.detail }),
 }))
 vi.mock('../lib/client/session', () => ({
+  /** Supply the fixture session and API client to the component under test. */
   useSession: () => ({ api: { get: vi.fn(), send: vi.fn() } }),
 }))
 vi.mock('next/navigation', () => ({
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ replace: vi.fn() }),
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock('../components/ui/button', () => ({
+  /**
+   * Render an inspectable action button with its disabled reason and supplied children.
+   */
   Button: (props: ComponentProps<'button'>) => {
     const label = Array.isArray(props.children)
       ? props.children.filter((child) => typeof child === 'string').join('')

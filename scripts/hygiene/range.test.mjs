@@ -9,12 +9,14 @@ import { fileURLToPath } from 'node:url';
 const checker = fileURLToPath(new URL('./check.mjs', import.meta.url));
 const email = '49572768+Memoriuhl@users.noreply.github.com';
 
+/** Build a disposable Git history for exercising the commit range policy. */
 function repository(t) {
   const dir = mkdtempSync(join(tmpdir(), 'hygiene-range-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !key.startsWith('GIT_') && !['CI', 'HYGIENE_DENYLIST'].includes(key)));
   Object.assign(env, { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
+  /** Run Git in the history fixture and stop on unexpected setup failures. */
   const git = (args, extra = {}) => {
     const result = spawnSync('git', args, { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
@@ -23,12 +25,16 @@ function repository(t) {
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Hygiene Test']);
   git(['config', 'user.email', email]);
+  /** Commit staged fixture changes and return the revision used as a range boundary. */
   const commit = (message = 'chore: update', extra = {}) => {
     git(['add', '-A']);
     git(['commit', '--allow-empty', '-q', '-m', message], extra);
     return git(['rev-parse', 'HEAD']);
   };
   const base = commit();
+  /**
+   * Run the range checker with the fixture repository and supplied reference arguments.
+   */
   const check = (start = base, head = 'HEAD', extra = {}) => spawnSync(process.execPath,
     [checker, 'range', start, head], {
       cwd: dir, env: { ...env, CI: 'true', HYGIENE_DENYLIST: 'private-fixture', ...extra }, encoding: 'utf8',

@@ -21,10 +21,18 @@ export const maxQueueRecordBytes = 650_000
 export const maxQueueAttempts = 5
 const requestPattern = /^[a-zA-Z0-9_-]{1,100}$/
 
+/**
+ * Require the local feature flag and its matching jobs environment before accepting
+ * queue operations.
+ */
 export function localQueueEnabled(d: JobsDeps) {
   return process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && !!d.localScope && /^[a-zA-Z0-9_-]{1,80}$/.test(d.localScope) && d.store.env === localJobsEnvironment(d.localScope)
 }
 
+/**
+ * Parse a queue request and freeze its options into the shape used for planning and
+ * deduplication.
+ */
 export function parseEnqueue(input: unknown, limit = pipelineChunkSize): EnqueueInput | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const value = input as Record<string, unknown>
@@ -43,18 +51,27 @@ export function parseEnqueue(input: unknown, limit = pipelineChunkSize): Enqueue
     ...(value.modelId ? { modelId: value.modelId as string } : {}), ...(value.tagModelId ? { tagModelId: value.tagModelId as string } : {}), ...(value.researchModelId ? { researchModelId: value.researchModelId as string } : {}) }
 }
 
+/** Check that a run fits the queue's storage budget before writing its growing record. */
 export function queueRecordFits(run: PipelineRun) { return Buffer.byteLength(JSON.stringify(run), 'utf8') <= maxQueueRecordBytes }
 
+/** Check that the actor can edit the requested batch while it is open. */
 export function queuePermission(batch: ReviewBatch | null, actor: Actor): 'not_found' | 'forbidden' | 'invalid_state' | null {
   return !batch ? 'not_found' : !canEdit(batch, actor) ? 'forbidden' : batch.state !== 'open' ? 'invalid_state' : null
 }
 
+/**
+ * Compose the current plate input from the batch's pinned baseline and its draft fields.
+ */
 export async function queuePlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
   const baseline = review && d.baselineAtVersion ? await d.baselineAtVersion(review.baselineVersion, plateId) : await d.baseline(plateId)
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
+/**
+ * Resolve the complete same-state grouping scope from the selected plates and their
+ * current batch edits.
+ */
 export async function queueGroupContext(d: JobsDeps, tx: JobsTransaction, batch: ReviewBatch, selected: Plate[]) {
   if (!selected.length || !d.stateBaseline || selected.some(plate => !batch.plateIds.includes(plate.id)) || new Set(selected.map(plate => plate.state)).size !== 1) return null
   const baselines = await d.stateBaseline(batch.baselineVersion, selected[0].state, 'snapshot')
@@ -64,6 +81,10 @@ export async function queueGroupContext(d: JobsDeps, tx: JobsTransaction, batch:
   return { statePlates, standardId: batch.stateOrders[selected[0].state]?.[0] ?? baselines[0]?.id }
 }
 
+/**
+ * Reload projected plates and compare their revisions so dispatch can reject stale
+ * input.
+ */
 export async function currentProjectionMatches(d: JobsDeps, tx: JobsTransaction, run: PipelineRun, batch: ReviewBatch) {
   const projection = run.attempts.at(-1)!.projection
   if (!projection) return false
@@ -76,6 +97,10 @@ export async function currentProjectionMatches(d: JobsDeps, tx: JobsTransaction,
   return projectionMatchesBatch(projection, batch.baselineVersion, plates)
 }
 
+/**
+ * Build an attempt with ordered work, compatible models and a snapshot of its starting
+ * inputs.
+ */
 function buildRun(d: JobsDeps, actor: Actor, parsed: EnqueueInput, batch: ReviewBatch, plates: Plate[], id: string, fingerprint: string, enqueueSequence: number, now: number, selection?: { id: string; index: number }): QueueOutcome<PipelineRun | null> {
   const steps = planPipeline(plates, parsed.stages, parsed.options!)
   if (!steps.length) return { ok: true, value: null }
@@ -104,10 +129,15 @@ function buildRun(d: JobsDeps, actor: Actor, parsed: EnqueueInput, batch: Review
 
 type NewBatch = { name: string; baselineVersion: number }
 
+/** Hash serialized request data for reproducible queue request identities. */
 function hash(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
+/**
+ * Plan and enqueue one or more runs transactionally, deduplicating retried requests and
+ * creating a draft when needed.
+ */
 async function enqueueRuns(d: JobsDeps, actor: Actor, input: EnqueueInput, selected: boolean, draft?: NewBatch): Promise<QueueOutcome<PipelineRun[]>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   const parsed = parseEnqueue(input, selected ? pipelineSelectionLimit : pipelineChunkSize)
@@ -174,15 +204,24 @@ async function enqueueRuns(d: JobsDeps, actor: Actor, input: EnqueueInput, selec
   })
 }
 
+/** Enqueue one explicit pipeline run and return its record to the caller. */
 export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput): Promise<QueueOutcome<PipelineRun>> {
   const runs = await enqueueRuns(d, actor, input, false)
   return runs.ok ? { ok: true, value: runs.value[0] } : runs
 }
 
+/**
+ * Enqueue a selection that may span grouped runs, optionally creating the draft batch in
+ * the same transaction.
+ */
 export function enqueueSelection(d: JobsDeps, actor: Actor, input: EnqueueInput, draft?: NewBatch): Promise<QueueOutcome<PipelineRun[]>> {
   return enqueueRuns(d, actor, input, true, draft)
 }
 
+/**
+ * List active, recent and recoverable runs in the current worker scope for the actor's
+ * queue.
+ */
 export async function listRuns(d: JobsDeps, actor: Actor, worker?: QueueWorker, detailId?: string | null): Promise<QueueOutcome<QueueRunView[]>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
@@ -215,6 +254,10 @@ export async function listRuns(d: JobsDeps, actor: Actor, worker?: QueueWorker, 
   })
 }
 
+/**
+ * Close a run and its attempt, marking stages that never started with the reason they
+ * were skipped.
+ */
 export function finishRun(run: PipelineRun, status: 'completed' | 'failed' | 'cancelled', now: number, error?: string) {
   run.status = status; run.updatedAt = now
   delete run.waitReason
@@ -228,6 +271,7 @@ export function finishRun(run: PipelineRun, status: 'completed' | 'failed' | 'ca
   }
 }
 
+/** Request cancellation and settle immediately when there is no active worker to stop. */
 export async function cancelRun(d: JobsDeps, actor: Actor, id: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
@@ -270,6 +314,10 @@ export async function dismissRun(d: JobsDeps, actor: Actor, id: string): Promise
   })
 }
 
+/**
+ * Build another attempt for an eligible run using fresh inputs and an idempotent retry
+ * request.
+ */
 export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   if (!requestPattern.test(requestId)) return { ok: false, error: 'bad_request' }

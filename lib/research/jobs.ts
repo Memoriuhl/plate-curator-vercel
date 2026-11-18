@@ -13,6 +13,10 @@ export type ResearchOutcome<T> = { ok: true; value: T } | { ok: false; error: Re
 export type ResearchDeps = { store: ResearchStore; review: ReviewDeps; active(uid: string): Promise<boolean>; now(): number; id(): string; hostedEnabled: boolean; legacyRevision?: string }
 export type ResearchClaim = { job: ResearchJob; claimId: string; leaseExpiresAt: number }
 
+/**
+ * Resolve a plate's current batch input, including its pinned baseline and draft
+ * revision.
+ */
 export async function researchInput(deps: ResearchDeps, batchId: string, plateId: string): Promise<ResearchInput | null> {
   const batch = await deps.review.store.getBatch(batchId)
   if (!batch) return null
@@ -23,6 +27,10 @@ export async function researchInput(deps: ResearchDeps, batchId: string, plateId
   return { plateId, displayName: plate.displayName, state: plate.state, inputRevision: plateRevision(plate), baselineVersion: batch.baselineVersion }
 }
 
+/**
+ * Authorize and enqueue an owner research request while reusing an equivalent existing
+ * job.
+ */
 export async function startResearch(deps: ResearchDeps, actor: Actor, request: { batchId: string; plateId: string; executor: ResearchExecutor; requestKey: string; replaceJobId?: string }): Promise<ResearchOutcome<ResearchJob>> {
   if (actor.role !== 'owner' || !(await deps.active(actor.uid))) return { ok: false, error: 'forbidden' }
   if (!['desktop', 'eve'].includes(request.executor) || !request.requestKey.trim() || request.requestKey.length > 128) return { ok: false, error: 'invalid_state' }
@@ -47,6 +55,7 @@ export async function startResearch(deps: ResearchDeps, actor: Actor, request: {
   })
 }
 
+/** Read a research job only while the actor has current member and batch access. */
 export async function getResearch(deps: ResearchDeps, actor: Actor, id: string): Promise<ResearchOutcome<ResearchJob>> {
   if (!(await deps.active(actor.uid))) return { ok: false, error: 'forbidden' }
   const job = await deps.store.transaction(async tx => {
@@ -63,6 +72,10 @@ export async function getResearch(deps: ResearchDeps, actor: Actor, id: string):
   return { ok: true, value: job }
 }
 
+/**
+ * Lease a queued research job to a worker so another claimant cannot process it at the
+ * same time.
+ */
 export async function claimResearch(deps: ResearchDeps, workerId: string): Promise<ResearchClaim | null> {
   return deps.store.transaction(async tx => {
     const jobs = (await tx.list({ executor: 'desktop', now: deps.now() })).filter(job => job.executor === 'desktop' && job.deadline > deps.now() && (job.state === 'queued' || job.state === 'running' && (job.claim?.expiresAt ?? 0) <= deps.now())).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
@@ -76,6 +89,7 @@ export async function claimResearch(deps: ResearchDeps, workerId: string): Promi
   })
 }
 
+/** Explain why a recorded claim can no longer renew or report work. */
 function claimError(job: ResearchJob, workerId: string, claimId: string, now: number): ResearchError | null {
   if (job.state === 'superseded') return 'superseded'
   if (job.claim?.id !== claimId || job.claim.workerId !== workerId) return 'claim_mismatch'
@@ -83,6 +97,7 @@ function claimError(job: ResearchJob, workerId: string, claimId: string, now: nu
   return null
 }
 
+/** Extend the lease only for the worker's current, unexpired research claim. */
 export async function renewResearchClaim(deps: ResearchDeps, workerId: string, request: { jobId: string; claimId: string }): Promise<ResearchOutcome<ResearchClaim>> {
   return deps.store.transaction(async tx => {
     const job = await tx.get(request.jobId)
@@ -105,6 +120,9 @@ const resultSchema = z.object({
   cost: z.object({ usd: z.number().nonnegative().nullable(), missing: z.number().int().nonnegative() }), counters: z.record(z.string(), z.number().nonnegative()), cache: z.enum(['fresh', 'cached', 'mixed', 'unknown']),
 })
 
+/**
+ * Validate the report payload and its evidence before classifying the research result.
+ */
 export function normalizeResearchReport(raw: unknown, job: ResearchJob): ResearchResult | null {
   const parsed = resultSchema.safeParse(raw)
   if (!parsed.success) return null
@@ -115,6 +133,10 @@ export function normalizeResearchReport(raw: unknown, job: ResearchJob): Researc
   return { ...data, ...screened, rejected: [...data.rejected, ...screened.rejected], status: ['failed', 'exhausted'].includes(data.status) ? data.status : data.sources.length === 0 ? 'no_sources' : screened.draft.description && screened.draft.funFacts.length ? 'ok' : 'partial' }
 }
 
+/**
+ * Accept a worker report for its active claim and settle the job against the current
+ * batch input.
+ */
 export async function reportResearch(deps: ResearchDeps, workerId: string, request: { jobId: string; claimId: string; result: unknown }): Promise<ResearchOutcome<ResearchJob>> {
   return deps.store.transaction(async tx => {
     const job = await tx.get(request.jobId)

@@ -1,3 +1,4 @@
+/** Find increasing baseline positions to retain as the unchanged part of a new order. */
 function increasingSubsequence(values: number[]): Set<number> {
   const tails: number[] = []
   const previous = new Array<number>(values.length).fill(-1)
@@ -17,6 +18,10 @@ function increasingSubsequence(values: number[]): Set<number> {
   return retained
 }
 
+/**
+ * Identify plates that moved by removing the longest unchanged subsequence from the
+ * proposed order.
+ */
 export function orderDifferences(baseline: string[], order: string[]) {
   const positions = new Map(baseline.map((id, index) => [id, index]))
   const candidates = order.flatMap((plateId, after) => {

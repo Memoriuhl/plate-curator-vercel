@@ -8,6 +8,10 @@ import { boundedResponse, readCommonsImage } from './remote-image'
 type ImagePlate = { state: string; displayName: string; image: string; imageUrl?: string | null }
 type CommonsPage = { title?: string; index?: number; imageinfo?: { url?: string; thumburl?: string; descriptionurl?: string; mime?: string; extmetadata?: { LicenseShortName?: { value?: string }; Artist?: { value?: string } } }[] }
 
+/**
+ * Normalize a Commons thumbnail URL to a supported direct image address for
+ * verification.
+ */
 function candidateImageUrl(value?: string) {
   if (!value) return null
   try {
@@ -18,6 +22,10 @@ function candidateImageUrl(value?: string) {
   } catch { return null }
 }
 
+/**
+ * Find Commons image candidates for the exact plate and report verified files with their
+ * sources.
+ */
 export async function findImage(plate: ImagePlate, options: { fetch?: typeof fetch; onlyMissingImage?: boolean } = {}): Promise<ImageSuggestion | null> {
   if (options.onlyMissingImage && (plate.image || plate.imageUrl)) return null
   const request = options.fetch ?? fetch
@@ -41,6 +49,7 @@ export async function findImage(plate: ImagePlate, options: { fetch?: typeof fet
     const bytes = await readCommonsImage(imageUrl, request)
     const metadata = await sharp(bytes).metadata()
     const sha256 = createHash('sha256').update(bytes).digest('hex')
+    /** Clean and bound Commons metadata before including it in the candidate record. */
     const clean = (value?: string) => value?.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 500)
     const license = clean(info?.extmetadata?.LicenseShortName?.value)
     const author = clean(info?.extmetadata?.Artist?.value)

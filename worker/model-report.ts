@@ -1,19 +1,25 @@
 import type { Run } from './benchmark'
 
 export type ModelLane = { file: string; run: Run; coldLoadSeconds: number | null; peakVramMiB: number | null; meanVramMiB: number | null; meanGpuUtilization: number | null; spill: 'yes' | 'no' | 'unknown'; processor: string; parallel: string }
+/** Escape interpolated lane values before inserting them into the HTML report. */
 const escape = (v: unknown) => String(v ?? 'unknown').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+/** Format benchmark metrics with fixed precision and an explicit unknown value. */
 const fmt = (n: number | null, digits = 3) => n === null ? 'unknown' : n.toFixed(digits)
+/** Count plates that completed without a recorded inference error. */
 const completed = (r: Run) => r.plates.filter(p => !p.error).length
 const columns = ['model', 'where', 'concurrency', 'F1', 'P', 'R', 'completed', 'failed', 'stopped', 'p50 s', 'p95 s', 'wall s', 'Plates/min', 'cold load s', 'peak VRAM MiB', 'mean VRAM MiB', 'mean GPU utilization %', 'CPU spill', 'reported USD/Plate', 'estimated catalog USD', '429s', 'status']
+/** Build the model benchmark summary row with measured timing, quality and cost. */
 function row(lane: ModelLane) {
   const r = lane.run
   const reported = r.plates.flatMap(p => p.attemptRecords).filter(a => a.costSource === 'reported' && a.cost !== null)
   const costPerPlate = reported.length ? reported.reduce((s, a) => s + a.cost!, 0) / Math.max(1, r.plates.filter(p => p.attempts).length) : null
   return [r.model, r.backend === 'local' ? 'desktop' : 'Gateway', r.concurrency, fmt(r.overall.f1), fmt(r.overall.precision), fmt(r.overall.recall), completed(r), r.failedPlates, (r.stoppedPlates ?? 0) + r.cappedPlates, fmt(r.latency.p50 === null ? null : r.latency.p50 / 1000), fmt(r.latency.p95 === null ? null : r.latency.p95 / 1000), fmt(r.wallMs / 1000), fmt(r.throughput), fmt(lane.coldLoadSeconds), fmt(lane.peakVramMiB, 0), fmt(lane.meanVramMiB, 1), fmt(lane.meanGpuUtilization, 1), lane.spill, fmt(costPerPlate, 8), fmt(costPerPlate === null ? null : costPerPlate * 8325, 4), r.rateLimits, r.status]
 }
+/** Serialize the model summary table for spreadsheet comparison. */
 export function modelSummaryCsv(lanes: ModelLane[]) {
   return [columns, ...lanes.map(row)].map(cells => cells.map(v => `"${String(v).replaceAll('"', '""')}"`).join(',')).join('\n') + '\n'
 }
+/** Draw the report's metric comparison chart using a scale shared across lanes. */
 function chart(lanes: ModelLane[], metric: 'wallMs' | 'throughput') {
   const max = Math.max(1, ...lanes.map(l => l.run[metric]))
   const keys = [...new Set(lanes.map(l => `${l.run.backend} ${l.run.model}`))]
@@ -23,6 +29,10 @@ function chart(lanes: ModelLane[], metric: 'wallMs' | 'throughput') {
     return `<polyline fill="none" stroke="${colors[i % colors.length]}" points="${series.map(l => `${50 + l.run.concurrency * 45},${230 - 175 * l.run[metric] / max}`).join(' ')}"/>${series.map(l => `<circle cx="${50 + l.run.concurrency * 45}" cy="${230 - 175 * l.run[metric] / max}" r="4" fill="${colors[i % colors.length]}"><title>${escape(key)} c${l.run.concurrency}: ${fmt(l.run[metric])}</title></circle>`).join('')}<text x="50" y="${265 + 15 * i}" fill="${colors[i % colors.length]}">${escape(key)}</text>`
   }).join('')}${[1, 2, 4, 8, 16].map(n => `<text x="${45 + n * 45}" y="248">${n}</text>`).join('')}</svg>`
 }
+/**
+ * Render the standalone model comparison report with paired lanes and their measured
+ * outcomes.
+ */
 export function modelReportHtml(lanes: ModelLane[], observations: string) {
   const paired = lanes.filter(l => ['gemma4:26b', 'google/gemma-4-26b-a4b-it'].includes(l.run.model) && l.run.concurrency === 1)
   return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Tagging models: Track 1</title><style>body{font:15px system-ui;margin:24px;color:#172033}table{border-collapse:collapse;font-size:12px}td,th{padding:6px;border:1px solid #cbd5e1}svg{display:block;max-width:1000px}p{max-width:1100px}.pair{display:flex;gap:32px}.pair article{padding:16px;border:1px solid #cbd5e1}</style><h1>Tagging models: Track 1</h1><p>${escape(observations)}</p><table><thead><tr>${columns.map(c => `<th>${escape(c)}</th>`).join('')}</tr></thead><tbody>${lanes.map(l => `<tr>${row(l).map((v, i) => `<td>${i === 0 ? `<a href="${escape(l.file)}">${escape(v)}</a>` : escape(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>${chart(lanes, 'wallMs')}${chart(lanes, 'throughput')}<h2>F1 by model and concurrency</h2><svg viewBox="0 0 1000 ${lanes.length * 35 + 30}" role="img" aria-label="F1 by model">${lanes.map((l, i) => `<text x="0" y="${25 + i * 35}">${escape(l.run.model)} c${l.run.concurrency}</text><rect x="360" y="${10 + i * 35}" width="${l.run.overall.f1 * 500}" height="22" fill="#2563eb"/><text x="${370 + l.run.overall.f1 * 500}" y="${25 + i * 35}">${fmt(l.run.overall.f1)}</text>`).join('')}</svg><h2>Same weights: Gemma 4 26B-A4B</h2><div class="pair">${paired.map(l => `<article><h3>${escape(l.run.backend === 'local' ? 'Desktop' : 'Gateway')}</h3><p>${escape(l.run.model)}<br>F1 ${fmt(l.run.overall.f1)}; ${completed(l.run)}/30 completed<br>Wall ${fmt(l.run.wallMs / 1000)}s; ${fmt(l.run.throughput)} Plates/min<br>CPU spill: ${l.spill}; ${escape(l.processor)}</p></article>`).join('')}</div><p>These are the nominally same model family and weights. Local quantization and provider precision or revision may differ; exact binary parity is not established. See saved model metadata.</p><h2>Observed vs estimated</h2><p>Observed: responses, usage, reported charges, request time, completion counts, one-second GPU samples and model CPU/GPU placement. Peak/mean VRAM include all GPU activity, not just inference. Catalog costs extrapolate known response charges per attempted Plate to 8,325 Plates; failed-request charges can be missing and this is not reconciled billing. Local energy and hardware cost are unmeasured. Latency includes queue wait from batch enqueue; percentiles include successful Plates only. Failed attempted Plates score empty suggestions; stopped/unstarted Plates are excluded. Rate-limited lanes are partial and cannot establish capacity or full-fixture quality.</p><p>Reference tags are provisional; only 30 Plates. Treat F1 differences under 0.05 as noise. Shared GPU: the production worker remains running; unchanged terminal output cannot rule out its jobs when claims are not logged. Cold-load seconds come from Ollama load_duration on a throwaway warm-up request; already resident models are not genuinely cold. OLLAMA_NUM_PARALLEL is recorded without changing settings. These are harness runs, not the deployed Workflow path.</p><p>${lanes.filter(l => l.run.backend === 'local').map(l => `${escape(l.run.model)} c${l.run.concurrency}: parallel ${escape(l.parallel)}; placement ${escape(l.processor)}; ${escape(l.run.contention)}`).join('<br>')}</p></html>`

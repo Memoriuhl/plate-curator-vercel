@@ -1,3 +1,7 @@
+/**
+ * Scroll a capped variant list near its edges and report whether it consumed the drag
+ * scroll.
+ */
 export function scrollDragList(x: number, y: number, familyId: string) {
   const list = Array.from(document.querySelectorAll<HTMLElement>('[data-variant-scroll]')).find(element => element.dataset.variantScroll === familyId)
   if (!list) return false

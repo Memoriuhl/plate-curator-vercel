@@ -1,3 +1,6 @@
+/**
+ * Sort object keys recursively for stable JSON comparisons while preserving array order.
+ */
 export function sortedJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedJsonValue)
   if (value !== null && typeof value === 'object') {

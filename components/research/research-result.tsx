@@ -13,6 +13,10 @@ const labels: Record<Field, string> = { description: 'Description', funFacts: 'F
 const textClass = 'w-full min-w-0 field-sizing-content resize-y rounded-lg bg-[var(--fill)] p-2 text-sm'
 const fieldIcons = { description: CHECK_META.description.icon, funFacts: CHECK_META.funFacts.icon, readMore: CHECK_META.link.icon, wikiUrl: CHECK_META.link.icon }
 
+/**
+ * Show validated research and its evidence while allowing the curator to select what to
+ * accept.
+ */
 export function ResearchResult({ result, plate, pending, canEditDraft = false, onAccept }: { result: Result; plate?: Pick<PlateCardData, 'displayName' | 'imageUrl'>; pending: boolean; canEditDraft?: boolean; onAccept(fields: Field[], draft: ResearchDraft): void }) {
   const [draft, setDraft] = useState(() => structuredClone(result.draft))
   const [selected, setSelected] = useState<Field[]>([])

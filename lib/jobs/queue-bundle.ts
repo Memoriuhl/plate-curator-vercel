@@ -12,6 +12,10 @@ import { validGroupContext } from '../review/group-context'
 import { parseFieldSuggestion } from './suggestions'
 import type { ImageCandidate } from './specialized-suggestions'
 
+/**
+ * Apply a completed preview run's edits to its batch after rechecking the current source
+ * revisions and permissions.
+ */
 export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor: Actor, id: string, readImage?: Parameters<typeof verifiedImageFields>[1]): Promise<Outcome<ReviewBatch>> {
   if (!localQueueEnabled(jobs)) return { ok: false, error: 'forbidden' }
   const run = await jobs.store.transaction(async tx => (await tx.runs()).find(run => run.id === id && run.localScope === jobs.localScope))

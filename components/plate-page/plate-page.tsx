@@ -51,6 +51,7 @@ import type { FamilyPlate, PlatePageProps } from './types'
 
 const input =
   'w-full min-w-0 rounded-[var(--radius-md)] border-0 bg-[var(--fill)] px-3 py-2 text-[var(--ink)]'
+/** Render one plate detail section with its optional heading and supporting content. */
 function Card({
   title,
   children,
@@ -73,6 +74,7 @@ function Card({
   )
 }
 
+/** Show a disabled action with the current reason the plate feature is unavailable. */
 function Parked({ children, reason }: { children: ReactNode; reason: string }) {
   return (
     <span title={localPipelineReason(reason)} className="inline-flex">
@@ -84,6 +86,10 @@ function Parked({ children, reason }: { children: ReactNode; reason: string }) {
   )
 }
 
+/**
+ * Extract a readable filename from a plate image URL without failing on malformed
+ * encoding.
+ */
 function fileName(url: string) {
   const name = url.split('/').at(-1)!.split('?')[0]
   try {
@@ -93,6 +99,10 @@ function fileName(url: string) {
   }
 }
 
+/**
+ * Keep unsaved field text and its starting plate revision together while the curator
+ * edits.
+ */
 function DraftText({
   value,
   label,
@@ -111,6 +121,10 @@ function DraftText({
   const [local, setLocal] = useState<{ value: string; plate: PlateCardData; base: string } | null>(null)
   const draft = local?.value ?? value
   const valid = !multiline || draft.length <= 2000
+  /**
+   * Commit valid changed text using its captured revision and clear the local draft on
+   * success.
+   */
   async function commit() {
     if (valid && local && draft !== local.base && !pending) {
       if (await save(draft, local.plate)) setLocal(null)
@@ -122,10 +136,16 @@ function DraftText({
     disabled: pending,
     className: input,
     value: draft,
+    /**
+     * Update the field's draft text while preserving the original value and plate for
+     * conflict checks.
+     */
     onChange: (
       event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
     ) => setLocal(previous => ({ value: event.target.value, plate: previous?.plate ?? plate, base: previous?.base ?? value })),
+    /** Commit pending field text when the editor loses focus. */
     onBlur: () => void commit(),
+    /** Use Escape to discard local text or Enter to submit single-line edits. */
     onKeyDown: (event: React.KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setLocal(null); return }
       if (
@@ -148,6 +168,7 @@ function DraftText({
   )
 }
 
+/** Link to a related plate and identify whether it is the template or a variant. */
 function Member({
   plate,
   selected,
@@ -189,6 +210,7 @@ function Member({
   )
 }
 
+/** Render and edit a plate with its batch overlay, family context and navigation. */
 export function PlatePage(props: PlatePageProps) {
   const params = useSearchParams()
   const router = useRouter()
@@ -250,8 +272,13 @@ export function PlatePage(props: PlatePageProps) {
     if (params.has(key)) query.set(key, params.get(key)!)
   const suffix = query.size ? `?${query}` : ''
   const stateHref = `/states/${plate.state}${suffix}`
+  /** Build links between plates while preserving the workspace return context. */
   const plateHref = (id: string) => `/plates/${encodeURIComponent(id)}${suffix}`
 
+  /**
+   * Save plate fields with batch feedback and retain any conflicting values for
+   * resolution.
+   */
   async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }, standard?: StandardChange) {
     setStatus('Saving to your batch…')
     try {
@@ -270,6 +297,10 @@ export function PlatePage(props: PlatePageProps) {
     return false
   }
 
+  /**
+   * Attach the current plate to an eligible family without exceeding its variant
+   * constraints.
+   */
   async function addToFamily(member: PlateCardData) {
     if (blocked || !current.templateFamily || (member.templateRole === 'template' && (linkedVariantCounts.get(member.id) ?? 0) > 0)) return
     await save(member, {
@@ -279,6 +310,7 @@ export function PlatePage(props: PlatePageProps) {
     })
   }
 
+  /** Show a conflict only next to the affected field of the current plate. */
   function fieldIssue(field: keyof EditableFields, id = current.id) {
     if (!issue || issue.plate.id !== id || !Object.hasOwn(issue.fields, field))
       return null
@@ -296,6 +328,10 @@ export function PlatePage(props: PlatePageProps) {
     )
   }
 
+  /**
+   * Reload or resubmit the conflicted plate fields using the curator's chosen
+   * resolution.
+   */
   async function resolveConflict(useMine: boolean) {
     if (!issue || issue.result.error !== 'stale_plate' || pending || resolving)
       return

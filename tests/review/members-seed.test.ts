@@ -5,6 +5,7 @@ import { seedMembers } from '../../lib/review/members-seed'
 const input = {
   projectId: 'license-plate-game-staging',
   env: { SEED_DEMO_OWNER_EMAIL: ' Demo.Owner@Example.com ', SEED_DEMO_OWNER_UID: 'demo-owner', SEED_DEMO_EDITOR_EMAIL: 'editor@example.com', SEED_DEMO_EDITOR_UID: 'demo-editor', SEED_OWNER_GOOGLE_EMAIL: 'owner@example.com' },
+  /** Pin the operation clock so timestamps and lease checks are reproducible. */
   now: () => '2026-11-16T12:00:00.000Z',
 }
 
@@ -18,7 +19,7 @@ it('seeds three exact records and converges on the same records on later runs', 
     { email: 'owner@example.com', uid: null, role: 'owner', signIn: 'google', status: 'pending', invite: null, invitedBy: null, createdAt: input.now(), authorityEpoch: 1 },
   ])
   await store.updateRole('editor@example.com', 'owner')
-  await seedMembers(store, { ...input, now: () => '2026-11-17T12:00:00.000Z' })
+  await seedMembers(store, { ...input, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-17T12:00:00.000Z' })
   expect(await store.list()).toEqual(first.map(member => ({ ...member, authorityEpoch: member.email === 'editor@example.com' ? 3 : 1 })))
   expect(await store.activate('owner@example.com', 'google-owner')).toBe('ok')
 })

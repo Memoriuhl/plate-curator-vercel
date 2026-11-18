@@ -1,7 +1,11 @@
 vi.mock('../components/ui/tooltip', () => ({
+  /** Pass through the tooltip provider while rendering the dashboard frame. */
   TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Keep the tooltip children in the fixture DOM for frame assertions. */
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Expose the filter control without the Radix trigger wrapper. */
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Render tooltip text in the fixture where queries can find it by role. */
   TooltipContent: ({ children }: { children: React.ReactNode }) => <span role="tooltip">{children}</span>,
 }))
 import { filterCounts } from '../components/dashboard/family-data'
@@ -21,12 +25,17 @@ const toggles = vi.hoisted(
   () => new Map<string, { onPressedChange: (pressed: boolean) => void }>(),
 )
 vi.mock('next/navigation', () => ({
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ replace: navigation.replace }),
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => navigation.pathname,
+  /** Provide the route parameters for the selected fixture page. */
   useParams: () => ({ code: navigation.pathname.split('/').at(-1) }),
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(navigation.query),
 }))
 vi.mock('../components/ui/toggle', () => ({
+  /** Render a native filter toggle and retain the accessible label and result count. */
   Toggle: (
     props: ComponentProps<'button'> & {
       count: number

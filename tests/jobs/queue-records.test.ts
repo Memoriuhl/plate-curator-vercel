@@ -13,12 +13,14 @@ const owner = { ...editor, uid: 'owner', role: 'owner' as const }
 const input = { requestId: 'request-one', batchId: 'batch', plateIds: ['AK.one'], stages: ['describe', 'story', 'tag'] as const }
 const request = { ...input, stages: [...input.stages] }
 
+/** Provide a scoped one-plate queue store for tests of durable run record limits. */
 function setup() {
   const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
   const review = createMemoryStore([{ id: 'batch', name: 'Queue', createdBy: editor.uid, createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: [plate.id], approval: null }])
   const store = createMemoryJobsStore(review, localJobsEnvironment('test-queue'))
-  const deps: JobsDeps = { store, localScope: 'test-queue', baseline: async id => id === plate.id ? plate : null,
-    now: () => 100, id: () => 'claim', leaseMs: 1000 }
+  const deps: JobsDeps = { store, localScope: 'test-queue', /** Provide the baseline plate data used by the review or job scenario. */ baseline: async id => id === plate.id ? plate : null,
+    /** Pin the operation clock so timestamps and lease checks are reproducible. */
+    now: () => 100, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000 }
   return { plate, review, deps }
 }
 
@@ -90,7 +92,7 @@ test('option parser snapshots defaults, validates unknown keys and never coerces
 
 test('unchecked default Story option skips existing stories while preserving other selected stages and exact retry options', async () => {
   const s = setup()
-  const deps = { ...s.deps, baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Already accepted', sourceUrl: 'https://example.org/source' }] }) }
+  const deps = { ...s.deps, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Already accepted', sourceUrl: 'https://example.org/source' }] }) }
   const result = await enqueueRun(deps, editor, { ...request, stages: ['story', 'describe'] })
   expect(result).toMatchObject({ ok: true, value: { options: { story: { redoExisting: false } }, attempts: [{ steps: [{ stage: 'describe' }] }] } })
   const redo = await enqueueRun(deps, editor, { ...request, requestId: 'explicit-redo', stages: ['story', 'describe'], options: { story: { redoExisting: true } } })
@@ -100,7 +102,7 @@ test('unchecked default Story option skips existing stories while preserving oth
 test('model-free Wiki, image and CPU Group runs persist no model even when only gateway models are enabled', async () => {
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const s = setup()
-  const deps = { ...s.deps, stateBaseline: async () => [s.plate] }
+  const deps = { ...s.deps, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [s.plate] }
   for (const stage of ['wiki-link', 'find-image', 'group'] as const) {
     const result = await enqueueRun(deps, editor, { ...request, requestId: stage, stages: [stage] })
     if (!result.ok) throw Error(result.error)
@@ -118,7 +120,7 @@ test('model-free Wiki, image and CPU Group runs persist no model even when only 
 test('a skipped existing Story does not require a model for the remaining Wiki step', async () => {
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const s = setup()
-  const deps = { ...s.deps, baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Existing fact', sourceUrl: 'https://example.org/source' }] }) }
+  const deps = { ...s.deps, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async () => ({ ...s.plate, funFacts: [{ text: 'Existing fact', sourceUrl: 'https://example.org/source' }] }) }
   expect(await enqueueRun(deps, editor, { ...request, stages: ['wiki-link', 'story'] })).toMatchObject({ ok: true, value: { attempts: [{ steps: [{ stage: 'wiki-link' }] }] } })
   expect((await deps.store.transaction(tx => tx.runs()))[0]).not.toHaveProperty('modelId')
 })
@@ -126,7 +128,7 @@ test('a skipped existing Story does not require a model for the remaining Wiki s
 test('a full-state selection is saved atomically as retryable chunks in one Batch', async () => {
   const { plate, deps } = setup()
   const plateIds = Array.from({ length: 990 }, (_, index) => `MD.${index}`)
-  const scoped = { ...deps, baseline: async (id: string) => plateIds.includes(id) ? { ...plate, id, state: 'MD' } : null }
+  const scoped = { ...deps, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async (id: string) => plateIds.includes(id) ? { ...plate, id, state: 'MD' } : null }
   const selection = { ...request, stages: ['wiki-link'] as const, plateIds }
   const { enqueueSelection } = await import('../../lib/jobs/queue')
   expect(await enqueueSelection(scoped, editor, { ...selection, stages: [...selection.stages], plateIds: [...plateIds.slice(0, -1), 'missing'] })).toEqual({ ok: false, error: 'not_found' })
@@ -150,7 +152,7 @@ test('an invalid request creates no draft and a valid mixed-state request create
   expect(await enqueueSelection(deps, editor, input, newBatch)).toEqual({ ok: false, error: 'not_found' })
   expect(await review.getBatch('new-batch')).toBeNull()
 
-  const scoped = { ...deps, baseline: async (id: string) => id === 'MD.two' ? { ...plate, id, state: 'MD' } : deps.baseline(id) }
+  const scoped = { ...deps, /** Resolve the plate by ID from the fixture baseline. */ baseline: async (id: string) => id === 'MD.two' ? { ...plate, id, state: 'MD' } : deps.baseline(id) }
   expect(await enqueueSelection(scoped, editor, input, newBatch)).toMatchObject({ ok: true, value: [{ batchId: 'new-batch' }] })
   expect(await review.getBatch('new-batch')).toMatchObject({ name: newBatch.name, createdBy: editor.uid, plateIds: input.plateIds })
   expect(await review.getBatch('batch')).toMatchObject({ name: 'Queue', plateIds: [plate.id] })

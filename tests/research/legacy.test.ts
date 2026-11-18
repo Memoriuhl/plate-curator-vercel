@@ -12,8 +12,14 @@ const outcome = {
 test('legacy research receives the captured identity and returns evidence-linked draft fields', async () => {
   let captured: unknown
   const result = await runLegacyResearch(input, { legacyRoot: '/fixture', model: 'gemma4:12b', expectedRevision: 'legacy-r1' }, {
+    /** Return the legacy repository revision expected by the research fixture. */
     revision: async () => 'legacy-r1',
-    load: async () => ({ storyForPlate: async plate => { captured = plate; return outcome } }),
+    /**
+     * Supply a fake legacy module so the adapter input can be inspected without loading
+     * the game repository.
+     */
+    load: async () => ({ /** Capture the plate sent to the legacy runner and return the fixture outcome. */ storyForPlate: async plate => { captured = plate; return outcome } }),
+    /** Pin the operation clock so timestamps and lease checks are reproducible. */
     now: () => 1000,
   })
   expect(captured).toEqual({ id: 'AZ.highways', displayName: 'Arizona Highways', state: 'AZ' })
@@ -28,15 +34,21 @@ test('legacy research receives the captured identity and returns evidence-linked
 test('a changed baseline implementation is refused before loading model code', async () => {
   let loaded = false
   await expect(runLegacyResearch(input, { legacyRoot: '/fixture', model: 'gemma4:12b', expectedRevision: 'old' }, {
-    revision: async () => 'new', load: async () => { loaded = true; throw new Error('unexpected load') }, now: () => 0,
+    /** Return the legacy repository revision expected by the research fixture. */
+    revision: async () => 'new', /** Detect any module load after legacy revision validation should already have stopped the run. */ load: async () => { loaded = true; throw new Error('unexpected load') }, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0,
   })).rejects.toThrow('Legacy revision differs')
   expect(loaded).toBe(false)
 })
 
 test('citations absent from fetched evidence cannot become catalog links', async () => {
   const result = await runLegacyResearch(input, { legacyRoot: '/fixture', model: 'gemma4:12b', expectedRevision: 'r1' }, {
-    revision: async () => 'r1', now: () => 0,
-    load: async () => ({ storyForPlate: async () => ({ ...outcome, draft: { ...outcome.draft, funFacts: [{ text: 'An unsupported fact.', sourceUrl: 'https://example.com/invented' }] } }) }),
+    /** Return the legacy repository revision expected by the research fixture. */
+    revision: async () => 'r1', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0,
+    /**
+     * Provide a legacy outcome with an invented citation to exercise evidence
+     * validation.
+     */
+    load: async () => ({ /** Add an unsupported link to the fixture draft for the grounding test. */ storyForPlate: async () => ({ ...outcome, draft: { ...outcome.draft, funFacts: [{ text: 'An unsupported fact.', sourceUrl: 'https://example.com/invented' }] } }) }),
   })
   expect(result.draft.funFacts).toEqual([])
   expect(result.rejected).toContainEqual({ field: 'funFacts', reason: 'source_not_fetched' })

@@ -7,6 +7,10 @@ import { PlatePage } from '@/components/plate-page/plate-page'
 import { PlatePageSkeleton } from '@/components/plate-page/skeleton'
 import { slimPlate } from '@/components/plate-page/types'
 
+/**
+ * Load the plate and its jurisdiction and preserve the referring workspace in
+ * navigation.
+ */
 async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
   await connection()
   const { id } = await params
@@ -55,6 +59,7 @@ async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
   )
 }
 
+/** Render the plate page with a loading boundary around its catalog data. */
 export default function Page({ params }: { params: Promise<{ id: string }> }) {
   return (
     <main className="app-main">

@@ -31,6 +31,10 @@ async function oldestDesktopJob(transaction: Transaction, query: Query, localSco
   return oldest
 }
 
+/**
+ * Build the Firestore jobs adapter for one environment so queue and review writes can
+ * share a transaction.
+ */
 export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
   const enhancedImages = db.collection('localPipelineEnhancedImages')
@@ -44,10 +48,15 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
       const bytes: unknown = doc.get('bytes')
       return doc.get('env') === env && Buffer.isBuffer(bytes) ? bytes : null
     },
+    /** Read the heartbeat for this environment and worker scope. */
     async readCapabilities(scope) {
       const doc = await capabilities.doc(`${encodeURIComponent(env)}--${scope}`).get()
       return doc.exists ? doc.data() as import('./capabilities').WorkerCapabilityRecord : null
     },
+    /**
+     * Store a heartbeat transactionally when its contents or refresh deadline have
+     * changed.
+     */
     async writeCapabilities(scope, record) {
       await db.runTransaction(async transaction => {
         const ref = capabilities.doc(`${encodeURIComponent(env)}--${scope}`)
@@ -55,13 +64,26 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
         if (shouldWriteCapabilities(previous.exists ? previous.data() as WorkerCapabilityRecord : null, record)) transaction.set(ref, record)
       })
     },
+    /**
+     * Run an operation against a single Firestore transaction so queue and review
+     * updates commit together.
+     */
     transaction(run) {
       return db.runTransaction(async transaction => run({
+        /** Check for a publish lock in the review environment before queueing work. */
         canQueue: () => canQueueDuringPublish(db, transaction, reviewEnv),
+        /**
+         * Create a draft batch and its live revision signal atomically with the run that
+         * uses it.
+         */
         async createDraftBatch(batch) {
           transaction.create(db.collection('reviewBatches').doc(batch.id), { ...batch, env: reviewEnv })
           transaction.set(db.doc(signalPath(liveEnvKey(reviewEnv), batch.id)), { revision: batch.revision })
         },
+        /**
+         * Load edits for the requested plates in one transactional read for the queue
+         * projection.
+         */
         async reviewFields(batchId, plateIds) {
           const edits = db.collection('reviewBatches').doc(batchId).collection('edits')
           const fields = new Map<string, EditableFields>()
@@ -71,6 +93,10 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           }
           return fields
         },
+        /**
+         * Read a batch only when it belongs to the review environment bound to this
+         * adapter.
+         */
         async batch(id) {
           const doc = await transaction.get(db.collection('reviewBatches').doc(id))
           if (doc.get('env') !== reviewEnv) return null
@@ -79,20 +105,25 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           delete value.publishReservation
           return { ...value, stateOrders: value.stateOrders ?? {} } as import('../review/types').ReviewBatch
         },
+        /** List pipeline runs in this jobs environment for queue ordering and status. */
         async runs() {
           const snapshot = await transaction.get(runs.where('env', '==', env))
           return snapshot.docs.map(doc => doc.data() as PipelineRun)
         },
+        /** Resolve a run by a valid document ID and enforce its environment boundary. */
         async getRun(id) {
           if (!id || id.includes('/')) return null
           const doc = await transaction.get(runs.doc(id))
           return doc.get('env') === env ? doc.data() as PipelineRun : null
         },
+        /** Stage the run document update in the current transaction. */
         setRun(run) { transaction.set(runs.doc(run.id), run) },
+        /** Resolve a job by ID within the current jobs environment. */
         async get(id) {
           const doc = await transaction.get(jobs.doc(id))
           return doc.get('env') === env ? doc.data() as TaggingJob : null
         },
+        /** List this environment's jobs so claims and status use the same scope. */
         async list(plateId) {
           const scoped = jobs.where('env', '==', env)
           const snapshot = await transaction.get(plateId ? scoped.where('plateId', '==', plateId) : scoped)
@@ -112,6 +143,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           for await (const job of readClaimJobs(transaction, query)) active.push(job)
           return active
         },
+        /** Read the batch revision and its plate edit together for stale-input checks. */
         async review(batchId, plateId) {
           const ref = db.collection('reviewBatches').doc(batchId)
           const batch = await transaction.get(ref)
@@ -120,21 +152,32 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           const edit = snapshot.data() as ProposedEdit | undefined
           return { baselineVersion: batch.get('baselineVersion') as number, fields: edit?.fields ?? {}, edit }
         },
+        /**
+         * Resolve the requester's active membership role when a stage is ready to write
+         * a draft.
+         */
         async pipelineRequesterRole(uid) {
           const member = await firestoreMemberByUid(db, uid, transaction)
           return member?.uid === uid && member.status === 'active' ? member.role : null
         },
         commitDraft: firestoreReviewStore(db, reviewEnv, transaction).commit,
+        /**
+         * Stage a create-only job write so duplicate IDs cannot overwrite earlier work.
+         */
         create(job) { transaction.create(jobs.doc(job.id), job) },
+        /** Stage the updated job record in the current transaction. */
         set(job) { transaction.set(jobs.doc(job.id), job) },
         setEnhancedImage(id, bytes) { transaction.create(enhancedImages.doc(id), { bytes, env }) },
       }))
     },
+    /** Load the worker token record by hash within the adapter's environment. */
     async getToken(hash) {
       const doc = await tokens.doc(hash).get()
       return doc.get('env') === env ? doc.data() as WorkerToken : null
     },
+    /** Create a token record by hash without replacing an issued token. */
     async createToken(token) { await tokens.doc(token.hash).create(token) },
+    /** Record a revocation timestamp on a token from this environment. */
     async revokeToken(hash, at) {
       await db.runTransaction(async transaction => {
         const ref = tokens.doc(hash)

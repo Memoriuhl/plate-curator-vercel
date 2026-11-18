@@ -9,8 +9,15 @@ export type ResearchArtifact = {
   durationMs?: number; draft?: ResearchDraft; sources?: EvidenceSource[]; cost?: { usd: number | null; missing: number }
   settled?: { costUsd?: number }; error?: string | null; skipped?: string
 }
+/**
+ * Identify a research input by plate, revision and baseline so artifacts cannot satisfy
+ * another case.
+ */
 const identity = (input: ResearchInput) => JSON.stringify([input.plateId, input.displayName, input.state, input.inputRevision, input.baselineVersion])
 
+/**
+ * Match artifacts to the frozen inputs and explicitly mark missing or interrupted cases.
+ */
 export function alignResearchArtifacts(inputs: ResearchInput[], artifacts: ResearchArtifact[]): ResearchArtifact[] {
   const expected = new Map(inputs.map(input => [input.plateId, input]))
   if (expected.size !== inputs.length) throw new Error('Duplicate manifest identity')
@@ -25,6 +32,10 @@ export function alignResearchArtifacts(inputs: ResearchInput[], artifacts: Resea
   return inputs.map(input => saved.get(input.plateId) ?? { schemaVersion: 1, input, result: null, error: 'unrun_or_interrupted' })
 }
 
+/**
+ * Load saved benchmark artifacts from disk and align them with the expected input
+ * manifest.
+ */
 export async function loadResearchArtifacts(path: string, inputs: ResearchInput[]) {
   let artifacts: ResearchArtifact[]
   try {
@@ -39,6 +50,10 @@ export async function loadResearchArtifacts(path: string, inputs: ResearchInput[
   return alignResearchArtifacts(inputs, artifacts)
 }
 
+/**
+ * Extract captured sources from a successful result or the saved raw evidence with
+ * reproducible hashes.
+ */
 export function capturedSources(artifact: ResearchArtifact): EvidenceSource[] {
   if (artifact.result) return artifact.result.sources
   if (artifact.sources) return artifact.sources

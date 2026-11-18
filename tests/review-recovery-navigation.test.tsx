@@ -12,10 +12,15 @@ vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn()
 vi.mock('next/image', () => ({ default: () => <span /> }))
 vi.mock('../components/review/diff', () => ({ changeSummary: () => 'Tags', DiffTable: ({ before, after }: BatchDetail['plates'][number] & { before: { tags: string[] }; after: { tags: string[] } }) => <p>Before: {before.tags.join(', ')}; proposed: {after.tags.join(', ')}</p> }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { uid: 'owner', role: 'owner' } }),
+  /** Supply the workflow phase used by the fixture batch view. */
   useBatchRun: () => ({}),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: (states: string[]) => ({ data: states[0] === 'submitted' ? [state.old?.batch].filter(Boolean) : state.extra.map(({ batch }) => ({ ...batch, revision: state.revisions[batch.id] ?? batch.revision })) }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: (id: string | null) => ({ data: id === 'fresh' ? state.detail : id === 'old' ? state.old : state.extra.find(detail => detail.batch.id === id), mutate: state.mutate, isLoading: id === 'fresh' && !state.detail }),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({}),
 }))
 afterEach(() => {

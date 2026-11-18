@@ -2,6 +2,10 @@ import { currentActor } from '@/lib/server/context'
 import { readResearchJson, researchDeps, researchResponse } from '@/lib/server/research-context'
 import { acceptResearch } from '@/lib/research/accept'
 
+/**
+ * Validate the curator's selected fields and apply a completed research draft to the
+ * batch.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/research/[id]/accept'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

@@ -1,6 +1,10 @@
 import type { ResearchJob, ResearchResult } from '../lib/research/types'
 
 type Deps = { apiBase: string; token: string; fetch: typeof fetch; run(job: ResearchJob): Promise<ResearchResult>; heartbeatMs: number; sleep(ms: number): Promise<void>; protectionBypass?: string; trustedOidc?: string }
+/**
+ * Claim one desktop research job, renew its lease during execution and report the result
+ * under its claim.
+ */
 export async function runResearchWorkerOnce(deps: Deps): Promise<'idle' | 'stopped' | 'reported' | 'dropped'> {
   const headers = { Authorization: `Bearer ${deps.token}`, ...(deps.trustedOidc ? { 'x-vercel-trusted-oidc-idp-token': deps.trustedOidc } : {}), ...(deps.protectionBypass ? { 'x-vercel-protection-bypass': deps.protectionBypass } : {}) }
   const base = deps.apiBase.replace(/\/+$/, '')

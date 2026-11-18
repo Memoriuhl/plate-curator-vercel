@@ -1,3 +1,4 @@
+/** Hold the plate detail layout and announce that its content is loading. */
 export function PlatePageSkeleton() {
   return (
     <div role="status" aria-label="Loading plate" className="grid gap-4">

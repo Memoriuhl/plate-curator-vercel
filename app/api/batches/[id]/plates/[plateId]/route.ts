@@ -6,6 +6,7 @@ import { catalogChanged } from '../../../../../../lib/server/catalog-head'
 import { currentActor, reviewDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../../lib/server/respond'
 
+/** Apply a validated field edit or pipeline revert to the current batch draft. */
 export async function PATCH(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

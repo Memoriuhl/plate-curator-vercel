@@ -3,6 +3,7 @@ import { plateImageUrl } from '../../lib/catalog/image-url'
 import { fixtureSource } from '../../lib/catalog/fixture-source'
 import type { Plate } from '../../lib/catalog/types'
 
+/** Build the base plate for image path and override tests with optional field changes. */
 const plate = (fields: Partial<Plate>): Plate => ({
   id: 'AK.standard_gold', state: 'AK', slug: 'standard_gold', displayName: 'Standard Gold', tags: [], image: 'AK/standard_gold.webp', ...fields,
 })

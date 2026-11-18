@@ -10,7 +10,7 @@ const store = firestoreReviewStore(db, env)
 const input = { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 }
 const targetId = copyBatchId(env, batch.id, 2, 2)
 const copySnapshot = { ...snapshot, plates: snapshot.plates.map(plate => ({ ...plate, templateRole: 'template' as const, isStandard: plate.id === 'two' })) }
-const d: CopyDeps = { env, store, now: () => '2026-11-16T12:00:00Z', head: async () => (await db.doc('config/catalog').get()).get('version'), snapshot: async () => ({ ...copySnapshot, version: 2 }) }
+const d: CopyDeps = { env, store, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-16T12:00:00Z', /** Expose the current fixture catalog version so the operation can check its baseline. */ head: async () => (await db.doc('config/catalog').get()).get('version'), /** Supply the catalog or selection snapshot used by the scenario. */ snapshot: async () => ({ ...copySnapshot, version: 2 }) }
 beforeEach(async () => {
   await db.recursiveDelete(db.collection('reviewBatches'))
   await db.recursiveDelete(db.collection('publishRecords'))
@@ -40,7 +40,7 @@ test('concurrent copies commit one complete Batch, edits and initial live revisi
 })
 
 test.each(['head', 'revision', 'status', 'environment', 'reservation', 'committed receipt'])('transaction rejects concurrent %s change without a target or signal', async kind => {
-  const raced: CopyDeps = { ...d, snapshot: async () => {
+  const raced: CopyDeps = { ...d, /** Return the fixture snapshot and move the live head mid-copy when the race scenario requires it. */ snapshot: async () => {
     if (kind === 'head') await db.doc('config/catalog').set({ version: 3 })
     if (kind === 'revision') await db.doc('reviewBatches/batch').update({ revision: 3 })
     if (kind === 'status') await db.doc('reviewBatches/batch').update({ state: 'published' })
@@ -62,7 +62,7 @@ test('foreign environment cannot read or copy the source', async () => {
 })
 
 test('incompatible inventory produces no Batch, edits or signal', async () => {
-  const incompatible = { ...d, snapshot: async () => ({ version: 2, plates: [snapshot.plates[1]] }) }
+  const incompatible = { ...d, /** Supply the catalog or selection snapshot used by the scenario. */ snapshot: async () => ({ version: 2, plates: [snapshot.plates[1]] }) }
   expect(await copyBatch(incompatible, owner, input)).toMatchObject({ ok: false, error: 'incompatible' })
   expect((await db.doc(`reviewBatches/${targetId}`).get()).exists).toBe(false)
   expect((await db.doc(signalPath(liveEnvKey(env), targetId)).get()).exists).toBe(false)
@@ -78,7 +78,7 @@ test('a copy transaction replay survives source revision and state changes', asy
 })
 
 test('Standard mismatches return warnings and still create a repairable open copy', async () => {
-  const result = await copyBatch({ ...d, snapshot: async () => ({ ...copySnapshot, version: 2, plates: copySnapshot.plates.map(plate => ({ ...plate, isStandard: true })) }) }, owner, input)
+  const result = await copyBatch({ ...d, /** Supply the catalog or selection snapshot used by the scenario. */ snapshot: async () => ({ ...copySnapshot, version: 2, plates: copySnapshot.plates.map(plate => ({ ...plate, isStandard: true })) }) }, owner, input)
   expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining('CA:')] })
   expect(await store.getBatch(targetId)).toMatchObject({ state: 'open', baselineVersion: 2 })
   expect((await db.doc(signalPath(liveEnvKey(env), targetId)).get()).get('revision')).toBe(0)

@@ -11,13 +11,18 @@ import type { ReviewDeps } from '../../lib/review/types'
 
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 
+/**
+ * Build a completed queue projection that tests can apply to a controlled batch
+ * revision.
+ */
 async function setup(group = false) {
   const plates = ['one', 'two'].map((slug, index) => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [],
     templateFamily: 'AK.one', templateRole: index ? 'variant' as const : 'template' as const, variantOfPlateId: index ? 'AK.one' : null, isStandard: !index }))
   const store = createMemoryStore([{ id: 'batch', name: 'Queue', createdBy: actor.uid, createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: plates.map(plate => plate.id), approval: null, stateOrders: { AK: plates.map(plate => plate.id) } }])
+  /** Resolve the plate by ID from the fixture baseline. */
   const baseline = async (id: string) => plates.find(plate => plate.id === id) ?? null
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('test-bundle')), localScope: 'test-bundle', baseline, stateBaseline: async () => plates, now: () => 100, id: () => 'id', leaseMs: 1000 }
-  const review: ReviewDeps = { store, baseline, baselineAtVersion: async (_version, id) => baseline(id), stateBaseline: async () => plates, now: () => 'today' }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('test-bundle')), localScope: 'test-bundle', baseline, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 100, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'id', leaseMs: 1000 }
+  const review: ReviewDeps = { store, baseline, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version, id) => baseline(id), /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 'today' }
   const created = await enqueueRun(jobs, actor, { requestId: 'bundle', batchId: 'batch', plateIds: plates.map(plate => plate.id), stages: group ? ['describe', 'group'] : ['wiki-link', 'describe', 'story'] })
   if (!created.ok) throw Error(created.error)
   const projection = snapshotProjection(1, plates)

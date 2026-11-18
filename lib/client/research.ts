@@ -1,5 +1,8 @@
 import { ApiError } from './api'
 
+/**
+ * Translate a research API error into a message that tells the curator how to recover.
+ */
 export function researchMessage(error: unknown) {
   if (!(error instanceof ApiError)) return 'Could not reach research. Check your connection, then retry.'
   const messages: Record<string, string> = {

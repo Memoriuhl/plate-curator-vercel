@@ -40,6 +40,10 @@ const errors = {
   stale_plate: 'Someone changed this while you were editing.',
 }
 
+/**
+ * Coordinate pointer and keyboard reordering, family changes and optimistic draft
+ * feedback.
+ */
 export function usePlateDrag(options: Options) {
   const standardConfirmation = useStandardConfirmation()
   const [active, setActive] = useState<Active | null>(null)
@@ -58,15 +62,20 @@ export function usePlateDrag(options: Options) {
   const enabled = options.canEdit && options.show === 'all' && !options.query && !options.edits.pending && !options.ordering.pending && !saving && !standardConfirmation.pending
   const deletedFamilyIds = useMemo(() => new Set(options.families.filter(family => family.template.deleted).map(family => family.template.id)), [options.families])
 
+  /** Keep the rendered drag state synchronized with the current pointer and target. */
   function update(value: Active | null) {
     if (value && current.current && sameDropTarget(value.target, current.current.target)) value.target = current.current.target
     current.current = value
     setActive(value)
   }
+  /** Clear the pending press timer when a drag starts, ends or is interrupted. */
   function clearPress() {
     if (pressed.current?.timer) clearTimeout(pressed.current.timer)
     pressed.current = null
   }
+  /**
+   * Lift the selected item, freeze its source layout and announce its keyboard position.
+   */
   function lift(item: DragItem, x: number, y: number, keyboard: boolean) {
     if (item.plate.deleted) return
     focusRoot.current = dragElement(item)?.closest('section') ?? null
@@ -86,16 +95,22 @@ export function usePlateDrag(options: Options) {
     document.body.classList.add('plate-dragging')
     announce(`Lifted ${item.plate.displayName} ${item.kind}, position ${index + 1} of ${families.length}`)
   }
+  /** End the active drag and clear temporary pointer and document state. */
   function finish() {
     clearPress()
     update(null)
     document.body.classList.remove('plate-dragging')
   }
+  /** Cancel the drag, release the overlay and announce that no drop was made. */
   function cancel() {
     finish()
     latest.current.holdOverlay?.(false)
     announce('Cancelled')
   }
+  /**
+   * Hit-test the current pointer against valid targets while excluding the original
+   * placement.
+   */
   function pointerTarget(item: DragItem, x: number, y: number) {
     const { families, targets } = latest.current
     const source = families.find(family => family.variants.some(plate => plate.id === item.plate.id))
@@ -104,10 +119,17 @@ export function usePlateDrag(options: Options) {
       (target.kind !== 'variant-slot' || !deletedFamilyIds.has(target.familyId))
       && (target.kind !== 'variant-slot' || (item.kind === 'variant' && target.familyId === source?.template.id))))
   }
+  /**
+   * Resolve affected families across the selected plates' loaded states for a bulk edit.
+   */
   function actionFamilies(plates: readonly PlateCardData[]) {
     const currentStates = new Set(latest.current.families.map(family => family.template.state))
     return [...latest.current.families, ...[...new Set(plates.map(plate => plate.state))].filter(state => !currentStates.has(state)).flatMap(state => groupFamilies(plateSelection.statePlates(state)))]
   }
+  /**
+   * Promote or move selected plates while coordinating standard confirmation and
+   * optimistic layout.
+   */
   async function editSelection(plates: readonly PlateCardData[], placement?: { index: number; origin?: MoveOrigin }) {
     const { reload, ordering } = latest.current
     const edits = latest.current.bulkEdits ?? latest.current.edits
@@ -196,13 +218,16 @@ export function usePlateDrag(options: Options) {
       latest.current.holdOverlay?.(false)
     }
   }
+  /** Use the existing multi-selection when the lifted plate belongs to it. */
   function selectedFor(item: DragItem) {
     return plateSelection.has(item.plate.id) ? plateSelection.snapshot() : [item.plate]
   }
+  /** Check that the proposed destination is an eligible, non-deleted family template. */
   function validMerge(family: DragFamily) {
     return !family.template.deleted && family.template.templateRole === 'template'
   }
 
+  /** Summarize the moved and skipped plates for the drag result announcement. */
   function mergeAnnouncement({ moved, alreadyInFamily, standard, deleted }: FamilyMergeResult, skipped: string) {
     return [
       moved.length === 1 ? '1 plate moved' : moved.length ? `${moved.length} plates moved` : 'No plates moved',
@@ -213,6 +238,10 @@ export function usePlateDrag(options: Options) {
     ].filter(Boolean).join('. ')
   }
 
+  /**
+   * Plan and save a family merge while keeping the optimistic grid and selection in
+   * sync.
+   */
   async function dropIntoFamily(drag: Active, family: DragFamily | undefined) {
     const { families, ordering, reload, holdOverlay, catalogVersion } = latest.current
     try {
@@ -260,6 +289,7 @@ export function usePlateDrag(options: Options) {
     }
   }
 
+  /** Resolve the drop operation and move focus to the affected plate after it settles. */
   async function drop() {
     const drag = current.current
     finish()
@@ -323,6 +353,10 @@ export function usePlateDrag(options: Options) {
   const actions = useRef({ lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget })
   useEffect(() => { actions.current = { lift, drop, cancel, update, clearPress, onKeyDown, pointerTarget } })
   useEffect(() => {
+    /**
+     * Lift on sufficient pointer movement and update the active drop target during the
+     * drag.
+     */
     function move(event: globalThis.PointerEvent) {
       const press = pressed.current
       if (press && press.pointerId !== event.pointerId) return
@@ -335,6 +369,7 @@ export function usePlateDrag(options: Options) {
       event.preventDefault()
       actions.current.update({ ...drag, x: event.clientX, y: event.clientY, target: actions.current.pointerTarget(drag.item, event.clientX, event.clientY) })
     }
+    /** Finish the pointer drop and absorb the trailing click so it cannot navigate. */
     function up(event: globalThis.PointerEvent) {
       if (pressed.current && pressed.current.pointerId !== event.pointerId) return
       actions.current.clearPress()
@@ -345,7 +380,11 @@ export function usePlateDrag(options: Options) {
         void actions.current.drop()
       }
       if (suppress.current) {
+        /** Suppress the click generated by releasing the completed drag. */
         const swallow = (click: MouseEvent) => { click.preventDefault(); click.stopPropagation() }
+        /**
+         * Remove click suppression after the browser finishes the drag release sequence.
+         */
         const release = () => window.removeEventListener('click', swallow, { capture: true })
         window.addEventListener('click', swallow, { capture: true, once: true })
         window.addEventListener('pointerdown', release, { capture: true, once: true })
@@ -356,18 +395,22 @@ export function usePlateDrag(options: Options) {
         })
       }
     }
+    /** Cancel an active drag on interruption or clear its pending lift. */
     function abort() { if (current.current) actions.current.cancel(); else actions.current.clearPress() }
+    /** Handle the active drag's global keyboard controls, including Escape. */
     function key(event: globalThis.KeyboardEvent) {
       if (event.defaultPrevented || !current.current) return
       if (current.current.keyboard) actions.current.onKeyDown(current.current.item, event)
       else if (event.key === 'Escape') { event.preventDefault(); actions.current.cancel() }
     }
+    /** Recalculate the drop target after scrolling changes the visible geometry. */
     function scrolled() {
       const drag = current.current
       if (!drag || drag.keyboard) return
       const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
       if (!sameDropTarget(target, drag.target)) actions.current.update({ ...drag, target })
     }
+    /** Prevent the browser's native drag while the app is handling a pointer lift. */
     function preventNative(event: Event) { if (current.current && !current.current.keyboard) event.preventDefault() }
     window.addEventListener('scroll', scrolled, true)
     window.addEventListener('pointermove', move, { passive: false })
@@ -394,6 +437,7 @@ export function usePlateDrag(options: Options) {
   useEffect(() => {
     if (!dragging) return
     let frame = 0
+    /** Auto-scroll near the drag edges and refresh hit testing as the content moves. */
     function scroll() {
       const drag = current.current
       if (drag && !drag.keyboard) {
@@ -413,6 +457,9 @@ export function usePlateDrag(options: Options) {
   }, [dragging])
   useEffect(() => { if (!enabled && current.current) actions.current.cancel() }, [enabled])
 
+  /**
+   * Capture the starting revision and arm a lift for an eligible primary pointer press.
+   */
   function onPointerDown(item: DragItem, event: PointerEvent<HTMLElement>) {
     suppress.current = false
     if (!enabled || item.plate.deleted || event.button !== 0) return
@@ -420,6 +467,7 @@ export function usePlateDrag(options: Options) {
     pressed.current = { selection: selectedFor(item), origin: latest.current.ordering.capture?.(), item, x: event.clientX, y: event.clientY, geometry: measureDragGeometry(item, event.clientX, event.clientY, event.currentTarget), pointerId: event.pointerId, timer: null }
     if (event.pointerType === 'touch') pressed.current.timer = setTimeout(() => lift(item, event.clientX, event.clientY, false), 400)
   }
+  /** Lift, move or drop the focused item using the keyboard reorder controls. */
   function onKeyDown(item: DragItem, event: { key: string; preventDefault(): void }) {
     if (!enabled || item.plate.deleted) return
     if (event.key === ' ') {
@@ -443,6 +491,10 @@ export function usePlateDrag(options: Options) {
       announce(`Moved to position ${index > sourceIndex ? index : index + 1}`)
     }
   }
+  /**
+   * Check that the current same-state selection contains a plate eligible to join the
+   * target family.
+   */
   function canMergeInto(family: DragFamily) {
     const inFamily = new Set([family.template.id, ...family.variants.map(plate => plate.id)])
     return validMerge(family) && !!active?.selection.some(plate =>
@@ -451,7 +503,11 @@ export function usePlateDrag(options: Options) {
   const item = active?.item
   const target = active?.target
   const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])
-  return { standardDialog: standardConfirmation.dialog, active, reflow, announcement, optimisticEdits, promote: () => editSelection(plateSelection.snapshot()), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMergeInto, onPointerDown, onKeyDown, cancel,
+  return { standardDialog: standardConfirmation.dialog, active, reflow, announcement, optimisticEdits, /** Promote the current multi-selection using the shared family edit flow. */ promote: () => editSelection(plateSelection.snapshot()), selectionCount: active?.selection.length ?? 0, optimisticOrder, optimisticEdit, saving, enabled, canMergeInto, onPointerDown, onKeyDown, cancel,
+    /**
+     * Consume the first click after a completed pointer drag to avoid accidental
+     * navigation.
+     */
     suppressClick(event: { preventDefault(): void; stopPropagation(): void }) { if (suppress.current) { event.preventDefault(); event.stopPropagation(); suppress.current = false } },
     handleTitle: options.show !== 'all' || options.query ? 'Clear filters to reorder' : 'Drag or press Shift+Space to reorder',
   }

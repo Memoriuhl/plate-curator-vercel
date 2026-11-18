@@ -25,7 +25,7 @@ test('tool definitions count toward the request input bound before any charged c
 test('captured research exposes only submit_draft, forces structured completion and records actual usage', async () => {
   const upstream = new MockLanguageModelV4({ doGenerate: response })
   const settled: unknown[] = []
-  const model = guardedResearchModel(upstream, async () => ({ settle: async (cost, usage) => { settled.push({ cost, usage }) } }), true)
+  const model = guardedResearchModel(upstream, async () => ({ /** Capture model attempt settlement so the test can inspect cost and usage accounting. */ settle: async (cost, usage) => { settled.push({ cost, usage }) } }), true)
   await model.doGenerate({ prompt, tools: [
     { type: 'function', name: 'search_web', inputSchema: { type: 'object' } },
     { type: 'function', name: 'submit_draft', inputSchema: { type: 'object' } },

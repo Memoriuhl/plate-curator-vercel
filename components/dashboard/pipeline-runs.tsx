@@ -45,6 +45,10 @@ export function DashboardPipelineRail() {
   return <div className="states-pipeline"><PipelineRuns queue={queue} /></div>
 }
 
+/**
+ * Combine hosted and local run views for the dashboard, including their selected detail
+ * panels.
+ */
 export function PipelineRuns({ queue }: { queue: ReturnType<typeof usePipelineQueue> }) {
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
   const [view, setView] = useState(local ? 'local' : 'gateway')
@@ -72,6 +76,7 @@ export function PipelineRuns({ queue }: { queue: ReturnType<typeof usePipelineQu
       </DropdownMenuContent>
     </DropdownMenu>
   </header>
+  /** Display the signed-in curator's name when they requested the run. */
   const requester = (uid: string) => uid === me.data?.uid ? me.data.name ?? 'You' : undefined
   return <section className={styles.panel} aria-label="Plate Pipeline">{header}
     {view === 'local' ? <PipelineQueuePanel requester={requester} queue={queue} /> : gatewayPending ? <PipelineRailSkeleton compact /> : <>

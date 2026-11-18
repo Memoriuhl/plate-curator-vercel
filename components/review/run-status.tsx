@@ -34,10 +34,12 @@ const failures: Record<string, string> = {
   lock_lost: 'The Publish lock was lost.',
 }
 
+/** Display the approval or publish phase, elapsed time and available recovery actions. */
 export function RunStatusView({ run }: { run: BatchRun }) {
   const [now, setNow] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
+    /** Refresh the clock used to calculate elapsed time for the active release. */
     const update = () => setNow(Date.now())
     update()
     const timer = setInterval(update, 30000)
@@ -141,6 +143,9 @@ export function RunStatusView({ run }: { run: BatchRun }) {
   )
 }
 
+/**
+ * Load the batch's workflow status and render it with the viewer's permitted controls.
+ */
 export function RunStatus({ batchId, compact = false }: { batchId: string; compact?: boolean }) {
   const me = useMe()
   const run = useBatchRun(batchId)

@@ -15,6 +15,9 @@ export function researchModelLabel(model: ResearchModel) {
   return `${execution} · ${model.label}`
 }
 
+/**
+ * Resolve the available research models and retain the curator's valid model preference.
+ */
 export function useResearchModelChoice() {
   const { api, user } = useSession()
   const { data, error, isLoading, mutate } = useSWR<{ models: ResearchModel[]; default?: string }>(
@@ -23,10 +26,15 @@ export function useResearchModelChoice() {
   const [choice, setChoice] = useState<string | null>(() => { try { return localStorage.getItem(storageKey) } catch { return null } })
   const models = error ? [] : data?.models ?? []
   const model = models.find(model => model.id === choice) ?? models.find(model => model.id === data?.default) ?? models[0]
+  /**
+   * Update the selected research model and remember it when browser storage is
+   * available.
+   */
   function choose(id: string) { setChoice(id); try { localStorage.setItem(storageKey, id) } catch {} }
   return { models, model, error, isLoading, reload: mutate, choose }
 }
 
+/** Render the research model selector and identify where its results will be saved. */
 export function ResearchModelPicker({ choice }: { choice: ReturnType<typeof useResearchModelChoice> }) {
   return <div className="grid gap-1">
     <p className="label">Research model</p>

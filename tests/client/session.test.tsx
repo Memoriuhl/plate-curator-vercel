@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../lib/client/firebase', () => ({ clientAuth: mocks.auth }))
 vi.mock('firebase/auth', () => ({
   GoogleAuthProvider: class { setCustomParameters = mocks.parameters },
+  /**
+   * Capture the Firebase authentication listener so tests can emit user changes and
+   * inspect cleanup.
+   */
   onIdTokenChanged: (_auth: unknown, callback: (user: unknown) => void, onError: () => void) => {
     mocks.listener = callback
     mocks.listenerError = onError
@@ -22,6 +26,10 @@ vi.mock('firebase/auth', () => ({
   signInWithEmailAndPassword: vi.fn(), createUserWithEmailAndPassword: mocks.create,
 }))
 let session: ReturnType<typeof useSession>
+/**
+ * Expose the active session state to the hook test while rendering the current user
+ * identity.
+ */
 function Probe() {
   const current = useSession()
   useEffect(() => { session = current }, [current])

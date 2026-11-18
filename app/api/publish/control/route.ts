@@ -2,6 +2,7 @@ import { isPublishStop } from '@/lib/publish/stop'
 import { currentActiveOwner, publishAllowed, publishControl } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'
 
+/** Return the current publish controls to an active owner. */
 export async function GET(request: Request) {
   try {
     const auth = await currentActiveOwner(request)
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   }
 }
 
+/** Allow an active owner to pause or resume releases in an enabled deployment. */
 export async function POST(request: Request) {
   try {
     const auth = await currentActiveOwner(request)

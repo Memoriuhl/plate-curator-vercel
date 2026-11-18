@@ -10,26 +10,38 @@ import { alaskaFixture } from '../fixtures/dashboard-frame'
 const data = vi.hoisted(() => ({ overlay: vi.fn(), replace: vi.fn() }))
 vi.mock('../lib/client/hooks', () => ({
   useDraftOverlay: data.overlay,
+  /** Supply the selected batch and its editability for this workspace scenario. */
   useWorkspaceBatch: () => ({ mode: 'personal' }),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: [] }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { role: 'editor' } }),
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: vi.fn(), pending: false }),
+  /**
+   * Provide a harmless reorder stub so filter selection tests can run the family grid.
+   */
   useReorderState: () => ({ reorder: vi.fn(), pending: false }),
+  /** Disable detail prefetch requests while exercising needs-work selection. */
   usePreloadPlateDetail: () => vi.fn(),
 }))
-vi.mock('../lib/client/session', () => ({ useSession: () => ({ user: null }) }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => ({ user: null }) }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams('q=gold'),
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ replace: data.replace }),
 }))
 vi.mock('../components/dashboard/use-drag-flip', () => ({ useDragFlip: vi.fn() }))
 vi.mock('../components/dashboard/use-grid-entrance', () => ({ useGridEntrance: vi.fn() }))
-vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
-  getVirtualItems: () => [], getTotalSize: () => 0, measureElement: vi.fn(), scrollToIndex: vi.fn(),
+vi.mock('@tanstack/react-virtual', () => ({ /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer: () => ({
+  /** Expose the deterministic virtual rows used by the test layout. */
+  getVirtualItems: () => [], /** Report the virtual list size expected by the layout fixture. */ getTotalSize: () => 0, measureElement: vi.fn(), scrollToIndex: vi.fn(),
 }) }))
 beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
 })
 afterEach(() => { cleanup(); plateSelection.clear(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 

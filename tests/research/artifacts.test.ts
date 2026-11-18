@@ -26,7 +26,7 @@ test('a clean baseline output feeds identical-evidence control and report loadin
   const f = researchFixture()
   const source = { id: 'S1', kind: 'web' as const, title: 'Wildlife', url: 'https://example.com/wildlife', fetchedAt: '2026-11-17T00:00:00Z', contentHash: 'hash', text: 'Captured passage used by the unchanged baseline.' }
   const result = { ...f.result({ input } as never), input, sources: [source] }
-  await executeResearchBenchmark({ run: true, executor: 'desktop', budgetUsd: 2, manifest, output: `${directory}/desktop` }, { desktop: async () => ({ result }) })
+  await executeResearchBenchmark({ run: true, executor: 'desktop', budgetUsd: 2, manifest, output: `${directory}/desktop` }, { /** Return the fixed desktop result so the replay test can compare artifact properties deterministically. */ desktop: async () => ({ result }) })
   const synthesize = vi.fn(async (receivedInput: ResearchInput, receivedSources: EvidenceSource[]) => { expect(receivedInput).toEqual(input); expect(receivedSources).toEqual([source]); return { draft: result.draft, rejected: [], durationMs: 1, cost: { usd: 0, missing: 0 } } })
   await executeResearchBenchmark({ run: true, executor: 'control', budgetUsd: 2, manifest, baseline: `${directory}/desktop`, output: `${directory}/control` }, { control: synthesize })
   expect(synthesize.mock.calls[0][1]).toEqual([source])

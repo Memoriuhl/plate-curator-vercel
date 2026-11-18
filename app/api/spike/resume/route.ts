@@ -2,6 +2,7 @@ import { resumeHook } from 'workflow/api'
 import { rejectWithoutSpikeSecret } from '../../../../lib/spike/auth'
 import { currentActor } from '../../../../lib/server/context'
 
+/** Authorize and resume the protected test workflow with a supplied note. */
 export async function POST(request: Request) {
 const rejected = rejectWithoutSpikeSecret(request, process.env.SPIKE_SECRET)
 if (rejected) return rejected

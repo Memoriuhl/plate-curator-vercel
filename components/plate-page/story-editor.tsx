@@ -10,6 +10,7 @@ import { changedStoryFields } from '@/lib/review/story'
 
 const input = 'w-full min-w-0 rounded-[var(--radius-md)] bg-[var(--fill)] px-3 py-2 text-[var(--ink)]'
 
+/** Edit a plate's sourced story fields and submit only the fields that changed. */
 export function StoryEditor({ plate, pending, save }: {
   plate: PlateCardData & StoryFields
   pending: boolean
@@ -25,6 +26,10 @@ export function StoryEditor({ plate, pending, save }: {
   const changes = changedStoryFields(target, draft)
   const dirty = Object.keys(changes).length > 0
   const valid = !dirty || parseEditableFields(changes) !== null
+  /**
+   * Merge changed story values into the local draft and clear the previous save
+   * confirmation.
+   */
   function change(fields: StoryFields) {
     setSaved(false)
     setDraft(previous => ({ ...previous, ...fields }))

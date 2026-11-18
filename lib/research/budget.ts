@@ -2,8 +2,16 @@ import type { ResearchStateStore } from './state'
 
 type Entry = { modelReservedMicros: number; searchMicros: number; modelActualMicros?: number }
 type Budget = { limitMicros: number; committedMicros: number; runs: Record<string, Entry> }
+/**
+ * Round costs up to integer microdollars so reservations use a consistent accounting
+ * unit.
+ */
 const micros = (usd: number) => Math.ceil(usd * 1000000)
 
+/**
+ * Reserve model spend atomically against the active research budget before making a
+ * request.
+ */
 export async function reserveResearchSpend(store: ResearchStateStore, campaign: string, runId: string, kind: 'model' | 'search', usd: number, limitUsd: number) {
   if (!Number.isFinite(usd) || usd <= 0 || !Number.isFinite(limitUsd) || limitUsd <= 0 || limitUsd > 2) throw new Error('Invalid research budget reservation')
   const amount = micros(usd)
@@ -15,6 +23,7 @@ export async function reserveResearchSpend(store: ResearchStateStore, campaign: 
   })
 }
 
+/** Replace a reserved amount with reported actual cost when the provider supplies it. */
 export async function settleResearchModelSpend(store: ResearchStateStore, campaign: string, runId: string, actualUsd: number | undefined) {
   if (actualUsd === undefined) return
   if (!Number.isFinite(actualUsd) || actualUsd < 0) throw new Error('Invalid reported model charge')

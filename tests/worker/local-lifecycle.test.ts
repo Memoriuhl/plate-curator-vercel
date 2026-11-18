@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { runOnce, type WorkerDeps } from '../../worker/run'
 
+/** Build a timed worker claim and mocked services to test local lifecycle reporting. */
 function setup(local = true) {
   let time = 100
   const claim = { local, queueRunId: 'run', job: { id: 'job' }, claimId: 'claim', leaseExpiresAt: new Date(10000).toISOString(),
@@ -10,8 +11,8 @@ function setup(local = true) {
     calls.push({ path: String(path), body: init?.body ? JSON.parse(String(init.body)) : undefined })
     return new Response(JSON.stringify(String(path).endsWith('/claim') ? claim : {}), { status: 200 })
   }), adapter: { backend: 'test', model: 'fixture', promptVersion: 'v1', suggest: vi.fn(async () => ({ tags: [] })) },
-    readImage: vi.fn(async () => ''), now: () => time, sleep: async () => undefined, log: vi.fn() }
-  return { claim, deps, calls, advance: (ms: number) => { time += ms } }
+    readImage: vi.fn(async () => ''), /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => time, /** Skip real delays so the retry or polling scenario runs immediately. */ sleep: async () => undefined, log: vi.fn() }
+  return { claim, deps, calls, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: (ms: number) => { time += ms } }
 }
 
 afterEach(() => vi.unstubAllEnvs())

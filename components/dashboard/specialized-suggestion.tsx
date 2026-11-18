@@ -8,6 +8,9 @@ import type { GroupSuggestion, ImageSuggestion } from '@/lib/jobs/specialized-su
 
 export type SpecializedAccept = { candidateId: string; baseRevision: string } | { batchRevision: number }
 
+/**
+ * Present a grouping or image result and collect any choice required before applying it.
+ */
 export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchRevision, blocked, accepted, selectedCandidateId, onSelectImage, accept, previewOnly }: {
   suggestion: ImageSuggestion | GroupSuggestion
   plates: Plate[]
@@ -25,6 +28,10 @@ export function SpecializedSuggestion({ suggestion, plates, baseRevision, batchR
   const [error, setError] = useState<string>()
   const radioName = useId()
   const currentChoice = candidateId ?? selectedCandidateId
+  /**
+   * Apply the selected specialized suggestion while guarding duplicate saves and
+   * reporting errors.
+   */
   async function apply() {
     if (blocked || accepted || saving) return
     const payload = suggestion.kind === 'image'

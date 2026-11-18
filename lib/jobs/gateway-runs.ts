@@ -13,6 +13,10 @@ export type GatewayRun = {
   results: { jobId: string; plateId: string; plateName: string; inputHash: string; suggestions: string[] }[]
 }
 
+/**
+ * List active Gateway runs so the dashboard can show hosted work alongside the local
+ * queue.
+ */
 export async function listGatewayRuns(d: JobsDeps, actor: Actor, unscoped?: JobsDeps): Promise<GatewayRun[]> {
   const groups = await Promise.all([gatewayRunsInStore(d, actor), ...(unscoped ? [gatewayRunsInStore(unscoped, actor)] : [])])
   const runs = groups.flat().sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))

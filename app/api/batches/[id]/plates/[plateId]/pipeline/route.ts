@@ -6,6 +6,7 @@ import { pipelineRun } from '@/workflows/pipeline'
 import { localPipelineScope } from '@/lib/jobs/local-scope'
 import { runnableLocalStage } from '@/lib/jobs/stages'
 
+/** Validate a single-plate local stage request and start its pipeline job. */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]/pipeline'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
   try { if (!localPipelineScope()) return json({ error: 'not_found' }, 404) } catch { return json({ error: 'not_found' }, 404) }

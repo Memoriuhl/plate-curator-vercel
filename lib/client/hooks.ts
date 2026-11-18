@@ -29,6 +29,7 @@ export type BatchDetail = {
   plates: { beforeImageUrl?: string | null; afterImageUrl?: string | null; baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
 }
 
+/** Build the batch list cache key from its state and creation filters. */
 export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
   const params = []
   if (states?.length) params.push(`state=${states.join(',')}`)
@@ -36,17 +37,20 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
   return `/api/batches${params.length ? `?${params.join('&')}` : ''}`
 }
 
+/** Fetch the signed-in user's current membership and environment. */
 export function useMe(enabled = true) {
   const { user, api } = useSession()
   return useSWR<Actor>(user && enabled ? '/api/me' : null, api.get, { revalidateIfStale: false, dedupingInterval: 30000 })
 }
 
+/** Load the member list only for a signed-in owner. */
 export function useMembers() {
   const { user, api } = useSession()
   const me = useMe()
   return useSWR<MemberSummary[]>(user && me.data?.role === 'owner' ? '/api/members' : null, api.get)
 }
 
+/** Issue a membership invitation and refresh the member list after it succeeds. */
 export function useInviteMember() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
@@ -57,6 +61,7 @@ export function useInviteMember() {
   }
 }
 
+/** Read the filtered batch list after sign-in and reuse its SWR cache. */
 export function useBatches(states?: BatchState[], opts?: { mine?: boolean; enabled?: boolean; refreshInterval?: number }) {
   const { user, api } = useSession()
   const reuse = states?.length === 1 && states[0] === 'open' && opts?.mine && !opts.refreshInterval
@@ -66,6 +71,10 @@ export function useBatches(states?: BatchState[], opts?: { mine?: boolean; enabl
   })
 }
 
+/**
+ * Read all batch detail pages at a consistent revision, retrying when the batch changes
+ * during pagination.
+ */
 async function fetchBatchDetail(api: ApiClient, key: string): Promise<BatchDetail> {
   type Page = BatchDetail & { nextPage?: string }
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -89,6 +98,10 @@ async function fetchBatchDetail(api: ApiClient, key: string): Promise<BatchDetai
   throw new ApiError(409, 'superseded_revision', {})
 }
 
+/**
+ * Fetch the selected batch and keep refresh behavior consistent with the live updates
+ * policy.
+ */
 export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
   return useSWR<BatchDetail>(user && id ? batchApiPath(id) : null, key => fetchBatchDetail(api, key), opts?.reuse
@@ -100,6 +113,10 @@ export type BatchRun = RunStatus
 
 const publishWindows = new Map<string, number>()
 
+/**
+ * Track a batch's approval or publish run and refresh the workspace when publishing
+ * advances.
+ */
 export function useBatchRun(id: string | null) {
   const router = useRouter()
   const previousRun = useRef<{ id: string | null; phase: BatchRun['phase'] | undefined }>({ id: null, phase: undefined })
@@ -108,12 +125,19 @@ export function useBatchRun(id: string | null) {
   const { mutate } = useSWRConfig()
   const [pendingUntil, setPendingUntil] = useState(0)
   useEffect(() => {
+    /**
+     * Read the pending publish window so polling can continue while the workflow starts.
+     */
     const update = () => setPendingUntil(publishWindows.get(id ?? '') ?? 0)
     update()
     window.addEventListener('batch-publish-requested', update)
     return () => window.removeEventListener('batch-publish-requested', update)
   }, [id])
   const run = useSWR<BatchRun>(user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null, api.get, {
+    /**
+     * Poll during active publishing and the short window immediately after a publish
+     * request.
+     */
     refreshInterval: data => data?.phase === 'publishing' || (data?.phase === 'waiting-for-publish' && pendingUntil > Date.now()) ? 2000 : 0,
   })
   useEffect(() => {
@@ -129,13 +153,16 @@ export function useBatchRun(id: string | null) {
   return run
 }
 
+/** Build the shared cache key for fetching and preloading a plate detail. */
 export const plateDetailKey = (id: string) => `/api/plates/${id}`
 
+/** Load an authenticated plate detail through its shared cache key. */
 export function usePlateDetail(id: string | null) {
   const { user, api } = useSession()
   return useSWR<PlateDetail>(user && id ? plateDetailKey(id) : null, api.get)
 }
 
+/** Warm the plate detail cache before navigation so the next view can render sooner. */
 export function usePreloadPlateDetail() {
   const { user, api } = useSession()
   return (id: string) => {
@@ -148,6 +175,7 @@ export type PublishBaselineStatus = { batchRevision: number; destination: string
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
 
+/** Read global publish controls and expose the action that updates them. */
 export function usePublishControl() {
   const { user, api } = useSession()
   const { mutate } = useSWRConfig()
@@ -159,18 +187,28 @@ export function usePublishControl() {
   } }
 }
 
+/**
+ * Read baseline and publish eligibility so the confirmation can react to pipeline
+ * activity.
+ */
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
   return useSWR<PublishBaselineStatus>(user && id ? `${batchApiPath(id)}/publish` : null, api.get, { refreshInterval: data => data?.pipelineBusy || data?.retryReason === 'locked' ? 5000 : 0 })
 }
 
+/** Expose batch review actions and keep related caches synchronized after writes. */
 export function useReviewActions() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
   const publishIntents = useRef(new Map<string, string>())
+  /** Refresh batch lists and, when specified, details for the changed batch. */
   const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || (batchId !== undefined && key === batchApiPath(batchId))))
 
   return {
+    /**
+     * Abandon a prepared receipt and refresh the review and publish views after the
+     * attempt.
+     */
     async abandon(batchId: string, revision: number, commandId: string, reason: string) {
       try {
         await api.send('POST', `${batchApiPath(batchId)}/abandon`, { revision, commandId, reason })
@@ -178,6 +216,10 @@ export function useReviewActions() {
         await Promise.all([refresh(batchId), mutate(`${batchApiPath(batchId)}/publish`)]).catch(() => undefined)
       }
     },
+    /**
+     * Submit an idempotent publish intent and prompt the batch run to poll for workflow
+     * progress.
+     */
     async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; code?: string; confirmation?: ReviewChanges | null; reviewedVersion?: number; liveVersion?: number }> {
       const key = `${batchId}@${revision}`
       const commandId = publishIntents.current.get(key) ?? crypto.randomUUID()
@@ -209,21 +251,28 @@ export function useReviewActions() {
         return { ok: false, ...(code === 'superseded_revision' || code === PIPELINE_BUSY ? { code } : {}), ...(error instanceof ApiError && error.body.confirmation ? { confirmation: error.body.confirmation as ReviewChanges } : {}), ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
       }
     },
+    /** Copy the batch to the current baseline and refresh the batch list. */
     async copy(batchId: string, revision: number, targetVersion: number) {
       const batch = await api.send<ReviewBatch & { warnings?: string[] }>('POST', `${batchApiPath(batchId)}/copy`, { revision, targetVersion })
       await refresh().catch(() => undefined)
       return batch
     },
+    /** Create a review batch and refresh the lists that can show it. */
     async create(name: string, plateIds: string[]) {
       const batch = await api.send<ReviewBatch>('POST', '/api/batches', { name, plateIds })
       await refresh()
       return batch
     },
+    /** Save a proposed plate edit and refresh the batch detail used by review. */
     async propose(batchId: string, plateId: string, baseRevision: string, fields: EditableFields) {
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${batchApiPath(batchId)}/plates/${plateId}`, { baseRevision, fields })
       await refresh(batchId)
       return result
     },
+    /**
+     * Revert a pipeline field and refresh the batch even when the server reports a
+     * conflict.
+     */
     async revertPipelineField(batchId: string, plateId: string, field: keyof EditableFields, jobId: string) {
       try {
         return await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${batchApiPath(batchId)}/plates/${encodeURIComponent(plateId)}`, { revert: field, jobId })
@@ -238,11 +287,13 @@ export function useReviewActions() {
         await refresh(batchId).catch(() => undefined)
       }
     },
+    /** Submit the batch at its current revision and refresh its review state. */
     async submit(batchId: string, revision: number) {
       const batch = await api.send<ReviewBatch>('POST', `${batchApiPath(batchId)}/submit`, { revision })
       await refresh(batchId)
       return batch
     },
+    /** Approve the batch at its current revision and reload its updated status. */
     async approve(batchId: string, revision: number) {
       const batch = await api.send<ReviewBatch>('POST', `${batchApiPath(batchId)}/approve`, { revision })
       await refresh(batchId)
@@ -253,10 +304,12 @@ export function useReviewActions() {
 
 export type OverlaidPlate = PlateCardData & StoryFields & { changedInBatch: boolean }
 
+/** Read the active batch selection from the current URL. */
 export function useSelectedBatchId() {
   return useSearchParams()?.get('batch') ?? null
 }
 
+/** Resolve the URL's batch and its editability for the workspace. */
 export function useWorkspaceBatch() {
   const id = useSelectedBatchId()
   const detail = useBatch(id, { reuse: true })
@@ -267,6 +320,10 @@ export function useWorkspaceBatch() {
   return { mode: 'selected' as const, id, detail: detail.data, status }
 }
 
+/**
+ * Overlay the selected or most recent batch's draft fields and ordering on the catalog
+ * plates.
+ */
 export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   const { data: batches } = useBatches(['open'], { mine: true })
   const workspace = useWorkspaceBatch()
@@ -308,6 +365,10 @@ export type EditResult<T = Plate | void> =
 
 const batchCreations = new WeakMap<object, Map<string, Promise<string>>>()
 
+/**
+ * Reuse an editable batch or share one in-flight creation for concurrent edits in the
+ * same workspace.
+ */
 export function useEnsureBatch(): (plate: { id: string; state: string }) => Promise<string> {
   const { user, api } = useSession()
   const { cache, mutate } = useSWRConfig()
@@ -335,6 +396,10 @@ export function useEnsureBatch(): (plate: { id: string; state: string }) => Prom
   }
 }
 
+/**
+ * Expose a serialized plate editing action and pending state so drafts update in
+ * submission order.
+ */
 export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
@@ -343,6 +408,10 @@ export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) 
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
+  /**
+   * Save once against the expected revision and inspect refreshed detail when the server
+   * reports a conflict.
+   */
   async function save(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string; standard?: StandardChange }, standard?: StandardChange): Promise<EditResult<Plate>> {
     let batchId = reviewed?.batchId
     try {
@@ -375,6 +444,10 @@ export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) 
     }
   }
 
+  /**
+   * Queue a plate edit behind earlier writes and keep pending state accurate when it
+   * settles.
+   */
   function edit(plate: PlateCardData | OverlaidPlate, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string; standard?: StandardChange }, standard?: StandardChange): Promise<EditResult<Plate>> {
     setPendingCount(count => count + 1)
     const result = parallel ? save(plate, fields, reviewed, standard) : queue.current.then(() => save(plate, fields, reviewed, standard))
@@ -387,6 +460,10 @@ export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) 
 
 export type MoveOrigin = { batchId: string | null; revision: number | null }
 
+/**
+ * Expose ordering and family edits together with revision capture and shared pending
+ * state.
+ */
 export function useReorderState() {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
@@ -407,6 +484,7 @@ export function useReorderState() {
     return cached ?? saved
   }
 
+  /** Save a state order at its reviewed revision and reload on conflicts. */
   async function save(state: string, order: string[], standard?: StandardChange): Promise<EditResult> {
     if (!order.length) return { ok: false, error: 'invalid_state' }
     try {
@@ -437,6 +515,7 @@ export function useReorderState() {
     }
   }
 
+  /** Serialize reorder requests so overlapping drag actions reach the server in order. */
   function reorder(state: string, order: string[], standard?: StandardChange): Promise<EditResult> {
     setPendingCount(count => count + 1)
     const proposed = [...order]
@@ -445,6 +524,7 @@ export function useReorderState() {
     return result.finally(() => setPendingCount(count => count - 1))
   }
 
+  /** Capture the current batch ID and revision when a reorder interaction starts. */
   function capture(): MoveOrigin {
     const cachedBatches = cache.get(batchesKey(['open'], { mine: true }))?.data as ReviewBatch[] | undefined
     const id = workspace.mode === 'selected' ? workspace.id : displayed?.batch.id ?? mostRecentBatch(cachedBatches)?.id
@@ -452,6 +532,10 @@ export function useReorderState() {
     return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 
+  /**
+   * Move a plate in the current state order and reconcile any required standard-plate
+   * change.
+   */
   async function move(state: string, order: string[], promotion: { plateId: string; templateFamily: string } | { plateId: string; templateFamily: string }[], origin: MoveOrigin, standard?: StandardChange): Promise<EditResult> {
     setPendingCount(count => count + 1)
     let key: string | undefined
@@ -498,6 +582,7 @@ export function useReorderState() {
     } finally { setPendingCount(count => count - 1) }
   }
 
+  /** Commit a family merge and refresh the affected state and batch after the request. */
   async function merge(input: FamilyMerge, origin: MoveOrigin): Promise<
     { ok: true; value: FamilyMergeResult } | { ok: false; message: string }
   > {
@@ -536,6 +621,7 @@ export function useReorderState() {
   return { reorder, capture, move, merge, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0, ready }
 }
 
+/** Read the enabled tagging models to populate model selection controls. */
 export function useTaggingModels() {
   const { user, api } = useSession()
   return useSWR<import('./tagging-models').TaggingModels>(user ? '/api/tagging/models' : null, api.get)

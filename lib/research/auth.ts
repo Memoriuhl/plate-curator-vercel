@@ -9,15 +9,21 @@ import { firestoreResearchStore } from './firestore-store'
 import { verifyResearchServiceToken } from './tokens'
 import type { ResearchSessionBinding } from './runtime'
 
+/** Check that the named research member currently has active access. */
 export async function activeResearchMember(uid: string) {
   const member = await firestoreMembersStore(await researchDatabase()).getByUid(uid)
   return isLiveMember(member) && member.status === 'active'
 }
 
+/** Resolve current owner authority for hosted research operations. */
 export async function activeResearchOwner(uid: string) {
   return isActiveOwner(await firestoreMembersStore(await researchDatabase()).getByUid(uid))
 }
 
+/**
+ * Authenticate research requests through either a verified user identity or a service
+ * token.
+ */
 export async function researchAgentAuthentication(request: Request) {
   const bearer = /^Bearer ([^\s]+)$/i.exec(request.headers.get('authorization') ?? '')?.[1]
   if (!bearer) return null
@@ -29,6 +35,10 @@ export async function researchAgentAuthentication(request: Request) {
   const pipelineService = !service && queue ? await verifyResearchServiceToken(bearer, process.env.RESEARCH_SERVICE_SECRET ?? '', queue.store.env) : null
   const state = await researchState()
   const result = await authorizeResearchAgent(request, {
+    /**
+     * Resolve the actor and enforce the current owner or pipeline job scope for the
+     * presented credential.
+     */
     async actor() {
       if (pipelineService && queue) {
         const job = await queue.store.transaction(tx => tx.get(pipelineService.jobId))
@@ -45,9 +55,13 @@ export async function researchAgentAuthentication(request: Request) {
       }
       if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) return null
       const members = firestoreMembersStore(await researchDatabase())
-      const auth = await authenticate(request, { verify: token => verifyIdToken(token, { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!, jwks: googleSecureTokenJwks() }), ownerUids: parseOwnerUids(process.env.OWNER_UIDS), members })
+      const auth = await authenticate(request, { /** Verify the user's Firebase token with the research project's expected issuer and public keys. */ verify: token => verifyIdToken(token, { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!, jwks: googleSecureTokenJwks() }), ownerUids: parseOwnerUids(process.env.OWNER_UIDS), members })
       return auth.ok ? { ...auth.actor, active: await activeResearchOwner(auth.actor.uid) } : null
     },
+    /**
+     * Read the session binding and expose its owner only within the authenticated
+     * pipeline scope.
+     */
     async owner(id) {
       const binding = await state.read<ResearchSessionBinding>(`session/${id}`)
       return binding && (!service || binding.jobId === service.jobId) && (!pipelineService || binding.pipelineJobId === pipelineService.jobId) ? binding.ownerUid : null

@@ -23,19 +23,27 @@ import type { Plate } from '../lib/catalog/types'
 import { plateCards } from '../fixtures/plate-cards'
 
 const Context = createContext<ReturnType<typeof session> | null>(null)
-vi.mock('../lib/client/session', () => ({ useSession: () => useContext(Context)! }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => useContext(Context)! }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => useContext(Context)!.params,
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ prefetch: vi.fn(), refresh: vi.fn() }),
 }))
-vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
-vi.mock('next/image', () => ({ default: () => <span /> }))
-vi.mock('../components/dashboard/use-grid-entrance', () => ({ useGridEntrance: () => {} }))
-vi.mock('../components/dashboard/use-drag-flip', () => ({ useDragFlip: () => {} }))
-vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
-  getVirtualItems: () => [{ key: 0, index: 0, start: 420 }], getTotalSize: () => 600,
-  measureElement: () => {}, scrollToIndex: () => {},
+vi.mock('next/link', () => ({ /** Render direct links so collaborative updates can be tested without the Next.js router. */ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
+vi.mock('next/image', () => ({ /** Stand in for the imported display component so the test can render its parent in isolation. */ default: () => <span /> }))
+vi.mock('../components/dashboard/use-grid-entrance', () => ({ /** Stub grid entrance animations so the fixture does not require browser animation support. */ useGridEntrance: () => {} }))
+vi.mock('../components/dashboard/use-drag-flip', () => ({ /** Stub animated grid reflow so the test can focus on drag behavior. */ useDragFlip: () => {} }))
+vi.mock('@tanstack/react-virtual', () => ({ /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer: () => ({
+  /** Expose the deterministic virtual rows used by the test layout. */
+  getVirtualItems: () => [{ key: 0, index: 0, start: 420 }], /** Report the virtual list size expected by the layout fixture. */ getTotalSize: () => 600,
+  /**
+   * Keep the fixture's virtual rows at their synthetic sizes instead of measuring the
+   * DOM.
+   */
+  measureElement: () => {}, /** Accept virtual scroll requests without moving the test viewport. */ scrollToIndex: () => {},
 }) }))
 
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
@@ -47,6 +55,10 @@ const plates: Plate[] = [
 ]
 const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: false, sortOrder: index, revision: plateRevision(plate) }))
 const gridPlates = cards.map(projectFamilyPlate)
+/**
+ * Build a fixture batch with its baseline and plate selection for the current review
+ * scenario.
+ */
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
 }
@@ -63,6 +75,10 @@ let failures: Map<string, (error: { code?: string }) => void>
 let missingSignal: boolean
 let denySignal: boolean
 const source: LiveSignalSource = {
+  /**
+   * Capture each batch subscription and exercise its current revision, error and
+   * disposal paths.
+   */
   subscribe(_env, id, next, error) {
     failures.set(id, error)
     const set = listeners.get(id) ?? new Set()
@@ -73,14 +89,22 @@ const source: LiveSignalSource = {
     return () => { set.delete(next); disposed.push(id) }
   },
 }
+/** Deliver the supplied batch revision to currently subscribed test listeners. */
 function emit(id: string, revision: number) {
   signals.set(id, revision)
   listeners.get(id)?.forEach(next => next(revision))
 }
+/**
+ * Create a fixture session that routes one collaborator's requests to the shared batch
+ * store.
+ */
 function session(actor: Actor, id: string | null = 'shared') {
   return {
     user: { uid: actor.uid }, params: new URLSearchParams(id === null ? '' : 'batch=' + id),
     api: {
+      /**
+       * Read batch detail or list data and count the requesting actor's cache refreshes.
+       */
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return actor
@@ -93,6 +117,10 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         throw new Error(path)
       },
+      /**
+       * Apply the collaborator's field or family change and record the request for
+       * assertions.
+       */
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
@@ -118,32 +146,46 @@ function session(actor: Actor, id: string | null = 'shared') {
     },
   }
 }
+/** Render the plate's current overlaid tags with the real tagging action. */
 function TagActions() {
   const overlaid = useDraftOverlay(cards)
   return <><DashboardPipelineProvider><BatchActions underTagged={overlaid.filter(p => p.id === 'AK.v')} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider><output>{overlaid.find(p => p.id === 'AK.v')?.tags.join(', ')}</output></>
 }
+/** Expose two edit actions and the resulting tag values to test serialized writes. */
 function EditTwice() {
   const [plate] = useDraftOverlay([cards[1]])
   const { edit } = useEditPlate()
   return <><button onClick={() => void edit(plate, { tags: ['first'] })}>First save</button><button onClick={() => void edit(plate, { tags: ['second'] })}>Second save</button><output>{plate.tags.join(', ')}</output></>
 }
+/**
+ * Expose real edit and reorder hooks through controls for the live batch close scenario.
+ */
 function Probe() {
   const edits = useEditPlate()
   const order = useReorderState()
   return <><button onClick={() => void edits.edit(cards[1], { tags: ['attempt'] })}>Attempt edit</button><button onClick={() => void order.reorder('AK', plates.map(p => p.id))}>Attempt order</button></>
 }
+/** Render one live workspace under the supplied actor and an isolated SWR cache. */
 function Workspace({ value, cache = new Map(), children }: { value: ReturnType<typeof session>; cache?: Cache; children?: ReactNode }) {
-  return <Context.Provider value={value}><SWRConfig value={{ provider: () => cache, dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}><SelectedBatchBar /><FamilyGrid plates={gridPlates} />{children}</LiveSignalProvider></SWRConfig></Context.Provider>
+  return <Context.Provider value={value}><SWRConfig value={{ /** Give the rendered test its own isolated SWR cache. */ provider: () => cache, dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}><SelectedBatchBar /><FamilyGrid plates={gridPlates} />{children}</LiveSignalProvider></SWRConfig></Context.Provider>
 }
+/**
+ * Dispatch a synthetic pointer event so the test can drive a drag without browser
+ * pointer automation.
+ */
 function pointer(element: Element, type: string, x: number, y = 100) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })
   Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
   act(() => { (type === 'pointerdown' ? element : window).dispatchEvent(event) })
 }
+/**
+ * Assign explicit family rectangles so drag hit testing is deterministic in the test
+ * DOM.
+ */
 function targetRects(container: HTMLElement) {
   container.querySelectorAll<HTMLElement>('[data-drag-family]').forEach(element => {
     const left = element.dataset.dragFamily === 'AK.b' ? 300 : 0
-    element.getBoundingClientRect = () => ({ left, right: left + 250, top: 0, bottom: 300, width: 250, height: 300, x: left, y: 0, toJSON() {} })
+    element.getBoundingClientRect = () => ({ left, right: left + 250, top: 0, bottom: 300, width: 250, height: 300, x: left, y: 0, /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {} })
   })
 }
 beforeEach(() => {
@@ -152,10 +194,10 @@ beforeEach(() => {
   const store = createMemoryStore([batch(), batch('other', owner)])
   const commit = store.commit.bind(store)
   store.commit = async (...args) => { const result = await commit(...args); if (result === 'ok') emit(args[0], args[2].batch.revision); return result }
-  deps = { store, baseline: async id => plates.find(p => p.id === id) ?? null, baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, stateBaseline: async () => plates, now: () => '2026-11-16' }
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ left: 0, right: 1500, top: 0, bottom: 300, width: 1500, height: 300, x: 0, y: 0, toJSON() {} }))
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
-  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
+  deps = { store, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(p => p.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-16' }
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ left: 0, right: 1500, top: 0, bottom: 300, width: 1500, height: 300, x: 0, y: 0, /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {} }))
+  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
+  vi.stubGlobal('matchMedia', () => ({ matches: true, /** Stand in for media-query listener registration in the test DOM. */ addEventListener() {}, /** Stand in for media-query listener cleanup in the test DOM. */ removeEventListener() {} }))
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -316,6 +358,10 @@ test('undeployed rules deny twice without console errors or renewal loops, and R
     const response = await send(method, path, body)
     return path === '/api/live-access' ? { envKey: 'test', expiresAt: new Date(Date.now() + 61000).toISOString() } : response
   }
+  /**
+   * Subscribe to an unrelated batch so the test can detect unexpectedly broad
+   * invalidations.
+   */
   function OtherBatch() {
     useBatch('other')
     return null
@@ -369,7 +415,7 @@ test('stale Tag acceptance keeps the newer draft and reports stale_plate', async
 
 test('Plate page keeps selected Batch navigation, edits twice, and runs and accepts Tag in that Batch', async () => {
   const value = session(owner)
-  const view = render(<Context.Provider value={value}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}><LiveSignalProvider value={source}><PlatePage plate={{ ...slimPlate(cards[1]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" /></LiveSignalProvider></SWRConfig></Context.Provider>)
+  const view = render(<Context.Provider value={value}><SWRConfig value={{ /** Give the rendered test its own isolated SWR cache. */ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}><LiveSignalProvider value={source}><PlatePage plate={{ ...slimPlate(cards[1]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" /></LiveSignalProvider></SWRConfig></Context.Provider>)
   expect(view.getByRole('link', { name: 'Back to Alaska' }).getAttribute('href')).toBe('/states/AK?batch=shared')
   expect(view.getByRole('link', { name: /Next/ }).getAttribute('href')).toBe('/plates/AK.b?batch=shared')
   await waitFor(() => expect(view.container.textContent).toContain('Live'))

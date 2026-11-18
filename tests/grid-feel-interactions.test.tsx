@@ -41,6 +41,7 @@ test('image pointer hover anchors preview and focus leaves it closed', () => {
   expect(preview).toHaveBeenCalledOnce()
 })
 
+/** Build a measurable test grid from supplied HTML and attach it to the document. */
 function grid() {
   const container = document.createElement('div')
   container.innerHTML = '<div data-index="0"><article><div data-plate-image></div></article></div>'
@@ -108,15 +109,20 @@ test('shared intent registry prevents repeated prefetch after virtualized remoun
 
 const previewDetail = vi.hoisted(() => ({ data: undefined as undefined | { plate: typeof plateCards[number] } }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Leave the batch unselected while exercising the standalone plate preview. */
   useSelectedBatchId: () => null,
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { role: 'editor' } }),
+  /** Provide the current fixture plate detail for preview readiness transitions. */
   usePlateDetail: () => previewDetail,
+  /** Provide the plate overlay used to render this catalog scenario. */
   useDraftOverlay: (plates: unknown[]) => plates,
 }))
 import { ReadyPlatePreview, CheckValue } from '../components/plate/ready-plate-preview'
 import { act } from '@testing-library/react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
+/** Render a pending preview with a concrete browser anchor and return its controls. */
 function pendingPreview(checkKey?: import('../lib/catalog/dashboard-types').PlateCheckKey, immediate = false) {
   const anchor = document.createElement('span')
   document.body.append(anchor)

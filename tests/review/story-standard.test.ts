@@ -12,7 +12,7 @@ test.each(['choose', 'reorder'] as const)('story edits survive a Standard change
   const plates: Plate[] = ['one', 'two'].map((id, index) => ({ id, state: 'CA', slug: id, displayName: id, image: '', tags: [], templateRole: 'template', templateFamily: id, isStandard: index === 0 }))
   const actor = { uid: 'story-editor', name: null, role: 'editor' as const }
   const store = createMemoryStore([{ id: 'story-standard', name: 'Story Standard', baselineVersion: 1, plateIds: [], revision: 0, approval: null, state: 'open', createdAt: '', createdBy: actor.uid }])
-  const deps: ReviewDeps = { store, baseline: async id => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates, now: () => '' }
+  const deps: ReviewDeps = { store, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
   const story = { funFacts: [{ text: 'Sourced fact', sourceUrl: 'http://example.org/fact' }], firstIssuedYear: 1976, readMore: [{ title: 'Reference', site: 'Example', url: 'https://example.org/reference' }] }
   for (const plate of plates) {
     expect(await proposeEdit(deps, actor, { batchId: 'story-standard', plateId: plate.id, baseRevision: plateRevision(plate), fields: story })).toMatchObject({ ok: true })

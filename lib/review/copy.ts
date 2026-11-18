@@ -15,10 +15,18 @@ export type CopyDeps = {
 }
 export type CopyOutcome = (CopyCommitResult & { warnings?: string[] }) | { ok: false; error: 'forbidden' | 'incompatible'; reasons?: string[] }
 
+/**
+ * Derive a stable copy ID so retrying a copy for the same source revision and live
+ * version stays idempotent.
+ */
 export function copyBatchId(env: string, sourceId: string, revision: number, version: number) {
   return `copy-${createHash('sha256').update(JSON.stringify([env, sourceId, revision, version])).digest('hex')}`
 }
 
+/**
+ * Copy an older batch's applicable draft edits onto the live baseline and report
+ * anything that needs review.
+ */
 export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: string; sourceRevision: number; targetVersion: number }): Promise<CopyOutcome> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
   const id = copyBatchId(d.env, input.sourceId, input.sourceRevision, input.targetVersion)

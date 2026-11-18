@@ -14,6 +14,7 @@ import { workflowVisibilityUrl } from './workflow-visibility'
 import { claimable } from './claim-eligibility'
 
 // Server coordinator only. The public worker by-id claim still refuses queue jobs.
+/** Claim a hosted queue job only when its run and attempt still authorize it. */
 export async function claimHostedQueueJob(d: JobsDeps, id: string) {
   return d.store.transaction(async tx => {
     const jobs = await tx.list()
@@ -32,12 +33,17 @@ export async function claimHostedQueueJob(d: JobsDeps, id: string) {
   })
 }
 
+/**
+ * Resolve the plate from the batch's pinned catalog and draft edits for job input
+ * validation.
+ */
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
   const baseline = review && d.baselineAtVersion ? await d.baselineAtVersion(review.baselineVersion, plateId) : await d.baseline(plateId)
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
+/** Validate the requested stage, permissions and plate input before creating a job. */
 export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob> | { ok: false; error: 'publish_in_progress' }> {
   if (input.stage === 'research') return { ok: false, error: 'forbidden' } // Research requires the persisted queue model/policy contract.
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
@@ -76,6 +82,10 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
   })
 }
 
+/**
+ * Lease the next eligible job to a worker in a transaction so concurrent pollers cannot
+ * both claim it.
+ */
 export async function claimNext(d: JobsDeps, workerId: string, features: LocalClaimFeatures = {}) {
   if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
   const claimId = d.id()
@@ -101,6 +111,7 @@ export async function claimNext(d: JobsDeps, workerId: string, features: LocalCl
   })
 }
 
+/** Lease one eligible job by ID for callers that already selected work. */
 export async function claimJob(d: JobsDeps, workerId: string, id: string): Promise<Outcome<{ job: TaggingJob; claimId: string }>> {
   if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
   const claimId = d.id()
@@ -120,6 +131,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
   })
 }
 
+/** Normalize and validate the worker payload before a report can be stored. */
 function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null {
   const stageError = stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (input?.stageError === 'no_sources' || input?.stageError === 'no_supported_fields' || input?.stageError === 'unavailable' || input?.stageError === 'missing_image') ? input.stageError : undefined
   if (input?.stageError !== undefined && !stageError) return null
@@ -139,6 +151,10 @@ function normalize(input: ReportInput, stage?: PipelineStage): JobResult | null 
     ...(input.usage === undefined ? {} : { usage: Object.fromEntries(Object.entries(input.usage).sort(([a], [b]) => a.localeCompare(b))) }) }
 }
 
+/**
+ * Settle a claimed job and handle changed plate input so stale results cannot be applied
+ * as current.
+ */
 export async function reportResult(d: JobsDeps, workerId: string, id: string, claimId: string, input: ReportInput): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     const job = await tx.get(id)
@@ -229,16 +245,21 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
   })
 }
 
+/** Read a job through the jobs transaction interface. */
 export function getJob(d: JobsDeps, id: string) {
   return d.store.transaction(tx => tx.get(id))
 }
 
+/**
+ * Check whether the actor may see the requested job and hide jobs outside that access.
+ */
 export async function getJobForActor(d: JobsDeps, actor: Actor, id: string): Promise<ReviewOutcome<TaggingJob>> {
   const job = await getJob(d, id)
   if (!job || (job.requestedBy !== actor.uid && actor.role !== 'owner')) return { ok: false, error: 'not_found' }
   return { ok: true, value: job }
 }
 
+/** Mark a job expired when its active lease has elapsed so polling can recover. */
 export async function expireJob(d: JobsDeps, id: string): Promise<Outcome<TaggingJob>> {
   return d.store.transaction(async tx => {
     const job = await tx.get(id)

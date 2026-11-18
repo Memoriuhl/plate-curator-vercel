@@ -6,11 +6,13 @@ import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/type
 
 const actor = { uid: 'editor', name: null, role: 'editor' } as const
 const plates: Plate[] = ['one', 'two', 'three'].map((id, index) => ({ id, state: 'CA', slug: id, displayName: id, image: '', tags: [], templateRole: 'template', templateFamily: id, isStandard: index === 0 }))
+/** Register shared standard plate transitions for every supplied review store. */
 export function standardScenarios(create: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>) {
+  /** Create a draft and baseline with a known current standard for ordering tests. */
   async function setup() {
     const batch: ReviewBatch = { id: 'standard-batch', name: 'Standards', createdBy: actor.uid, createdByName: null, createdAt: '', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: [], approval: null }
     const store = await create(batch)
-    const deps: ReviewDeps = { store, now: () => '', baseline: async id => plates.find(p => p.id === id) ?? null, baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, stateBaseline: async () => plates }
+    const deps: ReviewDeps = { store, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '', /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(p => p.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates }
     return { deps, store }
   }
   test.each([undefined, { from: null, to: 'two' }, { from: 'one', to: 'three' }])('rejects missing or mismatched Standard acknowledgement: %j', async standard => {
@@ -53,7 +55,7 @@ export function standardScenarios(create: (batch: ReviewBatch) => ReviewStore | 
   test('revision guard rejects all coupled edits together', async () => {
     const { deps, store } = await setup()
     const before = await store.readBatch('standard-batch')
-    deps.store = { ...store, commit: async () => 'revision_mismatch' }
+    deps.store = { ...store, /** Force a revision conflict when the standard transition tries to commit. */ commit: async () => 'revision_mismatch' }
     expect(await reorderState(deps, actor, { batchId: 'standard-batch', state: 'CA', batchRevision: 0, order: ['two', 'one', 'three'], standard: { from: 'one', to: 'two' } })).toMatchObject({ error: 'superseded_revision' })
     expect(await store.readBatch('standard-batch')).toEqual(before)
   })
@@ -63,6 +65,7 @@ export function standardScenarios(create: (batch: ReviewBatch) => ReviewStore | 
   })
   test('effective draft Standards and deletions are checked before reordering', async () => {
     const { deps, store } = await setup()
+    /** Build a stored plate edit with its fixture author and baseline revision. */
     const edit = (plateId: string, fields: import('../../lib/review/types').EditableFields) => ({ plateId, fields, baseRevision: '', resultRevision: '', authorId: actor.uid, updatedAt: '' })
     const batch = (await store.getBatch('standard-batch'))!
     await store.commit(batch.id, 0, { batch, edits: [edit('one', { isStandard: false }), edit('two', { isStandard: true }), edit('three', { deleted: true })] })

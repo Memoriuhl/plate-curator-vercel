@@ -11,7 +11,7 @@ const capabilities: LocalWorkerCapabilities = { group: { available: true }, embe
 test('worker reports are scoped, timestamped by the server and expire after two polls', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   let now = 1000
-  const d: JobsDeps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), baseline: async () => null, now: () => now, id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
+  const d: JobsDeps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null, /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => now, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
   expect((await readLocalWorkerCapabilities(d)).group).toEqual({ available: false, reason: 'Local worker not reporting' })
   expect(await reportLocalWorkerCapabilities(d, 'worker', capabilities)).toBe(true)
   expect((await readLocalWorkerCapabilities(d)).group.available).toBe(true)
@@ -32,7 +32,7 @@ test('worker reports are scoped, timestamped by the server and expire after two 
 test('unchanged memory reports retain their timestamp until the next poll interval', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   let now = 1000
-  const d: JobsDeps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), baseline: async () => null, now: () => now, id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
+  const d: JobsDeps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null, /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => now, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
   await reportLocalWorkerCapabilities(d, 'worker', capabilities)
   now = 5999
   expect(await reportLocalWorkerCapabilities(d, 'worker', capabilities)).toBe(true)

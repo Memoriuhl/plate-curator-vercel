@@ -48,6 +48,7 @@ test('Arizona v16 groups legacy Variants identified by their explicit Standard l
   }])
 })
 
+/** Load the fixture catalog and curator state together for dashboard projections. */
 async function fixture() {
   return { snapshot: await source.readSnapshot(), curator: await source.readCuratorState() }
 }
@@ -104,6 +105,7 @@ test('plate detail follows state order for neighbours and same-jurisdiction fami
   expect(buildPlate(snapshot, curator, source.imageUrl, 'missing')).toBeNull()
 })
 
+/** Build plate detail from the shared fixture so assertions use the real projection. */
 async function detail(overrides: Partial<Plate> = {}) {
   const { snapshot, curator } = await fixture()
   const plate: Plate = {

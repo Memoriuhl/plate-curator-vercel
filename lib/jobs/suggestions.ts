@@ -16,10 +16,15 @@ const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
   order: [],
 }
 
+/** Recognize stage identifiers through the fields they are authorized to propose. */
 export function isPipelineStage(value: unknown): value is PipelineStage {
   return typeof value === 'string' && Object.hasOwn(stageFields, value)
 }
 
+/**
+ * Validate a worker result against the stage's allowed fields and normalize it for
+ * storage.
+ */
 export function parseFieldSuggestion(input: unknown, expected: PipelineStage): FieldSuggestion | null {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !input || typeof input !== 'object' || Array.isArray(input)) return null
   const value = input as Record<string, unknown>

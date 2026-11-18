@@ -20,6 +20,10 @@ export type QueueResearchDeps = {
 
 // One queue job owns this Eve session. There is no parallel research-job ledger
 // and no second acceptance path: completion becomes a normal queue suggestion.
+/**
+ * Run the hosted enrichment stage for an authorized queue job and reuse captured
+ * evidence across polls.
+ */
 export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps: QueueResearchDeps): Promise<'waiting' | 'settled'> {
   if (!await deps.activeOwner(job.requestedBy)) throw Error('Research requester is no longer an active Owner')
   if (!job.researchModel || job.researchModel.executor !== 'eve' || !job.inputPlate || job.stage !== 'research' || job.state !== 'claimed') throw Error('Invalid hosted research job')
@@ -27,6 +31,10 @@ export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps
   const policy = job.researchPolicy ?? 'fill-missing'
   const fields = enrichmentTargets(plate, policy)
   const meta = { backend: 'eve', model: job.researchModel.model, promptVersion: 'enrichment-v1' }
+  /**
+   * Convert the draft into a stage suggestion and report it through the job's current
+   * claim.
+   */
   async function report(draft: unknown, sources: EvidenceSource[], usage: Record<string, number>) {
     if (draft && sources.length) await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 2)
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)

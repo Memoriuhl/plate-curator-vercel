@@ -16,6 +16,10 @@ type DraftResult =
   | { projection: RunProjection; conflict: boolean; changedPlateIds: string[] }
   | { error: 'batch_read_only' | 'stale_input' | 'invalid_result' | 'invalid_group_scope' | 'draft_conflict' | 'payload_too_large' }
 
+/**
+ * Save a stage result to the open batch when the requester and input still qualify, then
+ * refresh the run projection.
+ */
 export async function saveQueueDraft(
   d: JobsDeps, tx: JobsTransaction, run: PipelineRun, job: TaggingJob,
   before: RunProjection, after: RunProjection, candidate?: ImageCandidate,

@@ -16,6 +16,10 @@ export interface CatalogPushDeps {
   send(messages: Message[]): Promise<PushTicket[]>
 }
 
+/**
+ * Claim one notification pass per published version, deliver it in batches and prune
+ * invalid device registrations.
+ */
 export async function sendCatalogPush(d: CatalogPushDeps, version: number): Promise<CatalogPushResult> {
   const counts: Counts = { sent: 0, failed: 0, pruned: 0 }
   if (!d.enabled) return { status: 'disabled', ...counts }
@@ -56,6 +60,7 @@ export async function sendCatalogPush(d: CatalogPushDeps, version: number): Prom
   }
 }
 
+/** Adapt Expo's push API to the sender interface and validate its ticket response. */
 export function expoPushSender(accessToken: string, request: typeof fetch = fetch): CatalogPushDeps['send'] {
   return async messages => {
     const response = await request('https://exp.host/--/api/v2/push/send', {
@@ -73,9 +78,14 @@ export function expoPushSender(accessToken: string, request: typeof fetch = fetc
   }
 }
 
+/**
+ * Build the Firestore adapter for version-level push deduplication and device cleanup.
+ */
 export function firestoreCatalogPushStore(db: Firestore): CatalogPushDeps['store'] {
+  /** Address the notification record shared by retries of one published version. */
   const ref = (version: number) => db.doc(`catalogPushes/${version}`)
   return {
+    /** Claim a version's push pass only when no other sender has claimed it. */
     async claim(version) {
       return db.runTransaction(async transaction => {
         const marker = ref(version)
@@ -84,6 +94,10 @@ export function firestoreCatalogPushStore(db: Firestore): CatalogPushDeps['store
         return true
       })
     },
+    /**
+     * Load registered devices with usable push tokens and the paths needed to prune
+     * failures.
+     */
     async devices() {
       const snapshot = await db.collectionGroup('devices').get()
       return snapshot.docs.flatMap(doc => {
@@ -92,6 +106,9 @@ export function firestoreCatalogPushStore(db: Firestore): CatalogPushDeps['store
           ? [{ path: doc.ref.path, token }] : []
       })
     },
+    /**
+     * Delete a failed registration only if its stored token still matches the one sent.
+     */
     async prune(device) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(device.path)
@@ -100,6 +117,10 @@ export function firestoreCatalogPushStore(db: Firestore): CatalogPushDeps['store
         return true
       })
     },
+    /**
+     * Persist delivery totals on the notification record to close out the claimed
+     * version.
+     */
     async finish(version, result) {
       await ref(version).update({ ...result })
     },

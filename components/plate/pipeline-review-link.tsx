@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { reviewHref } from '@/lib/review/href'
 
+/** Link directly to the batch and plate that contain a saved pipeline result. */
 export function PipelineReviewLink({ plate }: { plate: PlateCardData }) {
   if (!plate.pipelineBatchId) return null
   return (

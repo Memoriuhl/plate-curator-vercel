@@ -10,11 +10,22 @@ export type GroupInput = { plate: Plate; baseRevision: string }[]
 export type GroupProposal = GroupMember & { fields: GroupFields }
 export type GroupSuggestion = { kind: 'group'; stage: 'group'; scope: GroupMember[]; proposals: GroupProposal[]; sources: string[] }
 
+/** Narrow an unknown payload to an object whose fields can be validated. */
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+/** Check that a suggestion record has exactly the fields allowed for its shape. */
 const exact = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key))
+/** Require a nonempty string within the field's storage limit. */
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= max
+/**
+ * Validate a grouping member's plate ID and base revision before comparing it with the
+ * run scope.
+ */
 const member = (value: unknown): value is GroupMember => record(value) && text(value.plateId, 120) && typeof value.baseRevision === 'string' && /^[a-f0-9]{20}$/.test(value.baseRevision)
 
+/**
+ * Validate and normalize image candidates before they can be offered for curator
+ * selection.
+ */
 export function parseImageSuggestion(input: unknown): ImageSuggestion | null {
   if (!record(input) || !exact(input, ['kind', 'stage', 'candidates', 'sources']) || input.kind !== 'image' || input.stage !== 'find-image') return null
   if (!Array.isArray(input.candidates) || !input.candidates.length || input.candidates.length > 5 || !Array.isArray(input.sources) || input.sources.length > 10) return null
@@ -34,6 +45,10 @@ export function parseImageSuggestion(input: unknown): ImageSuggestion | null {
   return { kind: 'image', stage: 'find-image', candidates, sources }
 }
 
+/**
+ * Validate grouping scope and membership before accepting a worker's proposed
+ * regrouping.
+ */
 export function parseGroupSuggestion(input: unknown): GroupSuggestion | null {
   if (!record(input) || !exact(input, ['kind', 'stage', 'scope', 'proposals', 'sources']) || input.kind !== 'group' || input.stage !== 'group') return null
   if (!Array.isArray(input.scope) || !input.scope.length || input.scope.length > 25 || !input.scope.every(value => member(value) && exact(value as Record<string, unknown>, ['plateId', 'baseRevision']))) return null

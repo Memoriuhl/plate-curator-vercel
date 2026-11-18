@@ -5,6 +5,7 @@ import { cn } from '@/components/utils'
 import { Avatar as AvatarPrimitive } from 'radix-ui'
 import { IoEyeOutline, IoPencilOutline } from 'react-icons/io5'
 
+/** Render the shared avatar container with the selected size and optional status mark. */
 function Avatar({
   className,
   size = 'default',
@@ -43,6 +44,7 @@ function Avatar({
   )
 }
 
+/** Display the avatar image within the sizing and shape of its root. */
 function AvatarImage({
   className,
   ...props
@@ -59,6 +61,7 @@ function AvatarImage({
   )
 }
 
+/** Display readable fallback content while the avatar image is unavailable. */
 function AvatarFallback({
   className,
   ...props
@@ -75,6 +78,7 @@ function AvatarFallback({
   )
 }
 
+/** Position the avatar's status mark using the root's size. */
 function AvatarBadge({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
@@ -88,6 +92,7 @@ function AvatarBadge({ className, ...props }: React.ComponentProps<'span'>) {
   )
 }
 
+/** Group overlapping avatars while keeping their outlines visible. */
 function AvatarGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
@@ -98,6 +103,7 @@ function AvatarGroup({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
+/** Render the count indicator for members beyond the displayed avatar group. */
 function AvatarGroupCount({
   className,
   ...props

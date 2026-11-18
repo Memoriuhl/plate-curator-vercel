@@ -2,6 +2,7 @@ import { getJobForActor } from '../../../../lib/jobs/jobs'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { json, respond } from '../../../../lib/server/respond'
 
+/** Return the actor's job status and any available stage result. */
 export async function GET(request: Request, ctx: RouteContext<'/api/jobs/[id]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

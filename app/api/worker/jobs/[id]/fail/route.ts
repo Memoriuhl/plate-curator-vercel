@@ -3,6 +3,7 @@ import { currentWorker, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../../../lib/server/respond'
 import { wakeLocalJob } from '../../../../../../lib/server/local-queue'
 
+/** Record a worker failure under its current claim and notify the queue workflow. */
 export async function POST(request: Request, ctx: RouteContext<'/api/worker/jobs/[id]/fail'>) {
   const worker = await currentWorker(request)
   if (!worker.ok) return worker.response

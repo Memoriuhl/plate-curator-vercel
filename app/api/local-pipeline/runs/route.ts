@@ -10,6 +10,10 @@ import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { queueProgress } from '../../../../lib/jobs/run-progress'
 import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 
+/**
+ * Read the current queue view, reconnect pending workflows and optionally return a
+ * selected run's detail.
+ */
 export async function GET(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
@@ -57,6 +61,10 @@ export async function GET(request: Request) {
   return json({ runs: summaries, orphanJobs, capabilities, observedAt: dependencies.now(), ...(detail ? { selected: detail } : {}) })
 }
 
+/**
+ * Validate and enqueue local pipeline work, then start the workflow for its accepted
+ * run.
+ */
 export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

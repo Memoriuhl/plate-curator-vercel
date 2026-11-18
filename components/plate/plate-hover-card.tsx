@@ -20,6 +20,7 @@ type HoverCardProps = {
   onMouseLeave?: () => void
 }
 
+/** Fetch plate detail on hover and merge its draft values into the preview. */
 export default function PlateHoverCard(props: HoverCardProps) {
   const { data, error } = usePlateDetail(props.plate.id)
   const baselines = useMemo(() => (data ? [data.plate] : []), [data])
@@ -33,6 +34,9 @@ export default function PlateHoverCard(props: HoverCardProps) {
   )
 }
 
+/**
+ * Render the preview contents at their anchor and optionally portal them above the grid.
+ */
 export function PlateHoverContent({
   plate,
   parent,
@@ -48,6 +52,7 @@ export function PlateHoverContent({
   useLayoutEffect(() => {
     if (!anchor || !card.current) return
     const element = card.current
+    /** Measure the preview and anchor to update its viewport-constrained position. */
     const reposition = () => {
       const bounds = element.getBoundingClientRect()
       const next = hoverPosition(anchor.getBoundingClientRect(), bounds.width, bounds.height, window.innerWidth, window.innerHeight)

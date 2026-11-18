@@ -9,6 +9,7 @@ type BatchDetail = {
   plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
 }
 
+/** Create a draft batch from valid baseline plate IDs and the actor's requested title. */
 export async function createBatch(
   d: ReviewDeps,
   actor: Actor,
@@ -25,10 +26,15 @@ export async function createBatch(
   return result === 'ok' ? { ok: true, value: batch } : { ok: false, error: 'invalid_state' }
 }
 
+/** List matching batch summaries in descending creation order for the workspace. */
 export async function listBatches(d: ReviewDeps, filter: { states?: BatchState[]; createdBy?: string }): Promise<ReviewBatch[]> {
   return (await d.store.list(filter)).filter(batch => filter.createdBy === undefined || batch.createdBy === filter.createdBy).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
+/**
+ * Build a page of batch differences with baseline plates, draft edits and state ordering
+ * changes.
+ */
 export async function batchDetail(d: ReviewDeps, batchId: string, page?: { offset: number; size: number; revision?: number }): Promise<Outcome<BatchDetail>> {
   const snapshot = await d.store.readBatch(batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }

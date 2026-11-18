@@ -1,6 +1,10 @@
 import { getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 
+/**
+ * Reuse or initialize the browser Firebase app with the configured public project
+ * settings.
+ */
 export function clientApp() {
   const existing = getApps().find(app => app.name === '[DEFAULT]')
   if (existing) return existing
@@ -17,6 +21,7 @@ export function clientApp() {
   return initializeApp(config)
 }
 
+/** Resolve the Firebase Auth instance tied to the curator's browser app. */
 export function clientAuth() {
   return getAuth(clientApp())
 }

@@ -11,12 +11,18 @@ import type { PlateCardData } from '../lib/catalog/dashboard-types'
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), overlay: vi.fn() }))
 vi.mock('../lib/client/hooks', () => ({ useDraftOverlay: navigation.overlay }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams('q=gold'),
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => navigation,
 }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+/**
+ * Render filter controls from a real draft overlay and its computed needs-work counts.
+ */
 function Probe({ onSelectGroup }: { onSelectGroup(key: string, ids: string[]): void }) {
   const overlaid = useFamilyBatchOverlay(alaskaFixture.plates.map(projectFamilyPlate))
   return <TooltipProvider><FilterBarControls counts={filterCounts(overlaid)} changedCount={0}

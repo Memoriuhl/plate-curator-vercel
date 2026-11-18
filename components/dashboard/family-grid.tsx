@@ -36,16 +36,25 @@ import {
 
 import type { PlateCheckKey } from '@/lib/catalog/dashboard-types'
 
+/** Load the hover card on demand so the grid can render before the preview code is needed. */
 const ReadyPlatePreview = dynamic(
   () => import('@/components/plate/ready-plate-preview').then(module => module.ReadyPlatePreview),
   { loading: () => null },
 )
 
+/**
+ * Build the catalog baselines used to overlay the current batch's draft plates and
+ * order.
+ */
 export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
   const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])
   return useDraftOverlay(baselines)
 }
 
+/**
+ * Render the state family grid with filtering, selection, drag editing and virtualized
+ * rows.
+ */
 export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   plates: FamilyPlate[]
   code?: string
@@ -79,6 +88,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const query = params.get('q') ?? ''
   const focusPlateId = params.get('plate')
   const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show, '', attachedIds) : []), [overlaid, show, attachedIds])
+  /**
+   * Apply the current search and completeness filters with the precomputed family
+   * context.
+   */
   const matches = (plate: PlateCardData) =>
     matchesPlate(plate, show, query, changedIds, standardIds, attachedIds)
   const container = useRef<HTMLDivElement>(null)
@@ -96,6 +109,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const anchor = useRef<HTMLElement | null>(null)
   const [prefetchedIds] = useState(() => new Set<string>())
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Cancel a pending hover and dismiss the current plate preview. */
   const close = () => {
     if (timer.current) clearTimeout(timer.current)
     anchor.current = null
@@ -135,11 +149,18 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
       if (!result.ok && result.error === 'stale_plate') setIssue({ plate, fields, result })
       return result
     } },
+    /** Freeze the projected grid while a drag or write is using its current geometry. */
     holdOverlay: held => setHeldOverlay(held ? overlaid : null),
+    /**
+     * Collect drop targets from the baseline families so drag hit testing stays
+     * anchored.
+     */
     targets: () => collectDragTargets(container.current, baselineFamilies),
     closePreview: close,
+    /** Reload cached batch data after a remote edit or conflict changes the overlay. */
     reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
   })
+  /** Restore the plate's prior deletion state and surface any failed undo. */
   async function undoDelete(plate: PlateCardData) {
     setResolutionError('')
     try {
@@ -149,6 +170,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
       setResolutionError('Could not undo deletion. Check your connection and try again.')
     }
   }
+  /**
+   * Resolve the displayed edit conflict using the refreshed revision and the curator's
+   * choice.
+   */
   async function resolveConflict(reapply: boolean) {
     if (!issue || issue.result.error !== 'stale_plate' || resolving || edits.pending) return
     setResolving(true)
@@ -188,6 +213,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     plateSelection.visible(visible.flatMap(family => [family.template, ...family.variants]).filter(matches))
   })
   useLayoutEffect(() => {
+    /**
+     * Measure the grid container to update row layout and the virtualizer's scroll
+     * origin.
+     */
     const resize = () => {
       const bounds = container.current?.getBoundingClientRect()
       if (!bounds) return
@@ -207,6 +236,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     }
   }, [visible.length])
   useEffect(() => {
+    /**
+     * Dismiss the hover preview when a pointer lands outside the preview and tooltip
+     * surfaces.
+     */
     const dismissPointer = (event: PointerEvent) => {
       if (
         !(event.target instanceof Element) ||
@@ -214,6 +247,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
       )
         close()
     }
+    /**
+     * Reposition an open preview after layout changes or close it if its anchor
+     * disappeared.
+     */
     const reposition = () => {
       const element = anchor.current
       if (!element?.isConnected) {
@@ -237,6 +274,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const virtualizer = useWindowVirtualizer({
     count: rows.length,
     initialRect: { width: 1440, height: 900 },
+    /** Estimate a virtual row's height from its tallest family and the grid gap. */
     estimateSize: (index) =>
       Math.max(
         ...rows[index].map((family) =>
@@ -247,6 +285,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     scrollMargin: layout.margin,
     scrollPaddingStart: typeof document === 'undefined' ? 0 :
       Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 0,
+    /** Use the row index as the virtual grid's key for its current layout. */
     getItemKey: (index) => index,
   })
   const virtualRows = virtualizer.getVirtualItems()
@@ -295,6 +334,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     if (keyboardSlot === null) return
     virtualizer.scrollToIndex(Math.floor(Math.min(keyboardSlot, visible.length - 1) / layout.columns), { align: 'auto' })
   }, [keyboardSlot, virtualizer, visible.length, layout.columns])
+  /**
+   * Schedule or immediately open a plate preview while idle and preload the detail
+   * route.
+   */
   function open(
     plate: PlateCardData,
     element: HTMLElement,

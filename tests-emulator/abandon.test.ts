@@ -10,6 +10,10 @@ import { db } from './setup'
 beforeEach(resetRelease)
 afterAll(cleanupRelease)
 
+/**
+ * Create an interrupted publish receipt and pause its command so tests can exercise
+ * abandonment.
+ */
 async function prepared(uploaded = false) {
   const f = releaseFixture()
   const upload = f.deps.snapshots.createOnly
@@ -39,8 +43,8 @@ test.each([false, true])('burn, archive, all bound stops and disposition commit 
 
 test('failure after staging the archive rolls back the burn, stops, receipt and Batch audit', async () => {
   const f = await prepared()
-  const failing = new Proxy(db, { get(target, key) {
-    if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>) => db.runTransaction(tx => run(new Proxy(tx, { get(transaction, method) {
+  const failing = new Proxy(db, { /** Wrap Firestore transactions so the fixture can inject a failure during abandonment. */ get(target, key) {
+    if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>) => db.runTransaction(tx => run(new Proxy(tx, { /** Fail the version burn write and pass other transaction operations through to Firestore. */ get(transaction, method) {
       if (method === 'create') return (ref: Parameters<Transaction['create']>[0], data: Record<string, unknown>) => {
         if (ref.path.startsWith('publishVersionBurns/')) throw new Error('injected rollback')
         return transaction.create(ref, data)
@@ -133,7 +137,7 @@ test('abandonment protects committed receipts and checks current actor epoch in 
 })
 
 test.each(['not_found', 'transient', 'running'])('abandon takeover uses confirmed Workflow state: %s', async status => {
-  const f = releaseFixture({ runStatus: async () => { if (status === 'transient') throw new Error('temporary'); return status }, findRun: async () => null })
+  const f = releaseFixture({ /** Provide controlled workflow status for the publish or queue recovery scenario. */ runStatus: async () => { if (status === 'transient') throw new Error('temporary'); return status }, /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async () => null })
   await f.deps.records.accept(command, now)
   await f.deps.records.bindRun(command, 'old-run', now)
   const upload = f.deps.snapshots.createOnly

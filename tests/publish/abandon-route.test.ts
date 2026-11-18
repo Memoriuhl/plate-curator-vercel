@@ -6,6 +6,7 @@ import { publishBatch } from '../../lib/publish/publish'
 const mocks = vi.hoisted(() => ({ currentActiveOwner: vi.fn(), publishAllowed: vi.fn(), publishDeps: vi.fn() }))
 vi.mock('../../lib/server/context', () => mocks)
 const ctx = { params: Promise.resolve({ id: batch.id }) }
+/** Build the POST request the route fixture passes to its handler. */
 const request = (body: unknown = { revision: 2, commandId: command.commandId, reason: 'Choose another Batch' }) => new Request('http://localhost/api/batches/batch/abandon', { method: 'POST', body: JSON.stringify(body) })
 
 beforeEach(() => {

@@ -18,6 +18,7 @@ import styles from './pipeline-runs.module.css'
 
 type Plates = { plateIds: string[]; steps: StepProgress[]; plates?: RunPlateDetail[] }
 
+/** Group the run's plates by state and show per-plate stage progress. */
 export function PipelinePlateList({ plateIds, steps, plates }: Plates) {
   const records = new Map(plates?.map(plate => [plate.id, plate]))
   const names = new Map(steps.map(step => [step.plateId, step.plateName]))
@@ -44,6 +45,7 @@ export function PipelinePlateList({ plateIds, steps, plates }: Plates) {
   </div>)}</div>
 }
 
+/** Fetch on-demand local run plate details so collapsed panels avoid extra requests. */
 function LocalPlates({ runId, enabled, ...props }: Plates & { runId: string; enabled: boolean }) {
   const { api, user } = useSession()
   const detail = useSWR<{ selected?: QueueRunView }>(user && enabled ? `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}` : null, api.get)
@@ -55,18 +57,25 @@ function LocalPlates({ runId, enabled, ...props }: Plates & { runId: string; ena
   </>
 }
 
+/**
+ * Show a compact plate stack and open its run detail popover on pointer or keyboard
+ * interaction.
+ */
 export function PipelinePlateStack({ runId, local, resultsHref, watchUrl, ...props }: Plates & {
   runId: string; local?: boolean; resultsHref?: string; watchUrl?: string | null
 }) {
   const [open, setOpen] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /** Cancel the pending popover close when the pointer returns. */
   const clear = () => clearTimeout(timer.current)
   useEffect(() => () => clearTimeout(timer.current), [])
 
+  /** Close the plate details immediately and clear any scheduled close. */
   function close() {
     clear()
     setOpen(false)
   }
+  /** Delay closing so the pointer can move between the trigger and the popover. */
   function leave() {
     clear()
     timer.current = setTimeout(close, 220)

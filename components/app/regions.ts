@@ -8,6 +8,7 @@ export const REGIONS = [
 export type RegionSummary = { region: string; firstCode: string; count: number }
 export type JurisdictionRegion = { code: string; region: string }
 
+/** Group available jurisdictions by region for the navigation picker. */
 export function summarizeRegions(jurisdictions: JurisdictionRegion[]): RegionSummary[] {
   const regions = new Map<string, RegionSummary>()
   for (const { code, region } of jurisdictions) {
@@ -18,6 +19,7 @@ export function summarizeRegions(jurisdictions: JurisdictionRegion[]): RegionSum
   return [...regions.values()]
 }
 
+/** Resolve the current region from the active jurisdiction or plate route. */
 export function routeRegion(
   params: { code?: string | string[]; id?: string | string[] },
   pathname: string,

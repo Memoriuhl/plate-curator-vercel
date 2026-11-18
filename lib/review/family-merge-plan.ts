@@ -16,10 +16,15 @@ export type FamilyMergeResult = {
   standard: number
 }
 
+/**
+ * Plan the family membership changes for selected plates while preserving the
+ * destination template.
+ */
 export function planFamilyMerge(families: Family[], destination: Family, selectedIds: readonly string[], firstId?: string) {
   const byId = new Map(families.flatMap(family => [family.template, ...family.variants]).map(plate => [plate.id, plate]))
   const children = new Map(families.map(family => [family.template.id, family.variants]))
   const inFamily = new Set([destination.template.id, ...destination.variants.map(plate => plate.id)])
+  /** Protect a state's standard and first plate from being moved into another family. */
   const protectedPlate = (plate: Member) => plate.isStandard === true || plate.id === firstId
   const moving = new Set<string>()
   const result: FamilyMergeResult = { moved: [], alreadyInFamily: 0, deleted: 0, standard: 0 }

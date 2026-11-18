@@ -1,3 +1,4 @@
+/** Hold the dashboard layout while navigation or family grid data is loading. */
 export function DashboardSkeleton({
   kind,
 }: {

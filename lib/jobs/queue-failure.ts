@@ -5,6 +5,7 @@ import type { Actor } from '../review/types'
 
 const reasons = new Set(['no_handler', 'stage_failed', 'missing_image', 'lease_expired', 'stale_input', 'report_failed'])
 
+/** Record a local worker failure only while its claim still owns the job. */
 export async function failLocalJob(d: JobsDeps, workerId: string, id: string, claimId: string, reason: string): Promise<Outcome<TaggingJob>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
@@ -21,6 +22,10 @@ export async function failLocalJob(d: JobsDeps, workerId: string, id: string, cl
   })
 }
 
+/**
+ * Find stranded local jobs in the current scope and reconcile expired claims for the
+ * recovery view.
+ */
 export async function listLocalOrphanJobs(d: JobsDeps, actor: Actor): Promise<TaggingJob[]> {
   if (!localQueueEnabled(d)) return []
   return d.store.transaction(async tx => {
@@ -39,6 +44,9 @@ export async function listLocalOrphanJobs(d: JobsDeps, actor: Actor): Promise<Ta
   })
 }
 
+/**
+ * Recover an eligible orphaned job while checking its current state and actor's access.
+ */
 export async function recoverLocalOrphanJob(d: JobsDeps, actor: Actor, id: string, claimId: string): Promise<Outcome<TaggingJob>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {

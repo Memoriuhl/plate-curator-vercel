@@ -3,6 +3,10 @@ import { backfillBatchSignals } from '../lib/review/backfill-signals'
 import { assertStagingProject } from '../lib/review/demo-seed'
 import { firestoreBatchSignalsBackfillStore } from '../lib/review/firestore-backfill-signals'
 
+/**
+ * Load staging configuration and run the missing revision signal backfill for the
+ * selected review environment.
+ */
 async function main() {
   loadEnvConfig(process.cwd())
   assertStagingProject(process.env.GCP_PROJECT_ID)

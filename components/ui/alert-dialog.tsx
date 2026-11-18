@@ -6,12 +6,14 @@ import { AlertDialog as AlertDialogPrimitive } from 'radix-ui'
 
 import { Button } from '@/components/ui/button'
 
+/** Provide the shared alert dialog root and its styling slot for confirmation flows. */
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
 }
 
+/** Open the alert dialog from the supplied trigger control. */
 function AlertDialogTrigger({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
@@ -20,6 +22,7 @@ function AlertDialogTrigger({
   )
 }
 
+/** Mount dialog content outside the triggering layout when a portal is used. */
 function AlertDialogPortal({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
@@ -28,6 +31,7 @@ function AlertDialogPortal({
   )
 }
 
+/** Render the modal backdrop and coordinate its visual state with the dialog. */
 function AlertDialogOverlay({
   className,
   ...props
@@ -44,6 +48,7 @@ function AlertDialogOverlay({
   )
 }
 
+/** Render the focused dialog panel above its backdrop and apply the selected size. */
 function AlertDialogContent({
   className,
   size = 'default',
@@ -67,6 +72,7 @@ function AlertDialogContent({
   )
 }
 
+/** Lay out the heading and optional media within the dialog panel. */
 function AlertDialogHeader({
   className,
   ...props
@@ -83,6 +89,7 @@ function AlertDialogHeader({
   )
 }
 
+/** Align the dialog's confirmation and cancellation controls across screen sizes. */
 function AlertDialogFooter({
   className,
   ...props
@@ -99,6 +106,7 @@ function AlertDialogFooter({
   )
 }
 
+/** Place an icon or other context media beside the dialog's message. */
 function AlertDialogMedia({
   className,
   ...props
@@ -115,6 +123,7 @@ function AlertDialogMedia({
   )
 }
 
+/** Render the accessible alert dialog title with the shared typography. */
 function AlertDialogTitle({
   className,
   ...props
@@ -131,6 +140,7 @@ function AlertDialogTitle({
   )
 }
 
+/** Attach accessible supporting text to the alert dialog. */
 function AlertDialogDescription({
   className,
   ...props
@@ -147,6 +157,7 @@ function AlertDialogDescription({
   )
 }
 
+/** Style the Radix confirmation action using the shared button variants. */
 function AlertDialogAction({
   className,
   variant = 'primary',
@@ -165,6 +176,7 @@ function AlertDialogAction({
   )
 }
 
+/** Style the Radix dismiss action using the shared button variants. */
 function AlertDialogCancel({
   className,
   variant = 'outline',

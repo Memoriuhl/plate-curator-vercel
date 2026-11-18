@@ -9,9 +9,9 @@ import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { ReviewDeps } from '../../lib/review/types'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), worker: vi.fn(), reviews: vi.fn(), jobs: vi.fn(), changed: vi.fn() }))
-vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, currentWorker: mocks.worker, reviewDeps: mocks.reviews, jobsDeps: mocks.jobs, chooseModel: () => ({ ok: true, model: { id: 'desktop-gemma4-12b' } }) }))
+vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, currentWorker: mocks.worker, reviewDeps: mocks.reviews, jobsDeps: mocks.jobs, /** Select the fixture desktop vision model for the grouping route. */ chooseModel: () => ({ ok: true, model: { id: 'desktop-gemma4-12b' } }) }))
 vi.mock('../../lib/server/catalog-head', () => ({ catalogChanged: mocks.changed }))
-vi.mock('../../worker/remote-image', () => ({ readCommonsImage: async () => Buffer.from('verified image') }))
+vi.mock('../../worker/remote-image', () => ({ /** Return known image bytes so candidate verification runs without a real download. */ readCommonsImage: async () => Buffer.from('verified image') }))
 
 const { POST: imageAccept } = await import('../../app/api/batches/[id]/images/accept/route')
 const { POST: groupCreate } = await import('../../app/api/batches/[id]/group/route')
@@ -22,15 +22,20 @@ const { POST: capabilityReport } = await import('../../app/api/worker/capabiliti
 
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks() })
 const ctx = { params: Promise.resolve({ id: 'batch' }) }
+/** Build the POST request the route fixture passes to its handler. */
 const post = (body: unknown) => new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
+/**
+ * Prepare authenticated route dependencies, fixture jobs and verified grouping or image
+ * input.
+ */
 async function setup() {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const actor = { uid: 'editor', role: 'editor' as const, name: null }
   const plates = ['a', 'b'].map(id => ({ id: `AK.${id}`, state: 'AK', slug: id, displayName: id, image: `${id}.webp`, tags: [], templateRole: 'template' as const, templateFamily: `AK.${id}`, isStandard: id === 'a' }))
   const store = createMemoryStore([{ id: 'batch', name: 'Batch', createdBy: actor.uid, createdAt: '', state: 'open', revision: 0, baselineVersion: 1, approval: null, plateIds: plates.map(plate => plate.id), stateOrders: { AK: plates.map(plate => plate.id) } }])
-  const d: ReviewDeps = { store, baseline: async id => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates, now: () => '' }
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, baselineAtVersion: d.baselineAtVersion, stateBaseline: d.stateBaseline, localScope: 'scope', now: () => 1000, id: () => 'claim', leaseMs: 10000 }
+  const d: ReviewDeps = { store, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, baselineAtVersion: d.baselineAtVersion, stateBaseline: d.stateBaseline, localScope: 'scope', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 1000, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 10000 }
   mocks.auth.mockResolvedValue({ ok: true, actor })
   mocks.worker.mockResolvedValue({ ok: true, workerId: 'worker' })
   mocks.reviews.mockReturnValue(d)

@@ -16,6 +16,7 @@ const toggleVariants = cva(
   },
 )
 
+/** Render a shared pressed-state control with the selected styling variants. */
 function Toggle({
   className,
   variant,

@@ -2,6 +2,7 @@ import { revokeWorkerToken } from '../../../../lib/jobs/tokens'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
 
+/** Revoke a jobs worker credential in the current environment on an owner's request. */
 export async function DELETE(request: Request, ctx: RouteContext<'/api/worker-tokens/[hash]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

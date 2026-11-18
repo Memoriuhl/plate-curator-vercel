@@ -345,6 +345,10 @@ test.each(['started', 'upload', 'uploaded', 'pointer', 'before curator', 'curato
   const f = fixture({ ...batch, stateOrders: { CA: ['two', 'one'] } })
   await seedOrderStandards(f.deps, 'batch')
   let crashed = false
+  /**
+   * Simulate an interrupted publish response and mark that the injected failure
+   * occurred.
+   */
   const crash = () => { crashed = true; throw new Error('response lost') }
   const save = f.deps.records.save
   f.deps.records.save = async (...args) => {

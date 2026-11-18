@@ -12,6 +12,7 @@ export const PIPELINE_BUSY_MESSAGE = 'Plate Pipeline work is queued or running. 
 
 export const PUBLISH_ERRORS = { ...PUBLISH_STOPS, notWaiting: 'not_waiting', unavailable: 'unavailable' } as const
 
+/** Check that a stored failure code is one of the recognized durable publish stops. */
 export function isPublishStop(error: unknown): error is PublishStop {
   return Object.values(PUBLISH_STOPS).some(stop => stop === error)
 }

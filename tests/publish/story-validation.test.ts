@@ -4,6 +4,7 @@ import type { Plate, Snapshot } from '../../lib/catalog/types'
 
 const plate: Plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', tags: [], image: '' }
 const baseline: Snapshot = { version: 1, plates: [plate] }
+/** Build a candidate snapshot with the field changes supplied by the validation case. */
 const candidate = (fields: Record<string, unknown>) => ({ version: 2, plates: [{ ...plate, ...fields }] })
 
 test.each([

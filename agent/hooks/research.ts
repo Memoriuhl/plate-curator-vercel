@@ -2,6 +2,7 @@ import { defineHook } from 'eve/hooks'
 
 export default defineHook({
   events: {
+    /** Bind a newly started Eve session to its originating research request and owner. */
     async 'session.started'(_event, ctx) {
       const { researchState } = await import('../../lib/research/storage')
       const { firestoreResearchStore } = await import('../../lib/research/firestore-store')
@@ -22,6 +23,7 @@ export default defineHook({
         return { value, result: null }
       })
     },
+    /** Record settled turn usage and model costs for the hosted research result. */
     async 'turn.settled'(event, ctx) {
       const { researchState } = await import('../../lib/research/storage')
       const state = await researchState()

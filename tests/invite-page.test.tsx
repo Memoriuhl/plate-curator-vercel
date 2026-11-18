@@ -6,9 +6,9 @@ import type { InviteLookup } from '../lib/client/invites'
 
 const mocks = vi.hoisted(() => ({ lookup: vi.fn(), google: vi.fn(), replace: vi.fn(), user: null as null | { uid: string } }))
 vi.mock('../lib/client/invites', () => ({ useInvite: mocks.lookup }))
-vi.mock('../lib/client/session', () => ({ useSession: () => ({ ready: true, user: mocks.user, signInWithGoogle: mocks.google }) }))
-vi.mock('../lib/client/hooks', () => ({ useMe: () => ({}) }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: mocks.replace }) }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => ({ ready: true, user: mocks.user, signInWithGoogle: mocks.google }) }))
+vi.mock('../lib/client/hooks', () => ({ /** Supply the current fixture actor for role and account-dependent behavior. */ useMe: () => ({}) }))
+vi.mock('next/navigation', () => ({ /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ replace: mocks.replace }) }))
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.user = null

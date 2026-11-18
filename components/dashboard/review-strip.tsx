@@ -10,6 +10,7 @@ import { cn } from '@/components/utils'
 import { PublishButton } from './publish-button'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 
+/** Summarize one review batch and link to the actions available for its current state. */
 function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   const detail = useBatch(batch.id)
   const loadedBatch = detail.data?.batch
@@ -51,6 +52,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   )
 }
 
+/** Show the current review batches and owner-specific actions in the dashboard strip. */
 export function ReviewStrip() {
   const { data, error, isLoading } = useBatches(['submitted', 'approved'])
   const me = useMe()

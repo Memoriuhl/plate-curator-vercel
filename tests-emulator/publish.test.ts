@@ -16,7 +16,7 @@ const lease: PublishLease = { ...command, token: 'first', expiresAt: '2026-11-15
 const record: PublishRecord = { id: 'batch@2', ...command, fromVersion: 1, toVersion: 2, blobSha256: 'checksum', url: 'https://storage.example/v2.json?token=t', object: { generation: '1', metageneration: '1', md5Hash: 'fixture-hash', url: 'https://storage.example/v2.json?token=t' }, state: 'uploaded' }
 const lock = firestorePublishLock(db, env)
 const pointer = firestorePublishPointer(db, env, async () => true)
-const records = firestorePublishRecords(db, env, { findRun: async () => null })
+const records = firestorePublishRecords(db, env, { /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async () => null })
 const store = firestoreReviewStore(db, env)
 const control = firestorePublishControl(db)
 const controlActor = { uid: 'owner', email: 'owner@example.com' }
@@ -41,7 +41,7 @@ test('same-byte recreation before metadata binds the current generation URL in F
 test.each(['same', 'different'])('a %s-byte recreation before the pointer transaction is refused by live generation', async bytes => {
   const f = fixture()
   const guardedPointer = firestorePublishPointer(db, env, receipt => verifyPreparedObject(f.deps.snapshots, receipt))
-  const deps = { ...f.deps, control, store, lock, records, curator: firestorePublishCurator(db, env), pointer: { ...guardedPointer, advance: async (...args: Parameters<typeof guardedPointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, curator: firestorePublishCurator(db, env), pointer: { ...guardedPointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof guardedPointer.advance>) => {
     f.blobs.set(2, bytes === 'same' ? Uint8Array.from(f.blobs.get(2)!) : new Uint8Array([9]))
     return guardedPointer.advance(...args)
   } } }
@@ -51,7 +51,7 @@ test.each(['same', 'different'])('a %s-byte recreation before the pointer transa
 })
 
 test.each(['unbound', 'completed', 'failed', 'cancelled'])('claimRecovery replaces a %s claim and fences its previous command', async status => {
-  const recovering = firestorePublishRecords(db, env, { runStatus: async () => status, findRun: async () => null })
+  const recovering = firestorePublishRecords(db, env, { /** Provide controlled workflow status for the publish or queue recovery scenario. */ runStatus: async () => status, /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async () => null })
   const first = { ...command, commandId: 'abandoned' }
   await recovering.accept(first, now)
   if (status !== 'unbound') await recovering.bindRun(first, 'old-run', now)
@@ -75,8 +75,8 @@ test('B3: two Owners racing takeover of one stale claim produce exactly one winn
 test('B5: failure between staging supersede and replacing the claim rolls both back', async () => {
   await records.accept({ ...command, commandId: 'old-claim' }, now)
   let stagedStop = false
-  const failing = new Proxy(db, { get(target, key) {
-    if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>) => db.runTransaction(tx => run(new Proxy(tx, { get(transaction, method) {
+  const failing = new Proxy(db, { /** Wrap Firestore's transaction entry point so the claim replacement test can fail a write. */ get(target, key) {
+    if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>) => db.runTransaction(tx => run(new Proxy(tx, { /** Record the staged stop and fail the replacement command write to exercise transaction rollback. */ get(transaction, method) {
       if (method === 'create') return (ref: { path: string }, data: Record<string, unknown>) => {
         if (ref.path === 'publishCommandStops/old-claim') stagedStop = true
         if (ref.path === 'publishCommands/replacement') throw new Error('injected between stop and claim')
@@ -88,7 +88,7 @@ test('B5: failure between staging supersede and replacing the claim rolls both b
     const value = Reflect.get(target, key)
     return typeof value === 'function' ? value.bind(target) : value
   } }) as Firestore
-  await expect(firestorePublishRecords(failing, env, { findRun: async () => null }).accept({ ...command, commandId: 'replacement' }, '2026-11-15T12:02:01Z')).rejects.toThrow('injected between stop and claim')
+  await expect(firestorePublishRecords(failing, env, { /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async () => null }).accept({ ...command, commandId: 'replacement' }, '2026-11-15T12:02:01Z')).rejects.toThrow('injected between stop and claim')
   expect(stagedStop).toBe(true)
   expect((await db.doc('publishCommandStops/old-claim').get()).exists).toBe(false)
   expect(await records.command('replacement')).toBeNull()
@@ -96,7 +96,7 @@ test('B5: failure between staging supersede and replacing the claim rolls both b
 })
 
 test.each(['terminal', 'stopped'])('B2: old work after %s takeover cannot check, adopt or commit', async reason => {
-  const target = firestorePublishRecords(db, env, { runStatus: async () => reason === 'terminal' ? 'failed' : 'running' })
+  const target = firestorePublishRecords(db, env, { /** Provide controlled workflow status for the publish or queue recovery scenario. */ runStatus: async () => reason === 'terminal' ? 'failed' : 'running' })
   await target.accept(command, now)
   await target.bindRun(command, 'old-run', now)
   const f = fixture()
@@ -146,7 +146,7 @@ test('D: a create-only re-upload cannot overwrite different bytes arriving after
   await control.check(command, now)
   await control.change(false, controlActor, now)
   const different = new Uint8Array([9, 8, 7])
-  deps.records = { ...records, checkUpload: async (...args) => {
+  deps.records = { ...records, /** Replace the snapshot bytes after the upload check to test independent verification before committing. */ checkUpload: async (...args) => {
     const result = await records.checkUpload(...args)
     if (!result) f.blobs.set(2, different)
     return result
@@ -246,7 +246,7 @@ test.each(['pause', 'revoke'])('Owner B explicitly adopts Owner A stopped upload
   if (reason === 'pause') await control.change(false, actorB, now)
   const fresh = { ...command, commandId: 'fresh-b', generation: reason === 'pause' ? 3 : 1, requestedBy: { ...actorB, authorityEpoch: 0 } }
   const adopt = records.adopt
-  deps.records = { ...records, adopt: async (...args) => {
+  deps.records = { ...records, /** Try publishing using the superseded command immediately after the active retry adopts its receipt. */ adopt: async (...args) => {
     const adopted = await adopt(...args)
     expect(typeof adopted).toBe('object')
     expect(await pointer.advance(old, { ...lease, token: args[3] }, now)).toBe('superseded')
@@ -386,7 +386,7 @@ test('publishes and reconciles through the Firestore adapters', async () => {
   const f = fixture()
   const deps = { ...f.deps, store, lock, records, pointer, curator: firestorePublishCurator(db, env) }
   const advance = pointer.advance
-  deps.pointer = { ...pointer, advance: async (...args) => { await advance(...args); throw new Error('lost response') } }
+  deps.pointer = { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args) => { await advance(...args); throw new Error('lost response') } }
   expect(await publishBatch(deps, owner, command)).toMatchObject({ ok: false, error: 'unavailable' })
   expect(await store.getBatch(batch.id)).toMatchObject({ state: 'approved', revision: 2 })
   expect((await db.doc('curatorLive/publish-test/batchRevisions/batch').get()).data()).toEqual({ revision: 2 })
@@ -471,7 +471,7 @@ test.each([env, 'another-deployment'])('pause committing first stops the pointer
   const targetPointer = firestorePublishPointer(db, deployment, async () => true)
   const deps = { ...f.deps, control, store: targetStore, lock: firestorePublishLock(db, deployment), records: firestorePublishRecords(db, deployment), pointer: targetPointer, curator: firestorePublishCurator(db, deployment) }
   const advance = targetPointer.advance
-  deps.pointer = { ...targetPointer, advance: async (...args) => {
+  deps.pointer = { ...targetPointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args) => {
     expect(await control.change(true, controlActor, now)).toMatchObject({ paused: true, generation: 2 })
     return advance(...args)
   } }
@@ -488,7 +488,7 @@ test.each([env, 'another-deployment'])('pause committing first stops the pointer
 test('Publish commits first, then Pause, and retries reconcile the same version', async () => {
   const f = fixture()
   let advances = 0
-  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof pointer.advance>) => {
     advances++
     const result = await pointer.advance(...args)
     await control.change(true, controlActor, now)
@@ -549,7 +549,15 @@ test('unavailable control at the pointer read cannot commit even after successfu
   const f = fixture()
   const unavailable = {
     doc: db.doc.bind(db),
+    /**
+     * Wrap the release transaction so its control read can simulate an unavailable
+     * database.
+     */
     runTransaction: (run: (transaction: Transaction) => Promise<unknown>) => db.runTransaction(transaction => run(new Proxy(transaction, {
+      /**
+       * Fail the batched read while forwarding unrelated operations to the emulator
+       * transaction.
+       */
       get(target, property) {
         if (property === 'getAll') return async () => { throw new Error('control read unavailable') }
         const value = Reflect.get(target, property)
@@ -592,7 +600,7 @@ test('the pause transaction normalizes the membership email', async () => {
 test.each(['updateRoleGuarded', 'removeGuarded'] as const)('requester %s wins at the commit seam and restore cannot revive it', async method => {
   const members = firestoreMembersStore(db)
   const f = fixture()
-  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof pointer.advance>) => {
     expect(await members[method]('owner@example.com', 'editor')).toBe('ok')
     return pointer.advance(...args)
   } }, curator: firestorePublishCurator(db, env) }
@@ -611,7 +619,7 @@ test.each(['updateRoleGuarded', 'removeGuarded'] as const)('requester %s wins at
 test('revocation after Publish commit reconciles the same version exactly once', async () => {
   const f = fixture()
   let advances = 0
-  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof pointer.advance>) => {
     advances++
     expect(await pointer.advance(...args)).toBe('advanced')
     expect(await firestoreMembersStore(db).removeGuarded('owner@example.com')).toBe('ok')
@@ -680,7 +688,7 @@ test('bootstrap without a member document fails the final active Owner check', a
 
 test('an unchanged guarded Owner role preserves an in-flight Publish at the commit seam', async () => {
   const f = fixture()
-  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof pointer.advance>) => {
     expect(await firestoreMembersStore(db).updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
     return pointer.advance(...args)
   } }, curator: firestorePublishCurator(db, env) }
@@ -690,7 +698,7 @@ test('an unchanged guarded Owner role preserves an in-flight Publish at the comm
 test('guarded demotion then restore before the pointer transaction invalidates the old epoch', async () => {
   const f = fixture()
   const members = firestoreMembersStore(db)
-  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, advance: async (...args: Parameters<typeof pointer.advance>) => {
+  const deps = { ...f.deps, control, store, lock, records, pointer: { ...pointer, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: async (...args: Parameters<typeof pointer.advance>) => {
     expect(await members.updateRoleGuarded('owner@example.com', 'editor')).toBe('ok')
     expect(await members.updateRoleGuarded('owner@example.com', 'owner')).toBe('ok')
     return pointer.advance(...args)

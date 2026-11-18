@@ -6,6 +6,10 @@ export type ReviewChanges = { revision: number; since: number | null; plateCount
 type Author = Pick<Actor, 'uid' | 'name'>
 export type DraftChange = { revision: number; plateIds: string[]; contributors: Author[] }
 
+/**
+ * Describe the plates and contributors changed by one batch revision for the review
+ * checkpoint.
+ */
 export function draftChange(
   previous: ReviewBatch,
   next: ReviewBatch,
@@ -27,6 +31,7 @@ export function draftChange(
   return { revision: next.revision, plateIds: [...plateIds], contributors: [...contributors.values()].map(({ uid, name }) => ({ uid, name })) }
 }
 
+/** Summarize changes and contributor names since the viewer's checkpoint. */
 export function reviewChanges(revision: number, viewed: ReviewCheckpoint | null, changes: DraftChange[]): ReviewChanges {
   return {
     revision,
@@ -36,6 +41,7 @@ export function reviewChanges(revision: number, viewed: ReviewCheckpoint | null,
   }
 }
 
+/** Filter revision history to changes that still appear in the current batch draft. */
 export function currentDraftChanges(batch: ReviewBatch, editIds: string[], changes: DraftChange[]): DraftChange[] {
   const netIds = new Set(editIds)
   for (const [state, order] of Object.entries(batch.stateOrders ?? {})) {

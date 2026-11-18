@@ -3,6 +3,7 @@ import { listGatewayRuns } from '../../../../lib/jobs/gateway-runs'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
 
+/** List hosted tagging runs with an observation timestamp for the dashboard queue. */
 export async function GET(request: Request) {
   await connection()
   const auth = await currentActor(request)

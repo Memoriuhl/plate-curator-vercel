@@ -5,6 +5,10 @@ import { startResearch } from '@/lib/research/jobs'
 import { researchRun } from '@/workflows/research'
 import { HookConflictError } from 'workflow/errors'
 
+/**
+ * Authorize an owner research request and dispatch its workflow when the selected model
+ * runs in Eve.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]/research'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response

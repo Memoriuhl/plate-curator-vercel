@@ -5,6 +5,9 @@ import { IoArrowUpOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { batchHref } from '@/lib/review/href'
 
+/**
+ * Link to the batch's publish flow or explain why publishing is currently unavailable.
+ */
 export function PublishButton({ batchId, owner, size = 'default' }: {
   batchId?: string
   owner: boolean

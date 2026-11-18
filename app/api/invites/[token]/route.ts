@@ -4,6 +4,7 @@ import { json } from '@/lib/server/respond'
 import { hashInviteToken } from '@/lib/members/invite'
 import { memberStatus } from '@/lib/members/member'
 
+/** Look up an invitation by token hash and expose whether it can still be accepted. */
 export async function GET(_request: Request, context: { params: Promise<{ token: string }> }) {
   await connection()
   const { token } = await context.params

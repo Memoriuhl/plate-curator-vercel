@@ -6,6 +6,7 @@ export const instant = '2026-11-16T12:00:00.000Z'
 const invite = createInvite('first-token', () => instant)
 const pending: PendingMember = { email: ' Person@Example.com ', role: 'editor', signIn: 'google', invitedBy: 'owner', invite }
 
+/** Run shared membership behavior tests against every supplied store implementation. */
 export function membersStoreScenarios(setup: (now: () => string) => Promise<MembersStore>) {
   it.each(['updateRole', 'updateRoleGuarded'] as const)('%s leaves authority unchanged for an unchanged role', async method => {
     const store = await setup(() => instant)

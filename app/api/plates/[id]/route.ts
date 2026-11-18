@@ -2,6 +2,7 @@ import { loadPlate } from '../../../../lib/catalog/dashboard'
 import { currentActor } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
 
+/** Return authenticated plate detail for the workspace's cached detail view. */
 export async function GET(request: Request, ctx: RouteContext<'/api/plates/[id]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

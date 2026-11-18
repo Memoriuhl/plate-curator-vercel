@@ -3,9 +3,14 @@ import { DEFAULT_TAGGING_MODEL, taggingModel, TAGGING_MODELS } from '../../lib/t
 import { parseFieldSuggestion } from '../../lib/jobs/suggestions'
 import type { WorkerDeps } from '../run'
 
+/** Normalize a model's color value through the supported palette. */
 const color = (value: unknown) => typeof value === 'string' ? COLORS.find(color => color === value.trim().toLowerCase()) : undefined
 const broad: Record<string, string> = { silver: 'gray', maroon: 'red', gold: 'yellow', tan: 'brown', navy: 'blue', teal: 'blue' }
 
+/**
+ * Build the color stage handler that proposes supported plate color fields with usage
+ * metadata.
+ */
 export function createColorStageHandler(options: { url: string; fetch?: typeof fetch; readImage: (image: string) => Promise<string> }): NonNullable<WorkerDeps['suggestFields']> {
   return async ({ stage, plate, model: requested }) => {
     if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || stage !== 'colors') throw Error('Local Colors stage is unavailable')
@@ -20,6 +25,10 @@ export function createColorStageHandler(options: { url: string; fetch?: typeof f
     }
     const deadline = new AbortController()
     const timer = setTimeout(() => deadline.abort(new Error('Local Colors inference deadline exceeded')), 120000)
+    /**
+     * Use the stage deadline for the model request and fail early when it has already
+     * elapsed.
+     */
     const request: typeof fetch = (url, init) => {
       deadline.signal.throwIfAborted()
       return (options.fetch ?? fetch)(url, { ...init, signal: deadline.signal })

@@ -29,7 +29,9 @@ vi.mock('swr', async (importOriginal) => ({
   useSWRConfig: () => ({ mutate: state.mutate }),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: state.edit, pending: state.pending }),
+  /** Provide the plate overlay used to render this catalog scenario. */
   useDraftOverlay: (plates: PlateCardData[]) =>
     plates.map((plate) => ({
       ...(state.refreshed && state.remote?.id === plate.id
@@ -39,7 +41,9 @@ vi.mock('../lib/client/hooks', () => ({
     })),
 }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(state.query),
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ back: vi.fn() }),
 }))
 vi.mock('next/link', () => ({
@@ -61,13 +65,16 @@ const props: PlatePageProps = {
   prevId: 'AK.standard_gold',
   nextId: 'AK.air_force',
 }
+/** Find the rendered description textarea for the plate field interactions. */
 const description = () =>
   screen.getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement
+/** Change the named field value using the same input event as an editor. */
 function change(label: string, value: string) {
   fireEvent.change(screen.getByRole('textbox', { name: label }), {
     target: { value },
   })
 }
+/** Enter a description and submit it using the textarea shortcut. */
 function saveDescription(value: string) {
   change('Description', value)
   fireEvent.keyDown(description(), { key: 'Enter', ctrlKey: true })
@@ -232,6 +239,10 @@ test('family and role edits use the editable fields contract', async () => {
   )
 })
 
+/**
+ * Arrange a conflicting remote plate revision and wait for the editor's resolution
+ * controls.
+ */
 async function conflict() {
   state.remote = {
     ...army,

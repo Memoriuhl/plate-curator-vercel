@@ -28,6 +28,7 @@ const members = firestoreMembersStore(db)
 let time = 100, sequence = 0
 let jobs: JobsDeps, review: ReviewDeps
 
+/** Clear the emulator collections used by the queue scenario before the next test. */
 async function clear() { for (const name of collections) await db.recursiveDelete(db.collection(name)) }
 beforeEach(async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); time = 100; sequence = 0
@@ -37,14 +38,20 @@ beforeEach(async () => {
   const store = firestoreReviewStore(db, 'development')
   await store.create({ id: 'batch', name: 'Queue emulator', createdBy: actor.uid, createdByName: null, createdAt: '', revision: 0, state: 'open',
     baselineVersion: 1, plateIds: plates.map(plate => plate.id), stateOrders: {}, approval: null })
+  /** Resolve the plate by ID from the fixture baseline. */
   const baseline = async (id: string) => plates.find(plate => plate.id === id) ?? null
   jobs = { store: firestoreJobsStore(db, localJobsEnvironment('queue-emulator'), 'development'), localScope: 'queue-emulator', baseline,
-    stateBaseline: async () => plates, now: () => time, id: () => `claim-${++sequence}`, leaseMs: 1000 }
-  review = { store, baseline, baselineAtVersion: async (_version, id) => baseline(id), stateBaseline: async () => plates, now: () => 'today' }
+    /** Return the fixture state order used by the review or queue operation. */
+    stateBaseline: async () => plates, /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => time, /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () => `claim-${++sequence}`, leaseMs: 1000 }
+  review = { store, baseline, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version, id) => baseline(id), /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 'today' }
 })
 afterEach(() => vi.unstubAllEnvs())
 afterAll(async () => { await clear(); await db.terminate() })
 
+/**
+ * Enqueue a fixture selection and dispatch its first stage so the test starts with
+ * claimable work.
+ */
 async function enqueue(requestId = 'request', stages: ('tag' | 'describe')[] = ['tag']) {
   const result = await enqueueRun(jobs, actor, { requestId, batchId: 'batch', plateIds: plates.map(plate => plate.id), stages })
   if (!result.ok) throw Error(result.error)

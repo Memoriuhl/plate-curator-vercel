@@ -7,6 +7,10 @@ import type { GroupRuntime } from '../lib/jobs/image-options'
 type Settings = { [key: string]: string | undefined; LOCAL_GROUP_PYTHON?: string; LOCAL_GROUP_LEGACY_REPO?: string; LOCAL_GROUP_CACHE?: string; OLLAMA_URL?: string }
 const execute = promisify(execFile)
 
+/**
+ * Probe the installed embedding runtime and local vision provider so the worker
+ * advertises usable grouping features.
+ */
 export async function detectGroupRuntime(settings: Settings): Promise<GroupRuntime> {
   const result: GroupRuntime = { embeddings: false, backgroundMask: false, visionTiebreak: false, reason: 'Grouping is not configured on this worker' }
   if (settings.LOCAL_GROUP_PYTHON && settings.LOCAL_GROUP_LEGACY_REPO && settings.LOCAL_GROUP_CACHE) {

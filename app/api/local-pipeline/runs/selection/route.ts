@@ -6,6 +6,10 @@ import { catalogChanged } from '../../../../../lib/server/catalog-head'
 import { queueResponse, startQueueWorkflow } from '../../../../../lib/server/local-queue'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
+/**
+ * Enqueue the selected plates as scoped runs and create a draft batch when the selection
+ * needs one.
+ */
 export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

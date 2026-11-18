@@ -5,6 +5,7 @@ import { gcpAuthClient } from './credentials'
 
 const snapshots = new Map<number, Promise<Snapshot>>()
 
+/** Share an in-flight versioned snapshot read and allow a failed load to be retried. */
 export function loadSnapshot(version: number): Promise<Snapshot> {
   let snapshot = snapshots.get(version)
   if (!snapshot) {
@@ -15,6 +16,10 @@ export function loadSnapshot(version: number): Promise<Snapshot> {
   return snapshot
 }
 
+/**
+ * Fetch and decode one catalog snapshot from the configured storage bucket with Google
+ * credentials.
+ */
 async function fetchSnapshot(version: number): Promise<Snapshot> {
   const bucket = requireEnv('FIREBASE_STORAGE_BUCKET')
   const object = encodeURIComponent(`catalog/v${version}.json`)

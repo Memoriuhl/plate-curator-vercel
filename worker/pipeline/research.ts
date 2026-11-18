@@ -12,6 +12,10 @@ import { gatherWikipedia } from './sources'
 import { findWikipediaLink } from './wiki'
 import { extractJson } from '../model'
 
+/**
+ * Resolve the plate's Wikipedia match and capture evidence for local or hosted
+ * enrichment.
+ */
 export async function captureEnrichment(plate: WorkerPlate, request: typeof fetch = fetch): Promise<{ sources: EvidenceSource[]; wikiUrl: string | null }> {
   // Reuse the Wiki adapter's subject/jurisdiction match. The gather adapter then
   // fetches that page once, plus its bounded state/subject passages.
@@ -41,6 +45,10 @@ export async function captureSavedEnrichment(plate: SavedSourceLinks, fetchPage 
   return { sources: [...sources.values()], wikiUrl }
 }
 
+/**
+ * Build the local enrichment handler that synthesizes only eligible fields from captured
+ * evidence.
+ */
 export function createEnrichmentHandler(options: {
   url: string; fetch?: typeof fetch; capture?: typeof captureEnrichment; captureSaved?: typeof captureSavedEnrichment
 }) {

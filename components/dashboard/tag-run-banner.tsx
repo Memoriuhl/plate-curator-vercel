@@ -11,6 +11,9 @@ import { SpecializedSuggestion, type SpecializedAccept } from './specialized-sug
 import { useSession } from '@/lib/client/session'
 import { useSWRConfig } from 'swr'
 
+/**
+ * Merge saved and proposed tags into a normalized, deduplicated list for curator review.
+ */
 export function mergeTags(tags: string[], accepted: string[]) {
   return [
     ...new Set(
@@ -21,6 +24,10 @@ export function mergeTags(tags: string[], accepted: string[]) {
   ]
 }
 
+/**
+ * Summarize individual job outcomes and let the curator apply available tagging and
+ * pipeline results.
+ */
 export function TagRunBanner({
   entries,
   batchId,
@@ -44,9 +51,13 @@ export function TagRunBanner({
   const [saved, setSaved] = useState<Record<string, string[]>>({})
   const [savedFields, setSavedFields] = useState<Record<string, string>>({})
   const saving = useRef(false)
+  /** Count results that are still progressing or completed without a stage error. */
   const counts = (state: string) =>
     entries.filter((entry) => !entry.error && entry.job.state === state && (state !== 'completed' || !entry.job.stageError)).length
   const active = starting || counts('queued') + counts('claimed') > 0
+  /**
+   * Apply a specialized stage result through its endpoint and refresh the saved batch.
+   */
   async function acceptSpecialized(entry: RunEntry, payload: SpecializedAccept) {
     if (entry.job.previewOnly || blocked || !batchId || !entry.jobId) throw new Error('Result is unavailable')
     const endpoint = 'candidateId' in payload ? 'images' : 'group'
@@ -54,6 +65,10 @@ export function TagRunBanner({
     setSavedFields(current => ({ ...current, [entry.plate.id]: entry.jobId! }))
     await mutate(`/api/batches/${batchId}`)
   }
+  /**
+   * Save ordinary field suggestions into the draft and track the fields already
+   * accepted.
+   */
   async function acceptFields(entry: RunEntry, suggestion: Suggestion) {
     if (entry.job.previewOnly || suggestion.kind !== 'fields') return
     if (saving.current || blocked || !batchId || !entry.job.inputHash) return
@@ -66,6 +81,7 @@ export function TagRunBanner({
       setMessages(current => ({ ...current, [entry.plate.id]: 'Could not save. Check your connection and try again.' }))
     } finally { saving.current = false }
   }
+  /** Save the selected tag suggestions and keep the run's per-plate status up to date. */
   async function accept(plate: RunPlate, suggestions: string[], revision: string) {
     if (saving.current || blocked || !batchId) return
     saving.current = true

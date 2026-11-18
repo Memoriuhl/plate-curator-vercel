@@ -24,11 +24,16 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { localPipelineReason } from '@/lib/local-pipeline'
 
+/** Show account, theme and session actions appropriate for the current curator. */
 export function HeaderActions() {
   const { user, ready, signOut } = useSession()
   const me = useMe()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
+  /**
+   * Sign out from the header and report a failure while restoring the pending control
+   * state.
+   */
   async function handleSignOut() {
     setPending(true)
     setError(false)

@@ -13,15 +13,18 @@ const actor = { uid: 'editor', role: 'editor' as const, name: null }
 beforeEach(() => { vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); vi.stubEnv('TAGGING_MODELS', 'desktop-gemma4-12b,gateway-gemma4-26b') })
 afterEach(() => vi.unstubAllEnvs())
 
+/** Create a hosted queue fixture and expose the model spy used to count inferences. */
 function setup() {
   const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: 'one.webp', tags: [] }
   const review = createMemoryStore([{ id: 'batch', name: 'Hosted queue', createdBy: actor.uid, createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: [plate.id], approval: null }])
   let sequence = 0
   const jobs: JobsDeps = { store: createMemoryJobsStore(review, 'preview:local-pipeline-hosted'), localScope: 'hosted',
-    baseline: async () => plate, now: () => 100, id: () => `claim-${++sequence}`, leaseMs: 1000 }
+    /** Supply the test plate as the catalog baseline. */
+    baseline: async () => plate, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 100, /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () => `claim-${++sequence}`, leaseMs: 1000 }
   const suggest = vi.fn(async () => ({ tags: ['blue'], usage: { tokens: 12 } }))
   const hosted: HostedDeps = { jobs, adapter: { backend: 'hosted', model: 'google/gemma-4-26b-a4b-it', promptVersion: 'fixture', suggest },
-    plate: async job => job.inputPlate!, image: async () => 'fixture-image' }
+    /** Read the queued plate from the job's pinned execution input. */
+    plate: async job => job.inputPlate!, /** Provide a stable image payload to the hosted model double. */ image: async () => 'fixture-image' }
   return { jobs, review, hosted, suggest }
 }
 
@@ -47,7 +50,7 @@ test.each([false, true])('hosted Tag consumes projected Colors, survives reload 
   await observeQueueStage(s.jobs, run.id, 1, 1)
   expect(await listRuns({ ...s.jobs }, actor)).toMatchObject({ value: [{ status: 'completed', jobs: expect.arrayContaining([expect.objectContaining({ modelId: 'gateway-gemma4-26b', result: { suggestions: ['blue'], backend: 'hosted', model: 'google/gemma-4-26b-a4b-it', promptVersion: 'fixture', durationMs: 0, usage: { tokens: 12 } } })]) }] })
   expect(await s.review.listEdits('batch')).toEqual([])
-  const applied = await applyQueueBundle(s.jobs, { store: s.review, baseline: s.jobs.baseline, baselineAtVersion: async (_, id) => s.jobs.baseline(id), stateBaseline: async () => [], now: () => '' }, actor, run.id)
+  const applied = await applyQueueBundle(s.jobs, { store: s.review, baseline: s.jobs.baseline, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_, id) => s.jobs.baseline(id), /** Simulate a state with no available baseline plates. */ stateBaseline: async () => [], /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }, actor, run.id)
   expect(applied).toMatchObject(previewOnly ? { error: 'forbidden' } : { ok: true })
   if (!previewOnly) expect((await s.review.getEdit('batch', 'AK.one'))?.fields).toMatchObject({ tags: ['blue'], colorDetail: 'Blue text on white' })
 })

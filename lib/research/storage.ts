@@ -4,10 +4,12 @@ import type { ResearchStateStore } from './state'
 import { fileResearchState } from './file-state'
 
 let database: Firestore | undefined
+/** Choose the research storage namespace for the current deployment or local session. */
 export function researchEnvironment() {
   return process.env.VERCEL_ENV === 'preview' ? `preview:${process.env.VERCEL_GIT_COMMIT_REF ?? 'unknown'}` : process.env.VERCEL_ENV ?? 'development'
 }
 
+/** Initialize the research Firestore client lazily with the configured credentials. */
 export async function researchDatabase(): Promise<Firestore> {
   if (!database) {
     const { Firestore } = await import('@google-cloud/firestore')
@@ -21,10 +23,20 @@ export async function researchDatabase(): Promise<Firestore> {
   return database
 }
 
+/**
+ * Create a Firestore state adapter that isolates research values by deployment
+ * environment.
+ */
 export function firestoreResearchState(db: Firestore, env: string): ResearchStateStore {
+  /** Derive an environment-specific document ID for one research state key. */
   const ref = (key: string) => db.collection('researchState').doc(createHash('sha256').update(env + '\n' + key).digest('hex'))
   return {
+    /** Read the stored state value or return null when the document is absent. */
     async read<T>(key: string) { const record = await ref(key).get(); return record.exists && record.get('env') === env ? record.get('value') as T : null },
+    /**
+     * Apply the state change in a Firestore transaction to serialize updates across
+     * processes.
+     */
     update<T, R>(key: string, change: (value: T | null) => { value: T; result: R }) {
       return db.runTransaction(async transaction => {
         const record = await transaction.get(ref(key))
@@ -36,6 +48,7 @@ export function firestoreResearchState(db: Firestore, env: string): ResearchStat
   }
 }
 
+/** Select file-backed state for local Eve development or Firestore for hosted runs. */
 export async function researchState(): Promise<ResearchStateStore> {
   if (process.env.EVE_DEV === '1' && !process.env.VERCEL) return fileResearchState('.eve/research')
   return firestoreResearchState(await researchDatabase(), researchEnvironment())

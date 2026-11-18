@@ -7,11 +7,11 @@ import { ApiError } from '../lib/client/api'
 import type { MemberSummary } from '../lib/members/summary'
 
 const mocks = vi.hoisted(() => ({ me: { data: { uid: 'owner', role: 'owner' } }, list: vi.fn(), invite: vi.fn(), mutate: vi.fn(), clipboard: vi.fn(), send: vi.fn() }))
-vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), useSWRConfig: () => ({ mutate: mocks.mutate }) }))
+vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), /** Provide the mock cache actions used to observe refreshes after writes. */ useSWRConfig: () => ({ mutate: mocks.mutate }) }))
 const reissue = vi.hoisted(() => vi.fn())
-vi.mock('../lib/client/invites', () => ({ useReissueInvite: () => reissue }))
-vi.mock('../lib/client/hooks', () => ({ useMe: () => mocks.me, useMembers: mocks.list, useInviteMember: () => mocks.invite }))
-vi.mock('../lib/client/session', () => ({ useSession: () => ({ ready: true, user: { uid: 'owner', email: 'owner@example.com' }, signOut: vi.fn(), api: { send: mocks.send } }) }))
+vi.mock('../lib/client/invites', () => ({ /** Return the fixture action that tracks reissued member invitations. */ useReissueInvite: () => reissue }))
+vi.mock('../lib/client/hooks', () => ({ /** Supply the current fixture actor for role and account-dependent behavior. */ useMe: () => mocks.me, useMembers: mocks.list, /** Return the mocked invitation creator so the test can inspect the submitted member. */ useInviteMember: () => mocks.invite }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => ({ ready: true, user: { uid: 'owner', email: 'owner@example.com' }, signOut: vi.fn(), api: { send: mocks.send } }) }))
 const members: MemberSummary[] = ['active', 'pending', 'expired'].map(status => ({ email: `${status}@example.com`, role: 'editor', signIn: 'google', status: status as MemberSummary['status'], invitedBy: status === 'pending' ? 'owner' : null, createdAt: '2026-11-16' }))
 beforeEach(() => {
   vi.clearAllMocks()

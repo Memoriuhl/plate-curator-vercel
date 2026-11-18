@@ -21,25 +21,35 @@ import type { Plate } from '../lib/catalog/types'
 import { plateCards } from '../fixtures/plate-cards'
 
 const Context = createContext<ReturnType<typeof session> | null>(null)
-vi.mock('../lib/client/session', () => ({ useSession: () => useContext(Context)! }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => useContext(Context)! }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => useContext(Context)!.params,
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ prefetch: vi.fn(), refresh: vi.fn() }),
 }))
-vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
-vi.mock('next/image', () => ({ default: () => <span /> }))
-vi.mock('../components/dashboard/use-grid-entrance', () => ({ useGridEntrance: () => {} }))
-vi.mock('../components/dashboard/use-drag-flip', () => ({ useDragFlip: () => {} }))
-vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
-  getVirtualItems: () => [{ key: 0, index: 0, start: 420 }], getTotalSize: () => 600,
-  measureElement: () => {}, scrollToIndex: () => {},
+vi.mock('next/link', () => ({ /** Render anchor links without a router dependency in the shared conflict fixture. */ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
+vi.mock('next/image', () => ({ /** Stand in for the imported display component so the test can render its parent in isolation. */ default: () => <span /> }))
+vi.mock('../components/dashboard/use-grid-entrance', () => ({ /** Stub grid entrance animations so the fixture does not require browser animation support. */ useGridEntrance: () => {} }))
+vi.mock('../components/dashboard/use-drag-flip', () => ({ /** Stub animated grid reflow so the test can focus on drag behavior. */ useDragFlip: () => {} }))
+vi.mock('@tanstack/react-virtual', () => ({ /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer: () => ({
+  /** Expose the deterministic virtual rows used by the test layout. */
+  getVirtualItems: () => [{ key: 0, index: 0, start: 420 }], /** Report the virtual list size expected by the layout fixture. */ getTotalSize: () => 600,
+  /** Skip row measurement in the test virtualizer's fixed layout. */
+  measureElement: () => {}, /** Accept focus-driven index changes without performing real browser scrolling. */ scrollToIndex: () => {},
 }) }))
 
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
 const owner: Actor = { uid: 'owner-uid', name: 'Owner', role: 'owner' }
 vi.mock('../lib/server/context', () => ({
+  /**
+   * Use the fixture request header to choose the editor or owner for route
+   * authorization.
+   */
   currentActor: async (request: Request) => ({ ok: true, actor: request.headers.get('Authorization') === owner.uid ? owner : editor }),
+  /** Supply isolated review dependencies to the route or workflow under test. */
   reviewDeps: () => deps,
 }))
 const plates: Plate[] = [
@@ -49,6 +59,10 @@ const plates: Plate[] = [
 ]
 const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: plate.isStandard ?? false, sortOrder: index, revision: plateRevision(plate) }))
 const gridPlates = cards.map(projectFamilyPlate)
+/**
+ * Build a fixture batch with its baseline and plate selection for the current review
+ * scenario.
+ */
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
 }
@@ -63,6 +77,10 @@ let failures: Map<string, (error: { code?: string }) => void>
 let missingSignal: boolean
 let denySignal: boolean
 const source: LiveSignalSource = {
+  /**
+   * Capture each batch subscription and exercise its current revision, error and
+   * disposal paths.
+   */
   subscribe(_env, id, next, error) {
     failures.set(id, error)
     const set = listeners.get(id) ?? new Set()
@@ -73,14 +91,23 @@ const source: LiveSignalSource = {
     return () => { set.delete(next); disposed.push(id) }
   },
 }
+/** Deliver the supplied batch revision to currently subscribed test listeners. */
 function emit(id: string, revision: number) {
   signals.set(id, revision)
   listeners.get(id)?.forEach(next => next(revision))
 }
+/**
+ * Build a per-actor session backed by the shared in-memory review store and request
+ * logs.
+ */
 function session(actor: Actor, id: string | null = 'shared') {
   return {
     user: { uid: actor.uid }, params: new URLSearchParams(id === null ? '' : 'batch=' + id),
     api: {
+      /**
+       * Read current batch data as the fixture actor and count reads for refresh
+       * assertions.
+       */
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return actor
@@ -93,6 +120,10 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         throw new Error(path)
       },
+      /**
+       * Route fixture writes through review operations while recording the actor and
+       * submitted payload.
+       */
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
@@ -130,21 +161,36 @@ function session(actor: Actor, id: string | null = 'shared') {
     },
   }
 }
+/**
+ * Render a plate detail with its fixture neighbors inside the collaborative workspace.
+ */
 function Page({ index = 1 }: { index?: number }) {
   return <PlatePage plate={{ ...slimPlate(cards[index]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" />
 }
+/**
+ * Mount one collaborator with their own session and cache while sharing the server
+ * store.
+ */
 function Workspace({ actor, page = false, index = 1 }: { actor: Actor; page?: boolean; index?: number }) {
-  return <Context.Provider value={session(actor)}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}>{page ? <Page index={index} /> : <><SelectedBatchBar /><FamilyGrid plates={gridPlates} catalogVersion={1} /></>}</LiveSignalProvider></SWRConfig></Context.Provider>
+  return <Context.Provider value={session(actor)}><SWRConfig value={{ /** Give the rendered test its own isolated SWR cache. */ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}>{page ? <Page index={index} /> : <><SelectedBatchBar /><FamilyGrid plates={gridPlates} catalogVersion={1} /></>}</LiveSignalProvider></SWRConfig></Context.Provider>
 }
+/**
+ * Dispatch a synthetic pointer event so the test can drive a drag without browser
+ * pointer automation.
+ */
 function pointer(element: Element, type: string, x: number, y = 100) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })
   Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
   act(() => { (type === 'pointerdown' ? element : window).dispatchEvent(event) })
 }
+/**
+ * Assign explicit family rectangles so drag hit testing is deterministic in the test
+ * DOM.
+ */
 function targetRects(container: HTMLElement) {
   container.querySelectorAll<HTMLElement>('[data-drag-family]').forEach(element => {
     const left = element.dataset.dragFamily === 'AK.b' ? 300 : 0
-    element.getBoundingClientRect = () => ({ left, right: left + 250, top: 0, bottom: 300, width: 250, height: 300, x: left, y: 0, toJSON() {} })
+    element.getBoundingClientRect = () => ({ left, right: left + 250, top: 0, bottom: 300, width: 250, height: 300, x: left, y: 0, /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {} })
   })
 }
 beforeEach(() => {
@@ -153,15 +199,20 @@ beforeEach(() => {
   const store = createMemoryStore([batch(), batch('other', owner)])
   const commit = store.commit.bind(store)
   store.commit = async (...args) => { const result = await commit(...args); if (result === 'ok') emit(args[0], args[2].batch.revision); return result }
-  deps = { store, baseline: async id => plates.find(p => p.id === id) ?? null, baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, stateBaseline: async () => plates, now: () => '2026-11-16' }
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ left: 0, right: 1500, top: 0, bottom: 300, width: 1500, height: 300, x: 0, y: 0, toJSON() {} }))
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
-  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
+  deps = { store, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(p => p.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_v, id) => plates.find(p => p.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-16' }
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ left: 0, right: 1500, top: 0, bottom: 300, width: 1500, height: 300, x: 0, y: 0, /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {} }))
+  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
+  vi.stubGlobal('matchMedia', () => ({ matches: true, /** Stand in for media-query listener registration in the test DOM. */ addEventListener() {}, /** Stand in for media-query listener cleanup in the test DOM. */ removeEventListener() {} }))
 })
 afterEach(() => { cleanup(); plateSelection.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+/** Find a named field within the specified collaborator's rendered view. */
 const box = (view: ReturnType<typeof render>, label = 'Description') => within(view.container).getByRole('textbox', { name: label }) as HTMLInputElement
+/**
+ * Find an action button within one collaborator's view to distinguish it from the other.
+ */
 const button = (view: ReturnType<typeof render>, name: string) => within(view.container).getByRole('button', { name })
+/** Wait until the collaborator's batch has an active live revision subscription. */
 async function ready(view: ReturnType<typeof render>) {
   await waitFor(() => expect(view.container.textContent).toContain('Live'))
 }
@@ -217,23 +268,34 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   await ready(reloaded)
   expect(Array.from(reloaded.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
 })
+/** Type into a field in the selected collaborator's view. */
 function input(view: ReturnType<typeof render>, value: string, label = 'Description') {
   fireEvent.change(box(view, label), { target: { value } })
 }
+/** Submit the editor field using its multiline keyboard shortcut. */
 function save(view: ReturnType<typeof render>, label = 'Description') {
   fireEvent.keyDown(box(view, label), { key: 'Enter', ctrlKey: true })
 }
+/** Read the persisted draft entry for a plate to assert the final server-side value. */
 async function saved(plateId = 'AK.v') {
   const detail = await batchDetail(deps, 'shared')
   if (!detail.ok) throw new Error('Missing Batch')
   return detail.value.plates.find(entry => entry.proposed.id === plateId)!
 }
+/**
+ * Commit a remote field change against the real stored revision inside React's test
+ * boundary.
+ */
 async function remote(fields: EditableFields, plateId = 'AK.v') {
   const entry = await saved(plateId)
   await act(async () => {
     expect((await proposeEdit(deps, owner, { batchId: 'shared', plateId, baseRevision: entry.revision, fields })).ok).toBe(true)
   })
 }
+/**
+ * Render two collaborators and arrange an overlapping story edit to exercise revision
+ * conflicts.
+ */
 async function conflictPair() {
   const first = render(<Workspace actor={owner} page />)
   const second = render(<Workspace actor={editor} page />)
@@ -277,6 +339,7 @@ test('a saved family drop survives a fresh workspace load and the published view
   first.unmount()
   const collaborator = render(<Workspace actor={owner} />)
   await ready(collaborator)
+  /** Find the requested family article within the collaborator's accessible grid. */
   const family = (name: string) => within(within(collaborator.container).getByRole('article', { name }))
   expect(family('Navy family').getByText('Variant')).toBeTruthy()
   expect(collaborator.container.textContent).toContain('Published catalog v1 · Batch: shared Batch (based on catalog v1)')

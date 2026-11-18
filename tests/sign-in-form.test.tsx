@@ -10,6 +10,10 @@ vi.mock('react', async load => {
   const actual = await load<typeof import('react')>()
   return {
     ...actual,
+    /**
+     * Record state changes tied to failed submission focus while preserving React's
+     * state behavior.
+     */
     useState<T>(initial: T | (() => T)) {
       const [value, setValue] = actual.useState(initial)
       return [value, (next: SetStateAction<T>) => {
@@ -21,9 +25,13 @@ vi.mock('react', async load => {
     },
   }
 })
-vi.mock('../lib/client/session', () => ({ useSession: () => session }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => session }))
 beforeEach(() => { focusTiming.splitCheck = false; focusTiming.splitError = false; session.ready = true; vi.clearAllMocks(); vi.stubGlobal('fetch', vi.fn()) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+/**
+ * Exercise an email invitation check with the supplied response and assert the resulting
+ * form.
+ */
 async function check(result: unknown) {
   vi.mocked(fetch).mockResolvedValueOnce(Response.json(result))
   render(<SignInForm />)
@@ -110,6 +118,7 @@ test('Google focus waits for session readiness and leaves later focus changes al
   }
 })
 
+/** Create a promise that the test can settle after observing pending form behavior. */
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: Error) => void
@@ -117,6 +126,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+/** Simulate the focus loss that can occur when the submitted control becomes disabled. */
 function simulateBrowserDisabledBlur(control: HTMLInputElement | HTMLButtonElement) {
   expect(control.disabled).toBe(true)
   control.disabled = false
@@ -125,10 +135,11 @@ function simulateBrowserDisabledBlur(control: HTMLInputElement | HTMLButtonEleme
   expect(document.activeElement).toBe(document.body)
 }
 
+/** Start a controlled submission and expose its pending request and focus target. */
 async function pendingSubmit(step: 'email' | 'password' | 'google', commits: { disabled: boolean; busy: string | null }[] = []) {
   const request = deferred<Response>()
   if (step !== 'email') vi.mocked(fetch).mockResolvedValueOnce(Response.json({ invited: true, signIn: step, status: 'active' }))
-  const view = render(<SignInForm />, { wrapper: ({ children }) => <Profiler id="failed-submit" onRender={() => {
+  const view = render(<SignInForm />, { /** Observe the form commit that clears busy state so focus assertions can run at the right moment. */ wrapper: ({ children }) => <Profiler id="failed-submit" onRender={() => {
     if (!screen.queryByRole('alert')) return
     const control = document.querySelector<HTMLInputElement | HTMLButtonElement>(step === 'email' ? '#email' : step === 'password' ? '#password' : 'button[type="submit"]')
     if (control) commits.push({ disabled: control.disabled, busy: control.closest('form')!.getAttribute('aria-busy') })

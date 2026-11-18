@@ -3,16 +3,22 @@ import { memberStatus, normalizeEmail } from '../members/member'
 import type { MembersStore } from '../members/types'
 import type { VerifiedIdentity } from './verify-id-token'
 
+/** Parse configured owner IDs into the allowlist used by fixture sign-in. */
 export function parseOwnerUids(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map((uid) => uid.trim()).filter(Boolean)
 }
 
+/**
+ * Authenticate a bearer token and resolve the caller's current membership or invitation
+ * activation.
+ */
 export async function authenticate(request: Request, deps: { verify: (token: string) => Promise<VerifiedIdentity | null>; ownerUids: string[]; members: Pick<MembersStore, 'getByEmail' | 'getByUid' | 'activate'>; now?: () => string }): Promise<{ ok: true; actor: Actor } | { ok: false; response: Response }> {
   const match = /^Bearer ([^\s]+)$/i.exec(request.headers.get('Authorization') ?? '')
   if (match) {
     const user = await deps.verify(match[1])
     if (user) {
       const name = (user.name?.trim() || user.email?.split('@')[0].trim() || '').slice(0, 60) || null
+      /** Return the verified user with the actor fields consumed by route handlers. */
       const accepted = (role: Role) => ({ ok: true as const, actor: { uid: user.uid, name, role } })
       if (deps.ownerUids.includes(user.uid)) return accepted('owner')
       const bound = await deps.members.getByUid(user.uid)

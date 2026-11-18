@@ -6,8 +6,15 @@ import { gatewayPricing, HOSTED_MODEL } from './model'
 import { imageReader } from './images'
 import { reportHtml, summaryCsv, runFile } from './report'
 
+/**
+ * Run or compare model benchmark lanes with shared limits and report their measured
+ * results.
+ */
 async function main() {
   const args = process.argv.slice(2)
+  /**
+   * Read an optional command-line flag value with a fallback when no value follows it.
+   */
   const value = (name: string, fallback: string) => {
     const index = args.indexOf(name)
     if (index >= 0 && (!args[index + 1] || args[index + 1].startsWith('--'))) throw new Error(`Missing ${name}`)

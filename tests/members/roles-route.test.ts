@@ -9,7 +9,9 @@ vi.mock('../../lib/server/context', () => ({ currentActor: mocks.currentActor })
 vi.mock('../../lib/server/members', () => ({ membersStore: mocks.membersStore }))
 let store = createMemoryMembersStore()
 const member: Member = { email: 'owner@example.com', role: 'owner', signIn: 'password', status: 'active', uid: 'owner-account', invite: null, invitedBy: null, createdAt: '' }
+/** Build the member route parameters with the target email. */
 const context = (email = member.email) => ({ params: Promise.resolve({ email }) })
+/** Build the PATCH request the route fixture passes to its handler. */
 const request = (body?: unknown) => new Request('https://example.com/api/members/owner@example.com', { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) })
 beforeEach(() => {
   store = createMemoryMembersStore([member, { ...member, email: 'editor@example.com', role: 'editor', uid: 'editor-account' }])
@@ -32,7 +34,7 @@ test.each([PATCH, DELETE])('refuses the last Owner even when a break-glass Owner
 })
 test('removal revokes the bound Member on their next authenticated request', async () => {
   const req = new Request('https://example.com/api/me', { headers: { Authorization: 'Bearer token' } })
-  const deps = { members: store, ownerUids: [], verify: async () => ({ uid: 'editor-account', email: 'editor@example.com', emailVerified: false, signInProvider: 'password' }) }
+  const deps = { members: store, ownerUids: [], /** Authenticate as a non-owner to exercise the role route's authorization guard. */ verify: async () => ({ uid: 'editor-account', email: 'editor@example.com', emailVerified: false, signInProvider: 'password' }) }
   expect(await authenticate(req, deps)).toMatchObject({ ok: true })
   const response = await DELETE(request(), context('editor@example.com'))
   expect(response.status).toBe(200)

@@ -19,6 +19,9 @@ export const defaultPipelineOptions: Required<PipelineOptions> = {
   group: { method: 'embeddings', colorSignal: true, backgroundMask: false, visionTiebreak: false },
 }
 
+/**
+ * Validate options against the supported fields for each stage before they enter a run.
+ */
 export function parsePipelineOptions(input: unknown): PipelineOptions | null {
   if (input === undefined) return {}
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
@@ -34,6 +37,7 @@ export function parsePipelineOptions(input: unknown): PipelineOptions | null {
   return result as PipelineOptions
 }
 
+/** Copy stage options so later input mutations cannot change the queued plan. */
 export function snapshotPipelineOptions(stages: readonly string[], options: PipelineOptions): PipelineOptions {
   const selected: PipelineOptions = Object.fromEntries(Object.keys(defaultPipelineOptions).sort().filter(stage => stages.includes(stage)).map(stage =>
     [stage, { ...defaultPipelineOptions[stage as keyof PipelineOptions], ...options[stage as keyof PipelineOptions] }]))

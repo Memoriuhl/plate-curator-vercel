@@ -40,6 +40,10 @@ interface Claim {
   queueRunId?: string
 }
 
+/**
+ * Poll for a worker claim, report local capabilities and execute eligible work with
+ * heartbeat updates.
+ */
 export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   const headers: Record<string, string> = { Authorization: `Bearer ${deps.token}` }
   if (deps.protectionBypass) headers['x-vercel-protection-bypass'] = deps.protectionBypass
@@ -75,6 +79,10 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   })
 }
 
+/**
+ * Run the claimed stage or tag model and report its result only while the claim remains
+ * usable.
+ */
 async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<string, string>, base: string): Promise<Outcome> {
   const deadline = Date.parse(claim.leaseExpiresAt)
   const adapter = claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
@@ -155,9 +163,13 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   return 'dropped'
 }
 
+/** Run the configured number of polling lanes until the worker is stopped. */
 export async function runLoop(deps: WorkerDeps, { idleMs, concurrency = 1 }: { idleMs: number; concurrency?: number }): Promise<void> {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) throw new Error('Invalid concurrency')
   let stopped = false
+  /**
+   * Poll one lane repeatedly and delay retries after idle responses or request failures.
+   */
   async function lane() {
     while (!stopped) {
       try {

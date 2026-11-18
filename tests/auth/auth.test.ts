@@ -19,14 +19,22 @@ beforeAll(async () => {
   jwks = createLocalJWKSet({ keys: [{ ...await exportJWK(pair.publicKey), kid: 'test-key', alg: 'RS256' }] })
 })
 
+/**
+ * Provide a test credential so the request can exercise the intended authentication
+ * path.
+ */
 async function token(overrides: JWTPayload = {}) {
   return new SignJWT({ sub: 'user-one', email: 'user@example.com', auth_time: now - 60, iat: now - 60, exp: now + 3600, aud: projectId, iss: `https://securetoken.google.com/${projectId}`, ...overrides })
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
     .sign(privateKey)
 }
 
+/**
+ * Sign the requested test claims and verify the token against the fixture clock and
+ * keys.
+ */
 async function verify(overrides: JWTPayload = {}) {
-  return verifyIdToken(await token(overrides), { projectId, jwks, now: () => now * 1000 })
+  return verifyIdToken(await token(overrides), { projectId, jwks, /** Read the test clock used by this operation to calculate timestamps and deadlines. */ now: () => now * 1000 })
 }
 
 test('accepts a valid token', async () => {
@@ -50,7 +58,7 @@ test.each([
 
 test('rejects malformed tokens and key lookup failures', async () => {
   expect(await verifyIdToken('bad', { projectId, jwks })).toBeNull()
-  expect(await verifyIdToken(await token(), { projectId, jwks: async () => { throw new Error('unavailable') } })).toBeNull()
+  expect(await verifyIdToken(await token(), { projectId, /** Simulate an unavailable signing key lookup so verification can exercise its failure response. */ jwks: async () => { throw new Error('unavailable') } })).toBeNull()
 })
 
 test('omits an absent email', async () => {
@@ -61,6 +69,9 @@ test('reuses the Google key resolver', () => {
   expect(googleSecureTokenJwks()).toBe(googleSecureTokenJwks())
 })
 
+/**
+ * Check that the request is rejected as unauthorized with the expected private response.
+ */
 async function expectUnauthorized(request: Request, verify = vi.fn(async () => null)) {
   const result = await authenticate(request, { verify, ownerUids: [], members: createMemoryMembersStore() })
   expect(result.ok).toBe(false)
@@ -113,7 +124,11 @@ test.each([
   const result = await authenticate(new Request('https://example.com', {
     headers: { Authorization: `Bearer ${await token(claims)}` },
   }), {
-    verify: value => verifyIdToken(value, { projectId, jwks, now: () => now * 1000 }),
+    /**
+     * Use the fixture project, signing keys and clock while the authentication test
+     * resolves membership.
+     */
+    verify: value => verifyIdToken(value, { projectId, jwks, /** Read the test clock used by this operation to calculate timestamps and deadlines. */ now: () => now * 1000 }),
     ownerUids: [],
     members: createMemoryMembersStore([passwordMember]),
   })
@@ -125,13 +140,25 @@ const passwordMember: Member = { email: 'user@example.com', uid: 'user-one', rol
 const googleMember: Member = { ...passwordMember, signIn: 'google', status: 'pending', uid: null, invite: createInvite('invite', () => instant) }
 const googleClaims = { firebase: { sign_in_provider: 'google.com' }, email_verified: true }
 
+/**
+ * Authenticate a signed fixture request using the supplied member store and token
+ * claims.
+ */
 async function authorize(members: MembersStore, claims: JWTPayload = {}, ownerUids: string[] = []) {
   return authenticate(new Request('https://example.com', { headers: { Authorization: `Bearer ${await token(claims)}` } }), {
-    verify: value => verifyIdToken(value, { projectId, jwks, now: () => now * 1000 }),
-    ownerUids, members, now: () => instant,
+    /**
+     * Verify the bearer token against the same project and instant used by the signing
+     * fixture.
+     */
+    verify: value => verifyIdToken(value, { projectId, jwks, /** Read the test clock used by this operation to calculate timestamps and deadlines. */ now: () => now * 1000 }),
+    ownerUids, members, /** Read the test clock used by this operation to calculate timestamps and deadlines. */ now: () => instant,
   })
 }
 
+/**
+ * Check that the signed-in account receives the expected response when it lacks
+ * membership.
+ */
 async function expectNotMember(members: MembersStore, claims: JWTPayload = {}) {
   const result = await authorize(members, claims)
   if (result.ok) throw new Error('Expected non-Member refusal')

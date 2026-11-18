@@ -11,11 +11,15 @@ import { db } from './setup'
 beforeEach(resetRelease)
 afterAll(cleanupRelease)
 
+/**
+ * Observe Firestore transaction depth and query filters to detect unsafe workflow
+ * lookups.
+ */
 function observedDb() {
   let depth = 0
   const modes: unknown[] = []
   const filters: unknown[][] = []
-  const observed = new Proxy(db, { get(target, key) {
+  const observed = new Proxy(db, { /** Intercept the operations under observation while preserving Firestore binding for other calls. */ get(target, key) {
     if (key === 'runTransaction') return (run: (tx: Transaction) => Promise<unknown>, options?: object) => {
       modes.push(options)
       return db.runTransaction(async tx => {
@@ -23,7 +27,7 @@ function observedDb() {
         try { return await run(tx) } finally { depth-- }
       }, options)
     }
-    if (key === 'collection') return (path: string) => new Proxy(db.collection(path), { get(collection, method) {
+    if (key === 'collection') return (path: string) => new Proxy(db.collection(path), { /** Record query filters as the fixture code builds Firestore collection queries. */ get(collection, method) {
       if (method === 'where') return (...args: Parameters<typeof collection.where>) => { filters.push([path, ...args]); return collection.where(...args) }
       const value = Reflect.get(collection, method)
       return typeof value === 'function' ? value.bind(collection) : value
@@ -31,7 +35,7 @@ function observedDb() {
     const value = Reflect.get(target, key)
     return typeof value === 'function' ? value.bind(target) : value
   } }) as Firestore
-  return { observed, modes, filters, depth: () => depth }
+  return { observed, modes, filters, /** Expose current transaction depth so a workflow lookup can record whether it ran inside a transaction. */ depth: () => depth }
 }
 
 test('retry GET preflight resolves Workflow outside Firestore and uses read-only transactions', async () => {
@@ -40,7 +44,7 @@ test('retry GET preflight resolves Workflow outside Firestore and uses read-only
   await f.deps.records.bindRun(command, 'terminal', now)
   const tracked = observedDb()
   const depths: number[] = []
-  const records = firestorePublishRecords(tracked.observed, env, { runStatus: async () => { depths.push(tracked.depth()); return 'completed' } })
+  const records = firestorePublishRecords(tracked.observed, env, { /** Provide controlled workflow status for the publish or queue recovery scenario. */ runStatus: async () => { depths.push(tracked.depth()); return 'completed' } })
   expect(await records.eligibility({ ...command, commandId: 'fresh' }, now)).toMatchObject({ canRetry: true })
   expect(depths).toEqual([0])
   expect(tracked.modes.every(mode => (mode as { readOnly?: boolean })?.readOnly === true)).toBe(true)
@@ -51,7 +55,7 @@ test('GET fails closed on a changed claim and resolves the new run on the next r
   await f.deps.records.accept(command, now)
   await f.deps.records.bindRun(command, 'terminal', now)
   const seen: string[] = []
-  const records = firestorePublishRecords(db, env, { runStatus: async runId => {
+  const records = firestorePublishRecords(db, env, { /** Change the persisted workflow claim during lookup to exercise claim reconciliation. */ runStatus: async runId => {
     seen.push(runId)
     if (runId === 'terminal') {
       await db.doc('reviewBatches/batch').update({ publishCommand: { commandId: 'replacement', revision: 2 } })
@@ -86,7 +90,7 @@ test('abandon resolves Workflow outside Firestore and rejects a claim changed du
   const receipt = (await f.deps.records.get('batch@2'))!
   const tracked = observedDb()
   const depths: number[] = []
-  const records = firestorePublishRecords(tracked.observed, env, { runStatus: async () => {
+  const records = firestorePublishRecords(tracked.observed, env, { /** Record the lookup's transaction depth and change the active workflow claim once. */ runStatus: async () => {
     depths.push(tracked.depth())
     if (tracked.depth() === 0) {
       await db.doc('reviewBatches/batch').update({ publishCommand: { commandId: 'replacement', revision: 2 } })

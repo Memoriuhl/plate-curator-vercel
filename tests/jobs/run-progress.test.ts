@@ -3,6 +3,7 @@ import { formatDuration, queueProgress, stageStatus } from '../../lib/jobs/run-p
 import { workflowVisibilityUrl } from '../../lib/jobs/workflow-visibility'
 import type { QueueRunView } from '../../lib/jobs/queue-types'
 
+/** Build a queue attempt with stage records for progress aggregation assertions. */
 function run(): QueueRunView {
   return { id: 'run', requestId: 'request', fingerprint: 'hash', requestedBy: 'user', batchId: 'batch', env: 'development', localScope: 'test', plateIds: ['AK.one'], stages: ['wiki-link', 'describe', 'story'], options: {}, previewOnly: false, createdAt: 100, queuedAt: 100, enqueueSequence: 1, updatedAt: 33100, status: 'failed', resourceClass: 'io', editable: true, applied: false,
     attempts: [{ number: 1, requestId: 'request', createdAt: 100, status: 'failed', endedAt: 33100, cursor: 0, jobIds: ['wiki'], completedJobIds: [], choices: {}, error: 'no_sources', steps: [

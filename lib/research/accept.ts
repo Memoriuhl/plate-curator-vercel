@@ -10,11 +10,15 @@ import { researchDraftSchema, validateResearchResult } from './validate'
 export const researchFields = ['description', 'funFacts', 'readMore', 'wikiUrl'] as const
 export type ResearchField = typeof researchFields[number]
 
+/**
+ * Turn a captured source into the title and site label displayed for accepted citations.
+ */
 function citationLabels(source: EvidenceSource) {
   const site = new URL(source.url).hostname.slice(0, 200)
   return { title: source.title.trim().slice(0, 200) || site, site }
 }
 
+/** Check that selected evidence retains its original order and only omits entries. */
 function orderedSubset(selected: string[], original: string[]) {
   let offset = 0
   return selected.every(value => {
@@ -24,7 +28,15 @@ function orderedSubset(selected: string[], original: string[]) {
   })
 }
 
+/**
+ * Allow the curator to select a subset of generated material while preserving the
+ * text-source pairings.
+ */
 function unchangedSelection(selected: ResearchDraft, original: ResearchDraft) {
+  /**
+   * Compare facts by text and source together so approval cannot silently swap
+   * citations.
+   */
   const factKeys = (draft: ResearchDraft) => draft.funFacts.map(fact => JSON.stringify([fact.text, fact.sourceId]))
   return (selected.description === null || selected.description === original.description)
     && orderedSubset(selected.descriptionSources, original.descriptionSources)
@@ -33,6 +45,10 @@ function unchangedSelection(selected: ResearchDraft, original: ResearchDraft) {
     && (selected.wikiSource === null || selected.wikiSource === original.wikiSource)
 }
 
+/**
+ * Accept selected research into the open batch after rechecking the job, evidence and
+ * current plate revision.
+ */
 export async function acceptResearch(deps: ResearchDeps, actor: Actor, request: { jobId: string; baseRevision: string; fields: string[]; draft?: unknown }): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }> | { ok: false; error: ResearchError }> {
   if (!(await deps.active(actor.uid))) return { ok: false, error: 'forbidden' }
   if (!request.fields.length || request.fields.some(field => !researchFields.includes(field as ResearchField))) return { ok: false, error: 'invalid_result' }

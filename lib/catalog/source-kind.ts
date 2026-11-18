@@ -1,5 +1,9 @@
 export type CatalogSourceKind = 'firestore' | 'fixture'
 
+/**
+ * Select the configured catalog source and prevent fixture mode where live data is
+ * required.
+ */
 export function catalogSourceKind(env: { CATALOG_SOURCE?: string; VERCEL_ENV?: string }): CatalogSourceKind {
   const requested = env.CATALOG_SOURCE ?? 'firestore'
   if (requested === 'firestore') return 'firestore'

@@ -9,6 +9,7 @@ import { StateHeader } from './state-header'
 import { FamilyGrid } from './family-grid'
 import { projectFamilyPlate } from './family-data'
 
+/** Load and group jurisdiction summaries for the shared dashboard navigation. */
 export async function JurisdictionStrip() {
   await connection()
   const { jurisdictions } = await loadDashboard()
@@ -22,6 +23,7 @@ export async function JurisdictionStrip() {
   )
 }
 
+/** Load the selected jurisdiction and render the plate grid or its empty state. */
 export async function StateContent({ code }: { code: string }) {
   const jurisdiction = await loadJurisdiction(code)
   if (!jurisdiction) notFound()

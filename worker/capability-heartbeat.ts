@@ -3,10 +3,15 @@ import type { WorkerDeps } from './run'
 
 type CapabilityDeps = Pick<WorkerDeps, 'capabilities' | 'apiBase' | 'token' | 'protectionBypass' | 'fetch' | 'log' | 'suggestFields'>
 
+/** Include a capability report only when local pipeline support is enabled. */
 export function localCapabilityReport(deps: CapabilityDeps): CapabilityDeps['capabilities'] {
   return process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && !!process.env.LOCAL_PIPELINE_SCOPE ? deps.capabilities : undefined
 }
 
+/**
+ * Refresh worker capabilities while a stage runs and stop its heartbeat when the stage
+ * settles.
+ */
 export async function withCapabilityHeartbeat<T>(deps: CapabilityDeps, run: () => Promise<T>): Promise<T> {
   const capabilities = localCapabilityReport(deps)
   if (!capabilities) return run()

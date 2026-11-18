@@ -16,10 +16,15 @@ import type { PublishCommand, PublishControl, PublishControlState } from './type
 import { FieldValue, type DocumentData, type DocumentSnapshot, type Transaction, type Firestore } from '@google-cloud/firestore'
 import type { PublishCurator, PublishLock, PublishPointer, PublishRecord, PublishRecords } from './types'
 
+/** Locate the requester's membership document for transactional authority checks. */
 function memberDocRef(db: Firestore, email: string | undefined) {
   return email ? db.doc(`members/${encodeURIComponent(normalizeEmail(email))}`) : null
 }
 
+/**
+ * Evaluate control and membership and persist the first durable stop reason for this
+ * command.
+ */
 function writePublishStop({ transaction, command, control, stopped, now, member }: {
   transaction: Transaction; command: PublishCommand; control: DocumentSnapshot; stopped: DocumentSnapshot; now: string; member?: DocumentSnapshot
 }): PublishStop | null {
@@ -30,17 +35,27 @@ function writePublishStop({ transaction, command, control, stopped, now, member 
   return reason
 }
 
+/** Check a lease timestamp against the operation's clock before trusting it. */
 function unexpired(expiresAt: unknown, now: string): boolean {
   return typeof expiresAt === 'string' && Date.parse(expiresAt) > Date.parse(now)
 }
 
+/** Require both the lease token and an unexpired deadline to prove lock ownership. */
 function active(data: DocumentData | undefined, token: string, env: string, now: string): boolean {
   return data?.token === token && data.env === env && unexpired(data.expiresAt, now)
 }
 
+/**
+ * Build the Firestore publish lease that coordinates publishers and other catalog
+ * activity.
+ */
 export function firestorePublishLock(db: Firestore, env: string): PublishLock {
   const lockRef = db.doc('locks/publish')
   return {
+    /**
+     * Acquire an available publish lease and honor pipeline and ownership constraints in
+     * the same transaction.
+     */
     async claim(lease, now) {
       if (!unexpired(lease.expiresAt, now)) return false
       return db.runTransaction(async transaction => {
@@ -60,6 +75,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
         return true
       })
     },
+    /** Extend a lease only while its token still owns the active lock. */
     async renew(lease, now) {
       return db.runTransaction(async transaction => {
         const lock = await transaction.get(lockRef)
@@ -69,6 +85,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
         return true
       })
     },
+    /** Release a matching publish lease or retain its freeze for receipt recovery. */
     async release(token, keepBatchFrozen) {
       await db.runTransaction(async transaction => {
         const lock = await transaction.get(lockRef)
@@ -84,7 +101,12 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
   }
 }
 
+/** Build the transactional publish receipt adapter that fences competing workflows. */
 export function firestorePublishRecords(db: Firestore, env: string, options: PublishRunLookup & { claimTtlMs?: number } = {}): PublishRecords {
+  /**
+   * Gather the current claim, approval run and comparison key for workflow status
+   * checks.
+   */
   const runContext = (batch: DocumentSnapshot, receipt: PublishRecord | null, claimDoc: DocumentSnapshot | null, command: PublishCommand, now: string, abandoning = false) => {
     const pending = batch.get('publishCommand')?.revision === command.revision ? batch.get('publishCommand') : undefined
     let claim = claimDoc?.get('env') === env ? claimDoc.data() as EligibilityInput['claim'] : undefined
@@ -94,6 +116,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
     const key = claimRunKey(pending, approvalRun, claim, abandoning ? receipt : undefined)
     return { claim, approvalRun, key }
   }
+  /**
+   * Resolve runtime workflow evidence outside the write transaction before checking it
+   * against fresh data.
+   */
   const resolveRun = async (command: PublishCommand, now: string, abandoning = false) => {
     const context = await db.runTransaction(async transaction => {
       const [batch, receipt] = await transaction.getAll(db.doc('reviewBatches/' + command.batchId), db.doc('publishRecords/' + receiptId(command.batchId, command.revision)))
@@ -111,6 +137,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
     return { key: context.key, resolved: { ...resolved, status } }
   }
   type RunEvidence = Awaited<ReturnType<typeof resolveRun>>
+  /**
+   * Read the receipt, archive and batch together to validate abandonment against current
+   * state.
+   */
   const inspectAbandon = async (transaction: Transaction, record: PublishRecord, now: string, evidence: RunEvidence) => {
     const [saved, archived, batch, pointer] = await transaction.getAll(
       db.doc('publishRecords/' + record.id), db.doc('publishRecords/' + abandonedReceiptId(record)),
@@ -128,6 +158,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       stop: isPublishStop(stop.get('reason')) ? stop.get('reason') : null, status: evidence.resolved.status, now, ttl: options.claimTtlMs, claimChanged: context.key !== evidence.key })
     return { error, disposition, saved, batch, claim, commands: previous ? abandonmentCommands(previous, claim) : [] }
   }
+  /**
+   * Inspect command authority, control, claim and receipt before allowing a retry or new
+   * reservation.
+   */
   const inspect = async (transaction: Transaction, command: PublishCommand, now: string, evidence: RunEvidence, replay = false, writeRecovered = false) => {
     const requesterRef = memberDocRef(db, command.requestedBy?.email)
     const [batch, pointer, receipt, control, ownStop] = await transaction.getAll(
@@ -173,7 +207,11 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
     return { eligibility, batch, input, claimStop, receiptStop, changed, confirmed }
   }
   return {
+    /** Check for active pipeline work in a read-only transaction before publishing. */
     async pipelineBusy() { return db.runTransaction(tx => hasActivePipeline(db, tx, env), { readOnly: true }) },
+    /**
+     * Allocate the next snapshot version from the live pointer and current reservations.
+     */
     async nextVersion(token, now) {
       return db.runTransaction(async transaction => {
         const [lock, pointer] = await transaction.getAll(db.doc('locks/publish'), db.doc('config/catalog'))
@@ -183,10 +221,15 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         return nextPublishVersion(pointer.get('version'), burns.docs.map(burn => Number(burn.id)), receipts.docs.map(receipt => receipt.data() as PublishRecord))
       })
     },
+    /**
+     * Check abandonment eligibility with current receipt state and matching workflow
+     * evidence.
+     */
     async abandonmentEligibility(record, now) {
       const evidence = await resolveRun(record, now, true)
       return db.runTransaction(async transaction => (await inspectAbandon(transaction, record, now, evidence)).error, { readOnly: true })
     },
+    /** Archive an eligible prepared receipt and fence its commands in one transaction. */
     async abandon(record, actor, reason, object, token, now) {
       const evidence = await resolveRun(record, now, true)
       return db.runTransaction(async transaction => {
@@ -217,6 +260,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         return { ok: true, value: disposition }
       })
     },
+    /**
+     * Recheck authority and release state before a workflow creates snapshot bytes in
+     * storage.
+     */
     async checkUpload(record, command, checksum, token, now) {
       return db.runTransaction(async transaction => {
         const requesterRef = memberDocRef(db, command.requestedBy?.email)
@@ -233,18 +280,29 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         return error ?? writePublishStop({ transaction, command, control, stopped, now, member })
       })
     },
+    /**
+     * Resolve retry eligibility using workflow evidence and a consistent Firestore read.
+     */
     async eligibility(command, now) {
       const evidence = await resolveRun(command, now)
       return db.runTransaction(async transaction => (await inspect(transaction, command, now, evidence)).eligibility, { readOnly: true })
     },
+    /** Read the persisted command associated with a publish receipt for recovery. */
     async command(commandId) {
       const saved = await db.doc(`publishCommands/${commandId}`).get()
       return saved.get('env') === env ? { command: saved.get('command') as PublishCommand, ...(saved.get('runId') ? { runId: saved.get('runId') as string } : {}) } : null
     },
+    /**
+     * Load the durable stop reason for a command so retries return the same disposition.
+     */
     async stopped(command) {
       const reason: unknown = (await db.doc(`publishCommandStops/${publishCommandKey(command)}`).get()).get('reason')
       return isPublishStop(reason) ? reason : null
     },
+    /**
+     * Accept a publish command transactionally, resolving concurrent claims against
+     * refreshed evidence.
+     */
     async accept(command, now) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const evidence = await resolveRun(command, now)
@@ -282,6 +340,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       }
       return { ok: false, error: 'locked' }
     },
+    /**
+     * Attach the started workflow to its command only while the persisted claim still
+     * matches.
+     */
     async bindRun(command, runId, now) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(`publishCommands/${publishCommandKey(command)}`)
@@ -296,6 +358,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         return true
       })
     },
+    /**
+     * Adopt an existing receipt for the active command when its ownership fences allow
+     * takeover.
+     */
     async adopt(record, command, checksum, token, now) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(`publishRecords/${record.id}`)
@@ -329,11 +395,16 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         return adopted
       })
     },
+    /** Read a publish receipt from this environment by its durable ID. */
     async get(id) {
       const snapshot = await db.doc(`publishRecords/${id}`).get()
       const { env: storedEnv, ...record } = snapshot.data() ?? {}
       return storedEnv === env ? record as PublishRecord : null
     },
+    /**
+     * Save receipt progress only while the caller still owns the release and matches its
+     * command.
+     */
     async save(record, token, now) {
       return db.runTransaction(async transaction => {
         const ref = db.doc(`publishRecords/${record.id}`)
@@ -362,15 +433,21 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
   }
 }
 
+/** Build the Firestore live catalog pointer adapter used to commit releases. */
 export function firestorePublishPointer(db: Firestore, env: string, verifyObject: (record: PublishRecord) => Promise<boolean>): PublishPointer {
   const pointerRef = db.doc('config/catalog')
   return {
+    /** Read the live catalog pointer and the metadata recorded at publish time. */
     async read() {
       const snapshot = await pointerRef.get()
       const data = snapshot.data()
       if (typeof data?.version !== 'number') throw new Error('config/catalog has no numeric version')
       return data as { version: number; blobSha256?: string; publishedAt?: string }
     },
+    /**
+     * Advance the live pointer only after verifying the prepared object and rechecking
+     * transactional publish fences.
+     */
     async advance(record, lease, now) {
       const observed = await db.doc('publishRecords/' + record.id).get()
       const verified = observed.get('committedAt') ? true : await verifyObject(record)
@@ -408,8 +485,15 @@ export function firestorePublishPointer(db: Firestore, env: string, verifyObject
   }
 }
 
+/**
+ * Build the adapter that projects committed catalog state order back into curator data.
+ */
 export function firestorePublishCurator(db: Firestore, env: string): PublishCurator {
   return {
+    /**
+     * Write state ordering for the committed version while rejecting stale or already
+     * superseded work.
+     */
     async writeStateOrders(orders, lease, now, record, live) {
       return db.runTransaction(async transaction => {
         const ref = db.doc('curator/workflow')
@@ -435,12 +519,18 @@ export function firestorePublishCurator(db: Firestore, env: string): PublishCura
   }
 }
 
+/** Build the Firestore adapter for global publish controls and durable command stops. */
 export function firestorePublishControl(db: Firestore): PublishControl & {
   change(paused: boolean, actor: { uid: string; email: string }, now: string): Promise<PublishControlState | typeof PUBLISH_STOPS.notEnabled | null>
 } {
   const ref = db.doc('config/publishControl')
   return {
+    /** Read and validate the current publish control record. */
     async read() { return parsePublishControl((await ref.get()).data()) },
+    /**
+     * Change publish controls transactionally so in-flight commands can detect a new
+     * generation.
+     */
     async change(paused, actor, now) {
       return db.runTransaction(async transaction => {
         const requesterRef = memberDocRef(db, actor.email)
@@ -457,6 +547,7 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
         return control
       })
     },
+    /** Check publish control and requester authority and persist any command stop. */
     async check(command: PublishCommand, now: string) {
       return db.runTransaction(async transaction => {
         const stopRef = db.doc(`publishCommandStops/${publishCommandKey(command)}`)

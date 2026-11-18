@@ -8,10 +8,18 @@ export type RunTimings = Partial<Record<string, number>>
 
 const samplesPerEstimate = 50
 
+/**
+ * Encode stage, device and optional model as a stable key shared by samples and
+ * estimates.
+ */
 export function runTimingKey(stage: LocalRunStage, device: TimingDevice, model?: string) {
   return JSON.stringify([stage, device, model ?? null])
 }
 
+/**
+ * Extract a timing sample from a completed job when its duration and execution location
+ * are usable.
+ */
 function timingSample(job: TaggingJob) {
   const result = job.result
   if (job.state !== 'completed' || job.completedAt === undefined || !result || result.stageError ||
@@ -26,6 +34,9 @@ function timingSample(job: TaggingJob) {
   return { key: runTimingKey(stage, device, model), device, workerId: job.workerId, durationMs: result.durationMs, completedAt: job.completedAt }
 }
 
+/**
+ * Average recent completed job durations by stage, device and model for queue estimates.
+ */
 export async function listRunTimings(d: JobsDeps, actor: Actor): Promise<RunTimings> {
   const [jobs, worker] = await Promise.all([
     d.store.transaction(tx => tx.list()),

@@ -10,6 +10,10 @@ import type { Actor, Outcome, ReviewDeps, ReviewBatch } from './types'
 import type { Plate } from '../catalog/types'
 import type { ImageCandidate } from '../jobs/specialized-suggestions'
 
+/**
+ * Read and validate candidate bytes so only the worker's verified image can become a
+ * plate edit.
+ */
 export async function verifiedImageFields(candidate: ImageCandidate, readImage = readCommonsImage) {
   try {
     const bytes = await readImage(candidate.imageUrl)
@@ -18,6 +22,9 @@ export async function verifiedImageFields(candidate: ImageCandidate, readImage =
   return parseEditableFields({ imageUrl: candidate.imageUrl, sourceUrl: candidate.sourceUrl }, candidate)
 }
 
+/**
+ * Check the candidate's job, batch access and revision before applying the chosen image.
+ */
 export async function acceptImage(d: ReviewDeps, jobs: JobsDeps, actor: Actor, input: { batchId: string; jobId: string; candidateId: string; baseRevision: string }, readImage = readCommonsImage): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }>> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !jobs.localScope) return { ok: false, error: 'forbidden' }
   const found = await getJobForActor(jobs, actor, input.jobId)

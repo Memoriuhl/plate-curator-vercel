@@ -6,6 +6,10 @@ import { sameEditableValue, storyFieldKeys } from '../review/story'
 
 const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
 
+/**
+ * Validate a candidate snapshot against baseline membership, ordering and plate
+ * requirements before publishing.
+ */
 export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted: ReadonlySet<string> = new Set(), stateOrders: Record<string, string[]> = {}): string[] {
   if (!candidate || typeof candidate !== 'object' || !('plates' in candidate) || !Array.isArray(candidate.plates)) {
     return ['Snapshot must contain a plates array']

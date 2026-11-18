@@ -3,6 +3,10 @@ import { createHash, randomBytes } from 'node:crypto'
 import { jobsDeps } from '../lib/server/context'
 import { localJobsEnvironment, localPipelineScope } from '../lib/jobs/local-scope'
 
+/**
+ * Issue a scoped local staging worker token and keep its value out of routine command
+ * output.
+ */
 async function main() {
   if (process.env.GCP_PROJECT_ID !== 'license-plate-game-staging' || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID !== 'license-plate-game-staging') {
     throw new Error('Local worker setup requires staging')

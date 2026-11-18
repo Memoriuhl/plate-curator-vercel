@@ -7,6 +7,7 @@ import type { ReviewBatch } from '../review/types'
 import type { PublishCommand, PublishControlState, PublishError, PublishRecord, PublishStop } from './types'
 
 export const CLAIM_TTL_MS = 120_000
+/** Recognize terminal workflow states that allow an old claim to be taken over. */
 export const terminalRun = (status?: string | null) => status === 'completed' || status === 'failed' || status === 'cancelled'
 export type RetryEligibility = { canRetry: boolean; reason: PublishError | null; reviewedVersion?: number; liveVersion?: number }
 export type EligibilityInput = {
@@ -31,9 +32,17 @@ export type PublishRunLookup = {
   runStatus?: (runId: string) => Promise<string>
 }
 
+/**
+ * Fingerprint the claim and receipt facts so workflow status can be rechecked against
+ * the same evidence.
+ */
 export const claimRunKey = (pending: ReviewBatch['publishCommand'], approvalRun: ReviewBatch['approvalRun'], claim: EligibilityInput['claim'], receipt?: PublishRecord | null) =>
   JSON.stringify([pending ?? null, approvalRun ?? null, claim ?? null, receipt ? [receipt.id, receipt.commandId, receipt.toVersion] : null])
 
+/**
+ * Resolve workflow status by the stored run ID or locate a run from the persisted
+ * command.
+ */
 export async function resolveClaimRun(claim: EligibilityInput['claim'], lookup: PublishRunLookup) {
   if (!claim) return { claim, status: undefined }
   try {
@@ -44,14 +53,25 @@ export async function resolveClaimRun(claim: EligibilityInput['claim'], lookup: 
   } catch { return { claim, status: undefined } }
 }
 
+/**
+ * Decide whether a missing, expired or terminal workflow leaves its claim eligible for
+ * takeover.
+ */
 export function claimTakeoverEligible(claim: NonNullable<EligibilityInput['claim']>, stop: PublishStop | null | undefined, status: string | null | undefined, now: string, ttl = CLAIM_TTL_MS): boolean {
   const absent = !claim.runId && status === null || status === 'not_found'
   const expired = absent && Number.isFinite(Date.parse(claim.acceptedAt)) && Date.parse(now) - Date.parse(claim.acceptedAt) >= ttl
   return !!stop || terminalRun(status) || expired
 }
 
+/**
+ * Explain whether the current command may retry after checking authority, control, batch
+ * and receipt state.
+ */
 export function retryEligibility(input: EligibilityInput): RetryEligibility {
   const { command, batch, control, receipt, liveVersion, claim, now } = input
+  /**
+   * Construct a retry denial with baseline metadata when it helps the curator recover.
+   */
   const denied = (reason: PublishError): RetryEligibility => ({ canRetry: false, reason, ...(batch ? { reviewedVersion: batch.baselineVersion, liveVersion } : {}) })
   const authority = publishRequesterStop(command.requestedBy, input.member)
   if (authority) return denied(authority)

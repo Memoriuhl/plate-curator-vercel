@@ -5,13 +5,23 @@ import { pathToFileURL } from 'node:url'
 import { loadResearchArtifacts, type ResearchArtifact as Saved } from './research-artifact'
 
 type Row = { durationMs: number | null; description: boolean; facts: number; links: number; status: string; usd: number | null; missingCost: boolean }
+/**
+ * Summarize benchmark outcomes, latency percentiles and known cost from the saved
+ * research artifacts.
+ */
 export function summarizeResearch(rows: Row[]) {
   const times = rows.flatMap(row => row.durationMs === null ? [] : [row.durationMs]).sort((a, b) => a - b)
+  /** Select a latency percentile from the sorted successful research timings. */
   const percentile = (p: number) => times[Math.max(0, Math.ceil(times.length * p) - 1)] ?? null
   return { plates: rows.length, descriptions: rows.filter(row => row.description).length, facts: rows.reduce((sum, row) => sum + row.facts, 0), fetchedLinks: rows.reduce((sum, row) => sum + row.links, 0), failures: rows.filter(row => ['failed', 'error', 'timeout', 'unrun'].includes(row.status)).length, statuses: Object.fromEntries([...new Set(rows.map(row => row.status))].map(status => [status, rows.filter(row => row.status === status).length])), p50Ms: percentile(0.5), p95Ms: percentile(0.95), knownUsd: rows.reduce((sum, row) => sum + (row.usd ?? 0), 0), missingCostPlates: rows.filter(row => row.missingCost).length, acceptedPlates: null, costPerAcceptedPlate: null }
 }
+/** Escape research output and evidence text for the generated HTML report. */
 const escape = (text: unknown) => String(text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 
+/**
+ * Project a research artifact into comparable report fields for results, evidence and
+ * cost.
+ */
 export function researchArtifactRow(row: Saved): Row {
   const draft = row.result?.draft ?? row.draft ?? row.raw?.draft
   return { durationMs: row.result?.durationMs ?? row.durationMs ?? null, description: !!draft?.description, facts: draft?.funFacts.length ?? 0, links: row.result?.draft.readMore.length ?? row.draft?.readMore.length ?? row.raw?.readMore.length ?? 0,
@@ -20,6 +30,7 @@ export function researchArtifactRow(row: Saved): Row {
     missingCost: row.result ? row.result.cost.missing > 0 : row.raw ? true : row.skipped ? false : !row.cost || row.cost.missing > 0 }
 }
 
+/** Load the frozen run manifest and generate its research benchmark summaries. */
 async function main() {
   const manifest = JSON.parse(await readFile('eval-results/research-baseline/manifest.json', 'utf8')) as { inputs: Saved['input'][] }
   const baseline = await loadResearchArtifacts('eval-results/research-baseline', manifest.inputs)

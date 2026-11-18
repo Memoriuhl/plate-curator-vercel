@@ -9,12 +9,17 @@ import { Button } from '@/components/ui/button'
 import { useInvite } from '@/lib/client/invites'
 import { useSession } from '@/lib/client/session'
 
+/** Show invitation validity and guide the recipient through accepting with Google. */
 export function InvitePage({ token }: { token: string }) {
   const invite = useInvite(token)
   const { ready, signInWithGoogle } = useSession()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Activate a valid invitation through sign-in and navigate to the workspace when it
+   * succeeds.
+   */
   async function accept() {
     if (invite.data?.status !== 'valid' || pending || !ready) return
     setPending(true)

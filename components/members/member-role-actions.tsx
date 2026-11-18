@@ -9,6 +9,10 @@ import { ApiError } from '@/lib/client/api'
 import { normalizeEmail } from '@/lib/members/member'
 import type { MemberSummary } from '@/lib/members/summary'
 
+/**
+ * Expose role and removal actions with pending status and focus recovery for a member
+ * row.
+ */
 export function MemberRoleActions({ member }: { member: MemberSummary }) {
   const { api, user } = useSession()
   const { mutate } = useSWRConfig()
@@ -18,6 +22,10 @@ export function MemberRoleActions({ member }: { member: MemberSummary }) {
   const removeControl = useRef<HTMLButtonElement>(null)
   const self = normalizeEmail(user?.email ?? '') === member.email
 
+  /**
+   * Apply the requested membership change and restore focus to a surviving control after
+   * removal.
+   */
   async function change(role?: MemberSummary['role']) {
     if (pending) return
     setPending(true)

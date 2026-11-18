@@ -8,6 +8,7 @@ import {
 const detail = vi.hoisted(() => vi.fn())
 vi.mock('../lib/client/hooks', () => ({
   usePlateDetail: detail,
+  /** Provide the plate overlay used to render this catalog scenario. */
   useDraftOverlay: (plates: unknown[]) => plates,
 }))
 import PlateHoverCard from '../components/plate/plate-hover-card'

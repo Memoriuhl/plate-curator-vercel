@@ -3,8 +3,9 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 
 const route = vi.hoisted(() => ({ code: 'AK', query: '', pending: false }))
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(route.query), useParams: () => ({ code: route.code }) }))
+vi.mock('next/navigation', () => ({ /** Supply the query parameters that define the fixture workspace state. */ useSearchParams: () => new URLSearchParams(route.query), /** Provide the route parameters for the selected fixture page. */ useParams: () => ({ code: route.code }) }))
 vi.mock('next/link', () => ({
+  /** Render link children and href directly so tests can inspect workspace navigation. */
   default: ({ children, prefetch, onMouseEnter, onFocus, scroll, ...props }: Record<string, unknown>) => {
     void prefetch
     void onMouseEnter
@@ -12,6 +13,7 @@ vi.mock('next/link', () => ({
     void scroll
     return <a {...props}>{children as React.ReactNode}</a>
   },
+  /** Set the fixture navigation pending state without starting a real transition. */
   useLinkStatus: () => ({ pending: route.pending }),
 }))
 

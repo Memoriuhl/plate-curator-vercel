@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, type CSSProperties } from 'react'
 
+/** Allow a long plate ID to scroll on interaction when its rendered text overflows. */
 export function ScrollingPlateId({ id }: { id: string }) {
   const line = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
     const element = line.current
     if (!element) return
+    /** Measure text overflow and set the scrolling distance and timing for the ID. */
     const measure = () => {
       const overflow = Math.max(0, element.scrollWidth - element.clientWidth)
       element.style.setProperty('--id-offset', `-${overflow}px`)

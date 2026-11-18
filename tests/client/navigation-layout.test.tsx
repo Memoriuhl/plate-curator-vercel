@@ -7,53 +7,74 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 
 const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', query: '', push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(mounted.query),
+  /** Provide the route parameters for the selected fixture page. */
   useParams: () => ({ code: mounted.code, id: mounted.id }),
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => mounted.pathname,
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => mounted,
 }))
 vi.mock('next/link', () => ({
+  /** Render a plain link with the prefetch setting visible to navigation assertions. */
   default: ({ children, prefetch, scroll, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
     void scroll
     return <a {...props} data-prefetch={String(prefetch)}>{children}</a>
   },
+  /** Set the fixture navigation pending state without starting a real transition. */
   useLinkStatus: () => ({ pending: false }),
 }))
 vi.mock('@/components/ui/select', () => ({
+  /** Use a native select to exercise region changes through a deterministic input. */
   Select: ({ children, value, onValueChange }: React.PropsWithChildren<{ value: string; onValueChange(value: string): void }>) => (
     <select aria-label="Region" value={value} onChange={(event) => onValueChange(event.target.value)}>{children}</select>
   ),
+  /**
+   * Omit the Radix trigger because the native fixture select supplies its own control.
+   */
   SelectTrigger: () => null,
+  /** Omit the Radix value wrapper because the fixture shows the native select value. */
   SelectValue: () => null,
+  /** Expose the supplied options directly to the fixture's native select. */
   SelectContent: ({ children }: React.PropsWithChildren) => children,
+  /** Render each selectable region as a native option in the fixture. */
   SelectItem: ({ children, ...props }: React.PropsWithChildren<{ value: string; disabled: boolean }>) => <option {...props}>{children}</option>,
 }))
 vi.mock('@/components/dashboard/dashboard-data', () => ({
+  /** Count navigation strip mounts so route changes can detect an unexpected remount. */
   JurisdictionStrip: function Strip() {
     useEffect(() => { mounted.strip++ }, [])
     return <nav aria-label="Jurisdictions">Jurisdictions</nav>
   },
 }))
 vi.mock('@/components/dashboard/search', () => ({
+  /**
+   * Count search field mounts so the test can verify it survives workspace navigation.
+   */
   DashboardSearch: function Search() {
     useEffect(() => { mounted.search++ }, [])
     return <input aria-label="Search" />
   },
 }))
 vi.mock('@/components/dashboard/review-strip', () => ({
+  /**
+   * Count review strip mounts while rendering a simple stand-in for layout assertions.
+   */
   ReviewStrip: function Review() {
     useEffect(() => { mounted.review++ }, [])
     return <div>Review</div>
   },
 }))
 
-vi.mock('@/components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
+vi.mock('@/components/dashboard/selected-batch-bar', () => ({ /** Omit the unrelated batch bar from the navigation layout fixture. */ SelectedBatchBar: () => null }))
 
 vi.mock('@/lib/client/session', () => ({ useSession: () => ({ user: null, api: {} }) }))
 
 const { default: StatesLayout } = await import('@/app/(curator)/states/layout')
 const { useParams } = await import('next/navigation')
 
+/** Render the current state route parameter so the test can observe navigation. */
 function StatePage() {
   const { code } = useParams()
   return <p>{code}</p>
@@ -69,7 +90,7 @@ beforeEach(() => {
   mounted.push.mockClear()
   mounted.prefetch.mockClear()
   mounted.replace.mockReset()
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
 })
 test('appearance segments stay open, persist choices, and support arrow keys', () => {
   document.documentElement.removeAttribute('data-theme')
@@ -117,8 +138,8 @@ const { JurisdictionNav } = await import('@/components/dashboard/jurisdiction-na
 const { CuratorHeader } = await import('@/components/app/curator-header')
 const { RegionPill } = await import('@/components/app/region-pill')
 const { summarizeRegions } = await import('@/components/app/regions')
-vi.mock('@/components/app/header-actions', () => ({ HeaderActions: () => <div>Actions</div> }))
-vi.mock('@/components/app/workspace-tabs', () => ({ WorkspaceTabs: () => <div>Tabs</div> }))
+vi.mock('@/components/app/header-actions', () => ({ /** Provide a visible account-actions placeholder for the shared header fixture. */ HeaderActions: () => <div>Actions</div> }))
+vi.mock('@/components/app/workspace-tabs', () => ({ /** Provide a visible workspace-tabs placeholder for the shared header fixture. */ WorkspaceTabs: () => <div>Tabs</div> }))
 
 const jurisdictions = [
   { code: 'AK', name: 'Alaska', region: 'US' },
@@ -227,6 +248,9 @@ test('region switch is first in jurisdiction navigation and absent from the head
 
 const { DashboardSearch: ActualDashboardSearch } = await vi.importActual<typeof import('@/components/dashboard/search')>('@/components/dashboard/search')
 
+/**
+ * Render the real search field with controllable navigation, input and debounce timing.
+ */
 function searchHarness(query = '') {
   vi.useFakeTimers()
   mounted.query = query
@@ -242,20 +266,31 @@ function searchHarness(query = '') {
       mounted.query = url.search.slice(1)
       view.rerender(<ActualDashboardSearch />)
     })
-    requests.push({ href, commit: async () => { await act(async () => { release(); await committed }) } })
+    requests.push({ href, /** Release the pending router update and wait for it to commit inside React's test boundary. */ commit: async () => { await act(async () => { release(); await committed }) } })
   })
   return {
     input,
     requests,
+    /**
+     * Enter text character by character so tests exercise debouncing across successive
+     * changes.
+     */
     type(text: string) {
       for (const character of text) fireEvent.change(input, { target: { value: input.value + character } })
     },
+    /** Advance the debounce timer to publish the pending search query. */
     async publish() { await act(async () => { await vi.advanceTimersByTimeAsync(300) }) },
+    /**
+     * Simulate an external navigation by updating the mocked URL and rerendering search.
+     */
     external(nextQuery: string, nextPathname = mounted.pathname) {
       mounted.pathname = nextPathname
       mounted.query = nextQuery
       view.rerender(<ActualDashboardSearch />)
     },
+    /**
+     * Dispatch browser history navigation and rerender the search field at its new URL.
+     */
     popstate(nextQuery: string) {
       window.history.replaceState(null, '', `${mounted.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
       fireEvent.popState(window)

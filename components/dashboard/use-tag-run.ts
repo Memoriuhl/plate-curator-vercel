@@ -47,6 +47,7 @@ export const editErrors = {
   stale_plate: 'Someone changed this while you were editing.',
 }
 
+/** Explain which condition prevented the tagging workflow from starting or completing. */
 function reason(error: unknown, stage?: PipelineStage) {
   if (error instanceof ApiError) {
     if (error.status === 403) return editErrors.forbidden
@@ -56,6 +57,7 @@ function reason(error: unknown, stage?: PipelineStage) {
   return stage ? 'Could not start this stage. Check your connection and try again.' : 'Could not request tags. Check your connection and try again.'
 }
 
+/** Manage a tagging run's selected plates, per-plate job state and polling lifecycle. */
 export function useTagRun() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
@@ -149,6 +151,10 @@ export function useTagRun() {
     }
   }, [api, pollingNeeded])
 
+  /**
+   * Start the requested stage or tagging run and track each submitted job against the
+   * current generation.
+   */
   async function start(plates: RunPlate[], retry = false, model?: TaggingModelId, stage?: PipelineStage) {
     if (stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
     if (!retry) { lastModel.current = model; lastStage.current = stage }
@@ -174,6 +180,7 @@ export function useTagRun() {
           )
         : initial,
     )
+    /** Apply a job status update only while its run generation is still current. */
     const update = (id: string, changes: Partial<RunEntry>) => {
       if (version === generation.current)
         setEntries((current) =>
@@ -212,6 +219,7 @@ export function useTagRun() {
     }
   }
 
+  /** Dismiss the current run and invalidate updates still in flight. */
   function dismiss() {
     generation.current++
     setEntries([])

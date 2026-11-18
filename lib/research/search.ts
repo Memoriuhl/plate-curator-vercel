@@ -6,6 +6,10 @@ type SearchHit = { title: string; url: string; snippet: string }
 export type SearchOutcome = { status: 'ok' | 'unavailable' | 'capped' | 'error' | 'exhausted'; provider: Provider | null; cached: boolean; hits: SearchHit[] }
 export type SearchDeps = { store: ResearchStateStore; now(): number; keys: Partial<Record<Provider, string>>; fetch: typeof fetch; reserve(): Promise<boolean>; primary?: Provider; caps?: Partial<Record<Provider, number>>; sleep?: (ms: number) => Promise<void> }
 
+/**
+ * Search configured web providers with shared call limits and cache results for
+ * equivalent queries.
+ */
 export async function searchWeb(query: string, deps: SearchDeps): Promise<SearchOutcome> {
   const normalized = query.trim().toLowerCase()
   if (!normalized || query.length > 300) throw new Error('Search query must contain 1–300 characters')

@@ -5,6 +5,7 @@ import { badRequest, json, readJson, respond } from '../../../../../../../lib/se
 import { hostedTaggingRun } from '../../../../../../../workflows/hosted-tagging'
 import { taggingRun } from '../../../../../../../workflows/tagging'
 
+/** Validate the plate and model selection before starting a hosted tagging run. */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/plates/[plateId]/tagging'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

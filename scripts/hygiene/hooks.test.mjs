@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const NOREPLY = '49572768+Memoriuhl@users.noreply.github.com';
 
+/**
+ * Strip inherited Git configuration so isolated hook tests use their own identities and
+ * settings.
+ */
 function isolatedEnv(extra = {}) {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
@@ -17,16 +21,21 @@ function isolatedEnv(extra = {}) {
   return { ...env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...extra };
 }
 
+/** Create a temporary repository with the real hooks and clean it up after the test. */
 function freshRepo(t) {
   const dir = mkdtempSync(join(tmpdir(), 'hygiene-hooks-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   cpSync(join(REPO_ROOT, '.githooks'), join(dir, '.githooks'), { recursive: true });
   cpSync(join(REPO_ROOT, 'scripts/hygiene/check.mjs'), join(dir, 'scripts/hygiene/check.mjs'));
+  /** Run Git in the hook fixture with its isolated environment. */
   const git = (args, extraEnv) => spawnSync('git', args, { cwd: dir, env: isolatedEnv(extraEnv), encoding: 'utf8' });
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Hygiene Test']);
   git(['config', 'user.email', NOREPLY]);
   git(['config', 'core.hooksPath', '.githooks']);
+  /**
+   * Stage a fixture file and attempt its commit so the hooks run as they would locally.
+   */
   const commit = (file, content, message, extraEnv) => {
     writeFileSync(join(dir, file), content);
     git(['add', '-A']);
@@ -118,6 +127,7 @@ test("a linked worktree uses the main checkout's .hygiene-denylist", (t) => {
   git(['worktree', 'add', '-q', '-b', 'side', 'wt']);
   const worktree = join(dir, 'wt');
   writeFileSync(join(worktree, 'a.txt'), 'example-secret-host\n');
+  /** Run Git in the linked test worktree with isolated configuration. */
   const run = (args) => spawnSync('git', args, { cwd: worktree, env: isolatedEnv(), encoding: 'utf8' });
   run(['add', '-A']);
   const result = run(['commit', '-q', '-m', 'chore: side']);

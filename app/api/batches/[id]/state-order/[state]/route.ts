@@ -5,6 +5,10 @@ import { catalogChanged } from '../../../../../../lib/server/catalog-head'
 import { currentActor, reviewDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../../lib/server/respond'
 
+/**
+ * Validate and save a new state order, including a coordinated standard-plate change
+ * when supplied.
+ */
 export async function PUT(request: Request, ctx: RouteContext<'/api/batches/[id]/state-order/[state]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

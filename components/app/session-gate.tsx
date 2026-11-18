@@ -7,11 +7,16 @@ import { useMe } from '../../lib/client/hooks'
 import { ApiError } from '../../lib/client/api'
 import { Button } from '../ui/button'
 
+/** Wait for a signed-in user's membership before allowing access to curator content. */
 function MembershipGate({ children }: { children: ReactNode }) {
   const { signOut } = useSession()
   const me = useMe()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
+  /**
+   * Let the blocked user leave the current session and surface retryable sign-out
+   * failures.
+   */
   async function handleSignOut() {
     setPending(true)
     setError(false)
@@ -31,6 +36,7 @@ function MembershipGate({ children }: { children: ReactNode }) {
   return children
 }
 
+/** Route users to the appropriate screen as authentication initializes or changes. */
 export function SessionGate({
   children,
   signedIn = true,

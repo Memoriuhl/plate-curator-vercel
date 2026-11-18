@@ -12,6 +12,10 @@ export type LiveSignalSource = {
   subscribe(envKey: string, batchId: string, next: (revision: number | null) => void, error: (error: { code?: string }) => void): () => void
 }
 const source: LiveSignalSource = {
+  /**
+   * Subscribe to the batch's Firestore revision signal and normalize its value for the
+   * client.
+   */
   subscribe(envKey, batchId, next, error) {
     return onSnapshot(doc(getFirestore(clientApp()), signalPath(envKey, batchId)), snapshot => {
       const revision = snapshot.data()?.revision
@@ -22,6 +26,10 @@ const source: LiveSignalSource = {
 const LiveSource = createContext<LiveSignalSource>(source)
 export const LiveSignalProvider = LiveSource.Provider
 
+/**
+ * Watch for newer batch revisions and refresh SWR detail while managing the live access
+ * grant.
+ */
 export function useBatchRevisionSignal(batchId: string | null, displayedRevision: number) {
   const selectedSource = useContext(LiveSource)
   const { user, api } = useSession()
@@ -34,14 +42,24 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
     const batchKey = batchApiPath(batchId)
     let disposed = false
     let stopped = false
+    /** Provide a safe cleanup action before the first live listener has been attached. */
     let unsubscribe = () => {}
     let renewal: ReturnType<typeof setTimeout>
     let queued: ReturnType<typeof setTimeout>
     let seen = -1
     let retried = false
     let refreshing = false
+    /**
+     * Associate the subscription status with this batch so switching batches cannot
+     * display stale status.
+     */
     const updateStatus = (text: string) => setStatus({ id: batchId, text })
+    /** Show the subscription failure only while the hook is still mounted. */
     const unavailable = () => { if (!disposed) updateStatus('Live updates unavailable') }
+    /**
+     * Refresh batch data in response to a revision signal and retry when a newer
+     * revision is still pending.
+     */
     const refresh = async () => {
       if (disposed || stopped || refreshing) return
       refreshing = true
@@ -55,6 +73,10 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
         if (!disposed && !stopped && seen > revision) queued = setTimeout(() => { void refresh() }, 25)
       }
     }
+    /**
+     * Obtain or renew live access and replace the existing revision subscription for the
+     * batch.
+     */
     const connect = async () => {
       if (disposed || stopped) return
       try {

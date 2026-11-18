@@ -7,9 +7,14 @@ import type { StandardChange } from '@/lib/review/types'
 type Plate = { id: string; displayName: string; state: string; isStandard?: boolean; deleted?: boolean }
 type Confirmation = { old: string; next: Plate; resolve(value: boolean): void }
 
+/** Request confirmation when an ordering change would switch a state's standard plate. */
 export function useStandardConfirmation() {
   const restoreFocus = useRef<HTMLElement | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+  /**
+   * Identify the current and proposed standard and ask the curator to approve the
+   * transition.
+   */
   async function confirm(plates: readonly Plate[], to: string): Promise<StandardChange | false | undefined> {
     const standards = plates.filter(plate => plate.isStandard && !plate.deleted)
     const old = standards.find(plate => plate.id !== to) ?? standards[0]
@@ -20,6 +25,7 @@ export function useStandardConfirmation() {
     const accepted = await new Promise<boolean>(resolve => setConfirmation({ old: old?.displayName ?? 'No plate', next, resolve }))
     return accepted ? { from: old?.id ?? null, to } : false
   }
+  /** Resolve the pending standard decision, dismiss the prompt and restore focus. */
   function finish(value: boolean) {
     confirmation?.resolve(value)
     setConfirmation(null)

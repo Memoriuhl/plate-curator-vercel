@@ -1,6 +1,10 @@
 import sharp from 'sharp'
 import { commonsImageUrl } from '../lib/jobs/image-options'
 
+/**
+ * Read a response into memory only while its declared and streamed sizes fit the byte
+ * limit.
+ */
 export async function boundedResponse(response: Response, maxBytes: number): Promise<Buffer> {
   if (!response.ok || !response.body) {
     await response.body?.cancel().catch(() => undefined)
@@ -29,6 +33,10 @@ export async function boundedResponse(response: Response, maxBytes: number): Pro
   return Buffer.concat(chunks)
 }
 
+/**
+ * Download a supported Commons image, validate its media and dimensions and return the
+ * checked bytes.
+ */
 export async function readCommonsImage(value: string, request: typeof fetch = fetch): Promise<Buffer> {
   const url = commonsImageUrl(value)
   if (!url) throw new Error('Only Wikimedia Commons raster images are supported')

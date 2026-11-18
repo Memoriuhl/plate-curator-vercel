@@ -1,13 +1,16 @@
 import { expect, test, vi } from 'vitest'
 import { ApiError, createApiClient } from '../../lib/client/api'
 
+/**
+ * Create a mocked fetch response with the status and JSON needed by the API client test.
+ */
 function fakeFetch(status: number, body: unknown) {
   return vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
 }
 
 test('attaches the bearer token and parses JSON', async () => {
   const fetch = fakeFetch(200, { ok: 1 })
-  const api = createApiClient({ token: async () => 'tok', fetch })
+  const api = createApiClient({ /** Provide a test credential so the request can exercise the intended authentication path. */ token: async () => 'tok', fetch })
 
   expect(await api.get('/api/me')).toEqual({ ok: 1 })
   const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
@@ -17,7 +20,7 @@ test('attaches the bearer token and parses JSON', async () => {
 
 test('sends JSON bodies for writes', async () => {
   const fetch = fakeFetch(200, {})
-  const api = createApiClient({ token: async () => 'tok', fetch })
+  const api = createApiClient({ /** Provide a test credential so the request can exercise the intended authentication path. */ token: async () => 'tok', fetch })
 
   await api.send('PATCH', '/api/batches/b1/plates/p1', { baseRevision: 'r', fields: { tags: ['x'] } })
   const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
@@ -27,7 +30,7 @@ test('sends JSON bodies for writes', async () => {
 })
 
 test('throws ApiError with status, error code and body on failure', async () => {
-  const api = createApiClient({ token: async () => 'tok', fetch: fakeFetch(409, { error: 'stale_plate', current: { id: 'p1' } }) })
+  const api = createApiClient({ /** Provide a test credential so the request can exercise the intended authentication path. */ token: async () => 'tok', fetch: fakeFetch(409, { error: 'stale_plate', current: { id: 'p1' } }) })
 
   const error = await api.get('/x').catch((e: unknown) => e)
   expect(error).toBeInstanceOf(ApiError)
@@ -36,7 +39,7 @@ test('throws ApiError with status, error code and body on failure', async () => 
 
 test('refuses to call the API when signed out', async () => {
   const fetch = fakeFetch(200, {})
-  const api = createApiClient({ token: async () => null, fetch })
+  const api = createApiClient({ /** Provide a test credential so the request can exercise the intended authentication path. */ token: async () => null, fetch })
 
   await expect(api.get('/x')).rejects.toMatchObject({ status: 401, code: 'unauthenticated' })
   expect(fetch).not.toHaveBeenCalled()

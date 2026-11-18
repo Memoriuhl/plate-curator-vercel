@@ -11,15 +11,21 @@ export function shouldReuseSavedSources(options?: EnrichmentOptions) {
   return options?.reuseSavedSources === true && options.policy !== 'replace'
 }
 
+/** Treat absent and empty field values as needing enrichment. */
 export function hasEnrichmentValue(value: unknown): boolean {
   return value !== null && value !== undefined && (typeof value !== 'string' || !!value.trim()) && (!Array.isArray(value) || value.length > 0)
 }
 
+/** Select the plate fields eligible for research under the run's overwrite policy. */
 export function enrichmentTargets(plate: Partial<Plate>, policy: EnrichmentPolicy): EnrichmentField[] {
   return enrichmentFields.filter(field => policy === 'replace' || !hasEnrichmentValue(plate[field]))
 }
 
 // Never project a null/empty model result onto saved content, even in Replace.
+/**
+ * Keep only eligible, populated research fields before turning the draft into a
+ * suggestion.
+ */
 export function filterEnrichmentFields(fields: Partial<EditableFields>, plate: Partial<Plate>, policy: EnrichmentPolicy): Partial<EditableFields> {
   const targets = enrichmentTargets(plate, policy)
   return Object.fromEntries(Object.entries(fields).filter(([field, value]) => targets.includes(field as EnrichmentField) && hasEnrichmentValue(value)))

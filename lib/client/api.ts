@@ -1,6 +1,10 @@
 export const batchApiPath = (id: string) => `/api/batches/${encodeURIComponent(id)}`
 
 export class ApiError extends Error {
+  /**
+   * Preserve the HTTP status, application error code and response body for callers that
+   * handle conflicts.
+   */
   constructor(readonly status: number, readonly code: string, readonly body: Record<string, unknown>) {
     super(`${status} ${code}`)
   }
@@ -8,9 +12,14 @@ export class ApiError extends Error {
 
 type ApiDeps = { token: () => Promise<string | null>; fetch?: typeof fetch }
 
+/** Build the authenticated API client shared by session hooks. */
 export function createApiClient(deps: ApiDeps) {
   const doFetch = deps.fetch ?? fetch
 
+  /**
+   * Send a request with the current ID token and turn unsuccessful responses into typed
+   * API errors.
+   */
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const token = await deps.token()
     if (!token) throw new ApiError(401, 'unauthenticated', {})
@@ -23,13 +32,16 @@ export function createApiClient(deps: ApiDeps) {
   }
 
   return {
+    /** Load a typed resource through the authenticated API client. */
     get: <T>(path: string) => request<T>('GET', path),
+    /** Send a typed write request through the authenticated API client. */
     send: <T>(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: unknown) => request<T>(method, path, body),
   }
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>
 
+/** Extract validation reasons so forms can show specific messages. */
 export function apiErrorReasons(error: unknown): string[] {
   return error instanceof ApiError && Array.isArray(error.body.reasons)
     ? error.body.reasons.filter((reason): reason is string => typeof reason === 'string') : []

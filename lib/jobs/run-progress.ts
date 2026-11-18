@@ -24,6 +24,10 @@ export type PipelineProgress = {
   gatewayUrl?: string
 }
 
+/**
+ * Turn the latest attempt and its jobs into queue progress, timings and per-stage status
+ * for the dashboard.
+ */
 export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProgress {
   const attempt = run.attempts.at(-1)!
   const projection = 'projection' in attempt ? attempt.projection : undefined
@@ -79,12 +83,17 @@ export function plateOutcomeSummary(steps: StepProgress[]): string {
   }).join(' · ')
 }
 
+/** Summarize a stage's steps using the status that needs the most attention. */
 export function stageStatus(steps: StepProgress[]): StepProgress['status'] {
   if (!steps.length) return 'skipped'
   for (const status of ['running', 'waiting', 'queued', 'failed', 'cancelled'] as const) if (steps.some(step => step.status === status)) return status
   return steps.every(step => step.status === 'skipped') ? 'skipped' : 'completed'
 }
 
+/**
+ * Format nonnegative elapsed milliseconds for the queue UI and leave unknown durations
+ * empty.
+ */
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms)) return '—'
   const seconds = Math.max(0, Math.floor(ms / 1000))

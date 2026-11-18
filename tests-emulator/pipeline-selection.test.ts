@@ -29,7 +29,8 @@ test('a concurrent retry of a 990-plate selection creates one Batch with a durab
   }))
   const plateIds = [...catalog.keys()]
   const deps = { store: firestoreJobsStore(db, localJobsEnvironment(scope), env), localScope: scope,
-    baseline: async (id: string) => catalog.get(id) ?? null, id: () => crypto.randomUUID(), now: Date.now, leaseMs: 1000 }
+    /** Resolve the plate by ID from the fixture baseline. */
+    baseline: async (id: string) => catalog.get(id) ?? null, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => crypto.randomUUID(), now: Date.now, leaseMs: 1000 }
   const input = { batchId: id, requestId: 'state-scale-request', plateIds, stages: ['wiki-link' as const] }
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   try {

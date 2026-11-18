@@ -3,9 +3,14 @@ import { beforeEach, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), write: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({
   currentActor: mocks.currentActor,
-  liveAccessDeps: () => ({ env: 'preview:feat/x', now: () => new Date('2026-11-16T12:00:00.000Z'), write: mocks.write }),
+  /**
+   * Supply the fixture grant writer, scoped review environment and fixed expiration
+   * clock.
+   */
+  liveAccessDeps: () => ({ env: 'preview:feat/x', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => new Date('2026-11-16T12:00:00.000Z'), write: mocks.write }),
 }))
 const { POST } = await import('../../app/api/live-access/route')
+/** Build the POST request the route fixture passes to its handler. */
 const request = () => new Request('https://example.com/api/live-access', { method: 'POST', headers: { Authorization: 'Bearer token' } })
 
 beforeEach(() => { vi.clearAllMocks() })

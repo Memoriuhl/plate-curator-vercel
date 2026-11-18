@@ -5,8 +5,8 @@ const mocks = vi.hoisted(() => ({ getBatch: vi.fn(), createHook: vi.fn(), publis
 vi.mock('../../workflows/catalog-push', () => ({ catalogPush: mocks.catalogPush }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
-vi.mock('workflow', () => ({ createHook: mocks.createHook, sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
-vi.mock('../../lib/server/context', () => ({ reviewDeps: () => ({ store: { getBatch: mocks.getBatch } }), publishDeps: mocks.publishDeps }))
+vi.mock('workflow', () => ({ createHook: mocks.createHook, /** Control polling time through the fixture instead of waiting for a real interval. */ sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
+vi.mock('../../lib/server/context', () => ({ /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps: () => ({ store: { getBatch: mocks.getBatch } }), publishDeps: mocks.publishDeps }))
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
 
 const approved = { state: 'approved', revision: 2, approval: { revision: 1 } }

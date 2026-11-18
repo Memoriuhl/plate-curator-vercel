@@ -14,6 +14,10 @@ export type FamilyMerge = {
   catalogVersion?: number
 }
 
+/**
+ * Apply a family merge in one batch commit after checking scope, permissions and the
+ * current plate revisions.
+ */
 export async function mergeFamily(
   d: ReviewDeps, actor: Actor, input: FamilyMerge & { batchId: string; batchRevision: number },
 ): Promise<Outcome<FamilyMergeResult>> {

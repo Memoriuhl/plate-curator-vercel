@@ -6,6 +6,10 @@ import { DashboardSearch } from '@/components/dashboard/search'
 import { ReviewStrip } from '@/components/dashboard/review-strip'
 import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 
+/**
+ * Render the shared jurisdiction navigation and active state content within a loading
+ * boundary.
+ */
 export default function StatesLayout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<main className="app-main"><DashboardSkeleton kind="state" /></main>}>

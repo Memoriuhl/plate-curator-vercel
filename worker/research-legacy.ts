@@ -16,11 +16,20 @@ type LegacyModule = { storyForPlate(plate: { id: string; displayName: string; st
 type LegacyDeps = { revision(root: string): Promise<string>; load(root: string): Promise<LegacyModule>; now(): number }
 
 const defaults: LegacyDeps = {
+  /**
+   * Read the legacy research repository's current commit to verify the requested runner
+   * revision.
+   */
   async revision(root) { return (await promisify(execFile)('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim() },
+  /** Load the legacy research adapter from the configured repository path. */
   async load(root) { return import(pathToFileURL(resolve(root, 'scripts/lib/story/stage.ts')).href) as Promise<LegacyModule> },
   now: Date.now,
 }
 
+/**
+ * Execute the pinned legacy research runner and retain normalized results and raw
+ * evidence for comparison.
+ */
 export async function runLegacyResearchArtifact(input: ResearchInput, options: { legacyRoot: string; model: string; expectedRevision: string }, deps: LegacyDeps = defaults): Promise<{ result: ResearchResult; raw: LegacyOutcome }> {
   const revision = await deps.revision(options.legacyRoot)
   if (revision !== options.expectedRevision) throw new Error('Legacy revision differs from the frozen baseline')
@@ -50,6 +59,10 @@ export async function runLegacyResearchArtifact(input: ResearchInput, options: {
   return { result, raw: outcome }
 }
 
+/**
+ * Return only the normalized research result to callers that do not need the benchmark
+ * artifact.
+ */
 export async function runLegacyResearch(input: ResearchInput, options: { legacyRoot: string; model: string; expectedRevision: string }, deps: LegacyDeps = defaults): Promise<ResearchResult> {
   return (await runLegacyResearchArtifact(input, options, deps)).result
 }

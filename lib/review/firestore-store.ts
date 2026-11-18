@@ -5,18 +5,29 @@ import type { ProposedEdit, PublishMetadata, ReviewBatch, ReviewStore } from './
 import { currentDraftChanges, draftChange, reviewChanges, type DraftChange, type ReviewCheckpoint } from './checkpoint'
 import { receiptId } from '../publish/command'
 
+/** Stage a metadata-only update that preserves the batch's editorial revision. */
 export function writePublishMetadata(transaction: Transaction, batch: DocumentSnapshot, fields: PublishMetadata) {
   transaction.update(batch.ref, fields)
 }
 
+/**
+ * Build the Firestore review adapter for a specific environment and optional existing
+ * transaction.
+ */
 export function firestoreReviewStore(db: Firestore, env: string, scopedTransaction?: Transaction): ReviewStore {
   const batches = db.collection('reviewBatches')
+  /** Locate the live revision signal that clients watch for changes to this batch. */
   const signal = (batchId: string) => db.doc(signalPath(liveEnvKey(env), batchId))
+  /** Stage creation of a batch and its initial live revision signal together. */
   const create = (transaction: Transaction, batch: ReviewBatch) => {
     transaction.create(batches.doc(batch.id), { ...batch, env })
     transaction.set(signal(batch.id), { revision: batch.revision })
   }
 
+  /**
+   * Read draft changes and current edits together so the checkpoint reflects current
+   * draft content.
+   */
   const recentChanges = async (transaction: Transaction, batch: DocumentSnapshot, since: number) => {
     const [changes, edits] = await Promise.all([
       transaction.get(batch.ref.collection('draftChanges').where('revision', '>', since)),
@@ -26,6 +37,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
   }
 
   return {
+    /** List the distinct plate IDs still changed since a particular batch revision. */
     async recentPlateIds(batchId, since) {
       return db.runTransaction(async transaction => {
         const batch = await transaction.get(batches.doc(batchId))
@@ -33,6 +45,10 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return [...new Set((await recentChanges(transaction, batch, since)).flatMap(change => change.plateIds))]
       }, { readOnly: true })
     },
+    /**
+     * Save a viewer's checkpoint after confirming the batch and viewed revision are
+     * valid.
+     */
     async markViewed(batchId, uid, revision, viewedAt) {
       return db.runTransaction(async transaction => {
         const batch = batches.doc(batchId)
@@ -43,6 +59,9 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return true
       })
     },
+    /**
+     * Load the viewer's checkpoint and summarize current changes in one consistent read.
+     */
     async changesSinceReview(batchId, uid, revision) {
       return db.runTransaction(async transaction => {
         const ref = batches.doc(batchId)
@@ -53,7 +72,12 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return reviewChanges(revision, current, await recentChanges(transaction, batch, current.revision))
       }, { readOnly: true })
     },
+    /**
+     * Update publish metadata within the existing transaction or start one for a
+     * standalone call.
+     */
     async updatePublishMetadata(batchId, revision, fields) {
+      /** Apply metadata only to a batch in the store's environment. */
       const write = async (transaction: Transaction) => {
         const batch = await transaction.get(batches.doc(batchId))
         if (batch.get('env') !== env || batch.get('revision') !== revision) return false
@@ -62,6 +86,10 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       }
       return scopedTransaction ? write(scopedTransaction) : db.runTransaction(write)
     },
+    /**
+     * Create and populate a copied batch after checking that the live catalog still
+     * matches its baseline.
+     */
     async copy(input) {
       return db.runTransaction(async transaction => {
         const sourceRef = batches.doc(input.sourceId)
@@ -86,6 +114,10 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return { ok: true, value: input.batch }
       })
     },
+    /**
+     * Create a batch with its live signal and return an existing-ID outcome when
+     * retried.
+     */
     async create(batch) {
       try {
         await db.runTransaction(async transaction => {
@@ -97,6 +129,9 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         throw error
       }
     },
+    /**
+     * List batches in this environment using the requested state and ordering filters.
+     */
     async list(filter) {
       if (filter.states?.length === 0) return []
       let query = batches.where('env', '==', env)
@@ -109,7 +144,12 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return { ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} } as ReviewBatch
       }).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     },
+    /** Read current edits using the ambient transaction when available. */
     async listEdits(batchId) {
+      /**
+       * Load edits only after verifying that their parent batch belongs to this
+       * environment.
+       */
       const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
@@ -119,6 +159,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       }
       return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run, { readOnly: true })
     },
+    /** Read a batch and all its plate edits in a consistent transaction. */
     async readBatch(batchId) {
       return db.runTransaction(async transaction => {
         const ref = batches.doc(batchId)
@@ -134,13 +175,16 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         }
       }, { readOnly: true })
     },
+    /** Fetch a batch by ID within this environment and normalize missing state orders. */
     async getBatch(id) {
       const snapshot = scopedTransaction ? await scopedTransaction.get(batches.doc(id)) : await batches.doc(id).get()
       const { env: storedEnv, ...batch } = snapshot.data() ?? {}
       delete batch.publishReservation
       return storedEnv === env ? { ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} } as ReviewBatch : null
     },
+    /** Fetch one plate edit using the existing transaction or a consistent read. */
     async getEdit(batchId, plateId) {
+      /** Check the parent batch's environment before loading its plate edit. */
       const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
@@ -150,6 +194,9 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       }
       return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run, { readOnly: true })
     },
+    /**
+     * Attach an approval workflow run while the batch still has the expected revision.
+     */
     async recordRun(batchId, revision, runId) {
       return db.runTransaction(async transaction => {
         const ref = batches.doc(batchId)
@@ -159,6 +206,10 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return true
       })
     },
+    /**
+     * Record the owner and timestamp for a publish request at the expected batch
+     * revision.
+     */
     async requestPublish(batchId, revision, at, requestedBy) {
       return db.runTransaction(async transaction => {
         const ref = batches.doc(batchId)
@@ -168,7 +219,15 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         return true
       })
     },
+    /**
+     * Commit a batch revision within the existing transaction or start a standalone
+     * transaction.
+     */
     async commit(batchId, expectedRevision, next) {
+      /**
+       * Check the expected revision and publish fences, then write the batch, edits and
+       * live signal together.
+       */
       const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)

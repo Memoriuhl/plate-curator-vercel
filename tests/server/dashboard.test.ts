@@ -10,15 +10,16 @@ const state = vi.hoisted(() => ({
 }))
 vi.mock('@google-cloud/firestore', () => ({
   Firestore: class {
+    /** Resolve the requested document through the Firestore fixture. */
     doc(path: string) {
-      return { get: async () => path === 'config/catalog'
-        ? { get: () => state.version }
-        : { data: () => structuredClone(state.curator) } }
+      return { /** Return the fixture catalog pointer or curator document through the expected Firestore path. */ get: async () => path === 'config/catalog'
+        ? { /** Expose the current fixture catalog version through the pointer's field accessor. */ get: () => state.version }
+        : { /** Read detached curator metadata from the simulated Firestore document. */ data: () => structuredClone(state.curator) } }
     }
   },
 }))
 vi.mock('google-auth-library', () => ({
-  ExternalAccountClient: { fromJSON: () => ({ getAccessToken: async () => ({ token: 'test-token' }) }) },
+  ExternalAccountClient: { /** Build a credential double so snapshot reads can proceed without exchanging a real token. */ fromJSON: () => ({ /** Return the dummy access token expected by the mocked snapshot request. */ getAccessToken: async () => ({ token: 'test-token' }) }) },
 }))
 
 const { loadDashboard, loadJurisdiction, loadPlate } = await import('../../lib/catalog/dashboard')

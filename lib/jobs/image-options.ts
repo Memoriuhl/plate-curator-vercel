@@ -8,6 +8,10 @@ export type ImageGroupOptions = {
 
 export type GroupRuntime = { embeddings: boolean; backgroundMask: boolean; visionTiebreak: boolean; reason?: string; maskReason?: string; visionReason?: string }
 
+/**
+ * Describe which image and grouping features the current worker can run and why others
+ * are unavailable.
+ */
 export function imageGroupCapabilities(runtime?: GroupRuntime) {
   const unavailable = runtime?.reason ?? 'Needs a configured local grouping worker'
   const maskReady = !!runtime?.embeddings && runtime.backgroundMask
@@ -24,6 +28,10 @@ export function imageGroupCapabilities(runtime?: GroupRuntime) {
   }
 }
 
+/**
+ * Accept direct Wikimedia Commons image URLs that comply with the worker's supported
+ * media formats.
+ */
 export function commonsImageUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null
   try {
@@ -34,6 +42,7 @@ export function commonsImageUrl(value: unknown): string | null {
   } catch { return null }
 }
 
+/** Accept Commons file pages so an image candidate can retain a link to its source. */
 export function commonsSourceUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null
   try {

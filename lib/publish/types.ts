@@ -9,6 +9,7 @@ export type { PublishStop } from './stop'
 export type RequesterAuthority = { uid: string; email: string; authorityEpoch: number }
 export type PublishRequester = { ownerUid: string; requestedBy?: RequesterAuthority; generation?: number; commandId?: string }
 export type PublishCommand = { batchId: string; revision: number; confirmedDraftRevision?: number } & Omit<PublishRequester, 'ownerUid'>
+/** Validate command IDs before they enter persisted keys and release requests. */
 export const validCommandId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(value)
 export type PublishControlState = { paused: boolean; generation: number; changedBy: { uid: string; email: string }; changedAt: string }
 export interface PublishControl {

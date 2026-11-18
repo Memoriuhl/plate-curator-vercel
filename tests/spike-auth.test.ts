@@ -3,6 +3,9 @@ import { rejectWithoutSpikeSecret } from '../lib/spike/auth'
 
 const secret = 'correct-horse-battery-staple'
 
+/**
+ * Build a spike request with or without the secret header to test route authorization.
+ */
 function requestWith(header?: string) {
   const headers = header === undefined ? undefined : { 'x-spike-secret': header }
   return new Request('http://localhost/api/spike/start', { method: 'POST', headers })

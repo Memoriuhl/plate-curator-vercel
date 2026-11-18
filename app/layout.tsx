@@ -22,6 +22,7 @@ export const metadata: Metadata = {
   icons: { icon: '/state-spotter-icon.png' },
 }
 
+/** Provide the root HTML, theme initialization and authenticated session context. */
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

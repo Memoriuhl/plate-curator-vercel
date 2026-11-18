@@ -3,6 +3,10 @@ import { approvalRunStatus, type ApprovalResult } from '../../../../../lib/revie
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { json } from '../../../../../lib/server/respond'
 
+/**
+ * Read the batch's approval or publish workflow status for the authenticated review
+ * workspace.
+ */
 export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]/run'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

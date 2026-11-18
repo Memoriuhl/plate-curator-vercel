@@ -16,5 +16,5 @@ export default defineAgent({
     return run.modelAttempt()
     }, !!run.binding?.pipelineJobId) }
   }),
-  limits: { sessionUsage: ({ total }) => total.inputTokens - total.cacheReadTokens >= 50000 || total.outputTokens >= 10000 || (total.costUsd ?? 0) >= 0.1 },
+  limits: { /** Flag research sessions approaching the usage threshold so the agent can manage context and spend. */ sessionUsage: ({ total }) => total.inputTokens - total.cacheReadTokens >= 50000 || total.outputTokens >= 10000 || (total.costUsd ?? 0) >= 0.1 },
 })

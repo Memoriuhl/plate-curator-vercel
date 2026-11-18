@@ -17,6 +17,7 @@ const SECRET_SHAPES = [
 const TRAILER = /^\s*co-authored-by\s*:/i;
 const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
+/** Parse the configured private-string patterns and report invalid entries by line. */
 function parseDenylist(source, label) {
   const entries = [];
   source.split('\n').forEach((raw, index) => {
@@ -32,6 +33,7 @@ function parseDenylist(source, label) {
   return entries;
 }
 
+/** Resolve the denylist from CI or local configuration and enforce required CI input. */
 export function resolveDenylist({ envValue = '', fileText = null, ci = false } = {}) {
   const fromEnv = parseDenylist(envValue, 'HYGIENE_DENYLIST');
   if (fromEnv.length > 0) return { denylist: fromEnv };
@@ -43,16 +45,19 @@ export function resolveDenylist({ envValue = '', fileText = null, ci = false } =
   return { denylist };
 }
 
+/** Label message lines so violations can be reported without exposing matched text. */
 function messageLines(text) {
   return text.split('\n').map((content, index) => ({ where: `line ${index + 1}`, content }));
 }
 
+/** Recover an unchanged path from the Git diff header when both path forms agree. */
 function pathFromDiffHeader(rest) {
   const half = (rest.length - 5) / 2;
   const path = rest.slice(2, 2 + half);
   return rest === `a/${path} b/${path}` ? path : rest;
 }
 
+/** Extract added content and source locations from the staged diff for policy checks. */
 function parseStagedDiff(diff) {
   const files = [];
   let file = null;
@@ -82,6 +87,10 @@ function parseStagedDiff(diff) {
   return files;
 }
 
+/**
+ * Recognize private or Tailscale IPv4 addresses in text so added content can be
+ * screened.
+ */
 function hasPrivateAddress(text) {
   const candidates = text.matchAll(/(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)/g);
   for (const [candidate] of candidates) {
@@ -94,6 +103,7 @@ function hasPrivateAddress(text) {
   return false;
 }
 
+/** Find repository policy violations in proposed messages or added diff lines. */
 export function findViolations({ authorEmails = [], committerEmails = [], text = '', denylist = [], format = 'message' } = {}) {
   if (format !== 'message' && format !== 'diff') throw new Error(`unknown format: ${format}`);
   const patterns = denylist.map((source) => new RegExp(source, 'i'));
@@ -104,6 +114,7 @@ export function findViolations({ authorEmails = [], committerEmails = [], text =
     ...committerEmails.filter((email) => !ALLOWED_COMMITTER_EMAILS.includes(email))
       .map(() => ({ kind: 'email', detail: 'committer identity is not allowed' })),
   ];
+  /** Check whether any configured denylist pattern matches the supplied content. */
   const matchesDenylist = (value) => patterns.some((pattern) => pattern.test(value));
   const pathViolations = [];
   let lines;
@@ -141,6 +152,10 @@ export function findViolations({ authorEmails = [], committerEmails = [], text =
 const SCISSORS = /^# -+ >8 -+$/m;
 const COMMENT_LINE = /^#.*$/gm;
 
+/**
+ * Read Git state and report a bounded error when the required repository reference
+ * fails.
+ */
 function git(args) {
   try {
     return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -149,10 +164,12 @@ function git(args) {
   }
 }
 
+/** Extract the address from a Git identity for repository email checks. */
 function emailFromIdent(ident) {
   return ident.match(/<([^>]*)>/)?.[1] ?? '';
 }
 
+/** Locate the gitignored denylist in the worktree or the common repository. */
 function findDenylistFile() {
   const worktreeRoot = git(['rev-parse', '--show-toplevel']).trim();
   const mainCheckoutRoot = dirname(git(['rev-parse', '--path-format=absolute', '--git-common-dir']).trim());
@@ -161,10 +178,12 @@ function findDenylistFile() {
     .find((path) => existsSync(path));
 }
 
+/** Interpret the CI environment flag for required denylist handling. */
 function isCi() {
   return !['', '0', 'false'].includes((process.env.CI ?? '').trim().toLowerCase());
 }
 
+/** Load and validate configured patterns for the current hygiene command. */
 function loadDenylist() {
   const denylistFile = findDenylistFile();
   return resolveDenylist({
@@ -174,6 +193,7 @@ function loadDenylist() {
   });
 }
 
+/** Check staged additions and commit identities before allowing a commit. */
 function checkStaged(denylist) {
   const authorEmails = [emailFromIdent(git(['var', 'GIT_AUTHOR_IDENT']))];
   const committerEmails = [emailFromIdent(git(['var', 'GIT_COMMITTER_IDENT']))];
@@ -181,12 +201,18 @@ function checkStaged(denylist) {
   return findViolations({ authorEmails, committerEmails, text, denylist, format: 'diff' });
 }
 
+/** Scan the proposed commit message and label any violations by message line. */
 function checkMessage(denylist, messageFile) {
   const text = readFileSync(messageFile, 'utf8').split(SCISSORS)[0].replace(COMMENT_LINE, '');
   return findViolations({ text, denylist }).map((v) => ({ ...v, detail: `commit message ${v.detail}` }));
 }
 
+/**
+ * Scan all commits in the requested range so later removals cannot hide earlier
+ * violations.
+ */
 function checkRange(denylist, base, head) {
+  /** Resolve a supplied Git revision to a commit before checking the range. */
   const resolve = (ref) => git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
   const end = resolve(head);
   const range = /^0{40}$/.test(base) ? end : `${resolve(base)}..${end}`;
@@ -202,11 +228,13 @@ function checkRange(denylist, base, head) {
   });
 }
 
+/** Scan the pull request title and body with the same policy as commit messages. */
 function checkPullRequest(denylist) {
   return [['title', process.env.PR_TITLE], ['body', process.env.PR_BODY]].flatMap(([field, text]) =>
     findViolations({ text: text ?? '', denylist }).map((v) => ({ ...v, detail: `pull request ${field} ${v.detail}` })));
 }
 
+/** Dispatch the hygiene hook or CI command and print redacted policy failures. */
 function runCli([mode, messageFile, head, ...extra]) {
   if (extra.length || !((['pre-commit', 'pull-request'].includes(mode) && !messageFile) ||
       (mode === 'commit-msg' && messageFile && !head) || (mode === 'range' && messageFile && head))) {

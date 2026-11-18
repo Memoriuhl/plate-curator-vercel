@@ -56,6 +56,10 @@ it('modifier clicks select without opening a plate and unrelated plates do not r
 it('keyboard selection ignores text inputs and clears on Escape', () => {
   plateSelection.visible(plates)
   const promote = vi.fn().mockResolvedValue(undefined)
+  /**
+   * Render an editable input alongside the selection keyboard hook to test shortcut
+   * exclusion.
+   */
   function Harness() { useSelectionKeyboard({ close: vi.fn(), promote, disabled: false }); return <input aria-label="Search" /> }
   render(<Harness />)
   const input = screen.getByRole('textbox')
@@ -71,9 +75,9 @@ it('keyboard selection ignores text inputs and clears on Escape', () => {
   expect(plateSelection.snapshot()).toHaveLength(0)
 })
 
-vi.mock('next/navigation', () => ({ useParams: () => ({ code: 'NY' }), useSearchParams: () => new URLSearchParams(), usePathname: () => '/states/NY', useRouter: () => ({ replace: vi.fn() }) }))
-vi.mock('@/lib/client/hooks', () => ({ useSelectedBatchId: () => null }))
-vi.mock('next/link', () => ({ useLinkStatus: () => ({ pending: false }), default: ({ prefetch, scroll, ...props }: Record<string, unknown>) => { void prefetch; void scroll; return <a {...props} /> } }))
+vi.mock('next/navigation', () => ({ /** Provide the route parameters for the selected fixture page. */ useParams: () => ({ code: 'NY' }), /** Supply the query parameters that define the fixture workspace state. */ useSearchParams: () => new URLSearchParams(), /** Supply the current pathname for the navigation state under test. */ usePathname: () => '/states/NY', /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ replace: vi.fn() }) }))
+vi.mock('@/lib/client/hooks', () => ({ /** Keep the fixture outside a selected batch while testing global selection controls. */ useSelectedBatchId: () => null }))
+vi.mock('next/link', () => ({ /** Set the fixture navigation pending state without starting a real transition. */ useLinkStatus: () => ({ pending: false }), /** Render links as anchors without invoking the fixture's Next.js router. */ default: ({ prefetch, scroll, ...props }: Record<string, unknown>) => { void prefetch; void scroll; return <a {...props} /> } }))
 
 it('groups cross-state selections and outlines the matching jurisdiction', () => {
   plateSelection.add([{ ...plateCards[0], id: 'NY.a', state: 'NY', displayName: 'New York' }, { ...plateCards[0], id: 'NJ.b', state: 'NJ', displayName: 'New Jersey' }])
@@ -98,8 +102,12 @@ it('Backspace promotes only variants through the edit path and ignores editable 
   const edit = vi.fn().mockResolvedValue({ ok: true })
   const move = vi.fn().mockResolvedValue({ ok: true })
   plateSelection.add([template, variant])
+  /**
+   * Connect Backspace selection behavior to promotion and keep a focused input guard
+   * available.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template, variants: [variant] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template, variants: [variant] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false })
     return <><textarea aria-label="Notes" /><p>{drag.announcement}</p></>
   }
@@ -116,6 +124,9 @@ it('Backspace promotes only variants through the edit path and ignores editable 
 it.each(['dialog', 'menu', 'listbox', 'combobox'])('ignores destructive shortcuts and Escape inside %s', role => {
   plateSelection.add(plates)
   const promote = vi.fn(), close = vi.fn()
+  /**
+   * Provide separate selectable and outside controls for document-level dismissal tests.
+   */
   function Harness() { useSelectionKeyboard({ close, promote, disabled: false }); return <div role={role}><button>Inside</button></div> }
   render(<Harness />)
   const target = screen.getByRole('button')
@@ -129,6 +140,10 @@ it.each(['dialog', 'menu', 'listbox', 'combobox'])('ignores destructive shortcut
 it('preserves selection when Escape is handled, in a popover, in an input, or during a drag', () => {
   plateSelection.add(plates)
   const close = vi.fn()
+  /**
+   * Expose a selection surface and a popover so Escape handling can be tested in
+   * context.
+   */
   function Harness({ dragging = false }) {
     useSelectionKeyboard({ close, promote: vi.fn(), disabled: false, dragging })
     return <><input /><div data-radix-popper-content-wrapper><button>Popover</button></div></>
@@ -181,6 +196,10 @@ it('dimmed rows disable selection and are excluded from ranges', () => {
 it('uses focused input and popover guards even when the keyboard event targets the window', () => {
   plateSelection.add(plates)
   const promote = vi.fn(), close = vi.fn()
+  /**
+   * Render focus targets so window-level events can be checked against the focused
+   * control.
+   */
   function Harness() { useSelectionKeyboard({ close, promote, disabled: false }); return <><input /><div data-radix-popper-content-wrapper><button>Inside</button></div></> }
   render(<Harness />)
   for (const target of [screen.getByRole('textbox'), screen.getByRole('button')]) {
@@ -196,8 +215,12 @@ it('uses focused input and popover guards even when the keyboard event targets t
 it('Escape cancels an active drag without clearing its selection', () => {
   const template = { ...plateCards[0], templateRole: 'template' as const }
   plateSelection.add([template])
+  /**
+   * Connect the drag and selection hooks to check that Escape cancels only the current
+   * drag interaction.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false, dragging: !!drag.active })
     return <><button onKeyDown={event => drag.onKeyDown({ kind: 'family', plate: template }, event)}>Handle</button><output>{drag.announcement}</output></>
   }
@@ -237,8 +260,12 @@ it('Backspace with only Templates selected announces No Variants selected', asyn
   const template = { ...plateCards[0], templateRole: 'template' as const }
   plateSelection.add([template])
   const edit = vi.fn(), move = vi.fn()
+  /**
+   * Expose the live drag announcement when Backspace has no selected variants to
+   * promote.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: [{ template, variants: [] }], canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), move, pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     useSelectionKeyboard({ close: vi.fn(), promote: drag.promote, disabled: false })
     return <output>{drag.announcement}</output>
   }

@@ -7,6 +7,10 @@ import { researchDraftSchema, validateResearchResult } from './validate'
 import type { EvidenceSource, ResearchInput } from './types'
 import type { ResearchStateStore } from './state'
 
+/**
+ * Synthesize a typed draft from captured evidence while enforcing budget and recording
+ * model usage.
+ */
 export async function synthesizeCapturedEvidence(input: ResearchInput, sources: EvidenceSource[], state: ResearchStateStore, runId: string) {
   const campaign = process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117'
   const model = guardedResearchModel(gateway(DEFAULT_HOSTED_RESEARCH_MODEL), async () => {

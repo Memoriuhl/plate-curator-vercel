@@ -27,11 +27,14 @@ const changeFields = {
   Reordered: ['sortOrder'],
 }
 const storyKeys = ['funFacts', 'firstIssuedYear', 'readMore', 'colorDetail', 'lineageColor']
+/** Flatten stored fact formats into text that can be shown on either side of a diff. */
 const factText = (facts: unknown) => Array.isArray(facts) ? facts.map(fact =>
   fact && typeof fact === 'object' ? [fact.text, fact.sourceTitle, fact.sourceUrl].filter(Boolean).join('\n') : String(fact ?? '')).join('\n\n') : typeof facts === 'string' ? facts : undefined
+/** Format evidence links as readable text while preserving their order. */
 const linkText = (links: unknown) => Array.isArray(links) ? links.map(link =>
   link && typeof link === 'object' ? `${link.title ?? ''} · ${link.site ?? ''}\n${link.url ?? ''}` : String(link ?? '')).join('\n\n') : undefined
 
+/** Summarize a plate's visible field, deletion and order changes for the batch review. */
 export function changeSummary(
   before: Plate,
   after: Plate,
@@ -109,6 +112,10 @@ const fieldsByRow: Record<string, (keyof EditableFields)[]> = {
   Links: ['wikiUrl'],
 }
 
+/**
+ * Render the baseline and proposed plate values with per-state groups and responsive
+ * comparison controls.
+ */
 export function DiffTable({
   before,
   after,
@@ -144,6 +151,7 @@ export function DiffTable({
   const comparisonId = useId()
   const hasStory = ['funFacts', 'firstIssuedYear', 'readMore'].some(key => before[key] != null || after[key] != null)
   const hasColors = ['colorDetail', 'lineageColor'].some(key => before[key] != null || after[key] != null)
+  /** Describe a plate's position in an ordered state or show that it is absent. */
   const position = (plate: Plate) =>
     order.includes(plate.id) ? `${order.indexOf(plate.id) + 1} of ${order.length}` : '—'
   const rows = [
@@ -311,7 +319,12 @@ export function DiffTable({
   )
 }
 
+/** Group changed plates by affected review fields so the curator can filter the diff. */
 export function groupChanges(plates: BatchDetail['plates']) {
+  /**
+   * Check whether any specified field changed for a plate that is still in the proposed
+   * catalog.
+   */
   const changed = (entry: BatchDetail['plates'][number], keys: string[]) =>
     !entry.proposed.deleted && keys.some(
       (key) =>

@@ -8,6 +8,10 @@ const PURPOSE = /\b(support|supports|supported|fund|funds|funding|fee|fees|proce
 
 const APPEARANCE_LEAD = /^(this (license )?plate (features|has|shows|displays|depicts)|featuring|the plate (features|has|shows|displays|depicts))\b/i;
 
+/**
+ * Identify generic descriptions that lack enough plate-specific information to be
+ * useful.
+ */
 export function isGenericDescription(text: string | null | undefined): boolean {
   const t = (text ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return true;

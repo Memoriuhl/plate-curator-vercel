@@ -24,6 +24,10 @@ const saved = { description: 'Saved description', wikiUrl: source.url, funFacts:
 beforeEach(() => { vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true') })
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Build a research queue fixture with source capture, local execution and hosted
+ * delivery controls.
+ */
 function setup() {
   const plates: Plate[] = [
     { id: 'AK.one', slug: 'one', state: 'AK', displayName: 'Wildlife', image: '', tags: [], ...saved, funFacts: [], readMore: [] },
@@ -33,6 +37,7 @@ function setup() {
   const review = createMemoryStore([{ id: 'batch', name: 'Research', createdBy: actor.uid, createdAt: '', revision: 0, baselineVersion: 1, state: 'open', plateIds: plates.map(plate => plate.id), approval: null }])
   let seq = 0
   const jobs: JobsDeps = { store: createMemoryJobsStore(review, 'preview:local-pipeline-enrich'), localScope: 'enrich', baseline: async id => plates.find(plate => plate.id === id) ?? null,
+    /** Resolve the plate by ID from the fixture baseline. */
     baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, now: () => 1000, id: () => `claim-${++seq}`, leaseMs: 10000 }
   const capture = vi.fn(async (): Promise<{ sources: typeof source[]; wikiUrl: string | null }> => ({ sources: [source], wikiUrl: source.url }))
   const request = vi.fn(async () => Response.json({ message: { content: JSON.stringify(draft) }, eval_count: 120, prompt_eval_count: 800 }))
@@ -48,6 +53,7 @@ function setup() {
     await state.update(`model-attempts/${job.id}`, () => ({ value: [{ id: job.id, costUsd: 0.000128 }], result: null }))
     return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
   })
+  /** Execute hosted enrichment using the fixture state and captured delivery requests. */
   const hosted = (job: TaggingJob) => executeQueueResearch(jobs, job, { state, capture, captureSaved, activeOwner: async () => true, deliver })
   return { jobs, plates, review, capture, captureSaved, request, handler, state, deliver, hosted }
 }
@@ -224,6 +230,10 @@ test('research model allowlist rejects arbitrary/expensive models and retries re
 test('cancelling an Eve session retains its IO reservation until physical settlement, with no new dispatch', async () => {
   const s = setup()
   const pendingDelivery = vi.fn(async () => ({ sessionId: 'pending', deliveryId: 'delivery' }))
+  /**
+   * Poll hosted research with an unresolved delivery so the test can inspect the waiting
+   * outcome.
+   */
   const pending = (job: TaggingJob) => executeQueueResearch(s.jobs, job, { state: s.state, capture: s.capture, activeOwner: async () => true, deliver: pendingDelivery })
   const runs: PipelineRun[] = []
   const ids: string[] = []
@@ -233,6 +243,7 @@ test('cancelling an Eve session retains its IO reservation until physical settle
     runs.push(result.value)
     ids.push((await dispatchQueueStage(s.jobs, result.value.id, 1, 0, `hook-${index}`))!)
   }
+  /** Fail if the workflow sends research through the tagging executor. */
   const tag = async () => { throw Error('No Tag dispatch') }
   expect(await executeHostedQueueStage(s.jobs, ids[0], tag, pending)).toBe('waiting')
   expect(await executeHostedQueueStage(s.jobs, ids[1], tag, pending)).toBe('waiting')

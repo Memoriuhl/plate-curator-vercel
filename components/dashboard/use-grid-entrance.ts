@@ -3,6 +3,10 @@
 import { useLayoutEffect, type RefObject } from 'react'
 import { DROP_DURATION, DROP_EASING, entranceDelay } from './grid-feel'
 
+/**
+ * Animate newly loaded family rows when the grid identity changes and motion is
+ * permitted.
+ */
 export function useGridEntrance(container: RefObject<HTMLDivElement | null>, ready: boolean, identity: string) {
   useLayoutEffect(() => {
     if (!ready || !container.current) return
@@ -35,6 +39,7 @@ export function useGridEntrance(container: RefObject<HTMLDivElement | null>, rea
         })
       })
     }
+    /** Cancel grid entrance animations when the view changes or unmounts. */
     const cancel = () => animations.forEach(animation => animation.cancel())
     media.addEventListener('change', cancel)
     return () => {

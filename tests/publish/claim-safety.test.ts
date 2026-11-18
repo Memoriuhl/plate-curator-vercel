@@ -21,7 +21,7 @@ test('A: token lookup makes a healthy never-bound claim live beyond TTL', async 
 })
 
 test('B3/C: replacing the expired claim makes a competing stale eligibility input locked', async () => {
-  const resolved = await resolveClaimRun(input.claim, { findRun: async () => null })
+  const resolved = await resolveClaimRun(input.claim, { /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async () => null })
   expect(retryEligibility({ ...input, claim: resolved.claim, runStatus: resolved.status })).toMatchObject({ canRetry: true })
   expect(retryEligibility({ ...input, command: { ...fresh, commandId: 'loser' }, claim: { command: fresh, acceptedAt: input.now } })).toMatchObject({ canRetry: false, reason: 'locked' })
 })
@@ -32,7 +32,7 @@ test('A: a missing token lookup cannot authorize TTL takeover', async () => {
 })
 
 test('a bound run explicitly reported not found permits takeover after the claim TTL', async () => {
-  const resolved = await resolveClaimRun({ ...input.claim!, runId: 'purged-run' }, { runStatus: async () => 'not_found' })
+  const resolved = await resolveClaimRun({ ...input.claim!, runId: 'purged-run' }, { /** Provide controlled workflow status for the publish or queue recovery scenario. */ runStatus: async () => 'not_found' })
   expect(retryEligibility({ ...input, claim: resolved.claim, runStatus: resolved.status })).toMatchObject({ canRetry: true })
 })
 

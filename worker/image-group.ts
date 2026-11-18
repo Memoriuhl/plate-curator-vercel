@@ -10,6 +10,10 @@ import { boundedResponse } from './remote-image'
 
 export type GroupTiebreak = (a: GroupInput[number]['plate'], b: GroupInput[number]['plate'], model: string) => Promise<boolean>
 
+/**
+ * Translate predicted clusters into a validated regrouping proposal for the original
+ * plate scope.
+ */
 export function groupProposal(scope: GroupInput, result: EmbeddingGroups, standardId?: string): GroupSuggestion | null {
   if (scope.length < 2 || scope.length > 25 || new Set(scope.map(member => member.plate.id)).size !== scope.length || new Set(scope.map(member => member.plate.state)).size !== 1) return null
   const members = new Map(scope.map(member => [member.plate.id, member]))
@@ -27,6 +31,10 @@ export function groupProposal(scope: GroupInput, result: EmbeddingGroups, standa
   return parseGroupSuggestion({ kind: 'group', stage: 'group', scope: scope.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })), proposals, sources: [] })
 }
 
+/**
+ * Run image grouping for the supplied stage, optionally resolving ambiguous pairs
+ * through vision.
+ */
 export function createImageGroupRunner(deps: { fetch?: typeof fetch; embed?: (scope: GroupInput, options: ImageGroupOptions) => Promise<EmbeddingGroups>; runtime?: GroupRuntime; tiebreak?: GroupTiebreak }): NonNullable<WorkerDeps['suggestFields']> {
   return async ({ stage, plate, model: requested, options: rawOptions, groupScope, standardId }) => {
     if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') throw new Error('Local pipeline is disabled')
@@ -72,6 +80,10 @@ export function createImageGroupRunner(deps: { fetch?: typeof fetch; embed?: (sc
 
 const tiebreakSystem = 'Compare these license plates by BASE DESIGN: the decorative background artwork and layout behind the serial. Ignore serial characters, minor lighting differences, vehicle format, and foreground organization emblems. Different background scenes/layouts are different designs. Reply JSON only: {"same_background":boolean,"confidence":number}.'
 
+/**
+ * Use the local vision model to decide whether an ambiguous plate pair matches with
+ * sufficient confidence.
+ */
 export function localVisionTiebreak(deps: { url: string; readImage: (image: string) => Promise<string>; fetch?: typeof fetch }): GroupTiebreak {
   return async (a, b, model) => {
     const images = []

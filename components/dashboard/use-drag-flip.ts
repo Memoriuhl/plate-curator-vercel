@@ -6,6 +6,10 @@ type Position = { left: number; top: number }
 type Motion = { animation: Animation; dx: number; dy: number }
 export type FlipSnapshot = Map<string, Position>
 
+/**
+ * Measure draggable element positions in scroll-adjusted coordinates for reflow
+ * animation.
+ */
 export function measureDragPositions(root: HTMLElement): FlipSnapshot {
   return new Map(Array.from(root.querySelectorAll<HTMLElement>('[data-reflow-key]'), element => {
     const rect = element.getBoundingClientRect()
@@ -14,6 +18,10 @@ export function measureDragPositions(root: HTMLElement): FlipSnapshot {
   }))
 }
 
+/**
+ * Animate the current layout from the prior drag positions and account for interrupted
+ * animations.
+ */
 export function playDragFlip(root: HTMLElement, previous: FlipSnapshot, reducedMotion: boolean, motions = new Map<string, Motion>()) {
   const offsets = new Map<string, Position>()
   for (const [key, motion] of motions) {
@@ -47,6 +55,7 @@ export function playDragFlip(root: HTMLElement, previous: FlipSnapshot, reducedM
   return next
 }
 
+/** Measure and animate the grid between drag layouts while respecting reduced motion. */
 export function useDragFlip(container: RefObject<HTMLElement | null>, identity: unknown, enabled: boolean) {
   const positions = useRef<FlipSnapshot>(new Map())
   const motions = useRef(new Map<string, Motion>())
@@ -60,6 +69,7 @@ export function useDragFlip(container: RefObject<HTMLElement | null>, identity: 
   useLayoutEffect(() => {
     const running = motions.current
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    /** Cancel all running reflow animations and clear their position offsets. */
     const cancel = () => { running.forEach(motion => motion.animation.cancel()); running.clear() }
     media.addEventListener('change', cancel)
     return () => { cancel(); media.removeEventListener('change', cancel) }

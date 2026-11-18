@@ -4,6 +4,7 @@ import { createColorStageHandler } from './colors'
 import { findWikipediaLink } from './wiki'
 import { createEnrichmentHandler } from './research'
 
+/** Route a local stage to its text, color, research, image or grouping handler. */
 export function createStageHandler(options: { url: string; readImage: (image: string) => Promise<string>; fetch?: typeof fetch; onRejected?: (reasons: string[]) => void }): NonNullable<WorkerDeps['suggestFields']> {
   const text = createTextStageHandler(options)
   const colors = createColorStageHandler(options)

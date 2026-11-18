@@ -7,6 +7,10 @@ import { Toggle } from '@/components/ui/toggle'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 
+/**
+ * Resolve the active batch before rendering the jurisdiction filters and group
+ * selection.
+ */
 export function FilterBar({
   counts,
   code,
@@ -27,6 +31,9 @@ export function FilterBar({
   return <FilterBarControls counts={counts} changedCount={changedCount} resolveGroup={resolveGroup} onSelectGroup={onSelectGroup} />
 }
 
+/**
+ * Show status and needs-work filters and reflect the chosen values in the current URL.
+ */
 export function FilterBarControls({
   counts,
   changedCount,

@@ -5,6 +5,7 @@ import { assertStagingProject } from './demo-seed'
 const required = ['SEED_DEMO_OWNER_EMAIL', 'SEED_DEMO_OWNER_UID', 'SEED_DEMO_EDITOR_EMAIL', 'SEED_DEMO_EDITOR_UID', 'SEED_OWNER_GOOGLE_EMAIL'] as const
 export type MembersSeedInput = { projectId: string | undefined; env: Readonly<Record<string, string | undefined>>; now: () => string }
 
+/** Validate the staging member identities before seeding role and invitation examples. */
 export function validateMembersSeed(input: MembersSeedInput): void {
   assertStagingProject(input.projectId)
   const missing = required.filter(key => !input.env[key]?.trim())
@@ -13,6 +14,10 @@ export function validateMembersSeed(input: MembersSeedInput): void {
   if (new Set(emails).size !== 3 || input.env.SEED_DEMO_OWNER_UID!.trim() === input.env.SEED_DEMO_EDITOR_UID!.trim()) throw new Error('Seed Members require distinct emails and account ids')
 }
 
+/**
+ * Seed the staging membership examples without overwriting incompatible existing
+ * identities.
+ */
 export async function seedMembers(store: MembersStore, input: MembersSeedInput): Promise<{ active: number; pending: number }> {
   validateMembersSeed(input)
   const env = input.env

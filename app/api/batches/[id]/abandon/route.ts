@@ -5,6 +5,10 @@ import { validCommandId } from '../../../../../lib/publish/types'
 import { currentActiveOwner, publishAllowed, publishDeps } from '../../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
+/**
+ * Authorize an owner to abandon a prepared publish receipt after validating its command
+ * and revision.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/abandon'>) {
   try {
     const auth = await currentActiveOwner(request)

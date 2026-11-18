@@ -6,6 +6,10 @@ import { batchTaggingRun } from '../../../../../workflows/hosted-tagging'
 
 const MAX_BATCH_TAGGING = 500
 
+/**
+ * Authorize a batch tagging request and start a hosted run for the selected plates and
+ * model.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/tagging'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

@@ -28,6 +28,10 @@ const SessionContext = createContext<Session | null>(null)
 
 const api = createApiClient({ token: async () => (await clientAuth().currentUser?.getIdToken()) ?? null })
 
+/**
+ * Manage the Firebase session and provide authenticated API access within the signed-in
+ * user's cache.
+ */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
@@ -35,6 +39,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const checkingGoogle = useRef(false)
 
   useEffect(() => {
+    /**
+     * Clear session state after initialization fails so sign-in can render a recoverable
+     * error.
+     */
     function failInitialization() {
       setUser(null)
       setReady(false)
@@ -56,6 +64,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     user,
     ready,
     api,
+    /**
+     * Sign in through Google and validate the returned account before accepting the
+     * session.
+     */
     async signInWithGoogle(loginHint) {
       const provider = new GoogleAuthProvider()
       if (loginHint) provider.setCustomParameters({ login_hint: loginHint })
@@ -71,10 +83,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         checkingGoogle.current = false
       }
     },
+    /** Create or sign in to an email account for the normal or invitation entry point. */
     async signInWithEmail(email, password, create = false) {
       const signIn = create ? createUserWithEmailAndPassword : signInWithEmailAndPassword
       await signIn(clientAuth(), email, password)
     },
+    /** Sign out of the Firebase session from the curator UI. */
     async signOut() {
       await signOut(clientAuth())
     },

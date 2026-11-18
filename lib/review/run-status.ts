@@ -14,6 +14,9 @@ export type RunStatus = {
   updatedAt: string | null
 }
 
+/**
+ * Derive the approval workflow status and requester details shown alongside the batch.
+ */
 export function approvalRunStatus(batch: ReviewBatch, run?: {
   status: string
   result?: ApprovalResult

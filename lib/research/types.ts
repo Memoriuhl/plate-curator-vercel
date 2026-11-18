@@ -33,4 +33,5 @@ export type ResearchJob = {
   legacyRevision?: string
 }
 
+/** Create an empty research draft with the defaults expected by the validator and UI. */
 export const emptyResearchDraft = (): ResearchDraft => ({ description: null, descriptionSources: [], funFacts: [], readMore: [], wikiSource: null })

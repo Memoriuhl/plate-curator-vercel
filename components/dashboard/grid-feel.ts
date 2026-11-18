@@ -1,10 +1,14 @@
 export const FAMILY_MIN_COLUMN_WIDTH = 272
 export const FAMILY_COLUMN_GAP = 16
 
+/**
+ * Calculate how many family columns fit while preserving the minimum card width and gap.
+ */
 export function familyColumns(width: number) {
   return Math.max(1, Math.floor((width + FAMILY_COLUMN_GAP) / (FAMILY_MIN_COLUMN_WIDTH + FAMILY_COLUMN_GAP)))
 }
 
+/** Stagger the grid entrance by row and column while bounding the delay. */
 export function entranceDelay(row: number, column: number) {
   return Math.min(Math.max(0, row), 14) * 55 + Math.max(0, column) * 30
 }
@@ -20,6 +24,7 @@ export const SPRING_SAMPLES = Array.from({ length: 91 }, (_, index) => {
 })
 export const DROP_EASING = `linear(${SPRING_SAMPLES.map(value => value.toFixed(5)).join(', ')})`
 
+/** Place the hover preview next to its anchor and constrain it to the viewport. */
 export function hoverPosition(anchor: Pick<DOMRect, 'left' | 'right' | 'top'>, width: number, height: number, viewportWidth: number, viewportHeight: number) {
   const right = anchor.right + 8
   return {

@@ -7,11 +7,16 @@ import { createInvite, generateInviteToken, hashInviteToken } from '../../lib/me
 const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), membersStore: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.currentActor }))
 vi.mock('../../lib/server/members', () => ({ membersStore: mocks.membersStore }))
-vi.mock('next/server', () => ({ connection: async () => {} }))
+vi.mock('next/server', () => ({ /** Resolve the request barrier without requiring a Next.js request runtime. */ connection: async () => {} }))
 let store = createMemoryMembersStore()
 const request = new Request('https://example.com/api/members/person%40example.com/invite', { method: 'POST' })
 const context = { params: Promise.resolve({ email: 'person@example.com' }) }
+/** Call the invite lookup handler with the supplied token encoded in the route. */
 const lookup = (token: string) => GET(new Request(`https://example.com/api/invites/${encodeURIComponent(token)}`), { params: Promise.resolve({ token }) })
+/**
+ * Seed a pending member with an invite issued at the requested time and return its
+ * token.
+ */
 async function create(token = generateInviteToken(), issuedAt = new Date().toISOString()) {
   await store.create({ email: 'person@example.com', role: 'editor', signIn: 'google', invitedBy: 'owner', invite: createInvite(token, () => issuedAt) })
   return token

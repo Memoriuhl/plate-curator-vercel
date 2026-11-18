@@ -3,10 +3,17 @@ import { plateRevision } from './revision'
 import type { Actor, EditableFields, ReviewBatch, ReviewDeps } from './types'
 import type { Plate } from '../catalog/types'
 
+/**
+ * Require the staging project before running operations that write demonstration data.
+ */
 export function assertStagingProject(projectId: string | undefined): void {
   if (projectId !== 'license-plate-game-staging') throw new Error('Demo seed requires the staging project')
 }
 
+/**
+ * Create or reuse a demo batch and seed its draft changes on the available staging
+ * baseline.
+ */
 export async function seedDemo(d: ReviewDeps, input: { projectId: string; env: string; editor: Actor; version: number }): Promise<ReviewBatch> {
   assertStagingProject(input.projectId)
   if (!/^(development|production|preview:.+)$/.test(input.env)) throw new Error('Invalid review environment')

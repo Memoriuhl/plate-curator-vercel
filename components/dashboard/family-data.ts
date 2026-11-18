@@ -9,12 +9,17 @@ import {
 import { groupFamilies } from '@/lib/catalog/families'
 export { groupFamilies } from '@/lib/catalog/families'
 
+/**
+ * Index displayed variants by ID so completeness filters can recognize attached family
+ * members.
+ */
 export function attachedFamilyIds(plates: readonly PlateCardData[], families = groupFamilies(plates)) {
   return new Set(families.flatMap(family => family.variants.map(plate => plate.id)))
 }
 
 const EMPTY_IDS: ReadonlySet<string> = new Set()
 
+/** Filter a plate by search text, workspace status and the active completeness check. */
 export function matchesPlate(
   plate: PlateCardData,
   show: string,
@@ -80,6 +85,7 @@ export type FilterCounts = {
   groups: Record<NeedsWorkKey, CheckGroup>
 }
 
+/** Evaluate one needs-work check against the plate and its current family attachment. */
 function matchesCheck(plate: PlateCardData, key: string, attachedIds: ReadonlySet<string>): boolean {
   switch (key) {
     case 'missingDescription': return plate.checks.description.status === 'missing'
@@ -93,6 +99,7 @@ function matchesCheck(plate: PlateCardData, key: string, attachedIds: ReadonlySe
 }
 
 type StateStandards = { standards: string[]; candidate: PlateCardData }
+/** Track existing standards and the best replacement candidate while scanning a state. */
 function recordStandard(states: Map<string, StateStandards>, plate: PlateCardData) {
   let state = states.get(plate.state)
   if (!state) {
@@ -103,11 +110,17 @@ function recordStandard(states: Map<string, StateStandards>, plate: PlateCardDat
   if (plate.sortOrder < state.candidate.sortOrder ||
     (plate.sortOrder === state.candidate.sortOrder && plate.id < state.candidate.id)) state.candidate = plate
 }
+/**
+ * Select plate IDs that need attention when a state has missing or duplicate standards.
+ */
 function standardFixIds(states: Map<string, StateStandards>) {
   return [...states.values()].flatMap(({ standards, candidate }) =>
     standards.length === 1 && standards[0] === candidate.id ? [] : standards.length ? standards : [candidate.id])
 }
 
+/**
+ * Find plates needing the requested check before applying the workspace's other filters.
+ */
 function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string, attachedIds: ReadonlySet<string>): string[] {
   if (key === 'standardPlate') {
     const states = new Map<string, StateStandards>()
@@ -121,6 +134,7 @@ function uncheckedPlateIdsForCheck(plates: readonly PlateCardData[], key: string
   }).map(plate => plate.id)
 }
 
+/** Return the IDs for a needs-work group that also match the current dashboard view. */
 export function plateIdsForCheck(plates: readonly PlateCardData[], key: string, query = '', attachedIds = attachedFamilyIds(plates)): string[] {
   const ids = uncheckedPlateIdsForCheck(plates, key, attachedIds)
   if (!query.trim()) return ids
@@ -129,6 +143,10 @@ export function plateIdsForCheck(plates: readonly PlateCardData[], key: string, 
   return plates.filter(plate => matching.has(plate.id) && matchesPlate(plate, 'all', query, changed)).map(plate => plate.id)
 }
 
+/**
+ * Count the plates matching each needs-work group using the same checks as the filtered
+ * grid.
+ */
 export function filterCounts(plates: readonly PlateCardData[], attachedIds = attachedFamilyIds(plates)): FilterCounts {
   const groups = Object.fromEntries(NEEDS_WORK_CHECKS.map(({ key }) =>
     [key, { missing: 0, weak: 0, total: 0 }])) as FilterCounts['groups']
@@ -153,6 +171,9 @@ export function filterCounts(plates: readonly PlateCardData[], attachedIds = att
     undertagged: groups.undertagged.total, generic: groups.generic.total, groups }
 }
 
+/**
+ * Project catalog card data into the compact family grid record used by the workspace.
+ */
 export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
   const {
     deleted,
@@ -185,6 +206,10 @@ export function projectFamilyPlate(plate: PlateCardData): FamilyPlate {
   }
 }
 
+/**
+ * Expand a compact family record back into the card shape needed by editing and
+ * selection.
+ */
 export function expandFamilyPlate(plate: FamilyPlate): PlateCardData {
   const [state, ...slug] = plate.id.split('.')
   return {

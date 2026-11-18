@@ -2,6 +2,10 @@ import { currentActiveOwner } from '@/lib/server/context'
 import { researchDeps, readResearchJson } from '@/lib/server/research-context'
 import { issueResearchWorkerToken } from '@/lib/research/tokens'
 
+/**
+ * Issue a research worker credential to an active owner and return the raw token only at
+ * creation.
+ */
 export async function POST(request: Request) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response

@@ -48,6 +48,9 @@ export type FamilyCardProps = {
   last?: boolean
 }
 
+/**
+ * Render a template and its visible variants with selection, preview and drag controls.
+ */
 export function FamilyCard({
   template,
   variants,
@@ -75,17 +78,28 @@ export function FamilyCard({
   const router = useRouter()
   const prefetched = useRef(new Set<string>())
   const previewBlocked = useRef(new Set<string>())
+  /**
+   * Prefetch a plate route once per ID to keep repeated hover events from duplicating
+   * work.
+   */
   function prefetch(id: string) {
     const ids = prefetchedIds ?? prefetched.current
     if (ids.has(id)) return
     ids.add(id)
     router.prefetch('/plates/' + id)
   }
+  /**
+   * Open the requested preview only when the card is idle and its entrance has settled.
+   */
   function preview(plate: PlateCardData, element: HTMLElement, immediate: boolean) {
     if (drag?.active || drag?.saving) return
     if (entranceRunning(element)) return
     onPreview?.(plate, element, immediate)
   }
+  /**
+   * Check whether the closest plate's entrance animation is still affecting its preview
+   * anchor.
+   */
   function entranceRunning(element: HTMLElement) {
     const plate = element.closest('[data-drag-variant]') ?? element.closest('article')
     return plate?.querySelector('[data-plate-image]')?.getAnimations?.().some(animation => animation.playState === 'running' || animation.pending)
@@ -115,6 +129,7 @@ export function FamilyCard({
     preconnect(new URL(template.imageUrl).origin)
   const Row = browseOnly ? 'div' : SelectionPlate
   const Card = browseOnly ? 'article' : SelectionFamily
+  /** Render selectable plate content with its matching status, image and detail link. */
   function plateContent(plate: PlateCardData, small: boolean) {
     const width = small ? 84 : 140
     const height = small ? 42 : 70

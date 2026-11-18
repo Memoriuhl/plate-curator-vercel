@@ -4,6 +4,9 @@ import { stateSummaries } from '../../lib/catalog/home'
 import { orderedStatePlates } from '../../lib/catalog/order'
 import type { CuratorState, Plate, Snapshot } from '../../lib/catalog/types'
 
+/**
+ * Create a minimal catalog plate with the identity and sort order relevant to the test.
+ */
 function plate(id: string, sortOrder?: number, state = 'AK'): Plate {
   return { id, state, slug: id, displayName: id, tags: [], image: '', sortOrder }
 }
@@ -13,6 +16,7 @@ const snapshot: Snapshot = {
   plates: [plate('z'), plate('b', 2), plate('a', 2), plate('c', 0), plate('y'), plate('az', 0, 'AZ')],
 }
 
+/** Build curator metadata with the Alaska order supplied by the ordering test. */
 function curator(order: string[] = []): CuratorState {
   return { stateOrder: { AK: order }, stateProgress: {} }
 }

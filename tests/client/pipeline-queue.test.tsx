@@ -38,6 +38,10 @@ vi.mock('next/navigation', async importOriginal => ({
 
 const resultActions = { action: null, apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }
 
+/**
+ * Build a saved queue run with a default attempt and optional scenario-specific
+ * overrides.
+ */
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
   return { id: 'saved-run', requestId: 'request', fingerprint: 'input', batchId: 'batch', requestedBy: 'editor', env: 'preview:local-pipeline-test', localScope: 'test',
     plateIds: ['AK.one'], stages: ['tag'], options: {}, previewOnly: true, createdAt: 100, queuedAt: 100, enqueueSequence: 1, updatedAt: 100,
@@ -50,6 +54,7 @@ const plate: PlateCardData = {
   id: 'AK.one', state: 'AK', displayName: 'One', revision: 'hash', tags: [], imageUrl: null,
   checks: { ...plateCards[0].checks, description: { value: null, status: 'missing' } },
 }
+/** Render the hook under an isolated SWR cache with request retries disabled. */
 const wrapper = ({ children }: { children: ReactNode }) => <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>{children}</SWRConfig>
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
@@ -550,6 +555,10 @@ test('execution dropdown switches local and gateway views without mutating or re
     id: 'gateway-run', batchId: 'batch', requestedBy: 'editor', plateIds: ['AK.one'], modelId: 'gateway-gemma4-26b', createdAt: 100, status: 'completed',
     progress: { workerIds: [], endedAt: 800, steps: [{ index: 0, plateId: 'AK.one', plateName: 'One', stage: 'tag', status: 'completed', durationMs: 700 }], workflowUrl: null }, results: [],
   }], observedAt: 1000 })
+  /**
+   * Connect the real queue hook to the panel so the test can observe resumed run
+   * details.
+   */
   function Runs() { return <PipelineRuns queue={usePipelineQueue()} /> }
   render(<Runs />, { wrapper })
   await waitFor(() => expect(screen.getByRole('article', { name: 'Pipeline run saved-run' })).toBeTruthy())

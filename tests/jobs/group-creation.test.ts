@@ -8,11 +8,15 @@ import type { JobsDeps } from '../../lib/jobs/types'
 
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Create a scoped grouping fixture with baseline plates and a partial selection to
+ * validate completeness.
+ */
 function setup() {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const plates = ['a', 'b', 'c'].map(id => ({ id: `AK.${id}`, state: 'AK', slug: id, displayName: id, image: `${id}.webp`, tags: [], templateFamily: `AK.${id}`, templateRole: 'template' as const, isStandard: id === 'b' }))
   const review = createMemoryStore([{ id: 'batch', name: 'Group', createdBy: 'editor', createdAt: '', state: 'open', revision: 0, baselineVersion: 1, approval: null, plateIds: plates.slice(0, 2).map(plate => plate.id), stateOrders: { AK: plates.map(plate => plate.id) } }])
-  const deps: JobsDeps = { store: createMemoryJobsStore(review, 'development'), baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates, now: () => 0, id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
+  const deps: JobsDeps = { store: createMemoryJobsStore(review, 'development'), /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000, localScope: 'scope' }
   const groupScope = plates.slice(0, 2).map(plate => ({ plate: { ...plate, displayName: 'Forged client object', image: 'forged.webp' }, baseRevision: plateRevision(plate) }))
   const input = { id: 'group', batchId: 'batch', plateId: plates[0].id, requestedBy: 'editor', stage: 'group' as const, groupScope }
   return { plates, deps, input }

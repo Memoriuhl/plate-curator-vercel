@@ -23,6 +23,7 @@ export type Issue = {
   result: Extract<EditResult, { ok: false }>
 }
 
+/** Explain the reported edit conflict and offer the corresponding resolution actions. */
 export function Conflict({
   issue,
   pending,
@@ -78,6 +79,7 @@ export function Conflict({
   )
 }
 
+/** Format a field value for comparison, including empty and multi-value fields. */
 function format(value: unknown) {
   if (value == null || value === '') return '(empty)'
   return Array.isArray(value) ? value.join(', ') : String(value)

@@ -8,6 +8,7 @@ import { useSession } from '@/lib/client/session'
 
 type Check = { invited: false } | { invited: true; signIn: 'google' | 'password'; status: 'pending' | 'active' | 'expired' }
 
+/** Translate provider and membership failures into actionable sign-in messages. */
 function errorMessage(error: unknown) {
   if (error instanceof Error) {
     if (error.message.includes('not configured')) return 'Sign-in is not configured for this environment yet.'
@@ -17,6 +18,10 @@ function errorMessage(error: unknown) {
   return 'We could not sign you in. Check your details and try again.'
 }
 
+/**
+ * Render the curator sign-in options and keep keyboard focus usable through failed
+ * attempts.
+ */
 export function SignInForm() {
   const { ready, signInWithEmail, signInWithGoogle } = useSession()
   const [email, setEmail] = useState('')
@@ -31,6 +36,7 @@ export function SignInForm() {
   const submitFocus = useRef<{ step: Check | null; failed: boolean } | null>(null)
 
   useEffect(() => {
+    /** Stop pending focus restoration if the user has moved on to another control. */
     function cancelRestore(event: FocusEvent) {
       if (event.target instanceof HTMLElement && event.target !== document.body && !event.target.matches(':disabled')) {
         submitFocus.current = null
@@ -54,6 +60,10 @@ export function SignInForm() {
     focusedStep.current = check
   }, [check, error, pending, ready])
 
+  /**
+   * Choose sign-in or registration for the submitted email and report the resulting
+   * outcome.
+   */
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (pending || !ready) return

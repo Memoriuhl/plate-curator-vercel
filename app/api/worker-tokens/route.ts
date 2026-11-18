@@ -2,6 +2,7 @@ import { issueWorkerToken } from '../../../lib/jobs/tokens'
 import { currentActor, jobsDeps } from '../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../lib/server/respond'
 
+/** Validate the worker identifier and issue a scoped credential for an owner. */
 export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

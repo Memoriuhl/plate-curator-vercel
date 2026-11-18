@@ -14,6 +14,10 @@ import { changeSummary, DiffTable, groupChanges } from '@/components/review/diff
 type Entry = BatchDetail['plates'][number]
 type ChangedPlate = { entry: Entry; tags: string[]; summary: string }
 
+/**
+ * Group pending plate changes by state so the curator can review the release by
+ * jurisdiction.
+ */
 export function changesByState(plates: Entry[]) {
   const changes = new Map<string, ChangedPlate>()
   for (const [tag, entries] of Object.entries(groupChanges(plates))) {
@@ -33,6 +37,10 @@ export function changesByState(plates: Entry[]) {
   return [...states].sort(([a], [b]) => a.localeCompare(b)).map(([code, entries]) => ({ code, plates: entries }))
 }
 
+/**
+ * Show a plate's proposed image when available and provide a placeholder when it is
+ * absent.
+ */
 function Thumbnail({ entry }: { entry: Entry }) {
   const url = entry.afterImageUrl ?? entry.beforeImageUrl
   return <span className={cn("flex h-12 w-24 shrink-0 items-center justify-center rounded-lg bg-[var(--fill)]", entry.proposed.deleted && "opacity-60")}>
@@ -42,6 +50,10 @@ function Thumbnail({ entry }: { entry: Entry }) {
   </span>
 }
 
+/**
+ * Virtualize the list of affected plates for one jurisdiction in the publish
+ * confirmation.
+ */
 function StatePlates({ plates, batch }: { plates: ChangedPlate[]; batch: BatchDetail['batch'] }) {
   'use no memo'
   const container = useRef<HTMLDivElement>(null)
@@ -51,14 +63,22 @@ function StatePlates({ plates, batch }: { plates: ChangedPlate[]; batch: BatchDe
   const virtualized = plates.length > 100
   const virtualizer = useVirtualizer({
     count: plates.length,
+    /** Give the plate virtualizer the scrollable state list container. */
     getScrollElement: () => container.current,
     enabled: virtualized,
+    /** Estimate preview row height before the virtualizer measures its contents. */
     estimateSize: () => 88,
     overscan: 4,
     initialRect: { width: 600, height: 560 },
+    /**
+     * Key the virtualized row by its baseline plate ID to preserve identity through
+     * updates.
+     */
     getItemKey: index => plates[index].entry.baseline.id,
+    /** Retain the focused row even when it falls outside the current visible range. */
     rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...(focused === null ? [] : [focused])])].sort((a, b) => a - b),
   })
+  /** Render one changed plate row with the selected details and computed summary. */
   function row(index: number, start?: number) {
     const { entry, summary } = plates[index]
     const open = expanded.includes(entry.baseline.id)
@@ -87,6 +107,7 @@ function StatePlates({ plates, batch }: { plates: ChangedPlate[]; batch: BatchDe
   </div>
 }
 
+/** Present grouped batch changes and track which state and plate details are expanded. */
 export function BatchChanges({ plates, batch }: { plates: Entry[]; batch: BatchDetail['batch'] }) {
   const groups = useMemo(() => changesByState(plates), [plates])
   const [expanded, setExpanded] = useState<string[]>([])

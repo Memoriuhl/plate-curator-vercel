@@ -2,13 +2,19 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { localPipelineRun } from '../../workflows/local-pipeline'
 
 const mocks = vi.hoisted(() => ({ bind: vi.fn(), dispatch: vi.fn(), observe: vi.fn(), conflict: vi.fn(), sleep: vi.fn(), events: [] as string[] }))
-vi.mock('../../lib/jobs/queue-hosted', () => ({ executeHostedQueueStage: async () => 'settled' }))
-vi.mock('../../lib/server/context', () => ({ jobsDeps: () => ({}), hostedTaggingDeps: vi.fn() }))
+vi.mock('../../lib/jobs/queue-hosted', () => ({ /** Settle hosted execution immediately so tests can isolate workflow orchestration. */ executeHostedQueueStage: async () => 'settled' }))
+vi.mock('../../lib/server/context', () => ({ /** Provide an empty jobs dependency stub because queue operations are mocked separately. */ jobsDeps: () => ({}), hostedTaggingDeps: vi.fn() }))
 vi.mock('../../lib/jobs/queue-engine', () => ({ bindQueueWorkflow: mocks.bind, dispatchQueueStage: mocks.dispatch, observeQueueStage: mocks.observe }))
 vi.mock('workflow', () => ({
+  /** Return the run ID the fixture expects to bind to the workflow attempt. */
   getWorkflowMetadata: () => ({ workflowRunId: 'workflow' }),
-  createHook: ({ token }: { token: string }) => ({ token, getConflict: mocks.conflict, [Symbol.dispose]() {},
-    [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) }),
+  /** Return a controlled workflow hook with the requested token and conflict behavior. */
+  createHook: ({ token }: { token: string }) => ({ token, getConflict: mocks.conflict, /** Satisfy hook disposal without releasing a real workflow resource. */ [Symbol.dispose]() {},
+    /**
+     * Provide the pending event iterator used to simulate a worker that has not
+     * reported.
+     */
+    [Symbol.asyncIterator]: () => ({ /** Keep the fixture event read unresolved until the workflow's other wait condition wins. */ next: () => new Promise(() => {}) }) }),
   sleep: mocks.sleep,
 }))
 

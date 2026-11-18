@@ -5,6 +5,10 @@ export type BatchSignalsBackfillStore = {
   initializeMissing(batchId: string, env: string): Promise<boolean>
 }
 
+/**
+ * Initialize missing live revision signals for staging batches and report how many were
+ * created.
+ */
 export async function backfillBatchSignals(store: BatchSignalsBackfillStore, input: { projectId: string | undefined; env: string }) {
   assertStagingProject(input.projectId)
   const ids = await store.listBatchIds(input.env)

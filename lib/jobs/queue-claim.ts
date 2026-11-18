@@ -33,6 +33,10 @@ export function queuedStageWait(run: PipelineRun, job: TaggingJob | undefined, c
   return workerRequirement(job, { supportsSavedSources: 'supportsSavedSources' in worker && worker.supportsSavedSources, enhanceImage: worker['enhance-image'].available }) ?? 'worker_claim'
 }
 
+/**
+ * Pick the next compatible local job using requester fairness and the queue's
+ * deterministic tie breakers.
+ */
 export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local', features: LocalClaimFeatures = {}) {
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter(job => job.localScope === d.localScope)
@@ -53,4 +57,5 @@ export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: Pipel
     a.createdAt - b.createdAt || (a.queueOrder ?? 0) - (b.queueOrder ?? 0) || a.id.localeCompare(b.id))[0] ?? null
 }
 
+/** Check that local claims are enabled and the worker's queue scope is configured. */
 export function localClaimsEnabled(d: JobsDeps) { return process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && !!d.localScope }

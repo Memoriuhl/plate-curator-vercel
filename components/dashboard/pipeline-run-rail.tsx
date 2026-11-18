@@ -23,6 +23,7 @@ export function PipelineRailSkeleton({ compact = false }: { compact?: boolean })
   </div>
 }
 
+/** Show active and recently settled pipeline cards in a compact dashboard rail. */
 export function PipelineRunRail<T extends RailRun>({ runs, observedAt, keepFinished, progress, renderRun, renderHistory, historyHref }: {
   runs: T[]
   observedAt?: number
@@ -32,6 +33,7 @@ export function PipelineRunRail<T extends RailRun>({ runs, observedAt, keepFinis
   renderHistory: (run: T) => ReactNode
   historyHref: (run: T) => string
 }) {
+  /** Keep a finished card visible briefly so its final outcome can be seen. */
   const recent = (run: T) => {
     const end = progress(run).endedAt
     return run.dismissedAt === undefined && (keepFinished || (run.status === 'completed' && end !== undefined && observedAt !== undefined && observedAt - end < 6000))

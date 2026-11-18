@@ -24,8 +24,11 @@ import { plateCards } from '../fixtures/plate-cards'
 const Context = createContext<ReturnType<typeof session> | null>(null)
 vi.mock('../lib/client/session', () => ({ useSession: () => useContext(Context)! }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => useContext(Context)!.params,
+  /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ prefetch: vi.fn(), refresh: vi.fn() }),
 }))
 vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
@@ -33,7 +36,9 @@ vi.mock('next/image', () => ({ default: () => <span /> }))
 vi.mock('../components/dashboard/use-grid-entrance', () => ({ useGridEntrance: () => {} }))
 vi.mock('../components/dashboard/use-drag-flip', () => ({ useDragFlip: () => {} }))
 vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
+  /** Expose the deterministic virtual rows used by the test layout. */
   getVirtualItems: () => [{ key: 0, index: 0, start: 420 }], getTotalSize: () => 600,
+  /** Skip actual browser measurement for the fixed virtual rows in the test. */
   measureElement: () => {}, scrollToIndex: () => {},
 }) }))
 
@@ -46,6 +51,10 @@ const plates: Plate[] = [
 ]
 const cards = plates.map((plate, index) => ({ ...plateCards[0], ...plate, imageUrl: null, variantOfPlateId: plate.variantOfPlateId ?? null, isStandard: plate.isStandard ?? false, sortOrder: index, revision: plateRevision(plate) }))
 const gridPlates = cards.map(projectFamilyPlate)
+/**
+ * Build a fixture batch with its baseline and plate selection for the current review
+ * scenario.
+ */
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return { id, name: id + ' Batch', createdBy: actor.uid, createdByName: actor.name, createdAt: '2026-11-16', state: 'open', revision: 0, baselineVersion: 1, stateOrders: {}, plateIds: plates.map(p => p.id), approval: null }
 }
@@ -59,6 +68,10 @@ let connected: boolean
 let failedOrder: unknown
 const supersedeRun = vi.fn(async () => {})
 const source: LiveSignalSource = {
+  /**
+   * Capture each batch subscription and exercise its current revision, error and
+   * disposal paths.
+   */
   subscribe(_env, id, next, error) {
     failures.set(id, error)
     const set = listeners.get(id) ?? new Set()
@@ -68,14 +81,20 @@ const source: LiveSignalSource = {
     return () => { set.delete(next) }
   },
 }
+/** Deliver the supplied batch revision to currently subscribed test listeners. */
 function emit(id: string, revision: number) {
   signals.set(id, revision)
   listeners.get(id)?.forEach(next => next(revision))
 }
+/** Connect one fixture actor's session to the shared batch mutations and read log. */
 function session(actor: Actor, id: string | null = 'shared') {
   return {
     user: { uid: actor.uid }, params: new URLSearchParams(id === null ? '' : 'batch=' + id),
     api: {
+      /**
+       * Read actor-visible batch data and count requests to observe live refresh
+       * behavior.
+       */
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return actor
@@ -97,6 +116,7 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         throw new Error(path)
       },
+      /** Apply supported edit, order and submit requests to the shared review store. */
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
         if (method === 'POST' && path.endsWith('/publish')) return { status: 'publishing' }
@@ -129,6 +149,7 @@ function session(actor: Actor, id: string | null = 'shared') {
     },
   }
 }
+/** Render the workspace with a private cache for the supplied fixture session. */
 function Workspace({ value, page = 'dashboard' }: { value: ReturnType<typeof session>; page?: 'dashboard' | 'review' | 'publish' }) {
   const cache = new Map()
   return (
@@ -188,16 +209,24 @@ test('Review removes one field, then clears the selected plate and leaves the ot
   expect((await deps.store.getBatch('shared'))?.plateIds).toEqual(['AK.a', 'AK.b'])
 })
 
+/**
+ * Expose a reorder control that reverses the fixture state order through the real hook.
+ */
 function OrderAction() {
   const { reorder } = useReorderState()
   return <button onClick={() => void reorder('AK', ['AK.b', 'AK.a', 'AK.v'], { from: 'AK.a', to: 'AK.b' })}>Reverse State order</button>
 }
+/** Read rendered family labels in DOM order to observe the latest draft order. */
 function familyOrder(container: HTMLElement) {
   return within(container).getAllByRole('article').map(article => article.getAttribute('aria-label'))
 }
+/**
+ * Allow queued live updates and SWR refresh work to settle inside React's test boundary.
+ */
 async function settle() {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 70)) })
 }
+/** Mount the two actor views and wait for both to load the shared batch. */
 async function twoSessions() {
   const first = render(<Workspace value={session(editor)} />)
   const second = render(<Workspace value={session(owner)} />)

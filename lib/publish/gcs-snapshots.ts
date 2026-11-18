@@ -2,10 +2,19 @@ import type { Snapshot } from '../catalog/types'
 import { sha256 } from './bytes'
 import type { PublishSnapshots } from './types'
 
+/** Derive the object path for a versioned catalog snapshot. */
 const objectName = (version: number) => `catalog/v${version}.json`
 
+/**
+ * Build a Google Cloud Storage adapter for immutable versioned snapshots and their
+ * metadata.
+ */
 export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>, fetcher: typeof fetch = fetch): PublishSnapshots {
   const encodedBucket = encodeURIComponent(bucket)
+  /**
+   * Download snapshot bytes with an access token and avoid cached responses during
+   * verification.
+   */
   const download = async (version: number, generation?: string) => {
     const object = encodeURIComponent(`catalog/v${version}.json`)
     const query = new URLSearchParams({ alt: 'media', ...(generation ? { generation } : {}) })
@@ -14,6 +23,10 @@ export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>,
     })
   }
   return {
+    /**
+     * Read object identity, size and checksum metadata so publishes can pin the prepared
+     * object.
+     */
     async metadata(version) {
       const object = encodeURIComponent(objectName(version))
       const response = await fetcher(`https://storage.googleapis.com/storage/v1/b/${encodedBucket}/o/${object}?fields=generation,metageneration,md5Hash,crc32c,metadata`, {
@@ -26,11 +39,16 @@ export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>,
       if (!token || typeof body.generation !== 'string' || !/^\d+$/.test(body.generation) || typeof body.metageneration !== 'string' || !/^\d+$/.test(body.metageneration) || !(body.md5Hash || body.crc32c)) return null
       return { generation: body.generation, metageneration: body.metageneration, ...(body.md5Hash ? { md5Hash: body.md5Hash } : {}), ...(body.crc32c ? { crc32c: body.crc32c } : {}), url: `https://firebasestorage.googleapis.com/v0/b/${encodedBucket}/o/${object}?alt=media&token=${token}` }
     },
+    /** Read and decode the catalog snapshot for a specific version. */
     async read(version) {
       const response = await download(version)
       if (!response.ok) throw new Error(`Snapshot read failed: ${response.status}`)
       return await response.json() as Snapshot
     },
+    /**
+     * Upload the prepared snapshot with a create-only precondition so a version cannot
+     * be overwritten.
+     */
     async createOnly(version, bytes) {
       const boundary = `snapshot-${crypto.randomUUID()}`
       const metadata = { name: objectName(version), contentType: 'application/json', metadata: { firebaseStorageDownloadTokens: crypto.randomUUID() } }
@@ -49,6 +67,10 @@ export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>,
       if (!response.ok) throw new Error(`Snapshot upload failed: ${response.status}`)
       return 'created'
     },
+    /**
+     * Resolve the download URL from stored object metadata for callers that serve the
+     * snapshot.
+     */
     async downloadUrl(version) {
       const object = encodeURIComponent(objectName(version))
       const response = await fetcher(`https://storage.googleapis.com/storage/v1/b/${encodedBucket}/o/${object}?fields=metadata`, {
@@ -60,6 +82,10 @@ export function gcsSnapshots(bucket: string, accessToken: () => Promise<string>,
       const token = body.metadata?.firebaseStorageDownloadTokens?.split(',')[0]
       return token ? `https://firebasestorage.googleapis.com/v0/b/${encodedBucket}/o/${object}?alt=media&token=${token}` : null
     },
+    /**
+     * Hash the stored bytes independently to confirm that they match the prepared
+     * receipt.
+     */
     async checksum(version, generation) {
       const response = await download(version, generation)
       if (response.status === 404) return null

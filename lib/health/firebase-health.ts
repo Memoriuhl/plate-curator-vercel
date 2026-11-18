@@ -2,6 +2,10 @@ export type ReadCatalogVersion = () => Promise<number>
 
 const headers = { 'Cache-Control': 'private, no-store' }
 
+/**
+ * Probe the Firestore catalog pointer and return a private health response for service
+ * monitoring.
+ */
 export async function firebaseHealth(readCatalogVersion: ReadCatalogVersion): Promise<Response> {
   try {
     const catalogVersion = await readCatalogVersion()

@@ -12,10 +12,12 @@ import { ReissueInvite } from './reissue-invite'
 import type { MemberInvite, MemberSummary } from '@/lib/members/summary'
 import { MemberRoleActions } from './member-role-actions'
 
+/** Map the stored membership role to the text shown in the management UI. */
 const roleName = (role: MemberSummary['role']) => role === 'owner' ? 'Owner' : 'Editor'
 const statusName = { active: 'Active', pending: 'Pending', expired: 'Expired' }
 const statusTint = { active: 'bg-[var(--success-tint)]', pending: 'bg-[var(--fill)]', expired: 'bg-[var(--warning-tint)]' }
 
+/** Collect a new member's email and role and display the resulting invitation link. */
 function InviteForm() {
   const invite = useInviteMember()
   const [email, setEmail] = useState('')
@@ -23,6 +25,9 @@ function InviteForm() {
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberInvite | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Submit the invitation once, reset successful inputs and surface errors on the form.
+   */
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (pending) return
@@ -61,6 +66,7 @@ function InviteForm() {
   )
 }
 
+/** Render the owner-only membership list and invitation workflow. */
 export function MembersPage() {
   const me = useMe()
   const members = useMembers()

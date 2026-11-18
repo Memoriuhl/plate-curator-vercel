@@ -19,6 +19,7 @@ import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
 import { useDashboardPipeline } from './pipeline-runs'
 
+/** Show batch and model actions for the active jurisdiction or plate selection. */
 export function BatchActions({
   underTagged,
   allPlates,

@@ -2,6 +2,7 @@ import { currentActiveOwner } from '@/lib/server/context'
 import { researchDeps } from '@/lib/server/research-context'
 import { revokeResearchWorkerToken } from '@/lib/research/tokens'
 
+/** Allow an active owner to revoke a research worker credential by hash. */
 export async function DELETE(request: Request, ctx: RouteContext<'/api/research-worker/tokens/[hash]'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response

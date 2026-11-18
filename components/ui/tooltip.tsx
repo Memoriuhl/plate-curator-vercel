@@ -4,6 +4,7 @@ import * as React from 'react'
 import { cn } from '@/components/utils'
 import { Tooltip as TooltipPrimitive } from 'radix-ui'
 
+/** Set the shared delay before tooltips appear for controls within the provider. */
 function TooltipProvider({
   delayDuration = 0,
   ...props
@@ -17,18 +18,21 @@ function TooltipProvider({
   )
 }
 
+/** Provide Radix tooltip state for an associated trigger and floating label. */
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
+/** Attach a tooltip to its control's hover and focus behavior. */
 function TooltipTrigger({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
+/** Render the floating tooltip label and arrow above surrounding content. */
 function TooltipContent({
   className,
   sideOffset = 0,

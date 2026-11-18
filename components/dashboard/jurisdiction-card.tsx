@@ -10,6 +10,7 @@ import { IoReloadOutline } from 'react-icons/io5'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { cn } from '@/components/utils'
 
+/** Expose pending jurisdiction navigation visually and to assistive technology. */
 function PendingIndicator() {
   const { pending } = useLinkStatus()
   if (!pending) return null
@@ -25,6 +26,9 @@ function PendingIndicator() {
   )
 }
 
+/**
+ * Render a jurisdiction link with its plate counts, active state and selection marker.
+ */
 export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
   const hasSelection = useStateSelected(jurisdiction.code)
   const batchId = useSelectedBatchId()
@@ -36,6 +40,7 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
     const card = ref.current
     const strip = card?.closest<HTMLElement>('.jurisdiction-strip')
     if (!selected || !card || !strip) return
+    /** Scroll the selected jurisdiction into view along the strip's active axis. */
     const reveal = () => {
       const bounds = card.getBoundingClientRect()
       const viewport = strip.getBoundingClientRect()

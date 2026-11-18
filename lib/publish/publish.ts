@@ -8,6 +8,10 @@ import type { CommittedStateOrders, PublishCommand, PublishDeps, PublishError, P
 import { validateSnapshot } from './validation'
 import { orderedStatePlates } from '../catalog/order'
 
+/**
+ * Authorize an owner to run the release attempt and translate unexpected failures into a
+ * publish outcome.
+ */
 export async function publishBatch(d: PublishDeps, actor: Actor, command: PublishCommand): Promise<PublishOutcome> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
   try {
@@ -17,6 +21,10 @@ export async function publishBatch(d: PublishDeps, actor: Actor, command: Publis
   }
 }
 
+/**
+ * Prepare, verify and commit a snapshot under its publish lease, resuming from persisted
+ * receipt progress.
+ */
 async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<PublishOutcome> {
   const id = receiptId(command.batchId, command.revision)
   const batch = await d.store.getBatch(command.batchId)
@@ -35,14 +43,20 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   if (batch.revision !== command.revision) return { ok: false, error: 'superseded_revision' }
   if (batch.state !== 'approved') return { ok: false, error: 'invalid_state' }
   const leaseMs = d.leaseMs ?? 60000
+  /** Set a fresh lease deadline using the publish clock. */
   const expiry = () => new Date(Date.parse(d.now()) + leaseMs).toISOString()
   const lease: PublishLease = { ...command, token: randomUUID(), expiresAt: expiry() }
   if (!await d.lock.claim(lease, d.now())) return { ok: false, error: await d.records.pipelineBusy?.() ? PIPELINE_BUSY : 'locked' }
   let keepFrozen = true
+  /** Renew the current lease before continuing release work. */
   const renew = async () => {
     lease.expiresAt = expiry()
     return d.lock.renew(lease, d.now())
   }
+  /**
+   * Record a failed attempt and release the freeze when this attempt can no longer
+   * advance.
+   */
   const fail = async (error: PublishError): Promise<PublishOutcome> => {
     keepFrozen = false
     if (record && !await d.records.save({ ...record, state: 'failed', failure: error }, lease.token, d.now())) return { ok: false, error: 'lock_lost' }
@@ -175,6 +189,9 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   }
 }
 
+/**
+ * Recover committed state orders from the verified live snapshot for curator projection.
+ */
 async function committedStateOrders(d: PublishDeps, states: string[], toVersion: number): Promise<CommittedStateOrders | null> {
   const pointer = await d.pointer.read()
   if (!Number.isSafeInteger(pointer.version) || pointer.version <= toVersion || typeof pointer.blobSha256 !== 'string') return null

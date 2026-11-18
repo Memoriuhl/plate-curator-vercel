@@ -11,6 +11,10 @@ import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
 type SessionContext = { session: { id: string; turn: { id: string }; auth?: { current: { principalId: string; authenticator: string } | null } } }
 export type ResearchSessionBinding = { ownerUid: string; jobId?: string; pipelineJobId?: string; model?: string; input?: ResearchInput }
 
+/**
+ * Resolve the research turn's session, authorization and state so tools share its limits
+ * and evidence.
+ */
 export async function researchTurn(ctx: SessionContext, providedStore?: ResearchStateStore) {
   const store = providedStore ?? await researchState()
   const binding = await store.read<ResearchSessionBinding>(`session/${ctx.session.id}`)
@@ -45,17 +49,30 @@ export async function researchTurn(ctx: SessionContext, providedStore?: Research
   })
   return {
     store, runId, deadline, binding,
+    /**
+     * Open a budgeted model attempt for the current research run using its configured
+     * constraints.
+     */
     modelAttempt: () => createResearchModelAttempt(store, runId, { campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'), deadline, ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}) }),
+    /**
+     * Reserve a tool call against the session or pipeline job budget before requesting
+     * evidence.
+     */
     async reserve(kind: ResearchCall) {
       if (binding?.pipelineJobId) return false // Captured evidence only; no nested search or control calls.
       if (await reserveResearchCall(runId, kind, { store, now: Date.now, deadline }) !== 'reserved') return false
       if (kind !== 'model' && kind !== 'web-search') return true
       return reserveResearchSpend(store, process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', runId, kind === 'model' ? 'model' : 'search', kind === 'model' ? 0.2 : 0.01, Number(process.env.RESEARCH_BUDGET_USD ?? '2'))
     },
+    /** Persist captured evidence under the current run so the draft can cite it. */
     async evidence(source: EvidenceSource) { return saveEvidence(store, runId, source) },
   }
 }
 
+/**
+ * Validate a submitted draft against the turn's evidence and store the normalized
+ * result.
+ */
 export async function submitResearchDraft(ctx: SessionContext, raw: unknown, providedStore?: ResearchStateStore) {
   const runtime = await researchTurn(ctx, providedStore)
   const sources = await runtime.store.read<EvidenceSource[]>(`evidence/${runtime.runId}`) ?? []
@@ -65,6 +82,10 @@ export async function submitResearchDraft(ctx: SessionContext, raw: unknown, pro
   return { status: sources.length === 0 ? 'no_sources' : draft.description && draft.funFacts.length ? 'ok' : 'partial', ...result }
 }
 
+/**
+ * Assemble the hosted result with input identity, evidence and observed execution
+ * metrics.
+ */
 export function hostedResearchResult(input: ResearchInput, output: { draft: ResearchResult['draft']; sources: EvidenceSource[]; rejected: ResearchResult['rejected'] }, details: { durationMs: number; counters: Record<string, number>; model?: string }): ResearchResult {
   return {
     input, ...output, ...details,

@@ -10,6 +10,7 @@ const blocked = new BlockList()
 for (const [parts, prefix] of [ [[0,0,0,0],8], [[10,0,0,0],8], [[100,64,0,0],10], [[127,0,0,0],8], [[169,254,0,0],16], [[172,16,0,0],12], [[192,0,0,0],24], [[192,0,2,0],24], [[192,168,0,0],16], [[198,18,0,0],15], [[198,51,100,0],24], [[203,0,113,0],24], [[224,0,0,0],3] ] as [number[], number][]) blocked.addSubnet(parts.join('.'), prefix, 'ipv4')
 for (const [address, prefix] of [['2001::',32], ['2001:db8::',32], ['2002::',16]] as [string, number][]) blocked.addSubnet(address, prefix, 'ipv6')
 
+/** Check that a resolved address is public before allowing an evidence download. */
 function allowedIp(ip: string) {
   const family = isIP(ip)
   if (family === 4) return !blocked.check(ip, 'ipv4')
@@ -18,6 +19,7 @@ function allowedIp(ip: string) {
   return first >= 0x2000 && first < 0x4000 && !blocked.check(ip, 'ipv6')
 }
 
+/** Extract bounded, readable page text for the evidence passed to the research model. */
 export function readableText(html: string) {
   const root = parse(html)
   root.querySelectorAll('script,style,noscript,template,svg,nav,header,footer,aside,form,iframe,button').forEach(node => node.remove())
@@ -26,13 +28,24 @@ export function readableText(html: string) {
   return [...new Set(parts)].join('\n').slice(0, 6000)
 }
 
+/**
+ * Fetch a bounded public evidence page while validating destinations and each redirect.
+ */
 export async function fetchResearchPage(url: string, deps: PageDeps): Promise<EvidenceSource | null> {
   const resolve = deps.resolve ?? (async host => (await lookup(host, { all: true })).map(entry => entry.address))
+  /**
+   * Resolve the host and reject it if any returned address falls outside the public
+   * network policy.
+   */
   const vetted = async (host: string) => {
     const addresses = isIP(host) ? [host] : await resolve(host)
     if (!addresses.length || !addresses.every(allowedIp)) throw new Error('Source is not public')
     return addresses
   }
+  /**
+   * Use vetted addresses for the request's DNS lookup so the connection uses checked
+   * destinations.
+   */
   const dnsLookup: LookupFunction = (host, options, callback) => {
     void vetted(host).then(addresses => {
       const entries = addresses.map(address => ({ address, family: isIP(address) }))

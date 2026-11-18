@@ -4,6 +4,7 @@ import useSWR from 'swr'
 import { useEffect } from 'react'
 import { useSession } from './session'
 
+/** Record the batch revision an owner has reviewed after the active view renders it. */
 export function useReviewCheckpoint(batchId: string | null | undefined, revision: number | undefined, isOwner: boolean) {
   const { api, user } = useSession()
   useEffect(() => {
@@ -12,6 +13,9 @@ export function useReviewCheckpoint(batchId: string | null | undefined, revision
   }, [api, user, isOwner, batchId, revision])
 }
 
+/**
+ * Load current plate changes since the viewer's saved revision for review highlighting.
+ */
 export function useRecentReviewPlates(batchId: string | null | undefined, since: number | undefined, revision?: number) {
   const { api, user } = useSession()
   return useSWR<{ plateIds: string[] }>(user && batchId && since !== undefined

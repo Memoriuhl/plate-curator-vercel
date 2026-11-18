@@ -22,10 +22,14 @@ export type ReadyPreviewProps = {
   onMouseLeave?: () => void
 }
 
+/** Reset the asynchronous preview state when its plate or immediate-open mode changes. */
 export function ReadyPlatePreview(props: ReadyPreviewProps) {
   return <PendingPreview key={`${props.plate.id}:${props.markerName ? 'marker' : props.checkKey ?? 'card'}:${props.immediate}`} {...props} />
 }
 
+/**
+ * Display a ready local preview or fetch details before showing the full plate preview.
+ */
 function PendingPreview(props: ReadyPreviewProps) {
   const local = !!props.markerName || props.checkKey === 'tags' || props.checkKey === 'family' || props.checkKey === 'image'
   const { data } = usePlateDetail(local ? null : props.plate.id)
@@ -47,10 +51,12 @@ function PendingPreview(props: ReadyPreviewProps) {
   return <PlateHoverContent {...props} plate={overlaid ?? props.plate} state={data ? undefined : 'loading'} />
 }
 
+/** Keep long values readable in a tooltip by retaining their beginning and end. */
 function shortenValue(value: string) {
   return value.length > 64 ? value.slice(0, 36) + '\u2026' + value.slice(-24) : value
 }
 
+/** Render a completeness check's value in the format appropriate for its field. */
 export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; checkKey: PlateCheckKey; parent?: string }) {
   const value = plate.checks[checkKey].value
   if (checkKey === 'tags') return plate.tags.length ? <div className="flex flex-wrap gap-1">{plate.tags.map(tag => <span className="rounded-full bg-[var(--fill)] px-2 py-0.5 text-[var(--tag-ink)]" key={tag}>{tag}</span>)}</div> : <>None</>
@@ -68,12 +74,14 @@ export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; 
   return <p className={checkKey === 'description' ? 'line-clamp-4' : undefined}>{value}</p>
 }
 
+/** Portal the check tooltip so it can extend beyond the plate preview's clipping area. */
 function CheckTooltip({ plate, checkKey, parent, anchor, loading, message, onMouseEnter, onMouseLeave }: Omit<ReadyPreviewProps, 'immediate'> & { loading: boolean; message?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const [snapshot] = useState({ plate, loading })
   const enhancement = useLatestEnhancement(plate.id, checkKey === 'image')
   useLayoutEffect(() => {
+    /** Place the tooltip near its check icon and keep it inside the viewport. */
     const place = () => {
       if (!ref.current) return
       const icon = anchor.getBoundingClientRect()

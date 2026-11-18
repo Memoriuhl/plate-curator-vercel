@@ -21,6 +21,10 @@ Fun fact rules:
 - Ignore a source that is about something other than this plate's subject.
 - Fewer good facts beat four weak ones; an empty list is fine.`;
 
+/**
+ * Build the story synthesis request with the plate and labeled sources needed to cite
+ * evidence.
+ */
 export function storyUserPrompt(input: { displayName: string; stateName: string; sources: Source[] }): string {
   const blocks = input.sources.map((s) => `[${s.id}] ${s.title} (${s.url})\n${s.text}`).join('\n\n');
   return `Plate: "${input.displayName}", a ${input.stateName} license plate.\n\nSources:\n${blocks}\n\nReturn the JSON object.`;

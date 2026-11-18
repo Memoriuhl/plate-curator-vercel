@@ -46,6 +46,10 @@ try {
     await page.evaluate(code => {
       const start = performance.now()
       window.switchTiming = { url: null, cards: null, spinner: false }
+      /**
+       * Poll animation frames until the selected state renders and its navigation timing
+       * is available.
+       */
       const poll = () => {
         const timing = window.switchTiming
         if (location.pathname === `/states/${code}` && timing.url === null) timing.url = performance.now() - start

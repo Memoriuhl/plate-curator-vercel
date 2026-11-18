@@ -14,7 +14,12 @@ const baseline: Plate[] = [
   { id: 'two', state: 'CA', slug: 'two', displayName: 'Two', tags: [], image: 'two.png', templateRole: 'template' },
 ]
 
+/**
+ * Register shared review state and editing scenarios for the supplied store
+ * implementation.
+ */
 export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => ReviewStore | Promise<ReviewStore>, concurrentEditTimeout?: number) {
+  /** Create an open batch, editable plate and expected revision for a review scenario. */
   async function setup(overrides: Partial<ReviewBatch> = {}) {
     const batch: ReviewBatch = {
       stateOrders: {},
@@ -24,8 +29,10 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
     }
     const store = await createStore(batch)
     const deps: ReviewDeps = {
+      /** Return fixture baseline plates belonging to the requested state. */
       stateBaseline: async (_version, state) => baseline.filter(plate => plate.state === state),
-      store, baselineAtVersion: async (_version, id) => baseline.find(plate => plate.id === id) ?? null, baseline: async id => baseline.find(plate => plate.id === id) ?? null,
+      store, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version, id) => baseline.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => baseline.find(plate => plate.id === id) ?? null,
+      /** Pin the operation clock so timestamps and lease checks are reproducible. */
       now: () => '2026-11-15T12:00:00Z',
     }
     const input = { batchId: batch.id, plateId: 'one', baseRevision: plateRevision(baseline[0]), fields: { tags: ['changed'] } }
@@ -242,7 +249,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
   test('concurrent edits to different plates both succeed', async () => {
     const { deps, store, input } = await setup()
     let first = true
-    deps.store = { ...store, commit: async (...args) => {
+    deps.store = { ...store, /** Fail the first commit with a competing revision and let subsequent commits use the real store. */ commit: async (...args) => {
       if (first) { first = false; return 'revision_mismatch' }
       return store.commit(...args)
     } }

@@ -2,6 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { resolve, relative, isAbsolute } from 'node:path'
 import { readCommonsImage } from './remote-image'
 
+/**
+ * Build a local catalog image reader that resolves images under the game repository for
+ * tagging.
+ */
 export function imageReader(gameRepo: string) {
   const root = resolve(gameRepo, 'assets', 'plates')
   return async (image: string): Promise<string> => {

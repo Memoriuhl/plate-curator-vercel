@@ -7,6 +7,7 @@ import { modelReportHtml, modelSummaryCsv, type ModelLane } from '../../worker/m
 const input = { imageB64: Buffer.from('RIFFfakeWEBP').toString('base64'), plate: { displayName: 'Bear', state: 'AK', tags: [] } }
 const completion = JSON.stringify({ primaryColor: 'white', subjects: ['bears'] })
 const pricing = { input: '0.0000003', output: '0.0000025' }
+/** Return a successful inference response with known model identity, usage and cost. */
 const success = () => Response.json({ model: 'returned-model', choices: [{ message: { content: completion } }], usage: { prompt_tokens: 100, completion_tokens: 20, cost: 0.001 } })
 
 test('gateway uses local prompts, image bytes, normalization, and reported usage and cost', async () => {
@@ -70,7 +71,7 @@ test('comparison cap includes retries and applies across runs; reports reconcile
     return success()
   })
   const budget = new RequestBudget(5)
-  const common = { concurrency: 1, label: 'fixed', plates, fixtureText: 'fixture', minimumF1: 0.6, readImage: async () => input.imageB64, budget, pricing, request }
+  const common = { concurrency: 1, label: 'fixed', plates, fixtureText: 'fixture', minimumF1: 0.6, /** Provide fixture image data to the worker so the test can exercise its result without a real download. */ readImage: async () => input.imageB64, budget, pricing, request }
   const hosted = await benchmark({ ...common, backend: 'hosted' })
   const local = await benchmark({ ...common, backend: 'local' })
   expect(calls).toBe(5)
@@ -112,7 +113,7 @@ test('concurrent hosted attempts stop at a shared cap without issuing extra requ
     await new Promise(resolve => setTimeout(resolve, 2))
     return success()
   })
-  const run = await benchmark({ backend: 'hosted', concurrency: 4, label: '', plates: Array.from({ length: 10 }, (_, i) => ({ ...input.plate, id: String(i), image: 'image' })), fixtureText: '', minimumF1: 0.6, readImage: async () => input.imageB64, budget: new RequestBudget(3), pricing, request })
+  const run = await benchmark({ backend: 'hosted', concurrency: 4, label: '', plates: Array.from({ length: 10 }, (_, i) => ({ ...input.plate, id: String(i), image: 'image' })), fixtureText: '', minimumF1: 0.6, /** Provide fixture image data to the worker so the test can exercise its result without a real download. */ readImage: async () => input.imageB64, budget: new RequestBudget(3), pricing, request })
   expect(request).toHaveBeenCalledTimes(3)
   expect(run.cappedPlates).toBe(7)
   expect(run.requests).toBe(3)
@@ -130,7 +131,7 @@ test('billable malformed completions retain usage and cost before retry', async 
 test('rate-limit threshold stops retries and queued Plates, preserving in-flight responses', async () => {
   vi.stubEnv('AI_GATEWAY_API_KEY', 'test')
   const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(null, { status: 429 }))
-  const run = await benchmark({ backend: 'hosted', concurrency: 1, label: '', plates: Array.from({ length: 30 }, (_, i) => ({ ...input.plate, tags: ['bear'], id: String(i), image: 'image' })), fixtureText: '', minimumF1: 0.6, readImage: async () => input.imageB64, budget: new RequestBudget(400), pricing, request, maxRateLimitRatio: 0.2 })
+  const run = await benchmark({ backend: 'hosted', concurrency: 1, label: '', plates: Array.from({ length: 30 }, (_, i) => ({ ...input.plate, tags: ['bear'], id: String(i), image: 'image' })), fixtureText: '', minimumF1: 0.6, /** Provide fixture image data to the worker so the test can exercise its result without a real download. */ readImage: async () => input.imageB64, budget: new RequestBudget(400), pricing, request, maxRateLimitRatio: 0.2 })
   expect(request).toHaveBeenCalledTimes(1)
   expect(run.status).toBe('rate_limited')
   expect(run.failedPlates).toBe(1)

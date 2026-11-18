@@ -6,6 +6,7 @@ import { normalizeEmail } from '@/lib/members/member'
 import { createInvite, generateInviteToken } from '@/lib/members/invite'
 import { memberSummary } from '@/lib/members/summary'
 
+/** Return the sanitized membership list to a signed-in owner. */
 export async function GET(request: Request) {
   await connection()
   const auth = await currentActor(request)
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
   return json((await membersStore().list()).map(member => memberSummary(member, now)))
 }
 
+/** Create a pending membership and return its new invitation link to the owner. */
 export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

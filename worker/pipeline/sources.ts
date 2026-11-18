@@ -4,11 +4,16 @@ import type { WorkerPlate } from '../run'
 export type Source = { id: string; kind: 'wikipedia' | 'web'; title: string; url: string; text: string }
 const api = 'https://en.wikipedia.org/w/api.php'
 
+/**
+ * Build a state registration reference query for a standard plate when its title is
+ * generic.
+ */
 export function standardPlateReference(plate: Pick<WorkerPlate, 'displayName' | 'state'>): string | undefined {
   const state = JURISDICTIONS[plate.state]
   if (state && /^\s*standard(?:\s*[-–—:]|\s*$)/i.test(plate.displayName)) return `Vehicle registration plates of ${state}`
 }
 
+/** Extract a Wikipedia article title from a supported article URL. */
 function wikiTitle(value?: string | null) {
   try {
     const url = new URL(value ?? '')
@@ -17,6 +22,7 @@ function wikiTitle(value?: string | null) {
   } catch { return null }
 }
 
+/** Reduce article HTML to readable text sections for evidence selection. */
 export function wikipediaText(html: string) {
   return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, '')
@@ -26,6 +32,7 @@ export function wikipediaText(html: string) {
     .split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean)
 }
 
+/** Select bounded source excerpts that mention the plate's distinguishing title terms. */
 export function relevantText(lines: string[], name: string) {
   const words = name.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 2 && !['plate', 'plates', 'standard', 'special', 'the', 'and'].includes(word))
   const relevant = words.length ? lines.filter(line => words.some(word => line.toLowerCase().includes(word))) : []
@@ -33,7 +40,11 @@ export function relevantText(lines: string[], name: string) {
   return [...new Set([...(lead ? [lead] : []), ...(relevant.length ? relevant : lines.filter(line => line.length > 80))])].slice(0, 6).join('\n').slice(0, 3000)
 }
 
+/**
+ * Gather candidate Wikipedia articles and retain evidence relevant to the exact plate.
+ */
 export async function gatherWikipedia(plate: WorkerPlate, request: typeof fetch = fetch): Promise<Source[]> {
+  /** Query Wikipedia using the request implementation injected into the gatherer. */
   const query = (params: Record<string, string>) => wikipediaQuery(params, request)
   const titles = new Set<string>()
   const stateName = JURISDICTIONS[plate.state]
@@ -73,6 +84,7 @@ export async function gatherWikipedia(plate: WorkerPlate, request: typeof fetch 
   return sources
 }
 
+/** Read and decode a bounded Wikipedia API response with a request deadline. */
 export async function wikipediaQuery(params: Record<string, string>, request: typeof fetch = fetch) {
   const response = await request(`${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`, {
     headers: { 'User-Agent': 'PlateCuratorLocal/1.0 (source-backed catalog drafts)' }, signal: AbortSignal.timeout(20000), redirect: 'error',

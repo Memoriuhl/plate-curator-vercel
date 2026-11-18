@@ -7,6 +7,10 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 
 type Search = Promise<{ batch?: string | string[] }>
 
+/**
+ * Redirect the curator home route to the first available jurisdiction once catalog data
+ * loads.
+ */
 async function FirstJurisdiction({ searchParams }: { searchParams: Search }) {
   await connection()
   const [{ jurisdictions }, query] = await Promise.all([loadDashboard(), searchParams])
@@ -15,6 +19,7 @@ async function FirstJurisdiction({ searchParams }: { searchParams: Search }) {
   return <p>No jurisdictions available.</p>
 }
 
+/** Render the curator landing shell while the default jurisdiction is resolved. */
 export default function Home({ searchParams }: { searchParams: Search }) {
   return (
     <main className="app-main">

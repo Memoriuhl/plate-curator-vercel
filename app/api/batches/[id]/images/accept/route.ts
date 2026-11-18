@@ -3,6 +3,10 @@ import { currentActor, jobsDeps, reviewDeps } from '@/lib/server/context'
 import { catalogChanged } from '@/lib/server/catalog-head'
 import { badRequest, json, readJson, respond } from '@/lib/server/respond'
 
+/**
+ * Apply the chosen candidate image to the plate draft after validating the local job
+ * reference.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/images/accept'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
   const auth = await currentActor(request)

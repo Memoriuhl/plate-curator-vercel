@@ -3,6 +3,7 @@ import { recoverLocalOrphanJob } from '../../../../../lib/jobs/queue-failure'
 import { currentActor, jobsDeps } from '../../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
+/** Recover an eligible stranded local job and notify its waiting workflow. */
 export async function POST(request: Request, ctx: RouteContext<'/api/jobs/[id]/recover'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

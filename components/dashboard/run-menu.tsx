@@ -56,11 +56,15 @@ const stages = [
   ['Order', 'No automatic step yet'],
 ]
 
+/** Choose the pipeline menu that matches the deployment's local queue support. */
 export function RunMenu(props: ComponentProps<typeof LegacyRunMenu> & { queue?: ReturnType<typeof usePipelineQueue> }) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && props.queue) return <PipelineRunControls batchPlates={props.batchPlates} stateName={props.stateName} stateCode={props.allPlates?.[0]?.state ?? props.underTagged[0]?.state} queue={props.queue} />
   return <LegacyRunMenu {...props} />
 }
 
+/**
+ * Configure and start a tagging or local stage run through the legacy workflow controls.
+ */
 function LegacyRunMenu({
   underTagged,
   allPlates = [],
@@ -104,6 +108,7 @@ function LegacyRunMenu({
   const planned = useMemo(() => planTagRun(activeStage === 'Story' && !redoStory ? plates.filter(plate => !(plate.hasStory ?? plate.checks?.funFacts.status === 'good')) : plates, local && activeStage === 'Tag' && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit, activeStage, redoStory])
   const count = planned.length
   const stageMs = estimateStageMs(pipelineStage ?? 'tag', timings, { tag: choice.modelId, desktop: textChoice.modelId })
+  /** Check whether a displayed stage can run in the legacy menu's active mode. */
   const enabled = (name: string) => name === 'Tag' || local && LOCAL_STAGE_DEFINITIONS.some(stage => stage.label === name)
   return (
     <>

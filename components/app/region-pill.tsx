@@ -11,6 +11,9 @@ import {
   SelectValue,
 } from '../ui/select'
 
+/**
+ * Let the curator switch regions while linking to a jurisdiction in the selected region.
+ */
 export function RegionPill({ regions, jurisdictions }: {
   regions: RegionSummary[]
   jurisdictions: JurisdictionRegion[]

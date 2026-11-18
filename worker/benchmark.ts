@@ -6,15 +6,20 @@ import { gatewayAdapter, ollamaAdapter, type Attempt, type Pricing } from './mod
 export type Plate = { id: string; state: string; displayName: string; image: string; tags: string[] }
 export class RequestBudget {
   used = 0
+  /** Set a shared request cap for benchmark lanes and reject a malformed limit. */
   constructor(readonly maximum = 300) {
     if (!Number.isInteger(maximum) || maximum < 1) throw new Error('Invalid request cap')
   }
+  /**
+   * Consume one request slot and stop an adapter before it exceeds the benchmark budget.
+   */
   take() {
     if (this.used >= this.maximum) throw Object.assign(new Error('capped'), { status: 400 })
     this.used++
   }
 }
 
+/** Execute items in a bounded worker pool while retaining results in input order. */
 export async function boundedPool<T, R>(items: T[], concurrency: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) throw new Error('Concurrency must be 1–64')
   const results: R[] = new Array(items.length)
@@ -29,11 +34,16 @@ export async function boundedPool<T, R>(items: T[], concurrency: number, task: (
   return results
 }
 
+/** Tally known attempt costs and count requests that lacked usable pricing. */
 export function costs(attempts: Attempt[]) {
   const known = attempts.filter(a => a.cost !== null)
   return { cost: known.length ? known.reduce((sum, a) => sum + a.cost!, 0) : null, costSource: !known.length ? 'unknown' : known.every(a => a.costSource === 'reported') ? 'reported' : 'estimated', missingCostAttempts: attempts.length - known.length }
 }
 
+/**
+ * Measure one benchmark lane's latency, rate limits, throughput and costs across the
+ * selected plates.
+ */
 export async function benchmark(options: { backend: 'local' | 'hosted'; concurrency: number; label: string; plates: Plate[]; fixtureText: string; minimumF1: number; readImage: (image: string) => Promise<string>; budget: RequestBudget; pricing?: Pricing; gpu?: string; contention?: string; request?: typeof fetch; maximumAttempts?: number; maxRateLimitRatio?: number }) {
   if (options.maxRateLimitRatio !== undefined && (!Number.isFinite(options.maxRateLimitRatio) || options.maxRateLimitRatio < 0 || options.maxRateLimitRatio > 1)) throw new Error('Invalid rate limit ratio')
   const date = new Date().toISOString()
@@ -45,6 +55,10 @@ export async function benchmark(options: { backend: 'local' | 'hosted'; concurre
   const plates = await boundedPool(options.plates, options.concurrency, async plate => {
     const activated = performance.now()
     const attempts: Attempt[] = []
+    /**
+     * Record an attempt and stop scheduling requests when the observed rate-limit ratio
+     * is too high.
+     */
     const record = (a: Attempt) => {
       attempts.push(a)
       observedRequests++
@@ -53,8 +67,8 @@ export async function benchmark(options: { backend: 'local' | 'hosted'; concurre
     }
     const request = options.request ?? fetch
     const adapter = options.backend === 'hosted'
-      ? gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY ?? '', model: process.env.AI_GATEWAY_MODEL, pricing: options.pricing, fetch: request, beforeRequest: () => { if (rateLimited) throw new Error('rate_limited'); options.budget.take() }, onAttempt: record })
-      : ollamaAdapter({ url: process.env.OLLAMA_URL ?? 'http://localhost:11434', model: process.env.MODEL ?? 'gemma4:12b', fetch: async (url, init) => {
+      ? gatewayAdapter({ apiKey: process.env.AI_GATEWAY_API_KEY ?? '', model: process.env.AI_GATEWAY_MODEL, pricing: options.pricing, fetch: request, /** Check the rate-limit stop and reserve a request slot before running inference. */ beforeRequest: () => { if (rateLimited) throw new Error('rate_limited'); options.budget.take() }, onAttempt: record })
+      : ollamaAdapter({ url: process.env.OLLAMA_URL ?? 'http://localhost:11434', model: process.env.MODEL ?? 'gemma4:12b', /** Send one timed benchmark request and capture its status, duration and reported usage. */ fetch: async (url, init) => {
         options.budget.take()
         const began = performance.now()
         const attempt: Attempt = { model: process.env.MODEL ?? 'gemma4:12b', latencyMs: 0, cost: null, costSource: 'unknown' }
@@ -90,6 +104,9 @@ export async function benchmark(options: { backend: 'local' | 'hosted'; concurre
   const wallMs = performance.now() - start
   const successful = plates.filter(p => !p.error)
   const latencies = successful.map(p => p.latencyMs).sort((a, b) => a - b)
+  /**
+   * Read a nearest-rank percentile from sorted latencies when the lane has observations.
+   */
   const percentile = (p: number) => latencies.length ? latencies[Math.ceil(p * latencies.length) - 1] : null
   const allAttempts = plates.flatMap(p => p.attemptRecords)
   const total = costs(allAttempts)

@@ -1,4 +1,4 @@
-vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => ({ prefetch: vi.fn() }) }))
+vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ prefetch: vi.fn() }) }))
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'

@@ -2,6 +2,7 @@ import { createHook, sleep } from "workflow";
 
 export type SpikeNote = { note: string };
 
+/** Exercise the workflow hook by waiting for a note until the configured timeout. */
 export async function waitForSpikeNote(token: string, timeoutMinutes: number) {
   "use workflow";
 
@@ -15,6 +16,7 @@ export async function waitForSpikeNote(token: string, timeoutMinutes: number) {
   return recordNote(result);
 }
 
+/** Record the test workflow's note and deployment as the settled step result. */
 async function recordNote({ note }: SpikeNote) {
   "use step";
 

@@ -10,12 +10,14 @@ import {
   IoCheckmarkOutline,
 } from 'react-icons/io5'
 
+/** Provide the shared Radix selection root and its styling slot. */
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />
 }
 
+/** Group related select options while preserving Radix keyboard behavior. */
 function SelectGroup({
   className,
   ...props
@@ -29,12 +31,14 @@ function SelectGroup({
   )
 }
 
+/** Display the selected option or the field's placeholder. */
 function SelectValue({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Value>) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
+/** Open the select menu from a styled field with a dropdown indicator. */
 function SelectTrigger({
   className,
   size = 'default',
@@ -61,6 +65,7 @@ function SelectTrigger({
   )
 }
 
+/** Render the select options in a floating panel with scroll controls. */
 function SelectContent({
   className,
   children,
@@ -99,6 +104,7 @@ function SelectContent({
   )
 }
 
+/** Label a group of related select options. */
 function SelectLabel({
   className,
   ...props
@@ -112,6 +118,7 @@ function SelectLabel({
   )
 }
 
+/** Render a selectable option and show its selection indicator when active. */
 function SelectItem({
   className,
   children,
@@ -136,6 +143,7 @@ function SelectItem({
   )
 }
 
+/** Separate groups of options within the floating select list. */
 function SelectSeparator({
   className,
   ...props
@@ -149,6 +157,7 @@ function SelectSeparator({
   )
 }
 
+/** Scroll toward earlier options when the select list overflows. */
 function SelectScrollUpButton({
   className,
   ...props
@@ -167,6 +176,7 @@ function SelectScrollUpButton({
   )
 }
 
+/** Scroll toward later options when the select list overflows. */
 function SelectScrollDownButton({
   className,
   ...props

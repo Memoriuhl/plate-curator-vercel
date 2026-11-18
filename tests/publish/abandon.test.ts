@@ -31,6 +31,10 @@ test('stopped A is abandoned, B publishes different bytes at v3, and old A canno
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ error: 'paused' })
 })
 
+/**
+ * Prepare and stop a receipt before it uploads so abandonment can verify a missing
+ * object.
+ */
 async function stoppedBeforeUpload() {
   const f = fixture()
   const save = f.deps.records.save

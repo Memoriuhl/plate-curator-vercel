@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button'
 import type { Plate } from '@/lib/catalog/types'
 import type { FieldsSuggestion as Suggestion } from '@/lib/jobs/types'
 
+/** Format a field suggestion for inspection, including missing and structured values. */
 const show = (value: unknown) => value == null ? 'None' : typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 const labels: Record<string, string> = { description: 'Description', funFacts: 'Fun facts', firstIssuedYear: 'First issued year', readMore: 'Read more', wikiUrl: 'Wiki link', colorDetail: 'Background color', lineageColor: 'Broad color', tags: 'Tags', templateFamily: 'Family', templateRole: 'Role', variantOfPlateId: 'Variant of' }
 
+/** Show the proposed stage fields and the available action for applying them. */
 export function FieldSuggestion({ suggestion, before, blocked, accepted, inspectOnly = false, accept }: {
   suggestion: Suggestion
   before?: Plate

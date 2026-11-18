@@ -80,6 +80,10 @@ const STOPWORDS = new Set([
   'optional',
 ]);
 
+/**
+ * Extract distinctive words from a plate title so the flattened tags include searchable
+ * names.
+ */
 export function titleKeywords(displayName: string): string[] {
   return displayName
     .toLowerCase()
@@ -88,6 +92,10 @@ export function titleKeywords(displayName: string): string[] {
     .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
 }
 
+/**
+ * Normalize and deduplicate model values while enforcing the vocabulary for their tag
+ * field.
+ */
 function pickFromVocab<T extends string>(input: unknown, vocab: readonly T[]): T[] {
   if (!Array.isArray(input)) return [];
   const allowed = new Set<string>(vocab);
@@ -104,6 +112,7 @@ function pickFromVocab<T extends string>(input: unknown, vocab: readonly T[]): T
   return out;
 }
 
+/** Clean candidate subject tags and reject generic words and malformed phrases. */
 function pickSubjects(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const out: string[] = [];
@@ -136,9 +145,14 @@ export type StructuredTags = {
   emblemText: string[];
 };
 
+/**
+ * Flatten structured model tags with title-derived keywords for existing catalog
+ * consumers.
+ */
 export function flattenStructuredTags(s: StructuredTags, displayName: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+  /** Append a normalized tag once while preserving the first occurrence. */
   const push = (t: string): void => {
     const norm = t.trim().toLowerCase();
     if (!norm || seen.has(norm)) return;
@@ -213,10 +227,14 @@ Rules:
 - A picture, icon, symbol, emblem, seal, or sticker is NOT text: never report its color as a textColor. If such a graphic contains readable letters, put those letters in emblemText.
 - Do NOT invent contextTags or emblemText you cannot actually read in the image.`;
 
+/**
+ * Build the image tagging request with enough plate context to disambiguate the design.
+ */
 function buildUserPrompt(displayName: string, state: string): string {
   return `This plate is from ${state}, named "${displayName}". Identify its background colors, subjects, themes, motifs, and any acronym lettering on an emblem/seal/logo. For textColors, check EVERY piece of lettering separately — the registration number, the state name, and any motto or slogan (often a small word along the top or bottom) — and list each distinct lettering color, since they are frequently different colors. Respond with the JSON object only.`;
 }
 
+/** Repair common bare values in model output before retrying JSON parsing. */
 export function repairLooseJson(s: string): string {
   return s.replace(/:\s*([A-Za-z][A-Za-z ]*?)\s*([,}\]])/g, (_m, val: string, end: string) => {
     const low = val.trim().toLowerCase();
@@ -225,6 +243,7 @@ export function repairLooseJson(s: string): string {
   });
 }
 
+/** Read a model response slice as JSON and try repairing loose values if it fails. */
 function parseLoose(slice: string): Record<string, unknown> {
   try {
     return JSON.parse(slice) as Record<string, unknown>;
@@ -233,6 +252,10 @@ function parseLoose(slice: string): Record<string, unknown> {
   }
 }
 
+/**
+ * Extract the JSON object from a model response even when it is wrapped in prose or a
+ * code fence.
+ */
 export function extractJson(raw: string): Record<string, unknown> {
   let t = raw.trim();
   if (t.startsWith('```')) t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
@@ -271,6 +294,7 @@ export type Attempt = { latencyMs: number; model: string; usage?: Record<string,
 export type Pricing = { input: string; output: string; input_cache_read?: string }
 export const HOSTED_MODEL = 'google/gemini-3.5-flash-lite'
 
+/** Read the Gateway model's input and output pricing for benchmark cost estimates. */
 export async function gatewayPricing(model: string, request: typeof fetch = fetch): Promise<Pricing> {
   const response = await request('https://ai-gateway.vercel.sh/v1/models')
   if (!response.ok) throw new Error(`Pricing request failed: ${response.status}`)
@@ -280,6 +304,10 @@ export async function gatewayPricing(model: string, request: typeof fetch = fetc
   return entry.pricing
 }
 
+/**
+ * Interpret Retry-After as seconds or a timestamp so caller retries honor the provider's
+ * delay.
+ */
 export function retryAfterMs(header: string | null, now = Date.now()): number | undefined {
   if (!header) return undefined
   const seconds = Number(header)
@@ -288,11 +316,15 @@ export function retryAfterMs(header: string | null, now = Date.now()): number | 
   return Number.isFinite(at) ? Math.max(0, at - now) : undefined
 }
 
+/**
+ * Build the hosted model adapter with the configured model, prompt version and usage
+ * recorder.
+ */
 export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?: typeof fetch; pricing?: Pricing; beforeRequest?: () => void; onAttempt?: (attempt: Attempt) => void }): ModelAdapter {
   const model = options.model ?? HOSTED_MODEL
   const request = options.fetch ?? fetch
   let pricing: Promise<Pricing> | undefined
-  return { backend: 'hosted', model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), async suggest(input) {
+  return { backend: 'hosted', model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), /** Send a Gateway tagging request, normalize its completion and record the attempt's usage. */ async suggest(input) {
     if (!options.apiKey) throw new Error('AI_GATEWAY_API_KEY is required')
     const rates = options.pricing ?? await (pricing ??= gatewayPricing(model, request))
     options.beforeRequest?.()
@@ -330,6 +362,7 @@ export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?
 type Input = Parameters<ModelAdapter['suggest']>[0]
 type Options = { url: string; model: string; fetch?: typeof fetch }
 
+/** Send one image prompt to Ollama and return its raw completion and token usage. */
 async function ollamaChatOnce(options: Options, input: Input) {
   const response = await (options.fetch ?? fetch)(`${options.url.replace(/\/+$/, '').replace(/\/v1$/, '')}/api/chat`, {
     method: 'POST',
@@ -346,11 +379,16 @@ async function ollamaChatOnce(options: Options, input: Input) {
   return { text: String(body.message.content), usage }
 }
 
+/** Run the local model and normalize its response into the common tagging result. */
 export async function callVLM(options: Options, input: Input) {
   const { text, usage } = await ollamaChat(options, input)
   return { tags: normalizeCompletion(text, input), usage }
 }
 
+/**
+ * Validate the model completion's structured tags and build the normalized suggestion
+ * payload.
+ */
 export function normalizeCompletion(text: string, input: Input) {
   const parsed = extractJson(text)
   const primaryColor = pickFromVocab([parsed.primaryColor], COLORS)[0] ?? null
@@ -371,11 +409,16 @@ export function normalizeCompletion(text: string, input: Input) {
   return flattenStructuredTags(structured, input.plate.displayName)
 }
 
+/**
+ * Build the Ollama tagging adapter with its model identity and common suggestion
+ * interface.
+ */
 export function ollamaAdapter(options: Options): ModelAdapter {
-  return { backend: 'ollama', model: options.model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), suggest: (input) => callVLM(options, input) }
+  return { backend: 'ollama', model: options.model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), /** Send one input through the Ollama vision tagging path. */ suggest: (input) => callVLM(options, input) }
 }
 
 
+/** Retry transient Ollama chat failures within the configured attempt limit. */
 export async function ollamaChat(options: Options, input: Input) {
   let lastError: unknown
   for (let attempt = 0; attempt < 3; attempt++) {

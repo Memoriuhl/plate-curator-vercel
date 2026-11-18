@@ -1,5 +1,9 @@
 import { localPipelineScope } from '../lib/jobs/local-scope'
 
+/**
+ * Require the local worker to use its configured scope, loopback API and single-job
+ * concurrency.
+ */
 export function assertLocalWorker(apiBase: string, concurrency: number) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
   localPipelineScope()

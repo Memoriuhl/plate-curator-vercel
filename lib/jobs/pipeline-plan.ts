@@ -24,8 +24,15 @@ export function isPlateFailure(reason: string | undefined): boolean {
   return reason !== undefined && plateFailureReasons.has(reason)
 }
 
+/**
+ * Order selected stages by their dependencies while keeping the plan limited to selected
+ * stages.
+ */
 export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRunStage[] {
   const result: LocalRunStage[] = []
+  /**
+   * Visit selected prerequisite stages before adding the requesting stage to the plan.
+   */
   const visit = (stage: LocalRunStage) => {
     if (result.includes(stage)) return
     for (const dependency of stageDependencies[stage]) if (stages.includes(dependency)) visit(dependency)
@@ -37,10 +44,18 @@ export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRu
 
 type PlanningPlate = Pick<Plate, 'id' | 'tags'> & Partial<Plate> & { hasStory?: boolean }
 
+/**
+ * Identify plans that need a model, including grouping when its vision tiebreaker is
+ * enabled.
+ */
 export function pipelineNeedsModel(steps: readonly Pick<RunStep, 'stage'>[], options: PipelineOptions): boolean {
   return steps.some(step => ['tag', 'colors', 'describe', 'story'].includes(step.stage) || step.stage === 'group' && options.group?.visionTiebreak === true)
 }
 
+/**
+ * Expand selected stages to indexed per-plate work, applying enrichment eligibility and
+ * resource requirements.
+ */
 export function planPipeline(plates: PlanningPlate[], stages: LocalRunStage[], options: PipelineOptions): RunStep[] {
   const selected = orderedPipelineStages(stages)
   const steps: Omit<RunStep, 'index'>[] = []

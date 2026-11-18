@@ -10,11 +10,15 @@ import { plateRevision } from '../../lib/review/revision'
 
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Prepare local and non-local job environments so stage behavior can be checked under
+ * both scopes.
+ */
 function setup() {
   let sequence = 0
   const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [], description: 'Original description' }
   const review = createMemoryStore([{ id: 'batch', name: 'Stage', createdBy: 'editor', createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: [plate.id], approval: null }])
-  const jobs: JobsDeps = { store: createMemoryJobsStore(review, 'development'), baseline: async () => plate, now: () => 100, id: () => `claim-${++sequence}`, leaseMs: 1000 }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(review, 'development'), /** Supply the test plate as the catalog baseline. */ baseline: async () => plate, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 100, /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () => `claim-${++sequence}`, leaseMs: 1000 }
   const local = { ...jobs, localScope: 'scope-a' }
   const input = { id: 'stage', batchId: 'batch', plateId: plate.id, requestedBy: 'editor', stage: 'describe' as const }
   const report = { fieldSuggestion: { kind: 'fields' as const, stage: 'describe', fields: { description: 'Sourced description' }, sources: ['https://example.org/source'] }, backend: 'local', model: 'test', promptVersion: 'v1', durationMs: 10 }
@@ -51,6 +55,7 @@ test('field reports are stage checked, idempotent and leave the Batch unchanged 
   await createJob(s.local, s.input)
   const claim = await claimNext(s.local, 'worker')
   if (!claim) throw Error('Expected claim')
+  /** Report the scenario's stage payload under the fixture worker's recorded claim. */
   const send = (report = s.report) => reportResult(s.local, 'worker', s.input.id, claim.claimId, report)
   expect(await send({ ...s.report, fieldSuggestion: { ...s.report.fieldSuggestion, stage: 'story' } })).toMatchObject({ error: 'invalid_result' })
   expect(await send()).toMatchObject({ ok: true, value: { state: 'completed', result: { suggestions: [], fieldSuggestion: s.report.fieldSuggestion } } })
@@ -122,7 +127,7 @@ test('accepting a completed field result edits only the Batch, with a stale guar
   if (!claimed) throw Error('Expected claim')
   await reportResult(s.local, 'worker', s.input.id, claimed.claimId, s.report)
   const job = await getJob(s.local, s.input.id)
-  const deps = { store: s.review, baseline: async () => s.plate, baselineAtVersion: async () => s.plate, stateBaseline: async () => [s.plate], now: () => '' }
+  const deps = { store: s.review, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async () => s.plate, /** Provide the baseline plate data used by the review or job scenario. */ baselineAtVersion: async () => s.plate, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [s.plate], /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
   const actor = { uid: 'editor', name: null, role: 'editor' as const }
   const suggestion = job!.result!.fieldSuggestion!
   if (suggestion.kind !== 'fields') throw Error('Expected fields')

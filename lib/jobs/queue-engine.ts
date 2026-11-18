@@ -15,6 +15,7 @@ import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number; nextIndex?: number }
 
+/** Load a queue run only from the local scope assigned to the current executor. */
 async function scopedRun(tx: JobsTransaction, id: string, scope: string | undefined) {
   const run = await tx.getRun(id)
   return run && run.localScope === scope ? run : null
@@ -43,6 +44,9 @@ function advanceCursor(run: PipelineRun, attempt: RunAttempt, now: number) {
   run.status = 'queued'
 }
 
+/**
+ * Record a completed job and move the attempt to the next stage or its terminal outcome.
+ */
 function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number, skipReason?: string) {
   attempt.completedJobIds.push(jobId)
   Object.assign(attempt.steps[attempt.cursor], {
@@ -79,8 +83,16 @@ function nextStage(attempt: RunAttempt, index: number): StageObservation {
   return { phase: 'next', ...(attempt.cursor > index + 1 ? { nextIndex: attempt.cursor } : {}) }
 }
 
+/**
+ * Check that description and story stages can use valid results from earlier stages of
+ * the same attempt.
+ */
 function missingResearchInput(attempt: RunAttempt, step: RunStep, plate: ProjectedPlate): string | undefined {
   if (step.stage !== 'describe' && step.stage !== 'story') return
+  /**
+   * Find an earlier stage for this plate so the dependency is tied to the current
+   * attempt.
+   */
   const preceding = (stage: 'wiki-link' | 'describe') => attempt.steps.find(candidate =>
     candidate.index < step.index && candidate.plateId === step.plateId && candidate.stage === stage)
   const wiki = preceding('wiki-link')
@@ -91,6 +103,10 @@ function missingResearchInput(attempt: RunAttempt, step: RunStep, plate: Project
   }
 }
 
+/**
+ * Bind a workflow ID to the active attempt so a competing or stale workflow cannot take
+ * over.
+ */
 export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number, workflowId: string): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
   return d.store.transaction(async tx => {
@@ -104,6 +120,10 @@ export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number,
   })
 }
 
+/**
+ * Queue the current stage if its input is valid and reuse its existing job when the
+ * workflow retries.
+ */
 export async function dispatchQueueStage(d: JobsDeps, id: string, number: number, index: number, completionHook: string): Promise<string | null> {
   if (!localQueueEnabled(d)) return null
   return d.store.transaction(async tx => {
@@ -151,6 +171,10 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
   })
 }
 
+/**
+ * Observe the current stage and settle finished jobs so the workflow can wait, advance
+ * or stop.
+ */
 export async function observeQueueStage(d: JobsDeps, id: string, number: number, index: number, readImage?: Parameters<typeof verifiedImageFields>[1]): Promise<StageObservation> {
   if (!localQueueEnabled(d)) return { phase: 'done' }
   let imageVerification: ReturnType<typeof verifiedImageFields> | undefined
@@ -181,6 +205,10 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
   })
 }
 
+/**
+ * Project a completed stage result into the run and persist eligible draft edits before
+ * advancing.
+ */
 async function settleQueueStage(
   d: JobsDeps, tx: JobsTransaction, run: PipelineRun, attempt: RunAttempt, job: TaggingJob,
   verifyImage: typeof verifiedImageFields,
@@ -242,6 +270,9 @@ async function settleQueueStage(
   return run.status === 'queued' ? nextStage(attempt, job.queueStep!) : { phase: 'done' }
 }
 
+/**
+ * Record which candidate image the curator chose so the paused image stage can continue.
+ */
 export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jobId: string, candidateId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
@@ -263,6 +294,7 @@ export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jo
   })
 }
 
+/** Confirm a stopped worker claim before releasing a cancelled run for recovery. */
 export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string, jobId: string, claimId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
@@ -280,6 +312,10 @@ export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string
   })
 }
 
+/**
+ * Reconcile a terminal workflow with its active queue attempt so the run can be
+ * recovered safely.
+ */
 export async function recordQueueWorkflowFailure(d: JobsDeps, id: string, number: number, workflowId: string, status: 'failed' | 'cancelled' | 'completed'): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
   let imageVerification: ReturnType<typeof verifiedImageFields> | undefined

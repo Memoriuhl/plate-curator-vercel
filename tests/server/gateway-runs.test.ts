@@ -13,7 +13,7 @@ const actor = { uid: 'editor', role: 'editor' as const, name: null }
 let deps: JobsDeps
 beforeEach(async () => {
   mocks.connection.mockReset().mockResolvedValue(undefined)
-  deps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), baseline: async () => null, now: () => 400, id: () => 'id', leaseMs: 1000 }
+  deps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 400, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'id', leaseMs: 1000 }
   mocks.auth.mockReset().mockResolvedValue({ ok: true, actor })
   mocks.jobs.mockReset().mockReturnValue(deps)
   await deps.store.transaction(async tx => {

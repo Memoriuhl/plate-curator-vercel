@@ -14,14 +14,26 @@ const baseline: Plate[] = [
 ]
 const input = { id: 'new-batch', name: 'Review plates', plateIds: ['two', 'one'], baselineVersion: 11 }
 
+/**
+ * Register shared batch listing and detail projection cases for the supplied store
+ * backend.
+ */
 export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<ReviewStore>) {
+  /** Create a controlled catalog and review store for queries against fixture batches. */
   async function setup() {
     const store = await makeStore()
     const deps: ReviewDeps = {
+      /** Return fixture baseline plates belonging to the requested state. */
       stateBaseline: async (_version, state) => baseline.filter(plate => plate.state === state),
       store,
+      /** Resolve the plate by ID from the fixture baseline. */
       baselineAtVersion: async (_version, id) => structuredClone(baseline.find(plate => plate.id === id) ?? null),
+      /** Resolve the plate by ID from the fixture baseline. */
       baseline: async id => structuredClone(baseline.find(plate => plate.id === id) ?? null),
+      /**
+       * Read the test clock used by this operation to calculate timestamps and
+       * deadlines.
+       */
       now: () => createdAt,
     }
     return { deps, store }
@@ -131,7 +143,7 @@ export function reviewQueryScenarios(makeStore: () => ReviewStore | Promise<Revi
     saved.batch.name = 'Outside'
     saved.edits[0].fields.tags!.push('outside')
     expect(await store.readBatch(input.id)).toMatchObject({ batch: { name: input.name }, edits: [{ fields: { tags: ['3'] } }] })
-    const detail = await batchDetail({ ...deps, store: { ...store, getBatch: async () => { throw new Error('split batch read') }, listEdits: async () => { throw new Error('split edits read') } } }, input.id)
+    const detail = await batchDetail({ ...deps, store: { ...store, /** Return controlled batch data so the test can exercise the review state. */ getBatch: async () => { throw new Error('split batch read') }, /** Reject a separate edit read so the test detects loss of the consistent batch snapshot. */ listEdits: async () => { throw new Error('split edits read') } } }, input.id)
     expect(detail).toMatchObject({ ok: true, value: { batch: { revision: 3 }, plates: [{}, { proposed: { tags: ['3'] } }] } })
   })
 

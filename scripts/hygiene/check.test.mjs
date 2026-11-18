@@ -70,9 +70,13 @@ test('a denylisted string matches case-insensitively and the report omits the ma
   assert.deepEqual(violations, [{ kind: 'denylisted', detail: 'line 2' }]);
 });
 
+/** Return only the violation kinds so message tests can check policy classifications. */
 const kindsIn = (text) => findViolations({ text }).map((v) => v.kind);
 
 // Fixtures are assembled at runtime so this file passes its own hook and secret scanners.
+/**
+ * Construct the fixture key header in parts so the test can exercise secret detection.
+ */
 const keyHeader = (type) => ['-----BEGIN', `${type}-----`].join(' ');
 
 test('a private-key header is flagged as a secret', () => {
@@ -146,6 +150,7 @@ test('a trailer-shaped line inside a staged file is content, not a trailer', () 
   assert.deepEqual(findViolations({ text: diff, format: 'diff' }), []);
 });
 
+/** Run an assembled diff through the checker with the test denylist. */
 const scanDiff = (lines) =>
   findViolations({ text: [...lines, ''].join('\n'), denylist: ['example-secret-host'], format: 'diff' });
 

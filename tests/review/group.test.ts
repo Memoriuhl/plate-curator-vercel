@@ -11,13 +11,21 @@ import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 
 afterEach(() => vi.unstubAllEnvs())
 const actor = { uid: 'editor', name: null, role: 'editor' as const }
+/**
+ * Prepare a scoped group suggestion and an editable batch so acceptance can validate
+ * their revisions.
+ */
 function setup() {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const plates: Plate[] = ['a', 'b', 'c'].map((id, i) => ({ id: `AK.${id}`, state: 'AK', slug: id, displayName: id, tags: [], image: `${id}.webp`, templateFamily: `old-${id}`, templateRole: 'template', isStandard: i === 0 }))
   const store = createMemoryStore([{ id: 'batch', name: 'Group', createdBy: actor.uid, createdAt: '', revision: 0, baselineVersion: 1, state: 'open', approval: null, plateIds: ['AK.a', 'AK.b'], stateOrders: { AK: plates.map(plate => plate.id) } }])
-  const d: ReviewDeps = { store, baseline: async id => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates, now: () => '' }
+  const d: ReviewDeps = { store, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
   const suggestion: GroupSuggestion = { kind: 'group', stage: 'group', sources: [], scope: plates.slice(0, 2).map(plate => ({ plateId: plate.id, baseRevision: plateRevision(plate) })), proposals: plates.slice(0, 2).map((plate, i) => ({ plateId: plate.id, baseRevision: plateRevision(plate), fields: { templateFamily: 'AK.a', templateRole: i === 0 ? 'template' : 'variant', variantOfPlateId: i === 0 ? null : 'AK.a' } })) }
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, baselineAtVersion: d.baselineAtVersion, stateBaseline: d.stateBaseline, localScope: 'scope', now: () => 0, id: () => 'claim', leaseMs: 1000 }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, baselineAtVersion: d.baselineAtVersion, stateBaseline: d.stateBaseline, localScope: 'scope', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000 }
+  /**
+   * Seed a completed grouping job with the proposal the curator acceptance path should
+   * inspect.
+   */
   const seed = (result = suggestion) => jobs.store.transaction(async tx => {
     const job: TaggingJob = { id: 'group', batchId: 'batch', plateId: plates[0].id, requestedBy: actor.uid, inputHash: plateRevision(plates[0]), env: 'development', localScope: 'scope', stage: 'group', groupScope: plates.slice(0, 2).map(plate => ({ plate: structuredClone(plate), baseRevision: plateRevision(plate) })), standardId: plates[0].id, state: 'completed', createdAt: 0, result: { fieldSuggestion: result, suggestions: [], model: 'fixture', backend: 'fixture', promptVersion: 'fixture', durationMs: 0 } }
     tx.set(job)

@@ -18,6 +18,10 @@ export type ProjectionOutcome =
   | { ok: true; value: RunProjection }
   | { ok: false; error: 'stale_input' | 'invalid_result' | 'no_result' | 'stage_failed'; reason?: string }
 
+/**
+ * Capture the batch baseline, input revisions and execution inputs at the start of an
+ * attempt.
+ */
 export function snapshotProjection(baselineVersion: number, plates: Plate[]): RunProjection {
   return { baselineVersion, plates: Object.fromEntries(plates.map(plate => {
     const hash = plateRevision(plate)
@@ -26,11 +30,19 @@ export function snapshotProjection(baselineVersion: number, plates: Plate[]): Ru
   })) }
 }
 
+/**
+ * Compare the projected source revisions with the batch before accepting work based on
+ * them.
+ */
 export function projectionMatchesBatch(projection: RunProjection, baselineVersion: number, plates: Plate[]) {
   return projection.baselineVersion === baselineVersion && plates.length === Object.keys(projection.plates).length &&
     new Set(plates.map(plate => plate.id)).size === plates.length && plates.every(plate => projection.plates[plate.id]?.batchInputHash === plateRevision(plate))
 }
 
+/**
+ * Validate a stage result against its execution input and fold the accepted fields into
+ * the projection.
+ */
 export function projectJob(projection: RunProjection, job: TaggingJob): ProjectionOutcome {
   const current = projection.plates[job.plateId]
   if (!current || current.batchInputHash !== job.inputHash) return { ok: false, error: 'stale_input' }

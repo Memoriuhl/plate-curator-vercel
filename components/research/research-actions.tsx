@@ -15,10 +15,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 type Intent = { requestKey: string; batchId: string; executor: ResearchExecutor; jobId?: string; replaceJobId?: string }
 type Reply = { ok: true; value: ResearchJob }
+/**
+ * Supply the no-op subscription for a hydration flag that never changes after mounting.
+ */
 const subscribeHydration = () => () => {}
+/** Enable browser-only research state once React reads the client snapshot. */
 const clientSnapshot = () => true
+/** Keep browser-only research state hidden during the server render. */
 const serverSnapshot = () => false
 
+/**
+ * Mount research controls for the signed-in plate and batch scope once the client is
+ * ready.
+ */
 export function ResearchActions({ plate }: { plate: PlateCardData }) {
   const { user } = useSession()
   const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot)
@@ -27,6 +36,7 @@ export function ResearchActions({ plate }: { plate: PlateCardData }) {
   return user && hydrated ? <ResearchRun key={`${user.uid}/${scope}/${plate.id}`} plate={plate} storageKey={`research:v1:${user.uid}:${scope}:${plate.id}`} /> : null
 }
 
+/** Manage the current plate's research request, saved intent, polling and acceptance. */
 function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: string }) {
   const { api } = useSession()
   const me = useMe()
@@ -41,13 +51,18 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
   const [pending, setPending] = useState(false)
   const posting = useRef(false)
   const [message, setMessage] = useState('')
-  const research = useSWR<Reply>(intent?.jobId ? `/api/research/${intent.jobId}` : null, api.get, { refreshInterval: reply => reply && ['queued', 'running'].includes(reply.value.state) ? 2000 : 0 })
+  const research = useSWR<Reply>(intent?.jobId ? `/api/research/${intent.jobId}` : null, api.get, { /** Poll only while the tracked research job is queued or running. */ refreshInterval: reply => reply && ['queued', 'running'].includes(reply.value.state) ? 2000 : 0 })
   const job = research.data?.value
   const blocked = workspace.mode === 'selected' && workspace.status !== 'ready'
+  /** Persist the request intent so a reload can recover the same research run. */
   function remember(next: Intent) {
     setIntent(next)
     try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { setMessage('Browser storage is unavailable; keep this page open to retain the run link.') }
   }
+  /**
+   * Start a research job with the selected model and retain its recoverable request
+   * identity.
+   */
   async function start(replace = false) {
     if (posting.current || blocked) return
     posting.current = true
@@ -68,6 +83,9 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
     }
     finally { posting.current = false; setPending(false) }
   }
+  /**
+   * Save the selected sourced fields to the batch and refresh the plate and job views.
+   */
   async function accept(fields: string[], draft: ResearchDraft) {
     if (!job || pending || blocked) return
     setPending(true)

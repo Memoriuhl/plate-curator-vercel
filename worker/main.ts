@@ -9,6 +9,10 @@ import { legacyEmbeddingRunner } from './group-embedding'
 import { detectGroupRuntime } from './group-capabilities'
 import { imageGroupCapabilities } from '../lib/jobs/image-options'
 
+/**
+ * Validate worker configuration and start polling with the enabled model and stage
+ * handlers.
+ */
 async function main() {
   const { API_BASE, GAME_REPO, VERCEL_PROTECTION_BYPASS } = process.env
   const token = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? process.env.LOCAL_PIPELINE_WORKER_TOKEN : process.env.WORKER_TOKEN
@@ -26,7 +30,7 @@ async function main() {
   const adapters = new Map<string, ModelAdapter>([[adapter.model, adapter]])
   const adapterFor = backend === 'local' ? (model: string) => adapters.get(model) ?? adapters.set(model, ollamaAdapter({ url: ollamaUrl, model })).get(model)! : undefined
   const readImage = imageReader(GAME_REPO)
-  const textStages = createStageHandler({ url: ollamaUrl, readImage, onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) })
+  const textStages = createStageHandler({ url: ollamaUrl, readImage, /** Log why proposed fields were rejected so unsupported pipeline output can be investigated. */ onRejected: reasons => console.log(`Rejected unsupported stage fields: ${reasons.join('; ')}`) })
   const { LOCAL_GROUP_PYTHON, LOCAL_GROUP_LEGACY_REPO, LOCAL_GROUP_CACHE } = process.env
   const embed = LOCAL_GROUP_PYTHON && LOCAL_GROUP_LEGACY_REPO && LOCAL_GROUP_CACHE
     ? legacyEmbeddingRunner({ python: LOCAL_GROUP_PYTHON, legacyRepo: LOCAL_GROUP_LEGACY_REPO, cache: LOCAL_GROUP_CACHE, readImage })
@@ -40,7 +44,7 @@ async function main() {
   const suggestFields: WorkerDeps['suggestFields'] = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
     ? input => input.stage === 'enhance-image' ? enhanceImage(input) : ['find-image', 'group'].includes(input.stage) ? imageStages(input) : textStages(input)
     : undefined
-  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, capabilities, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
+  await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, capabilities, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, /** Wait for the polling interval before a worker lane checks for another job. */ sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
 }
 
 main().catch(() => { console.error('Worker stopped after a configuration or startup failure'); process.exitCode = 1 })

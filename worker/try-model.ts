@@ -3,6 +3,10 @@ import { join } from 'node:path'
 import { imageReader } from './images'
 import { ollamaAdapter } from './model'
 
+/**
+ * Run the local tagging model against a sample of catalog plate images and print its
+ * results and timing.
+ */
 async function main() {
   const repo = process.env.GAME_REPO
   if (!repo?.trim()) {

@@ -13,11 +13,20 @@ const radio = 'AZ.amateur_radio'
 const life = 'AZ.choose_life'
 const target = 'AZ.arizona_science_center'
 const removed = 'AZ.arizona_education'
+/**
+ * Fingerprint the plate to create the revision-bearing reference sent by a merge
+ * request.
+ */
 const reference = (plate: Parameters<typeof plateRevision>[0]) => ({ id: plate.id, revision: plateRevision(plate) })
 
+/**
+ * Load fixture families and prepare a scoped review store for testing atomic family
+ * moves.
+ */
 async function setup(destinationId = target) {
   const snapshot = await fixtureSource().readSnapshot()
   const plates = snapshot.plates.filter(plate => plate.state === 'AZ')
+  /** Resolve the requested plate from the populated catalog fixture. */
   const plate = (id: string) => plates.find(plate => plate.id === id)!
   // Preserve a legacy slug-only relationship in the exact-version Batch.
   delete plate(life).variantOfPlateId
@@ -28,8 +37,9 @@ async function setup(destinationId = target) {
   }
   const store = createMemoryStore([batch])
   const commit = vi.spyOn(store, 'commit')
-  const deps = { store, baseline: async (id: string) => plate(id), baselineAtVersion: async (_version: number, id: string) => plate(id),
-    stateBaseline: async () => plates, now: () => '2026-11-17' }
+  const deps = { store, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async (id: string) => plate(id), /** Provide the baseline plate data used by the review or job scenario. */ baselineAtVersion: async (_version: number, id: string) => plate(id),
+    /** Return the fixture state order used by the review or queue operation. */
+    stateBaseline: async () => plates, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-17' }
   const input = { batchId: batch.id, batchRevision: batch.revision, catalogVersion: snapshot.version,
     destination: reference(plate(destinationId)), members: [reference(plate(life)), reference(plate(radio))] }
   return { batch, commit, deps, input, plate, snapshot, store }

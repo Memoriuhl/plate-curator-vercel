@@ -1,5 +1,6 @@
 import type { CuratorState, Plate, Snapshot } from './types'
 
+/** Sort a state's plates by saved curator order, falling back to catalog order and ID. */
 export function orderedStatePlates(snapshot: Snapshot, state: string, curator: CuratorState): Plate[] {
   const positions = new Map((curator.stateOrder[state] ?? []).map((id, index) => [id, index]))
   return snapshot.plates.filter(plate => plate.state === state).sort((a, b) => {

@@ -4,14 +4,16 @@ import Home from '../app/(curator)/page'
 import { dashboardFixture } from '../fixtures/dashboard-frame'
 
 vi.mock('../lib/catalog/dashboard', () => ({
+  /** Supply a deterministic jurisdiction list for testing the home redirect. */
   loadDashboard: async () => dashboardFixture,
 }))
 vi.mock('next/navigation', () => ({
+  /** Expose the requested redirect as a thrown signal the test can assert. */
   redirect: (path: string) => {
     throw new Error(`Redirect ${path}`)
   },
 }))
-vi.mock('next/server', () => ({ connection: async () => undefined }))
+vi.mock('next/server', () => ({ /** Resolve the request barrier without requiring a Next.js request runtime. */ connection: async () => undefined }))
 
 test('home page keeps a static loading frame while selecting the first jurisdiction', async () => {
   const props = { searchParams: Promise.resolve({}) }

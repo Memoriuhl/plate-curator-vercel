@@ -8,14 +8,17 @@ export type DropTarget =
   | { kind: 'merge'; familyId: string }
 export type TargetRect = { target: DropTarget; rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>; scrollElement?: HTMLElement }
 
+/** Require a small pointer movement before treating a press as a drag. */
 export function pastDragThreshold(dx: number, dy: number) {
   return Math.hypot(dx, dy) >= 5
 }
 
+/** Flatten displayed families to the plate order persisted for the state. */
 export function familyOrder(families: DragFamily[]) {
   return families.flatMap(({ template, variants }) => [template.id, ...variants.map(plate => plate.id)])
 }
 
+/** Choose an unused family slug when a plate becomes a new template. */
 export function newFamilySlug(plate: PlateCardData, families: DragFamily[]) {
   const base = `${plate.state.toLowerCase()}_${plate.id.slice(plate.id.indexOf('.') + 1)}`
   const used = new Set(families.flatMap(family => [family.template, ...family.variants]).filter(candidate => candidate.state === plate.state).map(candidate => candidate.templateFamily))
@@ -25,6 +28,10 @@ export function newFamilySlug(plate: PlateCardData, families: DragFamily[]) {
   return slug
 }
 
+/**
+ * Move a block of selected IDs together while accounting for the slots removed from the
+ * original order.
+ */
 export function moveBlock(order: string[], block: string[], index: number) {
   const selected = new Set(block)
   const insertion = order.slice(0, index).filter(id => !selected.has(id)).length
@@ -32,6 +39,10 @@ export function moveBlock(order: string[], block: string[], index: number) {
   return [...rest.slice(0, insertion), ...order.filter(id => selected.has(id)), ...rest.slice(insertion)]
 }
 
+/**
+ * Translate a drop slot into the prospective state order for the lifted family or
+ * variant.
+ */
 export function orderForDrop(families: DragFamily[], item: DragItem, target: DropTarget) {
   const order = familyOrder(families)
   const source = families.find(family => family.template.id === item.plate.id || family.variants.some(plate => plate.id === item.plate.id))
@@ -45,17 +56,20 @@ export function orderForDrop(families: DragFamily[], item: DragItem, target: Dro
   return moveBlock(order, item.kind === 'family' ? [source.template.id, ...source.variants.map(plate => plate.id)] : [item.plate.id], index)
 }
 
+/** Pick the most specific drop target under the pointer when hit areas overlap. */
 export function targetAt(x: number, y: number, targets: TargetRect[]): DropTarget | null {
   const hit = targets.filter(({ rect }) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
   return hit.find(({ target }) => target.kind !== 'merge')?.target ?? hit[0]?.target ?? null
 }
 
+/** Compute a signed scroll speed from the pointer's proximity to a viewport edge. */
 export function scrollVelocity(y: number, height: number) {
   if (y < 80) return -Math.ceil(18 * Math.min(1, Math.max(0, 1 - y / 80)))
   if (y > height - 80) return Math.ceil(18 * Math.min(1, Math.max(0, 1 - (height - y) / 80)))
   return 0
 }
 
+/** Find the nearest family insertion slot when a drop must place a new family. */
 export function nearestFamilySlot(x: number, y: number, targets: TargetRect[], familyCount: number) {
   const slots = targets.filter(entry => entry.target.kind === 'family-slot')
   if (!slots.length || y > Math.max(...slots.map(entry => entry.rect.bottom))) return familyCount
@@ -70,6 +84,7 @@ export function nearestFamilySlot(x: number, y: number, targets: TargetRect[], f
   return nearest
 }
 
+/** Compute the state order after promoting selected plates into their own families. */
 export function promotionOrder(families: DragFamily[], ids: readonly string[], index?: number) {
   const promoted = new Set(ids)
   if (index !== undefined) {

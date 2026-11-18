@@ -7,6 +7,10 @@ import { wakeLocalJob } from '../../../../../../lib/server/local-queue'
 
 const statusFor = { not_found: 404, invalid_result: 400, forbidden: 403, already_exists: 409, claim_expired: 409, claim_mismatch: 409, stale_input: 409, result_mismatch: 409 } as const
 
+/**
+ * Validate and settle an authenticated worker report and wake the workflow waiting for
+ * it.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/worker/jobs/[id]/report'>) {
   const worker = await currentWorker(request)
   if (!worker.ok) return worker.response

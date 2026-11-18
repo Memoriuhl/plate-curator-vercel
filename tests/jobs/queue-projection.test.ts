@@ -4,6 +4,7 @@ import { projectJob, projectionMatchesBatch, snapshotProjection } from '../../li
 import type { TaggingJob } from '../../lib/jobs/types'
 
 const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: 'one.webp', tags: ['blue'], description: 'Original' }
+/** Build a completed description job for testing how results update a projection. */
 function result(overrides: Partial<TaggingJob> = {}): TaggingJob {
   return { id: 'description', batchId: 'batch', plateId: plate.id, requestedBy: 'editor', inputHash: plateRevision(plate),
     executionHash: plateRevision(plate), env: 'preview:local-pipeline-test', localScope: 'test', createdAt: 100, state: 'completed', stage: 'describe',

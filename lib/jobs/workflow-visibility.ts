@@ -1,3 +1,7 @@
+/**
+ * Build a Vercel workflow dashboard link when the ID and deployment environment are
+ * recognized.
+ */
 export function workflowVisibilityUrl(workflowId: string | undefined, environment: string | undefined, world?: string, webPort = process.env.WORKFLOW_WEB_PORT): string | null {
   if (!workflowId) return null
   const id = encodeURIComponent(workflowId)

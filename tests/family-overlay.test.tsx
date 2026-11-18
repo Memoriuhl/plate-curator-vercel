@@ -6,6 +6,10 @@ import { projectFamilyPlate } from '../components/dashboard/family-data'
 const overlay = vi.hoisted(() => vi.fn())
 vi.mock('../lib/client/hooks', () => ({ useDraftOverlay: overlay }))
 import { useFamilyBatchOverlay } from '../components/dashboard/family-grid'
+/**
+ * Expose the overlaid plate's active change marker so the test can observe batch
+ * updates.
+ */
 function Probe() {
   const plates = useFamilyBatchOverlay([projectFamilyPlate(plateCards[0])])
   return <p>{String(plates[0]?.changedInBatch)}</p>

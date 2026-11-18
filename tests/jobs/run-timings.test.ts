@@ -7,15 +7,23 @@ import type { Actor } from '../../lib/review/types'
 
 const actor: Actor = { uid: 'editor', name: null, role: 'editor' }
 
+/**
+ * Build a completed timing sample with overrides for executor, stage and duration cases.
+ */
 function completed(id: string, durationMs: number, overrides: Partial<TaggingJob> = {}): TaggingJob {
   return { id, env: 'development', localScope: 'demo', requestedBy: 'editor', batchId: 'batch', plateId: 'AK.one', inputHash: 'hash',
     createdAt: 1, completedAt: 10, state: 'completed', workerId: 'Studio PC',
     result: { backend: 'ollama', model: 'gemma4:12b', durationMs, promptVersion: 'v1', suggestions: [] }, ...overrides }
 }
 
+/**
+ * Seed a scoped store of completed jobs so timing estimates can be derived from fixture
+ * data.
+ */
 function setup(): JobsDeps {
-  return { store: createMemoryJobsStore(createMemoryStore([]), 'development'), localScope: 'demo', baseline: async () => null,
-    now: () => 1000, id: () => 'id', leaseMs: 1000 }
+  return { store: createMemoryJobsStore(createMemoryStore([]), 'development'), localScope: 'demo', /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null,
+    /** Pin the operation clock so timestamps and lease checks are reproducible. */
+    now: () => 1000, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'id', leaseMs: 1000 }
 }
 
 test('timing averages use the reporting desktop, model, stage and hosted executor within the visible scope', async () => {

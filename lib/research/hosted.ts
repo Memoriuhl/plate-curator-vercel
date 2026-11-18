@@ -4,6 +4,7 @@ import { hostedResearchResult } from './runtime'
 import type { ResearchStateStore } from './state'
 import type { ResearchJob, ResearchResult } from './types'
 
+/** Dispatch an eligible hosted research job and record its Eve delivery for follow-up. */
 export async function dispatchEveResearch(deps: ResearchDeps, id: string, create: (job: ResearchJob) => Promise<{ sessionId: string; deliveryId: string }>): Promise<ResearchJob | null> {
   const job = await deps.store.transaction(async tx => {
     const current = await tx.get(id)
@@ -25,6 +26,10 @@ export async function dispatchEveResearch(deps: ResearchDeps, id: string, create
   }, deps.review.store)
 }
 
+/**
+ * Read the delivered research draft and settle the job while checking its current
+ * authority and state.
+ */
 export async function finishEveResearch(deps: ResearchDeps, id: string, state: ResearchStateStore): Promise<ResearchJob | null> {
   const current = await deps.store.transaction(tx => tx.get(id))
   if (!current || current.state !== 'running') return current

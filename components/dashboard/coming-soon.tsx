@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+/** Render a disabled pipeline action with the reason it is unavailable. */
 export function ComingSoon({
   children,
   label,

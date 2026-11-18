@@ -11,12 +11,21 @@ const tagCache = vi.hoisted(() => {
   return {
     entries,
     revalidations,
+    /** Record the tags appended by the active cached catalog read. */
     cacheTag: (...tags: string[]) => tags.forEach(tag => collecting?.add(tag)),
+    /**
+     * Accept the cache lifetime call without scheduling real Next.js cache expiration.
+     */
     cacheLife: () => undefined,
+    /** Record each invalidation and evict fixture cache entries bearing its tag. */
     revalidateTag: (tag: string, profile: unknown) => {
       revalidations.push([tag, profile])
       for (const [key, entry] of entries) if (entry.tags.has(tag)) entries.delete(key)
     },
+    /**
+     * Return a cached value or record the new result with the tags collected during its
+     * load.
+     */
     async read<T>(fn: () => Promise<T>): Promise<T> {
       const hit = entries.get(fn)
       if (hit) return hit.value as T
@@ -35,17 +44,28 @@ const mocks = vi.hoisted(() => ({ createHook: vi.fn(), publishBatch: vi.fn(), re
 
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: tagCache.cacheTag, cacheLife: tagCache.cacheLife, revalidateTag: tagCache.revalidateTag }))
-vi.mock('workflow', () => ({ createHook: mocks.createHook, sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
+vi.mock('workflow', () => ({ createHook: mocks.createHook, /** Control polling time through the fixture instead of waiting for a real interval. */ sleep: () => new Promise(() => {}), RetryableError: class extends Error {} }))
 vi.mock('../../lib/publish/publish', () => ({ publishBatch: mocks.publishBatch }))
-vi.mock('../../workflows/catalog-push', () => ({ catalogPush: async () => ({ status: 'disabled', sent: 0, failed: 0, pruned: 0 }) }))
+vi.mock('../../workflows/catalog-push', () => ({ /** Simulate disabled catalog notifications so publishing can focus on cache invalidation. */ catalogPush: async () => ({ status: 'disabled', sent: 0, failed: 0, pruned: 0 }) }))
 vi.mock('../../lib/server/context', () => ({
+  /**
+   * Expose the fixture catalog's current version and curator metadata through the server
+   * source interface.
+   */
   catalog: () => ({
+    /** Read the live version from the observable fixture pointer. */
     readVersion: async () => firestore.version,
+    /** Return a detached copy of the fixture curator metadata for the cached head. */
     readCuratorState: async () => structuredClone(firestore.curator),
+    /** Leave image URLs empty because the fixture exercises catalog version and order. */
     imageUrl: () => '',
   }),
   currentActor: mocks.currentActor,
   reviewDeps: mocks.reviewDeps,
+  /**
+   * Stub release dependencies because the workflow's publish operation is replaced by
+   * the test.
+   */
   publishDeps: () => ({}),
 }))
 
@@ -57,6 +77,7 @@ const { PUT } = await import('../../app/api/batches/[id]/state-order/[state]/rou
 const plate: Plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
 const openBatch = { id: 'batch', name: 'AK edits', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 14, plateIds: [plate.id], stateOrders: {}, approval: null }
 const approved = { state: 'approved', revision: 2, approval: { revision: 1 } }
+/** Expose the current fixture catalog version so the operation can check its baseline. */
 const head = () => tagCache.read(cachedCatalogHead)
 
 beforeEach(() => {
@@ -68,9 +89,13 @@ beforeEach(() => {
   mocks.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'editor', name: null, role: 'editor' } })
   mocks.reviewDeps.mockReturnValue({
     store: createMemoryStore([openBatch]),
+    /** Supply the test plate as the catalog baseline. */
     baseline: async () => plate,
+    /** Supply the test plate as the catalog baseline. */
     baselineAtVersion: async () => plate,
+    /** Return the fixture state order used by the review or queue operation. */
     stateBaseline: async () => [plate, { ...plate, id: 'AK.two', slug: 'two', templateRole: 'template' }],
+    /** Use an empty timestamp where the scenario does not depend on dates. */
     now: () => '',
   } satisfies ReviewDeps)
 })
@@ -85,7 +110,7 @@ test('the catalog head is served from cache until something clears its tag', asy
 test('a Publish inside the approval run makes the next catalog read fresh', async () => {
   expect((await head()).version).toBe(14)
   firestore.version = 15
-  mocks.reviewDeps.mockReturnValue({ store: { getBatch: async () => approved } })
+  mocks.reviewDeps.mockReturnValue({ store: { /** Return controlled batch data so the test can exercise the review state. */ getBatch: async () => approved } })
   mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
   mocks.publishBatch.mockResolvedValue({ ok: true, value: { toVersion: 15 } })
   expect(await approvalRun('batch', 1)).toEqual({ outcome: 'published', version: 15, push: { status: 'disabled', sent: 0, failed: 0, pruned: 0 } })
@@ -95,7 +120,7 @@ test('a Publish inside the approval run makes the next catalog read fresh', asyn
 
 test('a failed Publish leaves the cached head alone', async () => {
   await head()
-  mocks.reviewDeps.mockReturnValue({ store: { getBatch: async () => approved } })
+  mocks.reviewDeps.mockReturnValue({ store: { /** Return controlled batch data so the test can exercise the review state. */ getBatch: async () => approved } })
   mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
   mocks.publishBatch.mockResolvedValue({ ok: false, error: 'invalid_snapshot', reasons: [] })
   expect((await approvalRun('batch', 1)).outcome).toBe('publish_failed')

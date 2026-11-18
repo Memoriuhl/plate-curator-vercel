@@ -8,10 +8,10 @@ import { issueWorkerToken } from '../../lib/jobs/tokens'
 const mocks = vi.hoisted(() => ({ members: vi.fn(), jobs: vi.fn(), jwks: vi.fn(), review: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('workflow/api', () => ({ resumeHook: vi.fn(), start: vi.fn() }))
-vi.mock('next/server', () => ({ connection: async () => {} }))
+vi.mock('next/server', () => ({ /** Resolve the request barrier without requiring a Next.js request runtime. */ connection: async () => {} }))
 vi.mock('../../lib/server/members', () => ({ membersStore: mocks.members }))
 vi.mock('../../lib/auth/google-jwks', () => ({ googleSecureTokenJwks: mocks.jwks }))
-vi.mock('../../lib/gcp/firestore', () => ({ stagingFirestore: () => ({}) }))
+vi.mock('../../lib/gcp/firestore', () => ({ /** Stub the staging database because these route tests supply their own member store. */ stagingFirestore: () => ({}) }))
 vi.mock('../../lib/jobs/firestore-store', () => ({ firestoreJobsStore: mocks.jobs }))
 vi.mock('../../lib/review/firestore-store', () => ({ firestoreReviewStore: mocks.review }))
 
@@ -42,6 +42,9 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Sign a current test token and attach it to the request passed to the membership route.
+ */
 async function request(uid = 'outsider') {
   const now = Math.floor(Date.now() / 1000)
   const token = await new SignJWT({ sub: uid, email: 'user@example.com', auth_time: now - 60, iat: now - 60, exp: now + 3600, aud: 'demo-auth', iss: 'https://securetoken.google.com/demo-auth' })
@@ -73,7 +76,7 @@ test('fixture mode permits only break-glass Members and never reads Firestore', 
 })
 
 test('a valid worker token still claims work without a Member record', async () => {
-  const deps = { store: jobs, baseline: async () => null, now: () => Date.now(), id: () => crypto.randomUUID(), leaseMs: 300000 }
+  const deps = { store: jobs, /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null, /** Read the test clock used by this operation to calculate timestamps and deadlines. */ now: () => Date.now(), /** Supply a deterministic ID so the test can identify the generated record. */ id: () => crypto.randomUUID(), leaseMs: 300000 }
   const issued = await issueWorkerToken(deps, { uid: 'issuer', name: null, role: 'owner' }, 'worker-one')
   if (!issued.ok) throw new Error('Worker token issuance failed')
   mocks.members.mockImplementation(() => { throw new Error('Worker must not read Members') })

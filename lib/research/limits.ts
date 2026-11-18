@@ -4,6 +4,10 @@ export const RESEARCH_LIMITS = { 'web-search': 3, 'web-page': 6, model: 10, 'wik
 export type ResearchCall = keyof typeof RESEARCH_LIMITS
 export type LimitDeps = { store: ResearchStateStore; now(): number; deadline: number }
 
+/**
+ * Reserve one tool call atomically only while the research run is within its deadline
+ * and allowance.
+ */
 export async function reserveResearchCall(jobId: string, kind: ResearchCall, deps: LimitDeps): Promise<'reserved' | 'exhausted'> {
   if (deps.now() >= deps.deadline) return 'exhausted'
   return deps.store.update<Record<string, number>, 'reserved' | 'exhausted'>(`limits/${jobId}`, prior => {

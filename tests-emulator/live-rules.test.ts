@@ -6,6 +6,9 @@ import { Timestamp } from '@google-cloud/firestore'
 import { db } from './setup'
 
 const clients: FirebaseApp[] = []
+/**
+ * Connect a distinct Firebase client to the emulator with the requested test identity.
+ */
 function client(uid?: string) {
   const app = initializeApp({ projectId: 'demo-plate-curator', apiKey: 'demo-key' }, randomUUID())
   clients.push(app)

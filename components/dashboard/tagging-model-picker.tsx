@@ -8,12 +8,14 @@ import { InlineSelect } from '@/components/ui/inline-select'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
+/** Resolve an available tagging model from the saved or default selection. */
 export function useTaggingModelChoice(storageKey = 'tagging-model:v1') {
   const { data } = useTaggingModels()
   const [choice, setChoice] = useState<string | null>(() => {
     try { return localStorage.getItem(storageKey) } catch { return null }
   })
   const modelId = (data?.models.find(model => model.id === choice)?.id ?? data?.default ?? undefined) as TaggingModelId | undefined
+  /** Update the active tagging model and persist the choice when storage is available. */
   function choose(id: string) {
     setChoice(id)
     try { localStorage.setItem(storageKey, id) } catch {}
@@ -21,6 +23,7 @@ export function useTaggingModelChoice(storageKey = 'tagging-model:v1') {
   return { data, modelId, choose }
 }
 
+/** Render tagging model options with their cost and any current error. */
 export function TaggingModelPicker({ choice, error, inlineLabel }: {
   choice: Pick<ReturnType<typeof useTaggingModelChoice>, 'data' | 'choose'> & { modelId?: string }
   error?: string

@@ -4,6 +4,7 @@ import { PlateRow } from '@/components/plate/plate-row'
 import { RarityMark } from '@/components/plate/rarity-mark'
 import { plateCards } from '@/fixtures/plate-cards'
 
+/** Render the plate component fixture gallery in development for visual inspection. */
 export default function PlatesPreview() {
   if (process.env.NODE_ENV === 'production') notFound()
   return (

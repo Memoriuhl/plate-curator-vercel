@@ -8,6 +8,10 @@ import { badRequest, json, readJson, respond } from '../../../lib/server/respond
 
 const states: BatchState[] = ['open', 'submitted', 'approved', 'published', 'conflict']
 
+/**
+ * List batches visible to the signed-in actor using the requested state and creator
+ * filters.
+ */
 export async function GET(request: Request) {
   await connection()
   const auth = await currentActor(request)
@@ -20,6 +24,7 @@ export async function GET(request: Request) {
   return json(await listBatches(reviewDeps(), { states: requested as BatchState[] | undefined, createdBy: params.get('mine') === '1' ? auth.actor.uid : undefined }))
 }
 
+/** Validate requested plate IDs against the catalog before creating a new batch. */
 export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

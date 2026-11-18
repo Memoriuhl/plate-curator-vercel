@@ -13,6 +13,7 @@ import styles from './pipeline-runs.module.css'
 
 const statusLabels = { completed: 'Complete', running: 'Running', queued: 'Waiting', waiting: 'Choose image', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }
 
+/** Render a run's progress, timing and action details in the shared pipeline card. */
 export function PipelineRunCard({ run, progress, stages, observedAt, requester, children, local, plates, device, resultsHref, runAction, waitLabel }: {
   run: { id: string; requestedBy: string; plateIds: string[]; batchId?: string; status: RunStatus; createdAt: number }
   progress: PipelineProgress; stages: readonly LocalRunStage[]; observedAt?: number; requester?: string; children?: ReactNode

@@ -1,5 +1,9 @@
 import type { DragFamily, TargetRect } from './drop-targets'
 
+/**
+ * Capture stable target rectangles so animated reflow does not move the hit areas under
+ * the pointer.
+ */
 export function createStableDragTargets() {
   const rects = new Map<string, TargetRect>()
   return (targets: TargetRect[], scrollX: number, scrollY: number) => {
@@ -18,6 +22,10 @@ export function createStableDragTargets() {
   }
 }
 
+/**
+ * Collect visible family and variant drop targets and clip nested targets to their
+ * scrollable lists.
+ */
 export function collectDragTargets(root: HTMLElement | null, families: DragFamily[]): TargetRect[] {
   if (!root) return []
   const targets: TargetRect[] = []

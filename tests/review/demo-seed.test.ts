@@ -13,8 +13,11 @@ const plates: Plate[] = [
   { id: 'bear-variant', state: 'AK', slug: 'bear-variant', displayName: 'Bear Variant', image: 'AK/bear-variant.webp', tags: ['bear'], templateFamily: 'bear', templateRole: 'variant', variantOfPlateId: 'bear' },
 ]
 const input = { projectId: 'license-plate-game-staging', env: 'development', editor, version: 11 }
+/**
+ * Prepare a controlled store and snapshot for deterministic demonstration batch seeding.
+ */
 function setup(): ReviewDeps & { store: ReturnType<typeof createMemoryStore> } {
-  return { store: createMemoryStore([]), baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, baseline: async id => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => structuredClone(plates), now: () => '2026-11-16T12:00:00Z' }
+  return { store: createMemoryStore([]), /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => structuredClone(plates), /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-16T12:00:00Z' }
 }
 
 describe('demo seed', () => {

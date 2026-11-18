@@ -5,6 +5,7 @@ import { ReviewWorkspace } from '@/components/review/workspace'
 
 type Search = Promise<{ state?: string }>
 
+/** Load jurisdiction data and search parameters needed to render the review workspace. */
 async function ReviewData({ searchParams }: { searchParams: Search }) {
   await connection()
   const [{ jurisdictions }, query] = await Promise.all([
@@ -29,6 +30,9 @@ async function ReviewData({ searchParams }: { searchParams: Search }) {
   return <ReviewWorkspace states={states} />
 }
 
+/**
+ * Render the review route with a loading fallback while it resolves the workspace data.
+ */
 export default function ReviewPage({ searchParams }: { searchParams: Search }) {
   return (
     <main className="p-4 md:p-6">

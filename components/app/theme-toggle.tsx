@@ -12,6 +12,7 @@ const options = [
   { value: 'dark', label: 'Dark', Icon: IoMoonOutline },
 ] as const
 
+/** Apply the selected theme to the document and persist the preference when possible. */
 export function applyTheme(theme: Theme) {
   if (theme === 'system') {
     document.documentElement.removeAttribute('data-theme')
@@ -25,12 +26,14 @@ export function applyTheme(theme: Theme) {
   } catch {}
 }
 
+/** Expose the curator's light, dark and system theme choices in the header menu. */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof document === 'undefined') return 'system'
     const value = document.documentElement.dataset.theme
     return value === 'light' || value === 'dark' ? value : 'system'
   })
+  /** Apply the selected theme and immediately update the menu selection. */
   function choose(value: Theme) {
     applyTheme(value)
     setTheme(value)

@@ -4,9 +4,9 @@ import { ApiError } from '../lib/client/api'
 
 const session = { ready: false, user: null as null | { uid: string } }
 const me = { data: undefined as undefined | { role: string }, error: undefined as undefined | ApiError }
-vi.mock('../lib/client/session', () => ({ useSession: () => session }))
-vi.mock('../lib/client/hooks', () => ({ useMe: () => me }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }))
+vi.mock('../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => session }))
+vi.mock('../lib/client/hooks', () => ({ /** Supply the current fixture actor for role and account-dependent behavior. */ useMe: () => me }))
+vi.mock('next/navigation', () => ({ /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ replace: vi.fn() }) }))
 
 const { SessionGate } = await import('../components/app/session-gate')
 

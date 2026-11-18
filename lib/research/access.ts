@@ -1,6 +1,10 @@
 type VerifiedResearchActor = { uid: string; role: string; active: boolean }
 export type ResearchAgentAccessDeps = { actor(request: Request): Promise<VerifiedResearchActor | null>; owner(sessionId: string): Promise<string | null> }
 
+/**
+ * Authorize an owner to access an agent session after matching its binding to the
+ * caller.
+ */
 export async function authorizeResearchAgent(request: Request, deps: ResearchAgentAccessDeps) {
   const actor = await deps.actor(request)
   if (!actor || actor.role !== 'owner' || !actor.active) return null

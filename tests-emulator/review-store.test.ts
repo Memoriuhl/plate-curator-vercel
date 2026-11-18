@@ -27,8 +27,12 @@ test.each(['development', 'preview:feature/demo'])('demo seed and resets keep th
     { ...snapshot.plates[1], state: 'AK', templateRole: 'template' as const, templateFamily: 'bear' },
     { ...snapshot.plates[1], id: 'variant', state: 'AK', templateRole: 'variant' as const, templateFamily: 'bear', variantOfPlateId: 'two' },
   ]
-  const deps = { ...fixture().deps, store: demoStore, baseline: async (id: string) => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_version: number, id: string) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates }
+  const deps = { ...fixture().deps, store: demoStore, /** Resolve the plate by ID from the fixture baseline. */ baseline: async (id: string) => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version: number, id: string) => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates }
   const input = { projectId: 'license-plate-game-staging', env: demoEnv, editor, version: 1 }
+  /**
+   * Assert that draft data and its live signal stay on the same revision in the correct
+   * environment.
+   */
   const assertSignal = async (batch: ReviewBatch) => {
     const saved = await db.runTransaction(async tx => {
       const draft = await tx.get(db.doc(`reviewBatches/${batch.id}`))
@@ -64,7 +68,7 @@ test.each(['development', 'preview:feature/demo'])('demo seed and resets keep th
     current = reset
   }
   const before = await demoStore.readBatch(current.id)
-  const rejectedStore = { ...demoStore, commit: async (...args: Parameters<typeof demoStore.commit>) => demoStore.commit(args[0], args[1] - 1, args[2]) }
+  const rejectedStore = { ...demoStore, /** Send an older revision to the real store to force an optimistic concurrency conflict. */ commit: async (...args: Parameters<typeof demoStore.commit>) => demoStore.commit(args[0], args[1] - 1, args[2]) }
   await expect(seedDemo({ ...deps, store: rejectedStore }, input)).rejects.toThrow('Demo batch changed during reset')
   expect(await demoStore.readBatch(current.id)).toEqual(before)
   await assertSignal(current)
@@ -100,9 +104,9 @@ test.each(['success', 'competing tag', 'other batch'] as const)('combined promot
   const approval = { revision: 3, by: owner.uid, at: '' }
   await db.doc('reviewBatches/batch').set({ ...batch, state: 'approved', approval, env })
   await db.doc(`curatorLive/${env}/batchRevisions/batch`).set({ revision: 4 })
-  const deps = { store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant, parent], now: () => '' }
+  const deps = { store, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async () => variant, /** Provide the baseline plate data used by the review or job scenario. */ baselineAtVersion: async () => variant, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [variant, parent], /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
   const commit = store.commit.bind(store)
-  const racingStore = { ...store, commit: async (...args: Parameters<typeof store.commit>) => {
+  const racingStore = { ...store, /** Inject a competing draft change immediately before the original commit is evaluated. */ commit: async (...args: Parameters<typeof store.commit>) => {
     if (scenario === 'competing tag') {
       expect((await proposeEdit(deps, owner, { batchId: 'batch', plateId: 'two', baseRevision: plateRevision(variant), fields: { tags: ['remote'] } })).ok).toBe(true)
     } else if (scenario === 'other batch') {
@@ -138,7 +142,7 @@ test('reserved Batch rejects a combined move without clearing approval or changi
   await db.doc('reviewBatches/batch').set(approved)
   const signal = db.doc(`curatorLive/${env}/batchRevisions/batch`)
   await signal.set({ revision: 4 })
-  const result = await reorderState({ ...fixture().deps, store, baseline: async () => variant, baselineAtVersion: async () => variant, stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], standard: { from: null, to: 'one' }, promotion: { plateId: 'one', templateFamily: 'new' } })
+  const result = await reorderState({ ...fixture().deps, store, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async () => variant, /** Provide the baseline plate data used by the review or job scenario. */ baselineAtVersion: async () => variant, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [variant] }, owner, { batchId: 'batch', state: 'AK', batchRevision: 4, order: ['one'], standard: { from: null, to: 'one' }, promotion: { plateId: 'one', templateFamily: 'new' } })
   expect(result).toEqual({ ok: false, error: 'superseded_revision' })
   expect((await db.doc('reviewBatches/batch').get()).data()).toEqual(approved)
   expect((await signal.get()).data()).toEqual({ revision: 4 })
@@ -268,6 +272,10 @@ test.each(['stale', 'reserved', 'wrong-env', 'invalid-write'])('%s rejection pre
   expect(await store.getEdit('batch', 'one')).toBeNull()
 })
 
+/**
+ * Read batch, edit and workflow state under one emulator transaction for lifecycle
+ * assertions.
+ */
 async function lifecycleSnapshot() {
   return db.runTransaction(async tx => {
     const batchDoc = await tx.get(db.doc('reviewBatches/batch'))
@@ -368,7 +376,7 @@ test('a reset to the published value uses the saved field identity and cannot er
 test('refuses a partial grouping revert that would strand the saved members', async () => {
   const first = { ...snapshot.plates[0], state: 'CA', templateFamily: 'former', templateRole: 'template' as const }
   const second = { ...snapshot.plates[1], state: 'CA', templateFamily: 'former', templateRole: 'variant' as const, variantOfPlateId: first.id }
-  const deps = { ...fixture().deps, store, baselineAtVersion: async (_version: number, id: string) => [first, second].find(plate => plate.id === id) ?? null, stateBaseline: async () => [first, second] }
+  const deps = { ...fixture().deps, store, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_version: number, id: string) => [first, second].find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [first, second] }
   const change = { runId: 'run', jobId: 'group-job', by: 'editor', byName: 'Editor', at: edit.updatedAt, value: 'current', previous: 'former' }
   expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edits: [first, second].map(plate => ({
     ...edit, plateId: plate.id, fields: { templateFamily: 'current' }, resultRevision: plateRevision({ ...plate, templateFamily: 'current' }),

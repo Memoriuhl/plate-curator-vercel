@@ -1,5 +1,6 @@
 import { orderForDrop, type DragFamily, type DragItem, type DropTarget } from './drop-targets'
 
+/** Compare drop targets by operation and destination to avoid redundant drag updates. */
 export function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {
   if (!a || !b) return a === b
   if (a.kind !== b.kind) return false
@@ -8,6 +9,7 @@ export function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {
   return a.kind === 'merge' && b.kind === 'merge' && a.familyId === b.familyId
 }
 
+/** Compute the temporary order and lifted-item presentation for a possible drop. */
 export function reflowForDrop(families: DragFamily[], item: DragItem, target: DropTarget | null) {
   const order = target && orderForDrop(families, item, target)
   if (!order) return null

@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useSyncExternalStore, type MouseEvent, type H
 import { groupFamilies } from './family-data'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
+/** Create the shared selection store for multi-plate actions across visible states. */
 export function createPlateSelection() {
   let selected: readonly PlateCardData[] = []
   let ids = new Set<string>()
@@ -14,15 +15,32 @@ export function createPlateSelection() {
   const states = new Map<string, PlateCardData[]>()
   let templatesWithVariants = new Set<string>()
   const listeners = new Set<() => void>()
+  /** Normalize the next selection, update its ID index and notify subscribers. */
   const publish = (next: readonly PlateCardData[]) => { selected = next.filter(plate => !plate.deleted); ids = new Set(selected.map(plate => plate.id)); listeners.forEach(listener => listener()) }
   return {
+    /** Register a listener and return the cleanup used by React's external store. */
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
+    /**
+     * Expose the current selection snapshot without allocating a new array per render.
+     */
     snapshot: () => selected,
+    /** Check whether the plate ID is currently selected. */
     has: (id: string) => ids.has(id),
+    /** Expose the most recently registered plates to workspace selection actions. */
     loaded: () => loaded,
+    /** Check whether the selected template has variants that may move with it. */
     hasVariants: (id: string) => templatesWithVariants.has(id),
+    /**
+     * Read the registered plates for one state, including those outside the current
+     * filter.
+     */
     statePlates: (state: string) => states.get(state) ?? [],
+    /** Replace the selection and reset any whole-state selection markers. */
     replace(plates: readonly PlateCardData[]) { fullStateSelections.clear(); publish(plates) },
+    /**
+     * Index loaded plates and reconcile selected records when their latest versions
+     * arrive.
+     */
     register(plates: PlateCardData[]) {
       if (loaded === plates) return
       loaded = plates
@@ -32,6 +50,10 @@ export function createPlateSelection() {
       const next = selected.map(plate => fresh.get(plate.id) ?? plate)
       if (next.some((plate, index) => plate.deleted || plate !== selected[index])) publish(next)
     },
+    /**
+     * Update the visible range used by keyboard and shift selection and drop hidden
+     * selections when needed.
+     */
     visible(plates: PlateCardData[]) {
       visible = plates.filter(plate => !plate.deleted)
       const loadedIds = new Set(loaded.map(plate => plate.id))
@@ -39,19 +61,32 @@ export function createPlateSelection() {
       const next = selected.filter(plate => fullStateSelections.has(plate.state) || !loadedIds.has(plate.id) || visibleIds.has(plate.id))
       if (next.length !== selected.length) publish(next)
     },
+    /** Clear the selected plates and reset the range anchor and whole-state markers. */
     clear() { anchor = null; fullStateSelections.clear(); publish([]) },
+    /** Add plates to the selection without duplicating plate IDs. */
     add(plates: PlateCardData[]) { publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()]) },
+    /**
+     * Select the registered plates for a whole state while retaining selections from
+     * other states.
+     */
     selectState(state: string) {
       const plates = states.get(state)
       if (!plates?.length) return
       fullStateSelections.add(state)
       publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()])
     },
+    /**
+     * Select all visible plates and update whole-state markers for the affected states.
+     */
     all() {
       const visibleStates = new Set(visible.map(plate => plate.state))
       for (const state of visibleStates) fullStateSelections.delete(state)
       publish([...selected.filter(plate => !visibleStates.has(plate.state)), ...visible])
     },
+    /**
+     * Select, toggle or range-select a visible plate according to the current modifier
+     * keys.
+     */
     select(id: string, modifiers: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) {
       const plate = visible.find(plate => plate.id === id)
       if (!plate) return
@@ -73,15 +108,26 @@ export function createPlateSelection() {
 
 export const plateSelection = createPlateSelection()
 const empty: readonly PlateCardData[] = []
+/** Subscribe a component to the shared list of selected plates. */
 export function useSelectedPlates() { return useSyncExternalStore(plateSelection.subscribe, plateSelection.snapshot, () => empty) }
+/** Subscribe to whether a jurisdiction contains any selected plates. */
 export function useStateSelected(code: string) { return useSyncExternalStore(plateSelection.subscribe, () => plateSelection.snapshot().some(plate => plate.state === code), () => false) }
+/** Subscribe to whether the given plate is selected. */
 export function usePlateSelected(id: string) { return useSyncExternalStore(plateSelection.subscribe, () => plateSelection.has(id), () => false) }
+/** Recognize interactive controls that should handle their own selection shortcuts. */
 export function selectionInput(target: EventTarget | null) {
   return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]')
 }
+/**
+ * Wrap a plate row with selection behavior and an accessible selected-state description.
+ */
 export function SelectionPlate({ id, children, disabled = false, highlight = true, className = '', ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'id'> & { id: string; disabled?: boolean; highlight?: boolean }) {
   const selected = usePlateSelected(id)
   const statusId = useId()
+  /**
+   * Handle a plate's selection click while respecting nested controls and link
+   * interactions.
+   */
   function select(event: MouseEvent) {
     const target = event.target as Element
     if (target.closest('button, input')) return
@@ -102,10 +148,17 @@ function runPipelineInteraction(event: Event) {
   return event.composedPath().some(target => target instanceof Element && target.matches(runPipelineSelector))
 }
 
+/**
+ * Bind workspace keyboard shortcuts to the latest selection, preview and promotion
+ * actions.
+ */
 export function useSelectionKeyboard({ close, promote, disabled, dragging = false }: { close(): void; promote(): Promise<void>; disabled: boolean; dragging?: boolean }) {
   const latest = useRef({ close, promote, disabled, dragging })
   useEffect(() => { latest.current = { close, promote, disabled, dragging } })
   useEffect(() => {
+    /**
+     * Handle bulk selection shortcuts only when a focused control is not using the key.
+     */
     function key(event: KeyboardEvent) {
       if (runPipelineInteraction(event) || document.activeElement?.closest(runPipelineSelector) || selectionInput(event.target) || selectionInput(document.activeElement) || event.defaultPrevented || latest.current.dragging) return
       if (event.key === 'Escape') { latest.current.close(); plateSelection.clear() }
@@ -120,8 +173,16 @@ export function useSelectionKeyboard({ close, promote, disabled, dragging = fals
   }, [])
 }
 
+/**
+ * Track document selection presence and dismiss it when the user clicks outside its
+ * surfaces.
+ */
 export function SelectionPresence() {
   useEffect(() => {
+    /**
+     * Clear selection on an unmodified primary click outside the grid or selection
+     * controls.
+     */
     function dismiss(event: globalThis.MouseEvent) {
       if (runPipelineInteraction(event) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
       const target = event.target
@@ -139,6 +200,7 @@ export function SelectionPresence() {
   return null
 }
 
+/** Highlight a family when its template appears in the active selection. */
 export function SelectionFamily({ id, className = '', ...props }: Omit<HTMLAttributes<HTMLElement>, 'id'> & { id: string }) {
   const selected = usePlateSelected(id)
   return <article {...props} data-selected={selected} className={className + (selected ? ' ring-2 ring-[var(--primary)]' : '')} />

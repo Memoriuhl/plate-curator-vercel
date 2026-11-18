@@ -21,17 +21,27 @@ const state = vi.hoisted(() => ({
   buttons: new Map<string, ComponentProps<'button'>>(),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Supply the workflow phase used by the fixture batch view. */
   useBatchRun: () => ({ data: { phase: 'published', outcome: { version: 12 } } }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { uid: 'author', role: state.role } }),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: [] }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
 }))
 vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn(), useRecentReviewPlates: () => ({}) }))
 vi.mock('../lib/client/session', () => ({
+  /** Supply the fixture session and API client to the component under test. */
   useSession: () => ({ user: { displayName: 'Author' } }),
 }))
 vi.mock('../components/ui/button', () => ({
+  /**
+   * Render a native action with the requested label and disabled state for review
+   * assertions.
+   */
   Button: (props: ComponentProps<'button'>) => {
     const label = Array.isArray(props.children)
       ? props.children.filter((child) => typeof child === 'string').join('')
@@ -41,7 +51,9 @@ vi.mock('../components/ui/button', () => ({
   },
 }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(state.query),
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ replace: vi.fn() }),
 }))
 const before: Plate = {

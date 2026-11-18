@@ -12,6 +12,10 @@ import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardC
 const groupRevertReason = 'Reverting this field would leave a Template family or Variant link inconsistent. Edit the related grouping together.'
 export const imageRevertReason = 'The image or its source changed after this run. Review the current image and source together before making another change.'
 
+/**
+ * Overlay the current drafts on the state's baseline to ensure a proposed regroup
+ * preserves valid families.
+ */
 async function regroupRemainsValid(d: ReviewDeps, batch: ReviewBatch, current: Plate, target: Plate) {
   const [baseline, edits] = await Promise.all([
     d.stateBaseline(batch.baselineVersion, target.state, 'snapshot'),
@@ -24,6 +28,10 @@ async function regroupRemainsValid(d: ReviewDeps, batch: ReviewBatch, current: P
   return validRegroup(state, affectedFamilies, new Set([target.id]))
 }
 
+/**
+ * Check that every affected family retains exactly one template and that changed plates
+ * point to valid parents.
+ */
 export function validRegroup(state: ReadonlyMap<string, Plate>, affectedFamilies: ReadonlySet<string | undefined>, changedIds: ReadonlySet<string>) {
   const counts = new Map<string, { plates: number; templates: number }>()
   for (const member of state.values()) {
@@ -45,6 +53,7 @@ export function validRegroup(state: ReadonlyMap<string, Plate>, affectedFamilies
 
 type FieldRevert = { field: keyof EditableFields; jobId: string }
 
+/** Apply a curator's edit through the shared revision and batch access checks. */
 export function proposeEdit(
   d: ReviewDeps,
   actor: Actor,
@@ -53,10 +62,15 @@ export function proposeEdit(
   return updatePlate(d, actor, input)
 }
 
+/** Restore a field's prior value while preserving the other results in the draft. */
 export function revertPipelineField(d: ReviewDeps, actor: Actor, input: { batchId: string; plateId: string } & FieldRevert) {
   return updatePlate(d, actor, { ...input, revert: input })
 }
 
+/**
+ * Validate and commit a plate edit with revision checks so concurrent drafts and
+ * pipeline results reconcile safely.
+ */
 async function updatePlate(
   d: ReviewDeps,
   a: Actor,
@@ -194,15 +208,20 @@ async function updatePlate(
   return { ok: false, error: 'superseded_revision' }
 }
 
+/** Move an eligible open batch to submitted at the caller's revision. */
 export async function submitBatch(d: ReviewDeps, a: Actor, batchId: string, revision: number): Promise<Outcome<ReviewBatch>> {
   return transitionBatch(d, a, batchId, revision, 'submitted')
 }
 
+/** Allow an owner to approve a submitted batch at its current revision. */
 export async function approveBatch(d: ReviewDeps, a: Actor, batchId: string, revision: number): Promise<Outcome<ReviewBatch>> {
   if (a.role !== 'owner') return { ok: false, error: 'forbidden' }
   return transitionBatch(d, a, batchId, revision, 'approved')
 }
 
+/**
+ * Collect state order and standard-plate problems that must be resolved before approval.
+ */
 export async function reviewApprovalProblems(d: ReviewDeps, batch: ReviewBatch): Promise<string[]> {
   const edits = await d.store.listEdits(batch.id)
   const standardPlates = await Promise.all(edits.filter(edit => Object.hasOwn(edit.fields, 'isStandard')).map(edit => d.baselineAtVersion(batch.baselineVersion, edit.plateId)))
@@ -211,6 +230,10 @@ export async function reviewApprovalProblems(d: ReviewDeps, batch: ReviewBatch):
   return standardOrderProblems(states.flat(), edits, batch.stateOrders)
 }
 
+/**
+ * Perform a review state transition only while permissions, readiness and revision still
+ * match.
+ */
 async function transitionBatch(
   d: ReviewDeps, a: Actor, batchId: string, revision: number, state: 'submitted' | 'approved',
 ): Promise<Outcome<ReviewBatch>> {
@@ -230,6 +253,10 @@ async function transitionBatch(
   return result === 'ok' ? { ok: true, value: nextBatch } : { ok: false, error: 'superseded_revision' }
 }
 
+/**
+ * Save a state's manual ordering and any standard-plate changes together at the expected
+ * batch revision.
+ */
 export async function reorderState(
   d: ReviewDeps, actor: Actor,
   input: { batchId: string; state: string; batchRevision: number; order: string[]; standard?: StandardChange; promotion?: { plateId: string; templateFamily: string }; promotions?: { plateId: string; templateFamily: string }[] },

@@ -9,13 +9,16 @@ import type { ReviewDeps } from '../../lib/review/types'
 
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Prepare a completed image job and verified fixture bytes for image acceptance tests.
+ */
 async function setup() {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const actor = { uid: 'editor', name: null, role: 'editor' as const }
   const plate = { id: 'AK.a', state: 'AK', slug: 'a', displayName: 'A', image: 'a.webp', tags: [], templateRole: 'template' as const, templateFamily: 'AK.a', isStandard: true }
   const store = createMemoryStore([{ id: 'batch', name: 'Image', createdBy: actor.uid, createdAt: '', revision: 0, baselineVersion: 1, state: 'open', approval: null, plateIds: [plate.id], stateOrders: { AK: [plate.id] } }])
-  const d: ReviewDeps = { store, baseline: async () => plate, baselineAtVersion: async () => plate, stateBaseline: async () => [plate], now: () => '' }
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, localScope: 'scope', now: () => 0, id: () => 'claim', leaseMs: 1000 }
+  const d: ReviewDeps = { store, /** Supply the test plate as the catalog baseline. */ baseline: async () => plate, /** Supply the test plate as the catalog baseline. */ baselineAtVersion: async () => plate, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => [plate], /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, 'development'), baseline: d.baseline, localScope: 'scope', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 0, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000 }
   const bytes = Buffer.from('verified fixture content')
   const candidate = { id: 'candidate', title: 'Photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: createHash('sha256').update(bytes).digest('hex') }
   const job: TaggingJob = { id: 'image', batchId: 'batch', plateId: plate.id, requestedBy: actor.uid, inputHash: plateRevision(plate), env: 'development', localScope: 'scope', stage: 'find-image', state: 'completed', createdAt: 0, result: { suggestions: [], fieldSuggestion: { kind: 'image', stage: 'find-image', candidates: [candidate], sources: [candidate.imageUrl, candidate.sourceUrl] }, model: 'search', backend: 'search', promptVersion: 'fixture', durationMs: 0 } }

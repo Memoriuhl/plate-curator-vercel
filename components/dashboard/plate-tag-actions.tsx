@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
 
+/** Connect a single plate's pipeline menu to the selected tagging model and run state. */
 export function PlateTagActions({ plate }: { plate: RunPlate }) {
   const choice = useTaggingModelChoice()
   const run = useTagRun()

@@ -3,10 +3,14 @@ import { buildDashboard } from '../lib/catalog/dashboard-build'
 import { plateImageUrl } from '../lib/catalog/image-url'
 import type { Snapshot } from '../lib/catalog/types'
 
+/**
+ * Measure serialized dashboard and jurisdiction payloads against the cache size budget.
+ */
 async function main() {
   const [path, imageBase] = process.argv.slice(2)
   if (!path) throw new Error('Usage: npx tsx scripts/catalog-cache-sizes.ts <snapshot.json> [image-base]')
   const snapshot = JSON.parse(await readFile(path, 'utf8')) as Snapshot
+  /** Measure JSON payload bytes using the same encoding as the snapshot cache. */
   const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value), 'utf8')
   const entries = [...new Set(snapshot.plates.map(plate => plate.state))].map(code => {
     const plates = snapshot.plates.filter(plate => plate.state === code)

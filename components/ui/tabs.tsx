@@ -5,6 +5,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/components/utils'
 import { Tabs as TabsPrimitive } from 'radix-ui'
 
+/** Provide the shared Radix tabs root with the requested orientation and layout. */
 function Tabs({
   className,
   orientation = 'horizontal',
@@ -31,6 +32,7 @@ const tabsListVariants = cva(
   },
 )
 
+/** Render the tab controls with the chosen shared visual treatment. */
 function TabsList({
   className,
   variant = 'default',
@@ -47,6 +49,7 @@ function TabsList({
   )
 }
 
+/** Display a selectable tab with focus and active-state styles. */
 function TabsTrigger({
   className,
   ...props
@@ -63,6 +66,7 @@ function TabsTrigger({
   )
 }
 
+/** Render the active tab's associated content panel. */
 function TabsContent({
   className,
   ...props

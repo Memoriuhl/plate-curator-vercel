@@ -4,6 +4,10 @@ import type { JobsDeps, TaggingJob } from './types'
 
 // Invoked by the durable coordinator after the job and hook have been persisted.
 // Local work returns immediately and remains available to the desktop claimant.
+/**
+ * Execute a queue stage on its hosted provider and report whether it settled or needs
+ * another attempt.
+ */
 export async function executeHostedQueueStage(jobs: JobsDeps, id: string, deps: (modelId: string) => Promise<HostedDeps>, research?: (job: TaggingJob) => Promise<'waiting' | 'settled'>) {
   const job = await getJob(jobs, id)
   if (!job?.queueRunId || job.route !== 'hosted' || job.state === 'completed' || ['failed', 'cancelled', 'expired'].includes(job.state)) return 'settled'

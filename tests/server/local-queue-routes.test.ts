@@ -18,12 +18,14 @@ import { GET as getLatestEnhancement } from '../../app/api/local-pipeline/plates
 import { POST as postProgress } from '../../app/api/worker/jobs/[id]/progress/route'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn(), workflow: vi.fn() }))
-vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}), catalog: () => ({ readSnapshot: async () => ({ version: 1 }) }) }))
+vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, /** Authenticate a fixture worker for the queue report endpoints. */ currentWorker: async () => ({ ok: true, workerId: 'worker' }), /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps: () => ({}), /** Provide the catalog source needed to validate a queue selection. */ catalog: () => ({ /** Return the fixed baseline version for the fixture's local queue requests. */ readSnapshot: async () => ({ version: 1 }) }) }))
 vi.mock('../../lib/server/catalog-head', () => ({ catalogChanged: vi.fn() }))
 vi.mock('workflow/api', () => ({ start: mocks.start, resumeHook: mocks.resume, getRun: mocks.workflow }))
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 const body = { requestId: 'request', batchId: 'batch', plateIds: ['AK.one'], stages: ['tag'] }
+/** Build the POST request the route fixture passes to its handler. */
 const post = () => new Request('https://example.org/api/local-pipeline/runs', { method: 'POST', body: JSON.stringify(body) })
+/** Build the GET request the route fixture passes to its handler. */
 const get = () => new Request('https://example.org/api/local-pipeline/runs')
 let deps: JobsDeps
 
@@ -31,8 +33,9 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const plate = { id: 'AK.one', state: 'AK', slug: 'one', displayName: 'One', image: '', tags: [] }
   const review = createMemoryStore([{ id: 'batch', name: 'Queue', createdBy: actor.uid, createdAt: '', revision: 0, state: 'open', baselineVersion: 1, plateIds: [plate.id], approval: null }])
-  deps = { store: createMemoryJobsStore(review, localJobsEnvironment('route-test')), localScope: 'route-test', baseline: async () => plate,
-    now: () => 100, id: () => 'claim', leaseMs: 1000 }
+  deps = { store: createMemoryJobsStore(review, localJobsEnvironment('route-test')), localScope: 'route-test', /** Supply the test plate as the catalog baseline. */ baseline: async () => plate,
+    /** Pin the operation clock so timestamps and lease checks are reproducible. */
+    now: () => 100, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'claim', leaseMs: 1000 }
   mocks.auth.mockReset().mockResolvedValue({ ok: true, actor })
   mocks.jobs.mockReset().mockReturnValue(deps)
   mocks.start.mockReset().mockResolvedValue({ runId: 'workflow' })
@@ -108,6 +111,7 @@ test('GET records an actual exhausted Workflow failure as retryable failure when
 })
 
 test('a named selection creates and starts one new draft instead of using the existing Batch', async () => {
+  /** Build the POST request the route fixture passes to its handler. */
   const request = () => new Request('https://example.org/api/local-pipeline/runs/selection', { method: 'POST',
     body: JSON.stringify({ requestId: body.requestId, plateIds: body.plateIds, stages: body.stages, batchName: 'New Alaska draft' }) })
   const initial = await createSelection(request())

@@ -3,14 +3,21 @@ import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path'
 import type { ResearchStateStore } from './state'
 
+/** Store local Eve research state on disk so runs can resume across process restarts. */
 export function fileResearchState(directory: string): ResearchStateStore {
+  /** Hash a state key into a safe local filename inside the configured directory. */
   const filename = (key: string) => join(directory, createHash('sha256').update(key).digest('hex') + '.json')
+  /** Read a stored research value and treat a missing state file as empty. */
   async function read<T>(key: string): Promise<T | null> {
     try { return JSON.parse(await readFile(filename(key), 'utf8')) as T }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
   }
   return {
     read,
+    /**
+     * Lock, replace and clean up the local state file so updates survive interruptions
+     * and concurrent writes.
+     */
     async update<T, R>(key: string, change: (value: T | null) => { value: T; result: R }) {
       await mkdir(directory, { recursive: true })
       const path = filename(key)

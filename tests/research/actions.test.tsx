@@ -6,12 +6,13 @@ import { ResearchActions } from '../../components/research/research-actions'
 import { plateCards } from '../../fixtures/plate-cards'
 
 const state = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn() }))
-vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'owner' }, api: state }) }))
-vi.mock('../../lib/client/hooks', () => ({ useMe: () => ({ data: { role: 'owner' } }), useWorkspaceBatch: () => ({ mode: 'selected', id: 'batch', status: 'ready' }), useEnsureBatch: () => vi.fn() }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('../../lib/client/session', () => ({ /** Supply the fixture session and API client to the component under test. */ useSession: () => ({ user: { uid: 'owner' }, api: state }) }))
+vi.mock('../../lib/client/hooks', () => ({ /** Supply the current fixture actor for role and account-dependent behavior. */ useMe: () => ({ data: { role: 'owner' } }), /** Supply the selected batch and its editability for this workspace scenario. */ useWorkspaceBatch: () => ({ mode: 'selected', id: 'batch', status: 'ready' }), /** Resolve the fixture batch without creating one through the API. */ useEnsureBatch: () => vi.fn() }))
+vi.mock('next/navigation', () => ({ /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ refresh: vi.fn() }) }))
 beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn() })
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks() })
-function view() { return render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}><ResearchActions plate={plateCards[0]} /></SWRConfig>) }
+/** Render the research actions under an isolated SWR cache for the fixture plate. */
+function view() { return render(<SWRConfig value={{ /** Give the rendered test its own isolated SWR cache. */ provider: () => new Map(), dedupingInterval: 0 }}><ResearchActions plate={plateCards[0]} /></SWRConfig>) }
 const job = { id: 'saved', executor: 'desktop', state: 'queued' }
 
 test('host selection is fixed in the start request and restored after a reload', async () => {

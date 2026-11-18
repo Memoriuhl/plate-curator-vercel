@@ -8,6 +8,10 @@ import { readJson, badRequest } from '../../../../lib/server/respond'
 import { wakeLocalJob } from '../../../../lib/server/local-queue'
 import type { Plate } from '../../../../lib/catalog/types'
 
+/**
+ * Authenticate the worker, claim its next eligible job and return the input needed for
+ * that stage.
+ */
 export async function POST(request: Request) {
   const worker = await currentWorker(request)
   if (!worker.ok) return worker.response
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
   })
 }
 
+/** Reconstruct plate input for older jobs that predate stored input snapshots. */
 async function legacyInput(batchId: string, plateId: string): Promise<Plate> {
   const review = reviewDeps()
   const baseline = await review.baseline(plateId)

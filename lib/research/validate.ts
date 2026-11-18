@@ -10,10 +10,16 @@ export const researchDraftSchema = z.object({
   firstIssuedYear: z.object({ year: z.number().int().min(1800).max(2100), sourceId: z.string().max(100) }).nullable().optional(),
 }).strict()
 
+/** Extract lowercase content terms to compare a draft claim with its source text. */
 const tokens = (text: string) => text.toLowerCase().match(/[a-z]{4,}|\d+/g) ?? []
+/** Normalize number punctuation so claims and evidence can be compared consistently. */
 const numbers = (text: string) => text.match(/\d[\d,.]*/g)?.map(value => value.replace(/[,.]/g, '')) ?? []
+/** Count words for the research validator's draft length limits. */
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
 
+/**
+ * Check that cited evidence supports the key terms and numbers in a generated statement.
+ */
 function supported(claim: string, sources: EvidenceSource[]) {
   const wanted = [...new Set(tokens(claim))]
   return sources.some(source => {
@@ -26,12 +32,17 @@ function supported(claim: string, sources: EvidenceSource[]) {
   })
 }
 
+/**
+ * Validate draft structure and retain only claims and links with recognized, supporting
+ * evidence.
+ */
 export function validateResearchResult(raw: unknown, sources: EvidenceSource[]): { draft: ResearchDraft; rejected: ResearchRejection[] } {
   const parsed = researchDraftSchema.safeParse(raw)
   const draft = emptyResearchDraft()
   const rejected: ResearchRejection[] = []
   if (!parsed.success) return { draft, rejected: [{ field: 'shape', reason: 'invalid_research_draft' }] }
   const data = parsed.data
+  /** Resolve a cited source from the evidence collected for this result. */
   const lookup = (id: string) => sources.find(source => source.id === id)
   const descriptionSources = data.descriptionSources.flatMap(id => lookup(id) ?? [])
   if (data.description) {

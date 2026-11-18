@@ -15,7 +15,7 @@ import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-vi.mock('../components/plate/standard-confirmation', () => ({ useStandardConfirmation: () => ({ pending: false, dialog: null, confirm: async () => undefined }) }))
+vi.mock('../components/plate/standard-confirmation', () => ({ /** Supply the default confirmation state for interactions that do not require a standard change. */ useStandardConfirmation: () => ({ pending: false, dialog: null, /** Resolve the confirmation stub without selecting a new standard plate. */ confirm: async () => undefined }) }))
 
 vi.mock('@tanstack/react-virtual', async importOriginal => {
   const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
@@ -28,14 +28,16 @@ const w = { ...v, id: 'AK.w' }
 const b = { ...a, id: 'AK.b', displayName: 'Navy' }
 const families = [{ template: a, variants: [v, w] }, { template: b, variants: [] }]
 const success = { ok: true, proposed: {} }
+/** Capture the plate ID and revision expected in a submitted family merge. */
 const ref = ({ id, revision }: { id: string; revision: string }) => ({ id, revision })
+/** Build a successful merge result with the supplied movements and skip counts. */
 const merged = (moved: string[], skipped = {}) => ({
   ok: true as const, value: { moved, alreadyInFamily: 0, deleted: 0, standard: 0, ...skipped },
 })
 const { push } = vi.hoisted(() => ({ push: vi.fn() }))
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn(), push }) }))
-vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
-vi.mock('next/image', () => ({ default: () => <span /> }))
+vi.mock('next/navigation', () => ({ /** Supply the query parameters that define the fixture workspace state. */ useSearchParams: () => new URLSearchParams(), /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ prefetch: vi.fn(), push }) }))
+vi.mock('next/link', () => ({ /** Render a plain anchor so drag tests can observe and suppress clicks in the test DOM. */ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
+vi.mock('next/image', () => ({ /** Stand in for the imported display component so the test can render its parent in isolation. */ default: () => <span /> }))
 afterEach(() => { cleanup(); plateSelection.clear(); push.mockClear() })
 
 test('moves family blocks and variants while retaining the full permutation', () => {
@@ -55,6 +57,10 @@ test('threshold, hit targets and scroll edges', () => {
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
+/**
+ * Render draggable family fixtures with injectable edits and expose the handles and
+ * write spies.
+ */
 function setup({ rows = false, moveSave = vi.fn().mockResolvedValue(success), show = 'all', query = '', canEdit = true, error = false, merge = false, mergeSave = vi.fn((input: FamilyMerge) => Promise.resolve(merged(input.members.map(plate => plate.id)))), ownFamily = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false, save = vi.fn().mockResolvedValue(success) } = {}) {
   const edit = save
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
@@ -62,9 +68,14 @@ function setup({ rows = false, moveSave = vi.fn().mockResolvedValue(success), sh
   const capture = vi.fn(() => ({ batchId: 'batch', revision: 4 }))
   const reload = vi.fn().mockResolvedValue(undefined)
   const closePreview = vi.fn()
+  /**
+   * Render projected drag ordering and targets so the fixture can inspect reflow and
+   * saved order.
+   */
   function Harness() {
     const dragFamilies = families.map(family => ({ ...family, template: family.template.id === b.id ? { ...family.template, deleted: deletedDestination } : family.template }))
     const drag = usePlateDrag({ families: dragFamilies, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, merge: mergeSave, pending: false }, reload, closePreview,
+      /** Provide the drop targets used by the drag fixture. */
       targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton || ownFamily ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
     const item = { kind: variant ? 'variant' as const : 'family' as const, plate: deletedSource ? { ...(singleton ? b : variant ? v : a), deleted: true } : singleton ? b : variant ? v : a }
@@ -121,6 +132,10 @@ test('failed reorder snaps back, announces the error and reloads', async () => {
 })
 test('pointer merge saves a single Variant and preserves a subthreshold click', async () => {
   const { handle, mergeSave, reorder } = setup({ merge: true, variant: true })
+  /**
+   * Dispatch a synthetic pointer event so the test can drive a drag without browser
+   * pointer automation.
+   */
   const pointer = (type: string, x: number) => {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
@@ -211,8 +226,12 @@ test('new family slugs use state and plate slug and avoid state collisions', () 
 
 test('card handles respect entrance animations and global keyboard survives source unmount', async () => {
   const reorder = vi.fn().mockResolvedValue(success)
+  /**
+   * Expose draggable family cards and their live announcement to the pointer interaction
+   * test.
+   */
   function Cards() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder, pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><FamilyCard template={a} variants={[v, w]} drag={drag} canEdit number={1} /><output>{drag.announcement}</output></>
   }
   render(<Cards />)
@@ -275,8 +294,9 @@ test('keyboard arrows update the gap, cancel restores it, and drop commits exact
 
 test('pointer movement within the same slot retains the memoized preview', () => {
   const previews: unknown[] = []
+  /** Expose a draggable handle and its active preview for the same-slot update test. */
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), targets: () => [{ target: { kind: 'family-slot', index: 2 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }] })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), /** Provide the drop targets used by the drag fixture. */ targets: () => [{ target: { kind: 'family-slot', index: 2 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }] })
     if (drag.active) previews.push(drag.reflow)
     return <button onPointerDown={event => drag.onPointerDown({ kind: 'family', plate: a }, event)}>Move</button>
   }
@@ -377,8 +397,9 @@ test('cap uses the rendered sixth row, including unequal row heights and gaps', 
 
 test('five variants stay uncapped; six show five measured rows and half the sixth', () => {
   const observe = vi.fn()
+  /** Provide an initial resize callback before the list installs its observer. */
   let resized = () => {}
-  vi.stubGlobal('ResizeObserver', class { callback: () => void; constructor(callback: () => void) { this.callback = callback } observe = (element: HTMLElement) => { if (element.hasAttribute('data-variant-index')) { resized = this.callback; observe(element) } }; disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class { callback: () => void; /** Capture the observer callback so the test can trigger a variant list resize. */ constructor(callback: () => void) { this.callback = callback } /** Expose the callback when the observed element is the variant list the test measures. */ observe = (element: HTMLElement) => { if (element.hasAttribute('data-variant-index')) { resized = this.callback; observe(element) } }; /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
   const sizes = [80, 130, 65, 160, 90, 140]
   const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     const index = Number(this.dataset.variantIndex ?? -1)
@@ -402,7 +423,7 @@ test('five variants stay uncapped; six show five measured rows and half the sixt
 })
 
 test('nested virtualization observes the list scroll element and retains the first six measurement rows', () => {
-  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer removal for a layout fixture with no real observer. */ unobserve() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
   try {
     const plates = Array.from({ length: 30 }, (_, index) => ({ ...v, id: `AK.variant${index}` }))
     const view = render(<VirtualizedVariants familyId={a.id} plates={plates} renderPlate={plate => <a href={'/plates/' + plate.id}>{plate.id}</a>} />)
@@ -420,7 +441,7 @@ test('drag auto-scrolls the capped list within its 40 px edges and yields at its
   list.dataset.variantScroll = a.id
   list.getBoundingClientRect = () => ({ left: 100, right: 300, top: 100, bottom: 600 }) as DOMRect
   let offset = 100
-  Object.defineProperty(list, 'scrollTop', { get: () => offset, set: value => { offset = Math.max(0, Math.min(400, value)) } })
+  Object.defineProperty(list, 'scrollTop', { /** Read the fixture's simulated vertical scroll offset. */ get: () => offset, /** Clamp synthetic scrolling to the fixture's content bounds. */ set: value => { offset = Math.max(0, Math.min(400, value)) } })
   document.body.append(list)
   try {
     expect(scrollDragList(150, 590, a.id)).toBe(true)
@@ -474,8 +495,12 @@ test('family and variant ids remain available on hover without visible id lines'
 
 test('handles expose grab and disabled cursors while image hover retains preview', () => {
   const preview = vi.fn()
+  /**
+   * Render drag handles with the preview spy so cursor and hover behavior can be
+   * observed together.
+   */
   function Harness({ query = '' }) {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query, edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), targets: () => [] })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query, edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, reload: vi.fn(), closePreview: vi.fn(), /** Provide the drop targets used by the drag fixture. */ targets: () => [] })
     return <FamilyCard template={a} variants={[v]} canEdit drag={drag} onPreview={preview} />
   }
   const view = render(<Harness />)
@@ -524,6 +549,9 @@ test('deleted cards and Variants expose disabled handles and reject drops withou
   expect(targets.some(({ target }) => target.kind === 'variant-slot' && target.index === 0)).toBe(false)
 })
 
+/**
+ * Dispatch a full pointer sequence from press through movement and drop in the test DOM.
+ */
 function pointerDrag(handle: HTMLElement, x: number) {
   for (const [type, position] of [['pointerdown', 100], ['pointermove', x], ['pointerup', x]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: position, clientY: 100, button: 0 })
@@ -595,8 +623,12 @@ test('promotion de-duplicates slugs across the selection and advances full State
   const second = { ...w, id: 'AK.v_2' }
   plateSelection.add([v, second])
   const move = vi.fn().mockResolvedValue(success)
+  /**
+   * Expose bulk promotion using the same state order and slug allocation as the
+   * dashboard.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: [{ template, variants: [v, second] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), move, capture: () => ({ batchId: 'batch', revision: move.mock.calls.length + 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+    const drag = usePlateDrag({ families: [{ template, variants: [v, second] }], canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), move, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: move.mock.calls.length + 1 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
     return <button onClick={() => void drag.promote()}>Promote</button>
   }
   render(<Harness />)
@@ -609,8 +641,11 @@ test('failed atomic promotion leaves every selected plate and the State order un
   plateSelection.add([v, w])
   const move = vi.fn().mockResolvedValueOnce({ ok: false, error: 'superseded_revision' })
   const edit = vi.fn().mockResolvedValue(success), reorder = vi.fn().mockResolvedValue(success)
+  /**
+   * Render bulk promotion with a failing write so the test can inspect atomic rollback.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
     return <><button onClick={() => void drag.promote()}>Promote</button><output>{drag.announcement}</output></>
   }
   render(<Harness />)
@@ -635,8 +670,11 @@ test('drag preview only adds an absolutely positioned count for multi-selection'
 
 test('multi-merge displays a valid target for selected templates with variants', () => {
   plateSelection.add([a, v])
+  /**
+   * Render templates and variants with live merge targets for the multi-selection test.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }], closePreview: vi.fn(), reload: vi.fn() })
     return <><button onPointerDown={event => drag.onPointerDown({ kind: 'variant', plate: v }, event)}>Handle</button><FamilyCard template={b} variants={[]} drag={drag} /></>
   }
   const view = render(<Harness />)
@@ -761,15 +799,24 @@ test('rows use Space for selection, Enter for opening and Shift+Space for keyboa
 
 test('preview opens only on image pointer hover and stays dismissed through pressing and dragging', async () => {
   const preview = vi.fn(), close = vi.fn()
+  /**
+   * Connect card pointer events to the preview spy while the drag hook owns active
+   * state.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn().mockResolvedValue(success), pending: false }, reload: vi.fn(), closePreview: close, targets: () => [] })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn().mockResolvedValue(success), pending: false }, reload: vi.fn(), closePreview: close, /** Provide the drop targets used by the drag fixture. */ targets: () => [] })
     return <><FamilyCard template={a} variants={[v]} canEdit drag={drag} onPreview={preview} onDismissPreview={close} /><output>{drag.announcement}</output></>
   }
   const view = render(<Harness />)
   const row = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   const image = row.querySelector<HTMLElement>('[data-plate-image]')!
   const title = row.querySelector('h3 a')!
+  /**
+   * Dispatch pointer entry with fixture button state to distinguish hovering from
+   * pressing.
+   */
   const enter = (element: Element, buttons = 0) => fireEvent(element, new MouseEvent('pointerover', { bubbles: true, buttons }))
+  /** Dispatch pointer exit to verify the image preview closes when the pointer leaves. */
   const leave = (element: Element) => fireEvent(element, new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
   enter(row); enter(title)
   fireEvent.focus(row); fireEvent.focus(title); fireEvent.focus(image.closest('a')!)
@@ -879,8 +926,9 @@ test('move buttons exclude deleted, foreign, blocked and fully selected families
   const foreign = { ...b, id: 'NY.b', state: 'NY' }
   plateSelection.register([a, v, w, b, foreign])
   plateSelection.visible([a, v, w, b, foreign])
+  /** Expose family move controls for checking which destinations are eligible. */
   function Harness() {
-    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><FamilyCard template={a} variants={[v, w]} canEdit drag={drag} /><FamilyCard template={{ ...b, deleted: true }} variants={[]} canEdit drag={drag} /><FamilyCard template={foreign} variants={[]} canEdit drag={drag} /></>
   }
   const view = render(<Harness />)
@@ -925,12 +973,17 @@ test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget 
   plateSelection.add([v, w])
   const merge = vi.fn().mockResolvedValue(merged([v.id, w.id]))
   try {
+    /** Render the drag preview during synthetic viewport and wheel scrolling. */
     function Harness() {
-      const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), merge, capture: () => ({ batchId: 'batch', revision: 4 }), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 50, right: 250, top: 1200 - window.scrollY, bottom: 1400 - window.scrollY } }], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+      const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), merge, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: 4 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 50, right: 250, top: 1200 - window.scrollY, bottom: 1400 - window.scrollY } }], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
       return <><button onPointerDown={event => drag.onPointerDown({ kind: 'variant', plate: v }, event)}>Handle</button><output>{drag.announcement}</output>{drag.active ? <DragPreview {...drag.active} /> : null}</>
     }
     render(<Harness />)
     const handle = screen.getByRole('button', { name: 'Handle' })
+    /**
+     * Dispatch a synthetic pointer event so the test can drive a drag without browser
+     * pointer automation.
+     */
     const pointer = (type: string, x: number, y: number) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })
       Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
@@ -964,8 +1017,12 @@ test('cross-state partial promotion rollback preserves a legacy Standard below t
   const move = vi.fn().mockResolvedValueOnce({ ok: true, batchId: 'batch', revisions: { [variant.id]: 'promoted' } }).mockResolvedValueOnce({ ok: false, error: 'superseded_revision' })
   const reorder = vi.fn().mockResolvedValue({ ok: true, revisions: { [variant.id]: 'restored-order' } })
   const edit = vi.fn().mockResolvedValue(success)
+  /**
+   * Render a cross-state selection with a failing promotion so standard order rollback
+   * is observable.
+   */
   function Harness() {
-    const drag = usePlateDrag({ families: localFamilies, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
+    const drag = usePlateDrag({ families: localFamilies, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder, move, /** Return the starting state or revision used to guard the fixture action. */ capture: () => ({ batchId: 'batch', revision: 1 }), pending: false }, /** Provide the drop targets used by the drag fixture. */ targets: () => [], closePreview: vi.fn(), reload: vi.fn() })
     return <><button onClick={() => void drag.promote()}>Promote</button><output>{drag.announcement}</output></>
   }
   render(<Harness />)

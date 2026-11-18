@@ -6,6 +6,10 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
 import { revealVariantRow, variantListCap, VARIANT_ROW_HEIGHT, VARIANT_ROW_GAP } from '@/components/dashboard/variant-list-layout'
 
+/**
+ * Render a capped, scrollable set of variant rows while retaining focused and measured
+ * rows.
+ */
 export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focusPlateId }: {
   plates: PlateCardData[]
   renderPlate: (plate: PlateCardData) => ReactNode
@@ -25,8 +29,10 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focus
   const gapIndex = keyboard ? plates.findIndex(plate => plate.id === drag.active!.item.plate.id) : -1
   const virtualizer = useVirtualizer({
     count: plates.length,
+    /** Provide the variant list container as the virtualizer's scroll surface. */
     getScrollElement: () => container.current,
     enabled: virtualized,
+    /** Include visible rows and rows needed to measure the cap or preserve focus. */
     rangeExtractor: range => [...new Set([
       ...defaultRangeExtractor(range),
       ...Array.from({ length: Math.min(6, plates.length) }, (_, index) => index),
@@ -35,9 +41,11 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focus
       targetIndex,
     ])].filter(index => index >= 0).sort((a, b) => a - b),
     initialRect: { width: 240, height: 5.5 * VARIANT_ROW_HEIGHT + 5 * VARIANT_ROW_GAP },
+    /** Give the virtualizer the standard variant row height before measurement. */
     estimateSize: () => VARIANT_ROW_HEIGHT,
     gap: VARIANT_ROW_GAP,
     overscan: 2,
+    /** Use the plate ID as the row key so reordering preserves row identity. */
     getItemKey: index => plates[index].id,
   })
   const items = virtualizer.getVirtualItems()
@@ -46,6 +54,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focus
     const list = container.current
     if (!list) return
     const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-variant-index]')).filter(row => Number(row.dataset.variantIndex) < 6).sort((a, b) => Number(a.dataset.variantIndex) - Number(b.dataset.variantIndex))
+    /** Recompute the capped viewport after the measured variant rows change. */
     const measure = () => {
       const next = variantListCap(rows.map(row => { const rect = row.getBoundingClientRect(); return { start: rect.top, size: rect.height } }))
       setCap(previous => previous === next ? previous : next)
@@ -62,6 +71,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focus
     const row = list.querySelector<HTMLElement>(`[data-variant-index="${gapIndex}"]`)
     if (row) revealVariantRow(list, row)
   }, [gapIndex, virtualized, virtualizer, cap])
+  /** Position and render one variant row at its virtualized offset. */
   function row(index: number, start?: number) {
     return <div
       key={plates[index].id}

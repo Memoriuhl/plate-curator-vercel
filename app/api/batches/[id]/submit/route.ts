@@ -4,6 +4,9 @@ import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../lib/server/respond'
 import { approvalRun } from '../../../../../workflows/approval'
 
+/**
+ * Submit a batch and start its durable approval workflow when the transition succeeds.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/submit'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

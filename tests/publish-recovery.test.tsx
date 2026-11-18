@@ -16,8 +16,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib/client/live-signal', () => ({ useBatchRevisionSignal: () => 'Live' }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(mocks.query), useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Supply the publish controls for the current workspace scenario. */
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { role: mocks.role } }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: (id: string) => {
     mocks.readBatch(id)
     if (id !== batch.id) return { error: new ApiError(404, 'not_found', {}), mutate: mocks.refresh }
@@ -30,8 +33,14 @@ vi.mock('../lib/client/hooks', () => ({
       mutate: mocks.refresh,
     }
   },
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: mocks.listLoading ? undefined : [{ ...batch, state: mocks.selectedState }], isLoading: mocks.listLoading }),
+  /** Supply the workflow phase used by the fixture batch view. */
   useBatchRun: () => ({ data: mocks.run ? { runId: mocks.runId, phase: mocks.phase, outcome: { error: mocks.runError, reviewedVersion: 1, liveVersion: 2 } } : { phase: 'waiting-for-publish' }, mutate: mocks.refresh }),
+  /**
+   * Supply the baseline mismatch or prepared receipt for the current publish recovery
+   * case.
+   */
   usePublishBaseline: () => ({
     mutate: mocks.refresh,
     data: {
@@ -55,7 +64,9 @@ vi.mock('../lib/client/hooks', () => ({
       }),
     },
   }),
+  /** Keep plate detail unloaded while testing recovery controls. */
   usePlateDetail: () => ({}),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({ copy: mocks.copy, publish: mocks.publish, abandon: mocks.abandon }),
 }))
 beforeEach(() => {

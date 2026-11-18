@@ -21,27 +21,39 @@ const PLATE_MECHANICS = /\b(serials?|serial numbers?|embossed|debossed|surface[-
 const MONEY_OR_SPONSOR = /\b(fees?|funds?|funded|funding|proceeds|sponsor\w*|revenue|dollars?|\$\d[\d,]*)\b|\$\d[\d,]*/gi;
 const SUPERLATIVE = /\b(first|only|oldest|largest|biggest|best|most|longest|highest|fastest|greatest|youngest|newest)\b/gi;
 
+/** Split trimmed text into words for field length and grounding checks. */
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
+/** Normalize text before comparing candidate facts and evidence tokens. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+/**
+ * Extract numbers with consistent punctuation so source comparisons preserve their
+ * values.
+ */
 function numbersIn(text: string): string[] {
   return (text.match(/\d[\d,.]*\d|\d/g) ?? []).map((n) => n.replace(/[,.]$/, '').replace(/,/g, ''));
 }
 
+/** Require all numbers in a claim to appear in its cited evidence. */
 function numbersGrounded(text: string, source: string): boolean {
   const available = new Set(numbersIn(source));
   return numbersIn(text).every((n) => available.has(n));
 }
 
+/** Verify that terms matched by a claim pattern are present in the cited source. */
 function wordsGrounded(pattern: RegExp, text: string, source: string): boolean {
   const src = source.toLowerCase();
   return (text.match(pattern) ?? []).every((w) => src.includes(w.toLowerCase().replace(/^\$/, '$')));
 }
 
+/** Require superlatives in generated text to be supported by the evidence. */
 function superlativesGrounded(text: string, source: string): boolean {
   return wordsGrounded(SUPERLATIVE, text, source);
 }
 
+/**
+ * Find the first description sentence that contains a claim unsupported by its source.
+ */
 function descriptionUngrounded(text: string, sources: Source[]): string | null {
   for (const sentence of sentences(text)) {
     const best = sources
@@ -57,6 +69,10 @@ function descriptionUngrounded(text: string, sources: Source[]): string | null {
 const STOP = new Set(['this', 'that', 'with', 'from', 'were', 'was', 'have', 'has', 'been', 'their', 'they', 'them', 'into', 'about', 'which', 'when', 'where', 'what', 'also', 'than', 'then', 'there', 'these', 'those', 'over', 'more', 'some', 'such', 'plate', 'plates', 'license']);
 export const MIN_SUPPORT = 0.5;
 
+/**
+ * Extract comparable content terms by dropping short and generic words and normalizing
+ * plurals.
+ */
 function contentTokens(text: string): string[] {
   return norm(text)
     .split(' ')
@@ -64,13 +80,19 @@ function contentTokens(text: string): string[] {
     .map((t) => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t));
 }
 
+/** Split evidence into sentences so grounding can be checked against nearby text. */
 function sentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])|\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
+/** Find the smallest useful sentence window that covers a fact's distinguishing terms. */
 export function supportingWindow(claim: string, source: string): { text: string; support: number } {
   const want = [...new Set(contentTokens(claim))];
   const sents = sentences(source);
+  /**
+   * Score windows of the requested width and return the evidence with the strongest term
+   * coverage.
+   */
   const bestOfWidth = (width: number) => {
     let best = { text: '', support: 0 };
     for (let i = 0; i + width <= sents.length; i++) {
@@ -85,15 +107,21 @@ export function supportingWindow(claim: string, source: string): { text: string;
   return single.support >= MIN_SUPPORT ? single : bestOfWidth(2);
 }
 
+/** Resolve an optionally bracketed model citation to a source supplied to the prompt. */
 export function sourceFor(id: unknown, sources: Source[]): Source | null {
   if (typeof id !== 'string') return null;
   return sources.find((s) => s.id === id.trim().replace(/^\[|\]$/g, '')) ?? null;
 }
 
+/**
+ * Validate the generated description against length, specificity and cited evidence
+ * requirements.
+ */
 function validateDescription(raw: Record<string, unknown>, sources: Source[], rejected: Rejection[]) {
   const text = typeof raw.description === 'string' ? raw.description.replace(/\s+/g, ' ').trim() : '';
   if (!text) return { description: null, descriptionSource: null };
   const source = sourceFor(raw.descriptionSource, sources);
+  /** Record the description rejection and clear both the value and its source. */
   const fail = (reason: string) => {
     rejected.push({ field: 'description', reason, value: text });
     return { description: null, descriptionSource: null };
@@ -108,6 +136,7 @@ function validateDescription(raw: Record<string, unknown>, sources: Source[], re
   return { description: text, descriptionSource: source };
 }
 
+/** Accept only a plausible issued year explicitly backed by its cited evidence. */
 function validateYear(raw: Record<string, unknown>, sources: Source[], rejected: Rejection[]): number | null {
   const y = raw.firstIssuedYear as { year?: unknown; source?: unknown } | null | undefined;
   if (y == null || (typeof y === 'object' && y.year == null)) return null;
@@ -130,6 +159,9 @@ function validateYear(raw: Record<string, unknown>, sources: Source[], rejected:
   return year;
 }
 
+/**
+ * Keep unique, sourced plate facts that meet the length, grounding and relevance checks.
+ */
 function validateFacts(raw: Record<string, unknown>, sources: Source[], description: string | null, rejected: Rejection[]): FunFact[] {
   const list = Array.isArray(raw.funFacts) ? raw.funFacts : [];
   const seen = new Set<string>(description ? [norm(description)] : []);
@@ -137,6 +169,7 @@ function validateFacts(raw: Record<string, unknown>, sources: Source[], descript
   for (const item of list) {
     const f = item as { text?: unknown; source?: unknown };
     const text = typeof f?.text === 'string' ? f.text.replace(/\s+/g, ' ').trim() : '';
+    /** Save the rejected fact and reason for the stage's quality report. */
     const reject = (reason: string) => rejected.push({ field: 'funFacts', reason, value: item });
     if (!text) { reject('empty'); continue; }
     const source = sourceFor(f.source, sources);
@@ -158,6 +191,10 @@ function validateFacts(raw: Record<string, unknown>, sources: Source[], descript
   return out;
 }
 
+/**
+ * Validate each story field and return the usable subset alongside specific rejection
+ * reasons.
+ */
 export function validateStory(raw: unknown, sources: Source[]): { draft: StoryDraft; rejected: Rejection[] } {
   const rejected: Rejection[] = [];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -171,6 +208,7 @@ export function validateStory(raw: unknown, sources: Source[]): { draft: StoryDr
   return { draft: { description, descriptionSource, firstIssuedYear, funFacts }, rejected };
 }
 
+/** Build a bounded list of distinct evidence links for the plate's read-more section. */
 export function readMoreFrom(sources: Source[], max = 4): ReadMoreLink[] {
   const seen = new Set<string>();
   const out: ReadMoreLink[] = [];
@@ -183,6 +221,7 @@ export function readMoreFrom(sources: Source[], max = 4): ReadMoreLink[] {
   return out;
 }
 
+/** Derive a readable source name from the link's host. */
 export function siteName(url: string): string {
   const host = new URL(url).hostname.replace(/^www\./, '');
   if (/(^|\.)wikipedia\.org$/.test(host)) return 'Wikipedia';

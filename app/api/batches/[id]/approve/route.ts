@@ -3,6 +3,10 @@ import { approveBatch } from '../../../../../lib/review/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import { badRequest, readJson, respond } from '../../../../../lib/server/respond'
 
+/**
+ * Approve the submitted batch at its expected revision and notify the waiting approval
+ * workflow.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/approve'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

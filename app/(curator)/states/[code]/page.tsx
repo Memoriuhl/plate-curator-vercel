@@ -11,6 +11,7 @@ async function StatePageContent({
   return <StateContent code={code} />
 }
 
+/** Resolve the route's jurisdiction code and render its dashboard content. */
 export default function Dashboard({ params }: { params: Promise<{ code: string }> }) {
   return (
     <Suspense fallback={<DashboardSkeleton kind="state" />}>

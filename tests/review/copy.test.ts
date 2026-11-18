@@ -7,13 +7,17 @@ import { publishBatch } from '../../lib/publish/publish'
 import { submitBatch, approveBatch } from '../../lib/review/batch'
 import { batch, fixture, owner, snapshot } from '../publish/fixture'
 
+/**
+ * Set up old and current catalog baselines and a store for testing how copied edits are
+ * reconciled.
+ */
 function setup() {
   let head = 2
   const store = createMemoryStore([{ ...batch, stateOrders: { CA: ['two', 'one'] }, approvalRun: { runId: 'old', revision: 1 }, publishRequestedAt: 'old' }], () => head)
   const fresh = { version: 2, plates: snapshot.plates.map(plate => ({ ...plate, tags: ['intervening'], variantOfPlateId: 'two', templateRole: 'template' as const, isStandard: plate.id === 'two' })) }
-  const d: CopyDeps = { store, head: async () => head, snapshot: async () => fresh, env: 'test', now: () => '2026-11-16T12:00:00Z' }
+  const d: CopyDeps = { store, /** Expose the current fixture catalog version so the operation can check its baseline. */ head: async () => head, /** Supply the catalog or selection snapshot used by the scenario. */ snapshot: async () => fresh, env: 'test', /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => '2026-11-16T12:00:00Z' }
   const input = { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 }
-  return { d, store, input, fresh, setHead: (version: number) => { head = version } }
+  return { d, store, input, fresh, /** Advance the fixture head so the test can reproduce a live baseline change during copying. */ setHead: (version: number) => { head = version } }
 }
 
 test('copies editable proposals and clears atomically into an unapproved open Batch with fresh before values', async () => {
@@ -33,7 +37,7 @@ test('copies editable proposals and clears atomically into an unapproved open Ba
     resultRevision: plateRevision({ ...f.fresh.plates[0], ...original!.edits[0].fields }),
   })])
   expect(await f.store.readBatch(batch.id)).toEqual(original)
-  const detail = await batchDetail({ ...fixture().deps, store: f.store, baselineAtVersion: async (version, id) => version === 2 ? f.fresh.plates.find(plate => plate.id === id) ?? null : null }, copy.id)
+  const detail = await batchDetail({ ...fixture().deps, store: f.store, /** Return the plate from the requested fixture version so tests can distinguish pinned and live data. */ baselineAtVersion: async (version, id) => version === 2 ? f.fresh.plates.find(plate => plate.id === id) ?? null : null }, copy.id)
   expect(detail).toMatchObject({ ok: true, value: { plates: expect.arrayContaining([expect.objectContaining({ baseline: expect.objectContaining({ tags: ['intervening'] }), proposed: expect.objectContaining({ tags: ['proposed'], variantOfPlateId: null }), edit: expect.objectContaining({ baseRevision: plateRevision(f.fresh.plates[0]), resultRevision: expect.any(String) }) })]) } })
   const deps = fixture().deps
   deps.store = f.store
@@ -61,7 +65,7 @@ test('a copy needs fresh submission and approval, and replay never resets that a
   const result = await copyBatch(f.d, owner, f.input)
   expect(result.ok).toBe(true)
   if (!result.ok) return
-  const deps = { ...fixture().deps, store: f.store, stateBaseline: async () => f.fresh.plates }
+  const deps = { ...fixture().deps, store: f.store, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => f.fresh.plates }
   expect(await approveBatch(deps, owner, result.value.id, 0)).toEqual({ ok: false, error: 'invalid_state' })
   expect(await submitBatch(deps, owner, result.value.id, 0)).toMatchObject({ ok: true, value: { state: 'submitted', revision: 1 } })
   const approved = await approveBatch(deps, owner, result.value.id, 1)

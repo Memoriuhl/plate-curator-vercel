@@ -17,6 +17,7 @@ const bytes = Buffer.from('stored candidate fixture')
 const candidate = { id: 'photo', title: 'Photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg',
   sourceUrl: 'https://commons.wikimedia.org/wiki/File:Plate.jpg', width: 640, height: 320, sha256: createHash('sha256').update(bytes).digest('hex') }
 
+/** Create a scoped queue run with two plates and bind its initial workflow attempt. */
 async function setup(previewOnly = false, sameProvenance = false) {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const plates: Plate[] = ['one', 'two'].map((slug, index) => ({ id: `AK.${slug}`, slug, state: 'AK', displayName: slug, image: `${slug}.webp`, tags: [],
@@ -24,11 +25,13 @@ async function setup(previewOnly = false, sameProvenance = false) {
     ...(sameProvenance ? { imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Old.jpg', sourceUrl: candidate.sourceUrl } : {}) }))
   const store = createMemoryStore([{ id: 'batch', name: 'Connected', createdBy: actor.uid, createdAt: '', revision: 0, baselineVersion: 1,
     plateIds: plates.map(plate => plate.id), stateOrders: { AK: plates.map(plate => plate.id) }, state: 'open', approval: null }])
+  /** Resolve the plate by ID from the fixture baseline. */
   const baseline = async (id: string) => plates.find(plate => plate.id === id) ?? null
   let sequence = 0
-  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('connected')), baseline, baselineAtVersion: async (_, id) => baseline(id),
-    stateBaseline: async () => plates, localScope: 'connected', id: () => `claim-${++sequence}`, now: () => 100, leaseMs: 1000 }
-  const review: ReviewDeps = { store, baseline, baselineAtVersion: async (_, id) => baseline(id), stateBaseline: async () => plates, now: () => '' }
+  const jobs: JobsDeps = { store: createMemoryJobsStore(store, localJobsEnvironment('connected')), baseline, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_, id) => baseline(id),
+    /** Return the fixture state order used by the review or queue operation. */
+    stateBaseline: async () => plates, localScope: 'connected', /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () => `claim-${++sequence}`, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 100, leaseMs: 1000 }
+  const review: ReviewDeps = { store, baseline, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_, id) => baseline(id), /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '' }
   const result = await enqueueRun(jobs, actor, { requestId: 'connected', batchId: 'batch', plateIds: plates.map(plate => plate.id),
     stages: ['find-image', 'wiki-link', 'colors', 'describe', 'story', 'tag', 'group'], previewOnly })
   if (!result.ok) throw Error(result.error)
@@ -37,6 +40,10 @@ async function setup(previewOnly = false, sameProvenance = false) {
   return { jobs, review, plates, run }
 }
 
+/**
+ * Dispatch, claim and report every stage while checking that preview results stay out of
+ * the draft.
+ */
 async function complete(s: Awaited<ReturnType<typeof setup>>) {
   for (let index = 0; index < s.run.attempts[0].steps.length; index++) {
     const id = await dispatchQueueStage({ ...s.jobs }, s.run.id, 1, index, `hook-${index}`)

@@ -1,6 +1,10 @@
 import { expect, test, vi } from 'vitest'
 import { expoPushSender, sendCatalogPush, type CatalogPushDeps, type PushTicket } from '../../lib/publish/catalog-push'
 
+/**
+ * Build a notification fixture that tracks version claims, push delivery and token
+ * cleanup.
+ */
 function fixture(count = 1) {
   let claimed = false
   const store = {

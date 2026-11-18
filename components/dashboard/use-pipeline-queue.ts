@@ -31,6 +31,10 @@ export function PipelineQueueWarmup() {
   return null
 }
 
+/**
+ * Translate queue request errors into actions the curator can take without losing a
+ * pending intent.
+ */
 function queueError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.code === 'publish_in_progress') return 'Wait for the current Publish to finish before queuing more work.'
@@ -44,6 +48,7 @@ function queueError(error: unknown) {
   return 'Could not update the queue. Try again; your request will keep the same ID.'
 }
 
+/** Read local queue state and expose scoped controls for its runs and worker recovery. */
 export function usePipelineQueue(existingBatchId?: string | null, existingBatchName?: string, detailId?: string) {
   const { user, api, ready } = useSession()
   const { mutate } = useSWRConfig()
@@ -81,6 +86,10 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
       : workspace.detail?.batch.state !== 'open' ? 'Selected Batch is read-only' : undefined
     : undefined
 
+  /**
+   * Serialize a queue action for the current user and refresh the list after it
+   * resolves.
+   */
   async function perform<T>(label: string, operation: () => Promise<T>): Promise<T | null> {
     if (!local || !uid || posting.current) return null
     const requestedBy = uid
@@ -98,6 +107,9 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     }
   }
 
+  /**
+   * Submit a persisted enqueue intent and acknowledge it only after the run is accepted.
+   */
   async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false, tagModelId?: string, researchModelId?: string, newBatchName?: string) {
     if (!plates.length || disabledReason) return null
     if (previewOnly && workspace.mode !== 'selected' && !existingBatchId) { setMessage('Preview requires an existing open Batch.'); return null }
@@ -123,6 +135,7 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     })
   }
 
+  /** Request cancellation of the selected run through the shared queue action handler. */
   function cancel(id: string) {
     return perform(`cancel:${id}`, async () => (await api.send<{ run: PipelineRun }>('POST', `${pipelineQueueKey}/${id}/cancel`, {})).run)
   }
@@ -131,6 +144,9 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     return perform(`dismiss:${id}`, async () => (await api.send<{ run: PipelineRun }>('POST', `${pipelineQueueKey}/${id}/dismiss`, {})).run)
   }
 
+  /**
+   * Retry a run with the persistent request ID used to deduplicate repeated submissions.
+   */
   function retry(id: string) {
     return perform(`retry:${id}`, async () => {
       const operation = `retry:${id}`
@@ -141,6 +157,7 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     })
   }
 
+  /** Apply a completed run and refresh the batch and queue data affected by the write. */
   function apply(id: string) {
     return perform(`apply:${id}`, async () => {
       const batch = await api.send<{ id: string }>('POST', `${pipelineQueueKey}/${id}/apply`, {})
@@ -149,14 +166,17 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     })
   }
 
+  /** Submit an image choice for the job waiting in the selected queue run. */
   function chooseImage(id: string, jobId: string, candidateId: string) {
     return perform(`choice:${id}`, async () => api.send('POST', `${pipelineQueueKey}/${id}/choice`, { jobId, candidateId }))
   }
 
+  /** Confirm the stopped worker claim to make the selected run recoverable. */
   function recover(id: string, jobId: string, claimId: string) {
     return perform(`recover:${id}`, async () => api.send('POST', `${pipelineQueueKey}/${id}/recover`, { jobId, claimId, workerStopped: true }))
   }
 
+  /** Confirm a stopped worker claim on an orphaned job outside the current queue run. */
   function recoverOrphan(job: TaggingJob) {
     return perform(`recover:${job.id}`, async () => api.send('POST', `/api/jobs/${job.id}/recover`, { claimId: job.claimId, workerStopped: true }))
   }

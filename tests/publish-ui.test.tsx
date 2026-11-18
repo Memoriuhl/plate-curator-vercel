@@ -10,12 +10,19 @@ import type { BatchDetail } from '../lib/client/hooks'
 const state = vi.hoisted(() => ({ role: 'owner', query: '', batches: [] as import('../lib/review/types').ReviewBatch[], selected: [] as string[] }))
 beforeEach(() => { state.role = 'owner'; state.query = ''; state.batches = []; state.selected = [] })
 vi.mock('../lib/client/hooks', () => ({
+  /** Supply the publish controls for the current workspace scenario. */
   usePublishControl: () => ({ data: { control: null }, change: async () => {} }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { role: state.role } }),
+  /** Supply the publish baseline and release eligibility under test. */
   usePublishBaseline: () => ({}),
+  /** Supply the workflow phase used by the fixture batch view. */
   useBatchRun: () => ({}),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: (id: string) => { state.selected.push(id); return {} },
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: state.batches }),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({}),
 }))
 vi.mock('../lib/client/live-signal', () => ({ useBatchRevisionSignal: () => 'Live' }))

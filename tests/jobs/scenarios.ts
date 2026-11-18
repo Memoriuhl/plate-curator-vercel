@@ -6,22 +6,29 @@ import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewStore } from '../../lib/review/types'
 
+/** Register the shared job lifecycle scenarios against the supplied storage backend. */
 export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: ReviewStore; other: JobsStore }>) {
+  /**
+   * Prepare an open review batch, controlled clock and job dependencies for each store
+   * scenario.
+   */
   async function setup() {
     const stores = await make()
     await stores.review.create({ stateOrders: {}, id: 'batch', name: 'Batch', createdBy: 'owner', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
     let time = 1000
     let sequence = 0
     const plate: Plate = { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
-    const deps: JobsDeps = { store: stores.store, baseline: async id => id === 'missing' ? null : ({ ...plate, id }), now: () => time, id: () => `id-${++sequence}`, leaseMs: 100 }
+    const deps: JobsDeps = { store: stores.store, /** Provide the baseline plate data used by the review or job scenario. */ baseline: async id => id === 'missing' ? null : ({ ...plate, id }), /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => time, /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () => `id-${++sequence}`, leaseMs: 100 }
+    /** Create the default tagging job in the fixture batch with the requested ID. */
     async function create(id = 'job') { return createJob(deps, { id, batchId: 'batch', plateId: 'one', requestedBy: 'requester' }) }
+    /** Claim the next job and stop the test early if the fixture has no eligible work. */
     async function claim() {
       const claimed = await claimNext(deps, 'worker')
       if (!claimed) throw new Error('Expected claim')
       return claimed
     }
     const result = { suggestions: [' Blue ', 'blue', ''], backend: 'local', model: 'model', promptVersion: 'v1', durationMs: 10, usage: { tokens: 4 } }
-    return { ...stores, deps, plate, create, claim, result, advance: (value: number) => { time += value } }
+    return { ...stores, deps, plate, create, claim, result, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: (value: number) => { time += value } }
   }
 
   test('job requester persists and only the requester or an owner can retrieve it', async () => {
@@ -134,7 +141,7 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     const write = vi.fn()
     const transaction = s.store.transaction.bind(s.store)
     const spy = vi.spyOn(s.store, 'transaction').mockImplementation(run => transaction(tx => run({
-      ...tx, set(job) { write(job); tx.set(job) },
+      ...tx, /** Observe each job update while preserving the real transaction write. */ set(job) { write(job); tx.set(job) },
     } as JobsTransaction)))
     s.advance(200)
     expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toEqual(first)

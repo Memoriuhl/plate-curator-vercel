@@ -12,6 +12,7 @@ export const CHECK_META = {
   rarity: { label: 'Rarity', icon: IoDiamondOutline },
 } as const
 
+/** Render the current result for one completeness check with a readable status label. */
 export function StatusIcon({ checkKey, check }: { checkKey: PlateCheckKey; check: Check }) {
   const { label, icon: Icon } = CHECK_META[checkKey]
   return (

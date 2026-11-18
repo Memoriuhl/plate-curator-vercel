@@ -5,6 +5,7 @@ import { badRequest, json, readJson, respond } from '@/lib/server/respond'
 import type { ImageGroupOptions } from '@/lib/jobs/image-options'
 import { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 
+/** Validate the selected grouping scope and start its local pipeline workflow. */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/group'>) {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
   const auth = await currentActor(request)

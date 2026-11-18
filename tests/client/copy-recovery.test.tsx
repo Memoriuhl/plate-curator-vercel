@@ -4,9 +4,9 @@ import { CopyRecovery } from '../../components/publish/copy-recovery'
 import type { ReviewBatch } from '../../lib/review/types'
 
 const actions = vi.hoisted(() => ({ copy: vi.fn(), push: vi.fn() }))
-vi.mock('../../lib/client/hooks', () => ({ useReviewActions: () => ({ copy: actions.copy }) }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: actions.push }) }))
-vi.mock('next/link', () => ({ default: ({ href, children }: { href: string; children: import('react').ReactNode }) => <a href={href}>{children}</a> }))
+vi.mock('../../lib/client/hooks', () => ({ /** Provide controllable batch actions so the test can inspect user requests. */ useReviewActions: () => ({ copy: actions.copy }) }))
+vi.mock('next/navigation', () => ({ /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter: () => ({ push: actions.push }) }))
+vi.mock('next/link', () => ({ /** Render a normal anchor so the test can inspect Next.js link destinations without navigation. */ default: ({ href, children }: { href: string; children: import('react').ReactNode }) => <a href={href}>{children}</a> }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 const batch: ReviewBatch = { id: 'source', name: 'Source', createdBy: 'owner', createdByName: null, createdAt: '', state: 'approved', revision: 2, baselineVersion: 1, stateOrders: {}, plateIds: [], approval: null }
 

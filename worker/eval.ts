@@ -7,6 +7,10 @@ import { ollamaAdapter } from './model'
 
 type EvalPlate = { id: string; state: string; displayName: string; image: string; tags: string[] }
 
+/**
+ * Run tagging against the evaluation corpus and fail the command when its quality
+ * threshold is missed.
+ */
 async function main() {
   const repo = process.env.GAME_REPO
   if (!repo?.trim()) {

@@ -2,6 +2,7 @@ import { researchDeps, readResearchJson, researchResponse } from '@/lib/server/r
 import { researchWorkerIdentity } from '@/lib/research/tokens'
 import { renewResearchClaim } from '@/lib/research/jobs'
 
+/** Renew the worker's current research claim before the lease expires. */
 export async function POST(request: Request, ctx: RouteContext<'/api/research-worker/jobs/[id]/heartbeat'>) {
   const deps = await researchDeps()
   const worker = await researchWorkerIdentity(deps.store, request)

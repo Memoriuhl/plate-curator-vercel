@@ -6,6 +6,10 @@ import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ProposedEdit, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
+/**
+ * Build the coordinated plate edits needed to move a state's standard while preserving
+ * existing draft history.
+ */
 export async function standardEdits(
   d: ReviewDeps, actor: Actor, batch: ReviewBatch, baseline: Plate[], order: string[],
   changes: Map<string, EditableFields>, acknowledgement?: StandardChange,
@@ -43,6 +47,7 @@ export async function standardEdits(
   return { ok: true, value: { edits, deleteEditsFor, plateIds: [...plateIds] } }
 }
 
+/** Check affected state orders for a valid standard before the batch can advance. */
 export function standardOrderProblems(plates: Plate[], edits: ProposedEdit[], orders: Record<string, string[]>): string[] {
   const fields = new Map(edits.map(edit => [edit.plateId, edit.fields]))
   const effective = plates.map(plate => ({ ...plate, ...fields.get(plate.id) }))

@@ -1,6 +1,7 @@
 import { currentActiveOwner, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'
 
+/** Record the revision the owner has viewed after validating that it is current. */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/review-checkpoint'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response
@@ -12,6 +13,10 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   return marked ? json({ revision: body.revision }) : json({ error: 'superseded_revision' }, 409)
 }
 
+/**
+ * Return current draft changes since a requested revision or the viewer's saved
+ * checkpoint.
+ */
 export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]/review-checkpoint'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response

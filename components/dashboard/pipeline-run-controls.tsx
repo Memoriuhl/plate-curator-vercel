@@ -27,6 +27,9 @@ const groupFeatures = ['colorSignal', 'backgroundMask', 'visionTiebreak'] as con
 type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> &
   Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities' | 'selectedBatchName'>>
 
+/**
+ * Configure stages, models and their options for the selected plates before enqueueing.
+ */
 export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }: {
   batchPlates: RunPlate[]; stateName: string; stateCode?: string; queue: Controls
 }) {
@@ -100,6 +103,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const blocked = posting || runBlockers.length > 0
   const reasonsId = `${optionsId}-run-blockers`
 
+  /** Enqueue the selected run and close the controls only after the request succeeds. */
   async function enqueue() {
     if (blocked) return
     const saved = await queue.enqueue([...selected], stages, needsModel ? modelId : tagModel, resolvedOptions, false, tagModel, researchModel?.id, batchName)

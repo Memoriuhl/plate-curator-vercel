@@ -15,20 +15,30 @@ const unchanged: Plate = { id: 'AK.q', state: 'AK', slug: 'q', displayName: 'Q',
 const released: Plate = { ...changed, tags: ['old', 'released-in-15'], templateRole: 'template', templateFamily: 'released', variantOfPlateId: null }
 const catalog: Record<number, Plate[]> = { 14: [changed, unchanged], 15: [released, unchanged] }
 
+/** Register shared baseline-pinning tests against the supplied review and job stores. */
 export function batchBaselineScenarios(make: () => Promise<{ review: ReviewStore; jobs: JobsStore }>, concurrentTimeout?: number) {
+  /**
+   * Create a batch against a controlled snapshot and expose a way to advance the live
+   * catalog.
+   */
   async function setup(version = 14) {
     const stores = await make()
     let live = version
     const deps: ReviewDeps = {
       store: stores.review,
+      /** Resolve the plate by ID from the fixture baseline. */
       baseline: async id => catalog[live].find(plate => plate.id === id) ?? null,
+      /** Resolve the plate by ID from the fixture baseline. */
       baselineAtVersion: async (at, id) => catalog[at]?.find(plate => plate.id === id) ?? null,
+      /** Return fixture baseline plates belonging to the requested state. */
       stateBaseline: async (at, state) => catalog[at].filter(plate => plate.state === state),
+      /** Pin the operation clock so timestamps and lease checks are reproducible. */
       now: () => '2026-11-17T12:00:00Z',
     }
     const batchId = `baseline-${randomUUID()}`
     expect(await createBatch(deps, editor, { id: batchId, name: 'Review', plateIds: [changed.id, unchanged.id], baselineVersion: version })).toMatchObject({ ok: true })
-    const jobs: JobsDeps = { store: stores.jobs, baseline: deps.baseline, baselineAtVersion: deps.baselineAtVersion, now: () => 1000, id: randomUUID, leaseMs: 1000 }
+    const jobs: JobsDeps = { store: stores.jobs, baseline: deps.baseline, baselineAtVersion: deps.baselineAtVersion, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 1000, id: randomUUID, leaseMs: 1000 }
+    /** Read the current plate from batch detail so tests can inspect its pinned view. */
     async function shown(plateId = changed.id) {
       const detail = await batchDetail(deps, batchId)
       if (!detail.ok) throw new Error(detail.error)
@@ -36,6 +46,10 @@ export function batchBaselineScenarios(make: () => Promise<{ review: ReviewStore
       if (!plate) throw new Error('Missing Plate')
       return plate
     }
+    /**
+     * Apply a worker tag suggestion using the fixture's projected plate and edit
+     * revision.
+     */
     async function acceptTag() {
       const jobId = randomUUID()
       const job = await createJob(jobs, { id: jobId, batchId, plateId: changed.id, requestedBy: editor.uid })
@@ -46,7 +60,7 @@ export function batchBaselineScenarios(make: () => Promise<{ review: ReviewStore
       expect(await reportResult(jobs, 'worker', jobId, claim.value.claimId, { suggestions: ['suggested'], backend: 'local', model: 'fixture', promptVersion: 'v1', durationMs: 1 })).toMatchObject({ ok: true })
       return proposeEdit(deps, editor, { batchId, plateId: changed.id, baseRevision: job.value.inputHash, fields: { tags: [...job.value.inputPlate!.tags, 'suggested'] } })
     }
-    return { deps, batchId, shown, acceptTag, advance: () => { live = 15 } }
+    return { deps, batchId, shown, acceptTag, /** Move the test clock forward so deadlines can be reached without waiting. */ advance: () => { live = 15 } }
   }
 
   test('changed Plate accepts two shown revisions after the Catalog advances beyond its Batch', async () => {

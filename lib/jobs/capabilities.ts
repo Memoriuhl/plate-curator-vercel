@@ -5,6 +5,10 @@ export type Availability = { available: boolean; reason?: string }
 export type LocalWorkerCapabilities = { group: Availability; embeddings: Availability; mask: Availability; vision: Availability; enhanceImage?: Availability; pollIntervalMs: number }
 export type WorkerCapabilityRecord = { workerId: string; reportedAt: number; supportsSavedSources?: boolean; capabilities: LocalWorkerCapabilities }
 
+/**
+ * Decide when a capability heartbeat warrants a write so identical reports can wait for
+ * the next polling interval.
+ */
 export function shouldWriteCapabilities(previous: WorkerCapabilityRecord | null, record: WorkerCapabilityRecord): boolean {
   if (!previous) return true
   if (record.reportedAt < previous.reportedAt) return false
@@ -15,6 +19,10 @@ export function shouldWriteCapabilities(previous: WorkerCapabilityRecord | null,
   return !unchanged || record.reportedAt - previous.reportedAt >= record.capabilities.pollIntervalMs
 }
 
+/**
+ * Validate a worker capability report before storing limits and feature availability
+ * from a local worker.
+ */
 export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
@@ -32,6 +40,10 @@ export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities
   return { ...Object.fromEntries(entries), pollIntervalMs: Number(input.pollIntervalMs) } as LocalWorkerCapabilities
 }
 
+/**
+ * Record a validated heartbeat so the dashboard can advertise the worker's current
+ * capabilities.
+ */
 export async function reportLocalWorkerCapabilities(d: JobsDeps, workerId: string, input: unknown, supportsSavedSources?: boolean): Promise<boolean> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope) return false
   const capabilities = parseWorkerCapabilities(input)
@@ -40,6 +52,10 @@ export async function reportLocalWorkerCapabilities(d: JobsDeps, workerId: strin
   return true
 }
 
+/**
+ * Load the local worker's capabilities and interpret its heartbeat age for queue
+ * controls.
+ */
 export async function readLocalWorkerCapabilities(d: JobsDeps) {
   const record = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && d.localScope ? await d.store.readCapabilities(d.localScope) : null
   const fresh = record && record.reportedAt <= d.now() && d.now() - record.reportedAt <= 2 * record.capabilities.pollIntervalMs

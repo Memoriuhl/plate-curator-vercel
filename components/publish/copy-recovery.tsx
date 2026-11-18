@@ -8,6 +8,10 @@ import { useReviewActions } from '@/lib/client/hooks'
 import type { ReviewBatch } from '@/lib/review/types'
 import { Button } from '@/components/ui/button'
 
+/**
+ * Offer a fresh-baseline copy when a batch cannot continue publishing from its original
+ * snapshot.
+ */
 export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: ReviewBatch; liveVersion: number; receiptConflict: boolean }) {
   const router = useRouter()
   const actions = useReviewActions()
@@ -17,6 +21,10 @@ export function CopyRecovery({ batch, liveVersion, receiptConflict }: { batch: R
   const [reasons, setReasons] = useState<string[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  /**
+   * Copy the batch and expose the new draft link or the validation reasons preventing
+   * it.
+   */
   async function copy() {
     setBusy(true)
     setMessage('')

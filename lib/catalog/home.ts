@@ -1,5 +1,6 @@
 import type { CuratorState, Snapshot, StateProgress } from './types'
 
+/** Summarize per-state plate counts and saved progress for the dashboard navigation. */
 export function stateSummaries(snapshot: Snapshot, curator: CuratorState): {
   state: string
   plateCount: number

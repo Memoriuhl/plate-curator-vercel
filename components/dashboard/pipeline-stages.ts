@@ -82,6 +82,7 @@ export const newRunStages = pipelineStages.filter(
 
 export type PipelineCapabilities = Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
 
+/** Explain whether the current worker and deployment can execute the selected stage. */
 export function stageAvailability(stage: StageDefinition, local: boolean, capabilities?: PipelineCapabilities) {
   if (local && (stage.id === 'group' || stage.id === 'find-image' || stage.id === 'enhance-image')) {
     if (!capabilities) return 'Local worker not reporting'

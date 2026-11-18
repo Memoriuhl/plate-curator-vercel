@@ -3,6 +3,10 @@ import { parseFieldSuggestion } from '../../lib/jobs/suggestions'
 import type { StageResult, WorkerPlate } from '../run'
 import { standardPlateReference, wikipediaQuery } from './sources'
 
+/**
+ * Find a relevant Wikipedia link for the exact plate or report that no useful source
+ * matched.
+ */
 export async function findWikipediaLink(plate: WorkerPlate, request: typeof fetch = fetch): Promise<StageResult> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') throw Error('Local Wikipedia lookup is unavailable')
   const metadata = { backend: 'wikipedia', model: 'wikipedia-search', promptVersion: 'wiki-link-v2' }

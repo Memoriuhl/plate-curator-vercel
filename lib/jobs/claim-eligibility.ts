@@ -1,5 +1,6 @@
 import type { TaggingJob } from './types'
 
+/** Accept queued jobs and claimed jobs whose leases have expired. */
 export function claimable(job: TaggingJob, now: number) {
   return job.state === 'queued' || (job.state === 'claimed' && job.leaseExpiresAt !== undefined && job.leaseExpiresAt <= now)
 }

@@ -7,9 +7,10 @@ import type { ResearchJob } from '../../lib/research/types'
 import type { ResearchStore } from '../../lib/research/store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 
+/** Build scoped research and review dependencies around the supplied job store. */
 function dependencies(store: ResearchStore): ResearchDeps {
-  return { store, now: () => 1000, active: async () => true, id: () => 'id', hostedEnabled: true,
-    review: { store: createMemoryStore([]), baseline: async () => null, baselineAtVersion: async () => null, stateBaseline: async () => [], now: () => 'now' },
+  return { store, /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 1000, /** Keep the fixture requester active so hosted state transitions can proceed. */ active: async () => true, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'id', hostedEnabled: true,
+    review: { store: createMemoryStore([]), /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null, /** Simulate an absent plate in the catalog baseline for this case. */ baselineAtVersion: async () => null, /** Simulate a state with no available baseline plates. */ stateBaseline: async () => [], /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () => 'now' },
   }
 }
 
@@ -19,6 +20,7 @@ test('restarted hosted dispatch reuses the stored operation identity and receipt
   await store.transaction(async tx => { tx.set(job) })
   const deps = dependencies(store)
   const operations: string[] = []
+  /** Record the dispatched job and return a controlled hosted session and delivery ID. */
   const create = async (job: ResearchJob) => { operations.push(job.id); return { sessionId: 'session', deliveryId: 'delivery' } }
   expect(await dispatchEveResearch(deps, 'job', create)).toMatchObject({ state: 'running', eve: { sessionId: 'session' } })
   expect(await dispatchEveResearch(deps, 'job', create)).toMatchObject({ eve: { sessionId: 'session' } })

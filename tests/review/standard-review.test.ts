@@ -10,10 +10,11 @@ import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
 const actor = { uid: 'editor', name: null, role: 'editor' } as const
 const plates: Plate[] = ['first', 'old', 'third'].map(id => ({ id, state: 'CA', slug: id, displayName: id, image: '', tags: [], templateFamily: id, templateRole: 'template', isStandard: id === 'old' }))
+/** Build ordered state and batch fixtures for standard-plate validation during review. */
 function setup() {
   const batch: ReviewBatch = { id: 'legacy', name: 'Legacy', createdBy: actor.uid, createdByName: null, createdAt: '', state: 'open', revision: 0, baselineVersion: 1, stateOrders: { CA: plates.map(plate => plate.id) }, plateIds: [], approval: null }
   const store = createMemoryStore([batch])
-  const deps: ReviewDeps = { store, now: () => '', baseline: async id => plates.find(plate => plate.id === id) ?? null, baselineAtVersion: async (_v, id) => plates.find(plate => plate.id === id) ?? null, stateBaseline: async () => plates }
+  const deps: ReviewDeps = { store, /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '', /** Resolve the plate by ID from the fixture baseline. */ baseline: async id => plates.find(plate => plate.id === id) ?? null, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_v, id) => plates.find(plate => plate.id === id) ?? null, /** Return the fixture state order used by the review or queue operation. */ stateBaseline: async () => plates }
   return { batch, store, deps }
 }
 test('legacy mismatches allow unrelated edits and reorders; submit requires an explicit repair', async () => {
@@ -47,7 +48,7 @@ test('copy warns about a new baseline Standard and can be repaired in the copied
   const approved = { ...batch, baselineVersion: 0, state: 'approved' as const, plateIds: ['first', 'old'], approval: { revision: 0, by: 'owner', at: '' } }
   await store.commit(batch.id, 0, { batch: approved, edits: ['first', 'old'].map(plateId => ({ plateId, fields: { isStandard: plateId === 'first' }, baseRevision: '', resultRevision: '', authorId: actor.uid, updatedAt: '' })) })
   const current = plates.map(plate => ({ ...plate, isStandard: plate.id === 'third' }))
-  const result = await copyBatch({ store, env: 'test', now: () => '', head: async () => 1, snapshot: async () => ({ version: 1, plates: current }) }, { ...actor, role: 'owner' }, { sourceId: batch.id, sourceRevision: 0, targetVersion: 1 })
+  const result = await copyBatch({ store, env: 'test', /** Use an empty timestamp where the scenario does not depend on dates. */ now: () => '', /** Expose the current fixture catalog version so the operation can check its baseline. */ head: async () => 1, /** Supply the catalog or selection snapshot used by the scenario. */ snapshot: async () => ({ version: 1, plates: current }) }, { ...actor, role: 'owner' }, { sourceId: batch.id, sourceRevision: 0, targetVersion: 1 })
   expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining('CA:')] })
   expect(await store.list({})).toHaveLength(2)
   if (!result.ok) throw new Error('Expected copy')

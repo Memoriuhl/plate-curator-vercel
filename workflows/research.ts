@@ -1,5 +1,6 @@
 import { createHook, sleep } from 'workflow'
 
+/** Dispatch a hosted research job and poll its result through the deadline. */
 export async function researchRun(jobId: string) {
   'use workflow'
   const admission = createHook({ token: `research-start:${jobId}` })
@@ -12,6 +13,10 @@ export async function researchRun(jobId: string) {
   return { outcome: await settleResearch(jobId), admission: admission.token }
 }
 
+/**
+ * Deliver the research request to Eve in a step with the configured deploy protection
+ * credentials.
+ */
 async function dispatchResearch(jobId: string) {
   'use step'
   const { researchDeps } = await import('../lib/server/research-context')
@@ -27,6 +32,7 @@ async function dispatchResearch(jobId: string) {
   })
 }
 
+/** Settle hosted research from the evidence and draft recorded by the remote agent. */
 async function settleResearch(jobId: string) {
   'use step'
   const { researchDeps } = await import('../lib/server/research-context')

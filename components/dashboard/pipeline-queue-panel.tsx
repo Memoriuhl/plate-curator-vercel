@@ -37,6 +37,10 @@ const queueWaitLabels: Record<QueueWait, string> = {
   worker_claim: 'Waiting for the local worker to pick up this step',
 }
 
+/**
+ * Summarize the active or terminal queue state with the most actionable error or wait
+ * reason.
+ */
 function label(run: QueueRunSummary) {
   const attempt = run.attempts.at(-1)!
   if (run.cancelRequestedAt !== undefined && run.status === 'running') return 'Cancellation requested · waiting for the active stage to finish'
@@ -47,6 +51,10 @@ function label(run: QueueRunSummary) {
   return run.status[0].toUpperCase() + run.status.slice(1)
 }
 
+/**
+ * Show the selected queue run, saved drafts, stage results and permitted recovery
+ * controls.
+ */
 export function PipelineQueuePanel({ queue, header, requester }: { queue: QueueControls; header?: ReactNode; requester?(uid: string): string | undefined }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
   return <section aria-label="Pipeline queue and history" className={styles.panel}>

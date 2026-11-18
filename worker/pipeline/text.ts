@@ -8,6 +8,10 @@ import { gatherWikipedia, type Source } from './sources'
 import { STORY_SCHEMA, STORY_SYSTEM, storyUserPrompt } from './prompt'
 import { readMoreFrom, sourceFor, validateStory } from './validate'
 
+/**
+ * Build the local text stage handler that retrieves sources, prompts the model and
+ * validates supported fields.
+ */
 export function createTextStageHandler(options: { url: string; fetch?: typeof fetch; gather?: typeof gatherWikipedia; onRejected?: (reasons: string[]) => void }): NonNullable<WorkerDeps['suggestFields']> {
   const request = options.fetch ?? fetch
   return async ({ stage, plate, model: requested }) => {

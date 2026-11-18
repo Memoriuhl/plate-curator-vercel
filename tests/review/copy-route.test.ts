@@ -5,9 +5,10 @@ import { GET as preflight } from '../../app/api/batches/[id]/publish/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { batch, owner, snapshot, fixture } from '../publish/fixture'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), publishAllowed: () => true, publishDeps: vi.fn(), reviewDeps: vi.fn(), reviewEnv: () => 'test' }))
-vi.mock('../../lib/server/context', () => ({ ...mocks, requesterAuthority: (actor: { uid: string; email: string; authorityEpoch: number }) => ({ uid: actor.uid, email: actor.email, authorityEpoch: actor.authorityEpoch }) }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), /** Set deployment-level publish availability for this route test. */ publishAllowed: () => true, publishDeps: vi.fn(), reviewDeps: vi.fn(), /** Use an isolated review environment for the copy route's batch lookup. */ reviewEnv: () => 'test' }))
+vi.mock('../../lib/server/context', () => ({ ...mocks, /** Supply a durable authority record for the fixture owner who requests a copy. */ requesterAuthority: (actor: { uid: string; email: string; authorityEpoch: number }) => ({ uid: actor.uid, email: actor.email, authorityEpoch: actor.authorityEpoch }) }))
 const ctx = { params: Promise.resolve({ id: batch.id }) }
+/** Build the POST request the route fixture passes to its handler. */
 const request = (body: unknown) => new Request('http://localhost/api/batches/batch/copy', { method: 'POST', body: JSON.stringify(body) })
 
 beforeEach(() => {
@@ -15,7 +16,7 @@ beforeEach(() => {
   mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { ...owner, email: 'owner@example.com', authorityEpoch: 0 } })
   mocks.currentActor.mockResolvedValue({ ok: true, actor: owner })
   const store = createMemoryStore([batch], () => 2)
-  const deps = { ...fixture().deps, store, pointer: { read: async () => ({ version: 2 }) }, snapshots: { read: async () => ({ ...snapshot, version: 2 }) }, baselineAtVersion: async (_v: number, id: string) => snapshot.plates.find(plate => plate.id === id) ?? null }
+  const deps = { ...fixture().deps, store, pointer: { /** Expose the live catalog pointer to which the copied batch should be pinned. */ read: async () => ({ version: 2 }) }, snapshots: { /** Return the fixture snapshot for the live version used by the copy. */ read: async () => ({ ...snapshot, version: 2 }) }, /** Resolve the plate by ID from the fixture baseline. */ baselineAtVersion: async (_v: number, id: string) => snapshot.plates.find(plate => plate.id === id) ?? null }
   mocks.publishDeps.mockReturnValue(deps)
   mocks.reviewDeps.mockReturnValue(deps)
 })

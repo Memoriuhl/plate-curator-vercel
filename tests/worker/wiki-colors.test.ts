@@ -3,6 +3,10 @@ import { findWikipediaLink } from '../../worker/pipeline/wiki'
 import { createColorStageHandler } from '../../worker/pipeline/colors'
 import type { StageResult } from '../../worker/run'
 
+/**
+ * Assert that the stage produced a field suggestion before returning its fields for
+ * inspection.
+ */
 function suggestedFields(result: StageResult) {
   expect(result.fieldSuggestion?.kind).toBe('fields')
   return result.fieldSuggestion?.kind === 'fields' ? result.fieldSuggestion.fields : undefined
@@ -53,7 +57,7 @@ test('Colors proposes legacy color fields and text-color tags while preserving u
 test('missing local images return an explicit result without model inference', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const fetch = vi.fn<typeof globalThis.fetch>()
-  const handler = createColorStageHandler({ url: 'http://localhost:11434', fetch, readImage: async () => { throw Object.assign(Error('Missing'), { code: 'ENOENT' }) } })
+  const handler = createColorStageHandler({ url: 'http://localhost:11434', fetch, /** Fail the fixture image read so the worker can exercise download error handling. */ readImage: async () => { throw Object.assign(Error('Missing'), { code: 'ENOENT' }) } })
   expect(await handler({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'missing.webp', tags: [] } })).toMatchObject({ stageError: 'missing_image' })
   expect(fetch).not.toHaveBeenCalled()
 })
@@ -69,7 +73,7 @@ test('Colors retries share one inference deadline and never restart it', async (
     if (signals.length === 1) return new Promise(resolve => setTimeout(() => resolve(new Response('', { status: 500 })), 90000))
     return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
   })
-  const settled = createColorStageHandler({ url: 'http://localhost:11434', fetch, readImage: async () => 'base64' })({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'one.webp', tags: [] } }).catch(error => error)
+  const settled = createColorStageHandler({ url: 'http://localhost:11434', fetch, /** Provide fixture image data to the worker so the test can exercise its result without a real download. */ readImage: async () => 'base64' })({ stage: 'colors', plate: { displayName: 'One', state: 'MD', image: 'one.webp', tags: [] } }).catch(error => error)
   await vi.advanceTimersByTimeAsync(121200)
   expect(await settled).toMatchObject({ message: 'Local Colors inference deadline exceeded' })
   expect(fetch).toHaveBeenCalledTimes(2)

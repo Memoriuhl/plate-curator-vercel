@@ -5,9 +5,12 @@ import type { Plate } from './types'
 
 export const minimumPlateTagCount = 3
 
+/** Convert empty text to a missing value for plate completeness checks. */
 const text = (value: unknown): string | null => typeof value === 'string' && value.length > 0 ? value : null
+/** Describe a field's completeness using its value and optional weakness signal. */
 const check = (value: string | null, weak = false): Check => ({ status: value === null ? 'missing' : weak ? 'weak' : 'good', value })
 
+/** Evaluate the plate fields the curator inspects when deciding what still needs work. */
 export function plateChecks(plate: Plate, imageUrl: string | null): PlateChecks {
   const description = text(plate.description)
   const sourceUrl = text(plate.sourceUrl)
@@ -27,6 +30,7 @@ export function plateChecks(plate: Plate, imageUrl: string | null): PlateChecks 
   }
 }
 
+/** Require a good result for each field that counts toward plate completeness. */
 export function isComplete(checks: PlateChecks): boolean {
   return COMPLETENESS_CHECK_KEYS.every(key => checks[key].status === 'good')
 }

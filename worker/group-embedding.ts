@@ -8,6 +8,10 @@ import sharp from 'sharp'
 
 export type EmbeddingGroups = { groups: { templateId: string; variants: { id: string }[] }[]; similarities: number[][]; model: string }
 
+/**
+ * Run the legacy embedding tool with temporary input images and remove them when the
+ * grouping attempt ends.
+ */
 export function legacyEmbeddingRunner(options: { python: string; legacyRepo: string; readImage: (image: string) => Promise<string>; cache: string; script?: string }) {
   return async (scope: GroupInput, stageOptions: ImageGroupOptions): Promise<EmbeddingGroups> => {
     const temporary = await mkdtemp(join(tmpdir(), 'pcv-group-'))

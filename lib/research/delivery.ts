@@ -3,6 +3,10 @@ import { researchServiceToken } from './tokens'
 import { researchRequestMessage } from './request'
 
 type Deps = { baseUrl: string; secret: string; deploymentHost?: string; trustedOidc?: () => Promise<string>; protectionBypass?: string; fetch: typeof fetch }
+/**
+ * Send a signed hosted research request to Eve and return the delivery identifier needed
+ * for tracking.
+ */
 export async function createEveResearchDelivery(job: Pick<ResearchJob, 'id' | 'env' | 'requestedBy' | 'input'>, deps: Deps, message = researchRequestMessage(job.input)) {
   const token = await researchServiceToken(job, deps.secret)
   const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }

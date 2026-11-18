@@ -6,12 +6,16 @@ import type { WorkerCapabilityRecord } from '../../lib/jobs/capabilities'
 test('local jobs use their own environment while reading only the configured review environment', async () => {
   const get = vi.fn(async (ref: { path?: string; query?: string[] }) => {
     if (ref.query) return { docs: [] }
-    if (ref.path?.includes('/edits/')) return { exists: true, data: () => ({ plateId: 'AK.one', fields: { description: 'Draft' } }) }
-    return { exists: true, get: (key: string) => key === 'env' ? 'development' : key === 'baselineVersion' ? 42 : undefined }
+    if (ref.path?.includes('/edits/')) return { exists: true, /** Return a fixture edit containing the draft field the jobs store should project. */ data: () => ({ plateId: 'AK.one', fields: { description: 'Draft' } }) }
+    return { exists: true, /** Expose the batch's scoped environment and pinned baseline version through the mocked read. */ get: (key: string) => key === 'env' ? 'development' : key === 'baselineVersion' ? 42 : undefined }
   })
-  const document = (path: string): unknown => ({ path, collection: (name: string) => ({ doc: (id: string) => document(`${path}/${name}/${id}`) }) })
+  /**
+   * Build nested Firestore paths so the test can inspect the documents accessed by the
+   * adapter.
+   */
+  const document = (path: string): unknown => ({ path, /** Expose the fixture collection through the Firestore adapter interface. */ collection: (name: string) => ({ /** Resolve the requested document through the Firestore fixture. */ doc: (id: string) => document(`${path}/${name}/${id}`) }) })
   const where = vi.fn((_field: string, _op: string, value: string) => ({ query: ['env', value] }))
-  const db = { collection: (name: string) => ({ doc: (id: string) => document(`${name}/${id}`), where }), runTransaction: (run: (tx: object) => unknown) => run({ get }) } as unknown as Firestore
+  const db = { /** Expose the fixture collection through the Firestore adapter interface. */ collection: (name: string) => ({ /** Resolve the requested document through the Firestore fixture. */ doc: (id: string) => document(`${name}/${id}`), where }), /** Execute the callback with the transaction behavior this scenario needs. */ runTransaction: (run: (tx: object) => unknown) => run({ get }) } as unknown as Firestore
   const store = firestoreJobsStore(db, 'preview:local-pipeline-test', 'development')
   expect(await store.transaction(tx => tx.review('own-batch', 'AK.one'))).toMatchObject({ baselineVersion: 42, fields: { description: 'Draft' } })
   await store.transaction(tx => tx.list())
@@ -24,8 +28,10 @@ test('capability storage skips duplicate writes within a poll interval and recor
   let stored: WorkerCapabilityRecord | null = null
   const set = vi.fn((_ref: unknown, record: WorkerCapabilityRecord) => { stored = structuredClone(record) })
   const db = {
-    collection: () => ({ doc: (id: string) => ({ id }) }),
-    runTransaction: (run: (tx: object) => unknown) => run({ get: async () => ({ exists: stored !== null, data: () => stored }), set }),
+    /** Expose the fixture collection through the Firestore adapter interface. */
+    collection: () => ({ /** Resolve the requested document through the Firestore fixture. */ doc: (id: string) => ({ id }) }),
+    /** Execute the callback with the transaction behavior this scenario needs. */
+    runTransaction: (run: (tx: object) => unknown) => run({ /** Return the fixture worker capability document and indicate whether it exists. */ get: async () => ({ exists: stored !== null, /** Expose the current stored capability record through the document snapshot. */ data: () => stored }), set }),
   } as unknown as Firestore
   const store = firestoreJobsStore(db, 'development')
   const record: WorkerCapabilityRecord = { workerId: 'worker', reportedAt: 1000, capabilities: { group: { available: true }, embeddings: { available: true }, mask: { available: true }, vision: { available: false, reason: 'Unavailable' }, pollIntervalMs: 5000 } }

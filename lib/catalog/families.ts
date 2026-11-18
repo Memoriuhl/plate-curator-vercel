@@ -1,5 +1,6 @@
 import type { Plate } from './types'
 
+/** Resolve the family role from explicit catalog data or legacy template references. */
 export function familyRole(plate: Pick<Plate, 'templateRole' | 'isTemplate' | 'variantOfPlateId'>) {
   if (plate.templateRole) return plate.templateRole
   if (typeof plate.isTemplate === 'boolean') return plate.isTemplate ? 'template' : 'variant'
@@ -15,11 +16,21 @@ type FamilyMember = {
   variantOfPlateId?: string | null
 }
 
+/**
+ * Collect templates and their variants within each state for the curator's family view.
+ */
 export function groupFamilies<T extends FamilyMember>(plates: readonly T[]) {
+  /**
+   * Sort plates by catalog position with a stable ID tie breaker when positions match.
+   */
   const compare = (a: T, b: T) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.id.localeCompare(b.id)
   const ordered = [...plates].sort(compare)
   const heads = new Map<string, T>()
   const byId = new Map(ordered.map(plate => [plate.id, plate]))
+  /**
+   * Scope a family key by both state and family label because labels can recur across
+   * states.
+   */
   const familyKey = (plate: T) => JSON.stringify([plate.state, plate.templateFamily])
   for (const plate of ordered) {
     if (plate.templateFamily && plate.templateRole === 'template' && !heads.has(familyKey(plate))) {

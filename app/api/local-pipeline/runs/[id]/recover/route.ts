@@ -3,6 +3,7 @@ import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson } from '../../../../../../lib/server/respond'
 import { queueResponse, wakeLocalJob } from '../../../../../../lib/server/local-queue'
 
+/** Confirm that the abandoned worker claim has stopped so the run can recover. */
 export async function POST(request: Request, ctx: RouteContext<'/api/local-pipeline/runs/[id]/recover'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

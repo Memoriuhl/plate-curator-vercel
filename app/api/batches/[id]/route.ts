@@ -6,6 +6,9 @@ import { plateImageUrl } from '@/lib/catalog/image-url'
 const pageSize = 100
 const responseByteBudget = 2_000_000
 
+/**
+ * Read a batch detail page and enforce a single revision across its pagination cursor.
+ */
 export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

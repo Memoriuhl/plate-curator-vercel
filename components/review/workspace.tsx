@@ -63,6 +63,10 @@ function StateVisibilityControl({ value, onChange }: { value: StateVisibility; o
   </fieldset>
 }
 
+/**
+ * Render the batch author's avatar, using the signed-in profile when it belongs to the
+ * viewer.
+ */
 function Author({ uid, name }: { uid: string; name?: string | null }) {
   const me = useMe()
   const own = me.data?.uid === uid
@@ -80,6 +84,10 @@ function Author({ uid, name }: { uid: string; name?: string | null }) {
   )
 }
 
+/**
+ * Load one batch detail and communicate its current data or failure to the review
+ * workspace.
+ */
 function BatchLoader({
   batch,
   onLoad,
@@ -101,11 +109,19 @@ function BatchLoader({
   return error ? <p role="alert">Could not load batch {batch.name}.</p> : null
 }
 
+/**
+ * Format an audit timestamp for display while retaining an unreadable value for
+ * inspection.
+ */
 function when(at: string) {
   const date = new Date(at)
   return Number.isNaN(date.getTime()) ? at : date.toLocaleString()
 }
 
+/**
+ * Turn review action failures into readable messages and preserve server validation
+ * reasons.
+ */
 export function reviewError(error: unknown, revision: number) {
   const code =
     error && typeof error === 'object' && 'code' in error ? error.code : ''
@@ -119,6 +135,9 @@ export function reviewError(error: unknown, revision: number) {
   return 'Could not save this action. Please try again.'
 }
 
+/**
+ * Show the displayed Batch revision, changed plate counts, and permitted review actions.
+ */
 export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const me = useMe()
   const batch = detail.batch
@@ -169,6 +188,10 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   )
 }
 
+/**
+ * Resolve the active review batch and plate from the URL and render the live diff
+ * workspace.
+ */
 export function ReviewWorkspace({ states }: { states: State[] }) {
   const params = useSearchParams()
   const router = useRouter()
@@ -246,6 +269,9 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const mobile = !batchId && params.get('view') === 'states' && !code && !plateId ? 'states'
     : plateId || (!listed.length && !term) || (batchId && recent.isLoading) ? 'detail' : 'plates'
   const images = new Map(states.flatMap(state => state.plates.map(plate => [plate.id, plate.imageUrl])))
+  /**
+   * Retrieve the image for a related plate from the review workspace's preloaded index.
+   */
   const plateImage = (id: string) => images.get(id)
   const canDiscard = !!entry && !!me.data && canEdit(entry.batch, me.data) && editableStates.includes(entry.batch.state)
   async function discard(target: DraftChangeTarget) {
@@ -262,6 +288,10 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       setReverting(false)
     }
   }
+  /**
+   * Revert a selected pipeline field and display the operation's result in the review
+   * panel.
+   */
   async function revert(field: keyof EditableFields, jobId: string) {
     if (!entry) return
     const plateId = entry.baseline.id

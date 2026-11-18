@@ -34,10 +34,12 @@ export type TaggingModelId = (typeof TAGGING_MODELS)[number]['id']
 
 export const DEFAULT_TAGGING_MODEL: TaggingModelId = 'desktop-gemma4-12b'
 
+/** Resolve a known tagging model by its stable catalog ID. */
 export function taggingModel(id: unknown): TaggingModel | null {
   return TAGGING_MODELS.find(model => model.id === id) ?? null
 }
 
+/** Parse the enabled model configuration and discard unrecognized IDs. */
 export function enabledTaggingModels(setting: string | undefined): TaggingModel[] {
   if (!setting?.trim()) return TAGGING_MODELS.filter(model => model.runsOn === 'desktop')
   return setting.split(',').flatMap(id => taggingModel(id.trim()) ?? [])
@@ -45,6 +47,9 @@ export function enabledTaggingModels(setting: string | undefined): TaggingModel[
 
 export type TaggingChoice = { ok: true; model: TaggingModel } | { ok: false; error: 'bad_request' | 'unavailable' }
 
+/**
+ * Resolve an allowed tagging model and distinguish an unknown model from a disabled one.
+ */
 export function chooseTaggingModel(requested: unknown, enabled: readonly TaggingModel[], preferred?: unknown): TaggingChoice {
   if (requested === undefined) {
     const model = enabled.find(m => m.id === preferred) ?? enabled.find(m => m.id === DEFAULT_TAGGING_MODEL) ?? enabled[0]

@@ -5,6 +5,10 @@ import { useSession } from './session'
 
 export type InviteLookup = { status: 'invalid' } | { status: 'valid' | 'expired'; email: string }
 
+/**
+ * Look up the invitation afresh so expiration and reissues are visible on the invite
+ * page.
+ */
 export function useInvite(token: string) {
   return useSWR<InviteLookup>(`/api/invites/${encodeURIComponent(token)}`, async path => {
     const response = await fetch(path, { cache: 'no-store' })
@@ -13,6 +17,7 @@ export function useInvite(token: string) {
   }, { revalidateIfStale: true, dedupingInterval: 0 })
 }
 
+/** Request a new invite link and refresh the membership data that displays it. */
 export function useReissueInvite() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()

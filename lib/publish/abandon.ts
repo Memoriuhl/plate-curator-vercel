@@ -5,8 +5,13 @@ import { claimTakeoverEligible, CLAIM_TTL_MS, type EligibilityInput } from './el
 import { validTarget } from './allocation'
 import { publishCommandKey } from './control'
 
+/** Derive a stable archive ID so a retried abandonment finds the same receipt. */
 export const abandonedReceiptId = (record: Pick<PublishRecord, 'id' | 'commandId' | 'abandonment'>) => record.abandonment?.receiptId ?? `${record.id}--${record.commandId ?? 'legacy'}`
 
+/**
+ * Recover the publish claim from the batch, falling back to its approval run for older
+ * records.
+ */
 export function abandonClaim(batch: ReviewBatch | null, record: PublishRecord, stored: EligibilityInput['claim'], now: string, ttl = CLAIM_TTL_MS): NonNullable<EligibilityInput['claim']> {
   const pending = batch?.publishCommand?.revision === record.revision ? batch.publishCommand : undefined
   return stored ?? {
@@ -16,6 +21,10 @@ export function abandonClaim(batch: ReviewBatch | null, record: PublishRecord, s
   }
 }
 
+/**
+ * Check that the saved receipt and workflow evidence allow abandonment without
+ * disturbing the live snapshot.
+ */
 export function abandonmentError(input: {
   saved: PublishRecord | null; expected: PublishRecord; liveVersion: number; committedTarget: boolean;
   claim: NonNullable<EligibilityInput['claim']>; stop?: PublishStop | null; status?: string | null; now: string; ttl?: number; claimChanged?: boolean
@@ -29,6 +38,10 @@ export function abandonmentError(input: {
   return null
 }
 
+/**
+ * Build the archival plan that records the abandoned receipt and fences all related
+ * commands.
+ */
 export function abandonmentPlan(record: PublishRecord, claim: NonNullable<EligibilityInput['claim']>, actor: RequesterAuthority, reason: string, object: SnapshotObject | null, now: string) {
   const id = abandonedReceiptId(record)
   const disposition: Abandonment = { receiptId: id, commandId: publishCommandKey(record), burnedVersion: record.toVersion, by: actor, at: now, reason, object }
@@ -36,8 +49,16 @@ export function abandonmentPlan(record: PublishRecord, claim: NonNullable<Eligib
   return { disposition, archived, commands: abandonmentCommands(record, claim) }
 }
 
+/**
+ * Collect the earlier and current commands that must be stopped when a receipt is
+ * abandoned.
+ */
 export const abandonmentCommands = (record: PublishRecord, claim: NonNullable<EligibilityInput['claim']>) => [record, ...record.supersededCommands ?? [], claim.command]
 
+/**
+ * Take the publish lease, verify the prepared object and archive its reservation so
+ * another publish can proceed.
+ */
 export async function abandonPreparedSnapshot(d: PublishDeps, actor: RequesterAuthority, record: PublishRecord, reason: string): Promise<AbandonResult> {
   const now = d.now()
   const lease = { batchId: record.batchId, revision: record.revision, purpose: 'abandon' as const, token: randomUUID(), expiresAt: new Date(Date.parse(now) + (d.leaseMs ?? 60000)).toISOString() }

@@ -3,6 +3,7 @@ import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../../../lib/server/respond'
 import { queueResponse, startQueueWorkflow } from '../../../../../../lib/server/local-queue'
 
+/** Validate a retry request and start the new attempt of its eligible queue run. */
 export async function POST(request: Request, ctx: RouteContext<'/api/local-pipeline/runs/[id]/retry'>) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response

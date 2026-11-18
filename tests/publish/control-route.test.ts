@@ -12,6 +12,7 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(control)
   mocks.change.mockResolvedValue({ ...control, paused: true, generation: 2 })
 })
+/** Build the POST request the route fixture passes to its handler. */
 const request = (paused = true) => new Request('http://localhost/api/publish/control', { method: 'POST', body: JSON.stringify({ paused }) })
 
 test('Owner can read audit details and pause or resume', async () => {

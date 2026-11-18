@@ -8,6 +8,7 @@ import { mostRecentBatch } from '@/lib/review/batch-selection'
 import { batchHref } from '@/lib/review/href'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 
+/** Render workspace navigation with a fallback while route and membership data load. */
 export function WorkspaceTabs() {
   return (
     <Suspense fallback={<TabsView active="" />}>
@@ -16,6 +17,7 @@ export function WorkspaceTabs() {
   )
 }
 
+/** Resolve the active workspace and available tabs from the current path and role. */
 function CurrentTabs() {
   const pathname = usePathname()
   const me = useMe()
@@ -28,6 +30,7 @@ function CurrentTabs() {
   return <TabsView batch={currentBatch} owner={owner && !(personalDashboard && personal.isLoading)} active={active} />
 }
 
+/** Render the navigation links and selected state for the available workspace tabs. */
 function TabsView({ active, owner = false, batch = null }: { active: '' | '/' | '/review' | '/publish'; owner?: boolean; batch?: string | null }) {
   return (
     <nav className="workspace-tabs" aria-label="Workspace">

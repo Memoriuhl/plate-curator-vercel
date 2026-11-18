@@ -3,6 +3,10 @@ import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../lib
 import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
 import { executeHostedQueueStage } from '../lib/jobs/queue-hosted'
 
+/**
+ * Drive the queue attempt through its stages and wait for worker events, retries or
+ * timeouts.
+ */
 export async function localPipelineRun(id: string, attempt: number, startIndex: number, stepCount: number) {
   'use workflow'
   const { workflowRunId } = getWorkflowMetadata()
@@ -39,21 +43,27 @@ export async function localPipelineRun(id: string, attempt: number, startIndex: 
   return { outcome: 'completed' }
 }
 
+/** Bind the workflow runtime ID to the queue attempt in a durable step. */
 async function bind(id: string, attempt: number, workflowId: string) {
   'use step'
   return bindQueueWorkflow(jobsDeps(), id, attempt, workflowId)
 }
 
+/** Create or recover the job for the next queue stage in a durable step. */
 async function dispatch(id: string, attempt: number, index: number, token: string) {
   'use step'
   return dispatchQueueStage(jobsDeps(), id, attempt, index, token)
 }
 
+/** Read and settle stage progress using the current jobs store in a durable step. */
 async function observe(id: string, attempt: number, index: number) {
   'use step'
   return observeQueueStage(jobsDeps(), id, attempt, index)
 }
 
+/**
+ * Run hosted stages within the workflow while using the same queue settlement contract.
+ */
 async function executeHosted(id: string) {
   'use step'
   return executeHostedQueueStage(jobsDeps(), id, hostedTaggingDeps, async job => {

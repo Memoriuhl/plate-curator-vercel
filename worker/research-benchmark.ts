@@ -13,7 +13,12 @@ import { runLegacyResearchArtifact } from './research-legacy'
 import { loadResearchArtifacts, capturedSources } from './research-artifact'
 import type { ResearchInput, ResearchResult, EvidenceSource } from '../lib/research/types'
 
+/**
+ * Parse the research benchmark's executor, corpus, output and timing options from its
+ * arguments.
+ */
 export function researchRunOptions(args: string[]) {
+  /** Read the command-line value associated with a benchmark option. */
   const value = (key: string) => { const at = args.indexOf(key); return at < 0 ? undefined : args[at + 1] }
   const run = args.includes('--run')
   const budgetUsd = Number(value('--budget-usd') ?? 0)
@@ -21,6 +26,10 @@ export function researchRunOptions(args: string[]) {
   return { run, budgetUsd, input: value('--input'), output: value('--output'), manifest: value('--manifest'), executor: value('--executor') ?? 'eve', baseline: value('--baseline') }
 }
 
+/**
+ * Freeze the corpus against one versioned snapshot so each executor receives identical
+ * plate inputs.
+ */
 export function freezeResearchInputs(snapshot: Snapshot, corpus: { plateId: string; split: string }[]): (ResearchInput & { split: string })[] {
   return corpus.map(item => {
     const plate = snapshot.plates.find(plate => plate.id === item.plateId)
@@ -33,6 +42,10 @@ type BenchmarkExecutors = {
   desktop?: (input: ResearchInput) => Promise<{ result: ResearchResult; raw?: import('./research-legacy').LegacyOutcome }>
   control?: (input: ResearchInput, sources: EvidenceSource[]) => Promise<Pick<ResearchResult, 'draft' | 'rejected' | 'durationMs' | 'cost'>>
 }
+/**
+ * Run the benchmark inputs with the selected executor and persist comparable artifacts
+ * for each plate.
+ */
 export async function executeResearchBenchmark(options: Pick<ReturnType<typeof researchRunOptions>, 'run' | 'budgetUsd' | 'executor'> & Partial<ReturnType<typeof researchRunOptions>>, executors: BenchmarkExecutors = {}) {
   if (!options.manifest || !options.output?.startsWith('eval-results/research-')) throw new Error('A frozen --manifest and eval-results/research-* output directory are required')
   if (!['desktop', 'eve', 'control'].includes(options.executor)) throw new Error('Unknown benchmark executor')
@@ -107,6 +120,10 @@ export async function executeResearchBenchmark(options: Pick<ReturnType<typeof r
   }
 }
 
+/**
+ * Load the benchmark settings and corpus, execute the run and report its artifact
+ * manifest.
+ */
 async function main() {
   const options = researchRunOptions(process.argv.slice(2))
   const corpus = JSON.parse(await readFile(resolve('fixtures/research-eval.json'), 'utf8'))

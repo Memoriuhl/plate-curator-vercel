@@ -6,6 +6,7 @@ import type { Member } from '../lib/members/types'
 const mocks = vi.hoisted(() => ({ membersStore: vi.fn() }))
 vi.mock('../lib/server/members', () => mocks)
 beforeEach(() => mocks.membersStore.mockReturnValue(createMemoryMembersStore()))
+/** Build the POST request the route fixture passes to its handler. */
 function request(body: unknown) {
   return new Request('https://example.com/api/sign-in/check', { method: 'POST', body: JSON.stringify(body) })
 }

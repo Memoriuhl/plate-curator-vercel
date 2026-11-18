@@ -12,6 +12,10 @@ import { reviewApprovalProblems } from '../../../../../lib/review/batch'
 import { publishBaselineStatus } from '../../../../../lib/publish/baseline-status'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
+/**
+ * Find or start the workflow for an accepted retry and attach its run ID to the same
+ * command.
+ */
 async function dispatchRetry(publishing: PublishDeps, accepted: { command: PublishCommand; runId?: string }, ownerUid: string, now: string) {
   let runId = accepted.runId
   const token = publishStartToken(accepted.command.commandId!)
@@ -39,6 +43,10 @@ async function dispatchRetry(publishing: PublishDeps, accepted: { command: Publi
   return json({ status: 'publishing', runId }, 202)
 }
 
+/**
+ * Authorize an owner to confirm or retry publishing from the batch revision they
+ * reviewed.
+ */
 export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/publish'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response
@@ -97,6 +105,10 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
   } catch { return json({ error: PUBLISH_ERRORS.unavailable }, 503) }
 }
 
+/**
+ * Return publish confirmation or recovery eligibility for the current batch and release
+ * state.
+ */
 export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]/publish'>) {
   const auth = await currentActiveOwner(request)
   if (!auth.ok) return auth.response

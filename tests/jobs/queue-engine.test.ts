@@ -17,6 +17,10 @@ const other = { ...actor, uid: 'other' }
 const owner = { ...actor, uid: 'owner', role: 'owner' as const }
 const base = { backend: 'test', model: 'fixture', promptVersion: 'v1', durationMs: 10 }
 
+/**
+ * Set up a scoped queue with a controlled clock, review store and deterministic job
+ * claims.
+ */
 function setup(slugs = ['one', 'two']) {
   let time = 100, sequence = 0
   const plates = slugs.map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
@@ -24,7 +28,12 @@ function setup(slugs = ['one', 'two']) {
     state: 'open' as const, baselineVersion: 1, plateIds: plates.map(plate => plate.id), approval: null })))
   const store = createMemoryJobsStore(review, localJobsEnvironment('test-queue'))
   const deps: JobsDeps = { store, localScope: 'test-queue', baseline: async id => plates.find(plate => plate.id === id) ?? null,
+    /**
+     * Read the controlled test clock so state and lease timestamps advance
+     * deterministically.
+     */
     now: () => time, id: () => `claim-${++sequence}`, leaseMs: 1000 }
+  /** Enqueue a run, bind its attempt and dispatch its first stage for the scenario. */
   async function run(requestId = `request-${++sequence}`, stages: LocalRunStage[] = ['tag'], requestedBy = actor, batchId = 'batch') {
     const result = await enqueueRun(deps, requestedBy, { requestId, batchId, plateIds: [plates[0].id], stages })
     if (!result.ok) throw Error(result.error)
@@ -32,6 +41,7 @@ function setup(slugs = ['one', 'two']) {
     await dispatchQueueStage(deps, result.value.id, 1, 0, `hook-${requestId}`)
     return result.value
   }
+  /** Claim and settle the next fixture stage with the supplied worker payload. */
   async function complete(workerId: string, report: ReportInput = { ...base, suggestions: ['blue'] }) {
     const claim = await claimNext(deps, workerId)
     if (!claim) throw Error('Expected claim')

@@ -12,6 +12,10 @@ import { createResearchMemoryState } from '../../lib/research/state'
 
 afterEach(() => vi.unstubAllEnvs())
 
+/**
+ * Complete a fixture research job through the selected executor so its sourced draft can
+ * be accepted.
+ */
 async function completed(sourceOverrides: { title?: string; url?: string } = {}, executor: 'desktop' | 'eve' = 'desktop') {
   const f = researchFixture()
   const started = await f.start('request', executor)

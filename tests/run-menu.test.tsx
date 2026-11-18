@@ -35,15 +35,21 @@ const mocks = vi.hoisted(() => ({
   workspace: { mode: 'personal' } as { mode: 'personal' } | { mode: 'selected'; id: string; status: string; detail?: { batch: { state: string } } },
   detail: { plates: [] as { proposed: RunPlate }[] },
 }))
-vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), useSWRConfig: () => ({ mutate: mocks.mutate }) }))
+vi.mock('swr', async importOriginal => ({ ...await importOriginal<typeof import('swr')>(), /** Provide the mock cache actions used to observe refreshes after writes. */ useSWRConfig: () => ({ mutate: mocks.mutate }) }))
 vi.mock('../lib/client/session', () => ({
+  /** Supply the fixture session and API client to the component under test. */
   useSession: () => ({ api: mocks.api }),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Read the fixture's enabled tagging models for the run menu options. */
   useTaggingModels: () => mocks.models,
+  /** Resolve the fixture batch without creating one through the API. */
   useEnsureBatch: () => mocks.ensure,
+  /** Supply the selected batch and its editability for this workspace scenario. */
   useWorkspaceBatch: () => mocks.workspace,
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: () => ({ data: mocks.detail }),
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: mocks.edit, pending: false }),
 }))
 

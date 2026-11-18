@@ -31,6 +31,7 @@ import { groupChanges } from '@/components/review/diff'
 import { BatchChanges } from './batch-changes'
 import { RunStatus } from '@/components/review/run-status'
 
+/** Render a selectable batch with the workflow phase and date relevant to publishing. */
 function BatchItem({
   batch,
   selected,
@@ -63,6 +64,10 @@ function BatchItem({
   )
 }
 
+/**
+ * Show the selected batch's proposed changes and its publish or release recovery
+ * actions.
+ */
 function BatchSelection({
   id,
   pinBatch,
@@ -150,6 +155,10 @@ function BatchSelection({
     else blocker = 'Publish is unavailable for this Batch. Refresh Batch to check its status.'
   }
   const destination = preflight?.destination === 'license-plate-game-staging' ? 'Staging Catalog (license-plate-game-staging)' : preflight?.destination ?? 'configured Catalog'
+  /**
+   * Request abandonment of the prepared receipt identified by the current baseline
+   * status.
+   */
   async function abandon() {
     const prepared = baseline.data?.prepared
     if (!prepared) return
@@ -168,6 +177,10 @@ function BatchSelection({
       setAbandonMessage(messages[code] ?? 'Could not abandon this Snapshot. Refresh and try again.')
     } finally { setBusy(false) }
   }
+  /**
+   * Open the publish confirmation using the current command and refresh the eligibility
+   * evidence.
+   */
   function openConfirmation() {
     if (!canPublish || !latestConfirmation) return
     pinBatch()
@@ -177,6 +190,10 @@ function BatchSelection({
     void refresh()
   }
 
+  /**
+   * Send the confirmed publish command and reconcile any new eligibility or revision
+   * returned by the server.
+   */
   async function publish() {
     if (!canSend || !confirmation) return
     setBusy(true)
@@ -301,6 +318,7 @@ function BatchSelection({
   )
 }
 
+/** Load owner release controls and select a batch from the URL or workspace list. */
 function OwnerWorkspace() {
   const requestedBatch = useSearchParams().get('batch')
   const control = usePublishControl()
@@ -361,6 +379,7 @@ function OwnerWorkspace() {
   )
 }
 
+/** Check owner access before rendering the publish workspace. */
 export function PublishWorkspace() {
   const me = useMe()
   if (me.error) return <p role="alert">Could not check your role.</p>

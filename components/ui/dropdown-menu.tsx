@@ -6,12 +6,14 @@ import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui'
 
 import { IoChevronForwardOutline, IoCheckmarkOutline } from 'react-icons/io5'
 
+/** Provide the shared Radix menu root and its styling slot. */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/** Mount the dropdown menu content outside the trigger's layout. */
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -20,6 +22,7 @@ function DropdownMenuPortal({
   )
 }
 
+/** Associate the provided control with the menu's open and focus behavior. */
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -31,6 +34,7 @@ function DropdownMenuTrigger({
   )
 }
 
+/** Render the floating menu panel with shared positioning and visual styles. */
 function DropdownMenuContent({
   className,
   align = 'start',
@@ -53,6 +57,7 @@ function DropdownMenuContent({
   )
 }
 
+/** Group related menu items while preserving Radix keyboard navigation. */
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
@@ -61,6 +66,7 @@ function DropdownMenuGroup({
   )
 }
 
+/** Render a menu action with its selected variant and optional inset alignment. */
 function DropdownMenuItem({
   className,
   inset,
@@ -84,6 +90,7 @@ function DropdownMenuItem({
   )
 }
 
+/** Render a menu option with an indicator for its checked state. */
 function DropdownMenuCheckboxItem({
   className,
   children,
@@ -117,6 +124,7 @@ function DropdownMenuCheckboxItem({
   )
 }
 
+/** Manage single selection among related menu radio items. */
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
@@ -128,6 +136,7 @@ function DropdownMenuRadioGroup({
   )
 }
 
+/** Render a radio option with an indicator for its active state. */
 function DropdownMenuRadioItem({
   className,
   children,
@@ -159,6 +168,7 @@ function DropdownMenuRadioItem({
   )
 }
 
+/** Label a related set of menu options with the shared group typography. */
 function DropdownMenuLabel({
   className,
   inset,
@@ -179,6 +189,7 @@ function DropdownMenuLabel({
   )
 }
 
+/** Divide related menu sections with a styled separator. */
 function DropdownMenuSeparator({
   className,
   ...props
@@ -192,6 +203,7 @@ function DropdownMenuSeparator({
   )
 }
 
+/** Display an item's shortcut with a consistent position and text style. */
 function DropdownMenuShortcut({
   className,
   ...props
@@ -208,12 +220,14 @@ function DropdownMenuShortcut({
   )
 }
 
+/** Provide Radix submenu state for nested menu options. */
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
 }
 
+/** Open the nested menu from an item with a directional affordance. */
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -238,6 +252,7 @@ function DropdownMenuSubTrigger({
   )
 }
 
+/** Render nested menu options in the shared floating panel style. */
 function DropdownMenuSubContent({
   className,
   ...props

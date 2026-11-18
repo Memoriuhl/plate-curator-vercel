@@ -13,6 +13,9 @@ const context = vi.hoisted(() => ({ publishDeps: vi.fn(), reviewDeps: vi.fn(), c
 vi.mock('../lib/server/context', () => context)
 vi.mock('../lib/server/catalog-head', () => ({ catalogChanged: vi.fn() }))
 let f: ReturnType<typeof releaseFixture>
+/**
+ * Run the publish workflow with the recorded authority of the supplied fixture command.
+ */
 const run = (cmd = command) => publishRun(cmd.batchId, cmd.revision, { ownerUid: cmd.requestedBy.uid, ...cmd })
 
 beforeEach(async () => {
@@ -30,7 +33,7 @@ test('#119 stale baseline requires Copy, fresh approval, then exactly one commit
   await db.doc('config/catalog').set({ version: 2 })
   expect(await run()).toMatchObject({ outcome: 'publish_failed', error: 'stale_baseline' })
   expect(f.send).not.toHaveBeenCalled()
-  const copied = await copyBatch({ store: f.deps.store, head: async () => 2, snapshot: f.deps.snapshots.read, env, now: () => now }, owner, { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 })
+  const copied = await copyBatch({ store: f.deps.store, /** Expose the current fixture catalog version so the operation can check its baseline. */ head: async () => 2, snapshot: f.deps.snapshots.read, env, /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => now }, owner, { sourceId: batch.id, sourceRevision: 2, targetVersion: 2 })
   expect(copied.ok).toBe(true)
   if (!copied.ok) throw new Error('Copy failed')
   expect(await submitBatch(f.deps, owner, copied.value.id, 0)).toMatchObject({ ok: true })

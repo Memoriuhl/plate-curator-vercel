@@ -44,12 +44,19 @@ test('state and plate chevrons expand on demand with lazy thumbnails', () => {
 })
 
 vi.mock('../lib/client/hooks', () => ({
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { role: 'owner' } }),
+  /** Supply the publish controls for the current workspace scenario. */
   usePublishControl: () => ({ data: { control: null }, change: vi.fn() }),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: [{ id: 'published', name: 'Autumn plates', state: status.value, createdAt: '2026-11-17', revision: 2, stateOrders: {} }] }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: () => ({ data: { batch: { id: 'published', name: 'Autumn plates', state: status.value, revision: 2, stateOrders: {}, approval: status.retry ? { revision: 1 } : null }, plates: [{ ...entry, edit: { fields: { description: 'New' } } }] } }),
+  /** Supply the workflow phase used by the fixture batch view. */
   useBatchRun: () => ({ data: { outcome: { version: status.version } } }),
+  /** Supply the publish baseline and release eligibility under test. */
   usePublishBaseline: () => ({ data: { error: null, canRetry: status.retry, enabledHere: true, batchRevision: 2, approvalProblems: [], confirmation: { revision: 2, since: null, plateCount: 0, contributors: [] } } }),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({}),
 }))
 

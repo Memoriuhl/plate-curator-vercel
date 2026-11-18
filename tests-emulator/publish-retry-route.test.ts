@@ -12,9 +12,10 @@ import { db } from './setup'
 const mocks = vi.hoisted(() => ({ deps: vi.fn(), actor: vi.fn(), start: vi.fn(), getHookByToken: vi.fn(), resumeHook: vi.fn(), status: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('workflow/api', () => ({ start: mocks.start, getHookByToken: mocks.getHookByToken, resumeHook: mocks.resumeHook }))
-vi.mock('../workflows/approval', () => ({ publishRun: async () => {} }))
+vi.mock('../workflows/approval', () => ({ /** Stub workflow execution so retry route tests can focus on dispatch and command binding. */ publishRun: async () => {} }))
 vi.mock('../lib/server/context', () => ({
-  currentActiveOwner: mocks.actor, publishAllowed: () => true, publishDeps: mocks.deps, reviewDeps: mocks.deps,
+  currentActiveOwner: mocks.actor, /** Set deployment-level publish availability for this route test. */ publishAllowed: () => true, publishDeps: mocks.deps, reviewDeps: mocks.deps,
+  /** Capture the fixture owner's identity and authority epoch for publish commands. */
   requesterAuthority: (actor: { uid: string; email: string; authorityEpoch: number }) => ({ uid: actor.uid, email: actor.email, authorityEpoch: actor.authorityEpoch }),
 }))
 
@@ -22,6 +23,7 @@ const env = 'retry-route'
 const initialTime = '2026-11-15T12:00:00Z'
 let time = initialTime
 const ctx = { params: Promise.resolve({ id: batch.id }) }
+/** Build the POST request the route fixture passes to its handler. */
 const request = (commandId: string) => new Request('http://localhost/api/batches/batch/publish', { method: 'POST', body: JSON.stringify({ revision: 2, commandId }) })
 
 beforeEach(async () => {
@@ -42,8 +44,8 @@ beforeEach(async () => {
   mocks.getHookByToken.mockRejectedValue(new HookNotFoundError('missing'))
   mocks.start.mockResolvedValue({ runId: 'fresh-run' })
   const f = fixture()
-  mocks.deps.mockReturnValue({ ...f.deps, now: () => time, control: firestorePublishControl(db), store: firestoreReviewStore(db, env),
-    records: firestorePublishRecords(db, env, { runStatus: mocks.status, findRun: async commandId => {
+  mocks.deps.mockReturnValue({ ...f.deps, /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () => time, control: firestorePublishControl(db), store: firestoreReviewStore(db, env),
+    records: firestorePublishRecords(db, env, { runStatus: mocks.status, /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun: async commandId => {
       try { const run = await mocks.getHookByToken(`publish-command:${commandId}`); return { runId: run.runId, status: await mocks.status(run.runId) } } catch (error) { if (HookNotFoundError.is(error)) return null; throw error }
     } }), lock: firestorePublishLock(db, env),
     pointer: firestorePublishPointer(db, env, record => verifyPreparedObject(f.deps.snapshots, record)), curator: firestorePublishCurator(db, env) })

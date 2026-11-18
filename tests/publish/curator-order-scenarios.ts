@@ -18,11 +18,13 @@ const cmdB = { ...command, batchId: 'b', commandId: 'cmd-b' }
 const ordersA = { CA: ['one', 'two'], NY: ['ny-one', 'ny-two'] }
 const ordersB = { CA: ['two', 'one'] }
 
+/** Create batch A and seed the standard edits required for its order change. */
 async function createA(f: OrderFixture) {
   await f.deps.store.create({ ...batch, id: 'a', stateOrders: ordersA })
   await seedOrderStandards(f.deps, 'a')
 }
 
+/** Commit batch B as the next live release so the tests can check supersession of A. */
 async function publishB(f: OrderFixture, orders: Record<string, string[]> = ordersB) {
   await f.deps.store.create({ ...batch, id: 'b', baselineVersion: 2, stateOrders: orders })
   await seedOrderStandards(f.deps, 'b')
@@ -31,12 +33,14 @@ async function publishB(f: OrderFixture, orders: Record<string, string[]> = orde
   expect(result).toMatchObject({ ok: true, value: { toVersion: 3, state: 'done' } })
 }
 
+/** Assert that replaying A finishes its receipt and marks its batch published. */
 async function expectFinishedA(f: OrderFixture) {
   expect(await publishBatch(f.deps, owner, cmdA)).toMatchObject({ ok: true, value: { toVersion: 2, state: 'done' } })
   expect(await f.deps.records.get('a@2')).toMatchObject({ toVersion: 2, state: 'done', committedAt: expect.any(String) })
   expect(await f.deps.store.getBatch('a')).toMatchObject({ state: 'published', revision: 3 })
 }
 
+/** Inject a failure around curator order writes to test retrying a committed release. */
 function crashBeforeOrders(f: OrderFixture) {
   const write = f.deps.curator.writeStateOrders
   let failOnce = true
@@ -49,6 +53,7 @@ function crashBeforeOrders(f: OrderFixture) {
   }
 }
 
+/** Run shared release replay scenarios against the supplied curator order store. */
 export function curatorOrderScenarios(createFixture: () => Promise<OrderFixture>) {
   test.each([
     ['before', 'absent'], ['before', 'versioned'], ['after', 'absent'], ['after', 'versioned'],
@@ -113,6 +118,7 @@ export function curatorOrderScenarios(createFixture: () => Promise<OrderFixture>
     expect(live.plates.filter(plate => plate.state === 'NY').sort((a, b) => a.sortOrder! - b.sortOrder!).map(plate => plate.id)).toEqual(expectedNY)
   })
 
+  /** Prepare a pending legacy replay of A after B changes the live state orders. */
   async function pendingLegacyReplay() {
     const f = await createFixture()
     await f.seedWorkflow({ stateOrder: {} })

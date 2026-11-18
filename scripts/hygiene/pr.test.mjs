@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const checker = fileURLToPath(new URL('./check.mjs', import.meta.url));
 const address = [100, 64, 1, 2].join('.');
+/** Run the pull request check with controlled title, body and CI settings. */
 const check = (extra = {}) => spawnSync(process.execPath, [checker, 'pull-request'], {
   encoding: 'utf8',
   env: { ...process.env, CI: 'true', HYGIENE_DENYLIST: 'private-fixture',

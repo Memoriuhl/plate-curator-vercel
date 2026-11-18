@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 import { batchHref } from '@/lib/review/href'
 
+/**
+ * Keep the selected batch connected to live revisions and provide a return link to its
+ * review.
+ */
 export function SelectedBatchBar() {
   const workspace = useWorkspaceBatch()
   const pathname = usePathname()

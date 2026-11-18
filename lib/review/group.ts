@@ -11,6 +11,10 @@ import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
 import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from './types'
 
+/**
+ * Build the grouping input and revision checks from the current draft and its pinned
+ * state baseline.
+ */
 export async function prepareGroupScope(d: ReviewDeps, actor: Actor, input: { batchId: string; batchRevision: number; plateIds: string[] }): Promise<Outcome<{ scope: import('../jobs/specialized-suggestions').GroupInput; standardId?: string }>> {
   const snapshot = await d.store.readBatch(input.batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
@@ -32,6 +36,10 @@ export async function prepareGroupScope(d: ReviewDeps, actor: Actor, input: { ba
   return { ok: true, value: { scope, standardId: batch.stateOrders[scope[0].plate.state]?.[0] ?? statePlates.find(plate => plate.isStandard)?.id ?? statePlates[0]?.id } }
 }
 
+/**
+ * Accept a grouping result only after rechecking its complete scope and current plate
+ * revisions.
+ */
 export async function acceptGroup(d: ReviewDeps, jobs: JobsDeps, actor: Actor, input: { batchId: string; batchRevision: number; jobId: string }): Promise<Outcome<ReviewBatch>> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return { ok: false, error: 'forbidden' }
   const found = await getJobForActor(jobs, actor, input.jobId)

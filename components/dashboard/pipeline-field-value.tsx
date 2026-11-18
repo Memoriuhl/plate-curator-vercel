@@ -5,15 +5,21 @@ const labels: Record<string, string> = {
   imageUrl: 'Image', sourceUrl: 'Image provenance', templateFamily: 'Template family', templateRole: 'Family role', variantOfPlateId: 'Variant of', tags: 'Tags',
 }
 
+/** Resolve a friendly label for a pipeline field, humanizing unfamiliar names. */
 export function pipelineFieldLabel(field: string) {
   return labels[field] ?? field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, value => value.toUpperCase())
 }
 
+/** Accept an HTTP or HTTPS value as a clickable pipeline result link. */
 function href(value: unknown) {
   if (typeof value !== 'string') return undefined
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined } catch { return undefined }
 }
 
+/**
+ * Render a field diff value according to its shape, including citations and structured
+ * values.
+ */
 export function PipelineFieldValue({ field, value, plateNames = {} }: { field: string; value: unknown; plateNames?: Record<string, string> }) {
   if (value === undefined || value === null || value === '' || Array.isArray(value) && !value.length) return <p className="caption">None</p>
   if (field === 'funFacts' && Array.isArray(value)) return <ul className="grid list-disc gap-2 pl-5">{value.map((raw, index) => {
