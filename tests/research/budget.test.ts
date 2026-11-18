@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { createResearchMemoryState } from '../../lib/research/state'
 import { reserveResearchSpend, settleResearchModelSpend } from '../../lib/research/budget'
+import { createResearchModelAttempt } from '../../lib/research/model-attempt'
 
 test('parallel callers share one two-dollar budget and cannot start excess requests', async () => {
   const store = createResearchMemoryState()
@@ -18,4 +19,14 @@ test('known model charges release unused reservations while unknown charges rema
   await reserveResearchSpend(store, 'campaign', 'second', 'model', 0.2, 2)
   await settleResearchModelSpend(store, 'campaign', 'second', undefined)
   expect(await store.read('budget/campaign')).toMatchObject({ committedMicros: 230000 })
+})
+
+test('a captured-evidence run permits one physical synthesis attempt with no silent retry or search model', async () => {
+  const store = createResearchMemoryState()
+  const options = { campaign: 'captured', limitUsd: 2, deadline: Date.now() + 10000, maxCalls: 1 }
+  const first = await createResearchModelAttempt(store, 'plate', options)
+  await first.settle(0.000128, { inputTokens: 800, outputTokens: 120 })
+  await expect(createResearchModelAttempt(store, 'plate', options)).rejects.toThrow('model limit exhausted')
+  expect(await store.read('limits/plate')).toEqual({ model: 1 })
+  expect(await store.read('usage/plate')).toEqual({ inputTokens: 800, outputTokens: 120 })
 })

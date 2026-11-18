@@ -1,7 +1,7 @@
 export type ResearchExecutor = 'desktop' | 'eve'
 export type ResearchInput = { plateId: string; displayName: string; state: string; inputRevision: string; baselineVersion: number }
 export type EvidenceSource = { id: string; kind: 'wikipedia' | 'web'; title: string; url: string; fetchedAt: string; contentHash: string; text: string }
-export type ResearchDraft = { description: string | null; descriptionSources: string[]; funFacts: { text: string; sourceId: string }[]; readMore: string[]; wikiSource: string | null }
+export type ResearchDraft = { description: string | null; descriptionSources: string[]; funFacts: { text: string; sourceId: string }[]; readMore: string[]; wikiSource: string | null; firstIssuedYear?: { year: number; sourceId: string } | null }
 export type ResearchRejection = { field: 'description' | 'funFacts' | 'readMore' | 'wikiUrl' | 'shape'; reason: string }
 export type ResearchResult = {
   input: ResearchInput

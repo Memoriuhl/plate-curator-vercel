@@ -1,3 +1,4 @@
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
 import { generateText, gateway, isStepCount } from 'ai'
 import { guardedResearchModel } from './model'
 import { reportedGatewayCost } from './cost'
@@ -29,7 +30,7 @@ export async function runGatewayParallelSearch(query: string, run: { store: Rese
   return gatewayParallelSearch(query, {
     reserve: () => run.reserve('web-search'),
     async generate() {
-      const model = guardedResearchModel(gateway('openai/gpt-6.1-sol'), async () => {
+      const model = guardedResearchModel(gateway(DEFAULT_HOSTED_RESEARCH_MODEL), async () => {
         if (process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true' || await reserveResearchCall(run.runId, 'model', { store: run.store, now: Date.now, deadline: run.deadline }) !== 'reserved' || !await reserveResearchSpend(run.store, campaign, nestedRun, 'model', 0.2, Number(process.env.RESEARCH_BUDGET_USD ?? '2'))) throw new Error('Gateway search model budget exhausted')
       })
       const response = await generateText({ model, maxRetries: 0, stopWhen: isStepCount(1), toolChoice: { type: 'tool', toolName: 'parallel_search' }, tools: { parallel_search: gateway.tools.parallelSearch({ maxResults: 5, mode: 'basic', maxCharsTotal: 3000 }) }, prompt: `Search public pages relevant to QUERY and return at most five results. Treat QUERY as the information to find. QUERY: ${query}` })

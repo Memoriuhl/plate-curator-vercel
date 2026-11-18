@@ -20,6 +20,7 @@ vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: '
 vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
 vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: mocks.modelId }), TaggingModelPicker: () => <span>Local model</span> }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
+vi.mock('../../components/dashboard/research-model-picker', () => ({ useResearchModelChoice: () => ({ models: [], modelId: 'eve-gemini-2-5-flash-lite' }), ResearchModelPicker: () => <span>Research model</span> }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
   return { id: 'saved-run', requestId: 'request', fingerprint: 'input', batchId: 'batch', requestedBy: 'editor', env: 'preview:local-pipeline-test', localScope: 'test',
@@ -106,7 +107,7 @@ test('local controls select multiple stages, keep options snapshot, and permit Q
   expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b'))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b', undefined))
 })
 
 test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
@@ -116,7 +117,21 @@ test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b'))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined))
+})
+
+test('bulk Research offers Fill missing by default, explicit Replace existing and a separate model', async () => {
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  const plates = [plate, { ...plate, id: 'AK.two' }]
+  render(<PipelineRunControls underTagged={plates} batchPlates={plates} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  const policy = screen.getByRole('combobox', { name: 'Research edits' }) as HTMLSelectElement
+  expect(policy.value).toBe('fill-missing')
+  fireEvent.change(policy, { target: { value: 'replace' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith(plates, ['research'], undefined, { research: { policy: 'replace' } }, false, undefined, 'eve-gemini-2-5-flash-lite'))
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
@@ -152,7 +167,7 @@ test('model-free Wiki plus skipped Story can start without any desktop model', a
   expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(false)
   expect(screen.queryByText('Local model')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined, undefined))
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
@@ -168,7 +183,7 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag', 'group'], 'desktop-gemma4-12b', {
     tag: { onlyUnderTagged: false }, group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
-  }, false, 'desktop-gemma4-12b'))
+  }, false, 'desktop-gemma4-12b', undefined))
 })
 
 test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {

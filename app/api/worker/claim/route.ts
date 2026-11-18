@@ -31,10 +31,11 @@ export async function POST(request: Request) {
     ...(claim.job.stageOptions ? { stageOptions: claim.job.stageOptions } : {}),
     claimId: claim.claimId,
     leaseExpiresAt: new Date(claim.leaseExpiresAt).toISOString(),
-    ...(taggingModel(claim.job.modelId)?.runsOn === 'desktop' ? { model: taggingModel(claim.job.modelId)!.model } : {}),
+    ...(claim.job.stage === 'research' && claim.job.researchModel?.executor === 'desktop' ? { model: claim.job.researchModel.model } : taggingModel(claim.job.modelId)?.runsOn === 'desktop' ? { model: taggingModel(claim.job.modelId)!.model } : {}),
     plate: { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [],
       ...(claim.job.localScope && typeof plate.imageUrl === 'string' ? { imageUrl: plate.imageUrl } : {}),
       ...(claim.job.stage ? { description: plate.description ?? null, sourceUrl: plate.sourceUrl ?? null, wikiUrl: plate.wikiUrl ?? null } : {}),
+      ...(claim.job.stage === 'research' ? { funFacts: plate.funFacts ?? [], readMore: plate.readMore ?? [], firstIssuedYear: plate.firstIssuedYear ?? null } : {}),
     },
   })
 }

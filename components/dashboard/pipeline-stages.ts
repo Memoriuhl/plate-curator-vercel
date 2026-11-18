@@ -24,6 +24,9 @@ export type StageDefinition = {
 export type PipelineSelection = { selectedStages: (PipelineStage | 'tag')[]; options: PipelineOptions; previewOnly: boolean }
 
 export const pipelineStages: readonly StageDefinition[] = [
+  { id: 'research', label: 'Research / enrich', description: 'Wikipedia link, description and sourced Story in one run', duration: '1:30', jobKind: 'research', localEnabled: true, options: [
+    { id: 'policy', label: 'Research edits', kind: 'select', default: 'fill-missing', choices: [{ value: 'fill-missing', label: 'Fill missing' }, { value: 'replace', label: 'Replace existing' }] },
+  ] },
   { id: 'find-image', label: 'Find image', description: 'Search for a clean plate photo', duration: '0:20', jobKind: 'find-image', localEnabled: true, options: [{ id: 'onlyMissingImage', label: 'Only plates missing an image', kind: 'boolean', default: false }] },
   { id: 'wiki-link', label: 'Wiki link', description: 'Match a Wikipedia or DMV page', duration: '0:15', jobKind: 'wiki-link', localEnabled: true, options: [] },
   { id: 'colors', label: 'Colors', description: 'Background and text colours', duration: '0:05', jobKind: 'colors', localEnabled: true, options: [] },

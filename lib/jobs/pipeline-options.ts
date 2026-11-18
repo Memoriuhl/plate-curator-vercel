@@ -1,4 +1,5 @@
 export type PipelineOptions = {
+  research?: { policy: 'fill-missing' | 'replace' }
   'find-image'?: { onlyMissingImage: boolean }
   story?: { redoExisting: boolean }
   tag?: { onlyUnderTagged: boolean }
@@ -6,6 +7,7 @@ export type PipelineOptions = {
 }
 
 export const defaultPipelineOptions: Required<PipelineOptions> = {
+  research: { policy: 'fill-missing' },
   'find-image': { onlyMissingImage: false },
   story: { redoExisting: false },
   tag: { onlyUnderTagged: false },
@@ -21,7 +23,7 @@ export function parsePipelineOptions(input: unknown): PipelineOptions | null {
     if (!Object.hasOwn(defaultPipelineOptions, stage) || !options || typeof options !== 'object' || Array.isArray(options)) return null
     const defaults = defaultPipelineOptions[stage as keyof PipelineOptions]
     if (Object.entries(options).some(([key, entry]) => !Object.hasOwn(defaults, key) ||
-      (key === 'method' ? entry !== 'embeddings' : typeof entry !== 'boolean'))) return null
+      (key === 'method' ? entry !== 'embeddings' : key === 'policy' ? entry !== 'fill-missing' && entry !== 'replace' : typeof entry !== 'boolean'))) return null
     result[stage] = { ...defaults, ...options }
   }
   return result as PipelineOptions

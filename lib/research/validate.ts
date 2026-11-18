@@ -7,6 +7,7 @@ export const researchDraftSchema = z.object({
   funFacts: z.array(z.object({ text: z.string().max(1000), sourceId: z.string().max(100) })).max(4),
   readMore: z.array(z.string().max(100)).max(4),
   wikiSource: z.string().max(100).nullable(),
+  firstIssuedYear: z.object({ year: z.number().int().min(1800).max(2100), sourceId: z.string().max(100) }).nullable().optional(),
 }).strict()
 
 const tokens = (text: string) => text.toLowerCase().match(/[a-z]{4,}|\d+/g) ?? []
@@ -58,6 +59,12 @@ export function validateResearchResult(raw: unknown, sources: EvidenceSource[]):
     const source = lookup(data.wikiSource)
     if (source?.kind === 'wikipedia' && new URL(source.url).hostname === 'en.wikipedia.org') draft.wikiSource = source.id
     else rejected.push({ field: 'wikiUrl', reason: 'source_not_fetched' })
+  }
+  if (data.firstIssuedYear) {
+    const { year, sourceId } = data.firstIssuedYear
+    const source = lookup(sourceId)
+    if (source?.text.split(/(?<=[.!?])\s+|\n+/).some(sentence => new RegExp(`\\b${year}\\b`).test(sentence) && /\b(plate|registration)\b/i.test(sentence) && /\b(issued|introduced|released|debuted|offered)\b/i.test(sentence))) draft.firstIssuedYear = { year, sourceId }
+    else rejected.push({ field: 'shape', reason: 'issue_year_not_supported' })
   }
   return { draft, rejected }
 }

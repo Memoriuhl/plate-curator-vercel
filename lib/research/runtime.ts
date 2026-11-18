@@ -6,9 +6,10 @@ import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
 import { createResearchModelAttempt } from './model-attempt'
 import { reserveResearchSpend } from './budget'
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
 
 type SessionContext = { session: { id: string; turn: { id: string }; auth?: { current: { principalId: string; authenticator: string } | null } } }
-export type ResearchSessionBinding = { ownerUid: string; jobId?: string; input?: ResearchInput }
+export type ResearchSessionBinding = { ownerUid: string; jobId?: string; pipelineJobId?: string; model?: string; input?: ResearchInput }
 
 export async function researchTurn(ctx: SessionContext, providedStore?: ResearchStateStore) {
   const store = providedStore ?? await researchState()
@@ -21,8 +22,16 @@ export async function researchTurn(ctx: SessionContext, providedStore?: Research
       if (!principal || !binding || binding.ownerUid !== principal.principalId || !(await activeResearchOwner(principal.principalId))) throw new Error('Research caller is no longer an active Owner')
     }
   }
-  const runId = binding?.jobId ?? `${ctx.session.id}/${ctx.session.turn.id}`
+  const runId = binding?.pipelineJobId ?? binding?.jobId ?? `${ctx.session.id}/${ctx.session.turn.id}`
   let jobDeadline: number | undefined
+  if (binding?.pipelineJobId && !providedStore) {
+    const { pipelineResearchStore } = await import('./pipeline-context')
+    const deps = await pipelineResearchStore()
+    const job = await deps.store.transaction(tx => tx.get(binding.pipelineJobId!))
+    const run = job && (await deps.store.transaction(tx => tx.runs())).find(run => run.id === job.queueRunId)
+    if (!job || job.localScope !== deps.scope || job.route !== 'hosted' || job.stage !== 'research' || job.state !== 'claimed' || job.requestedBy !== binding.ownerUid || job.researchModel?.model !== binding.model || !run || !['queued', 'running'].includes(run.status) || run.cancelRequestedAt !== undefined) throw Error('Pipeline research is no longer active')
+    jobDeadline = job.leaseExpiresAt
+  }
   if (binding?.jobId && !providedStore) {
     const { researchDatabase, researchEnvironment } = await import('./storage')
     const { firestoreResearchStore } = await import('./firestore-store')
@@ -36,8 +45,9 @@ export async function researchTurn(ctx: SessionContext, providedStore?: Research
   })
   return {
     store, runId, deadline, binding,
-    modelAttempt: () => createResearchModelAttempt(store, runId, { campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'), deadline }),
+    modelAttempt: () => createResearchModelAttempt(store, runId, { campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'), deadline, ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}) }),
     async reserve(kind: ResearchCall) {
+      if (binding?.pipelineJobId) return false // Captured evidence only; no nested search or control calls.
       if (await reserveResearchCall(runId, kind, { store, now: Date.now, deadline }) !== 'reserved') return false
       if (kind !== 'model' && kind !== 'web-search') return true
       return reserveResearchSpend(store, process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117', runId, kind === 'model' ? 'model' : 'search', kind === 'model' ? 0.2 : 0.01, Number(process.env.RESEARCH_BUDGET_USD ?? '2'))
@@ -55,10 +65,10 @@ export async function submitResearchDraft(ctx: SessionContext, raw: unknown, pro
   return { status: sources.length === 0 ? 'no_sources' : draft.description && draft.funFacts.length ? 'ok' : 'partial', ...result }
 }
 
-export function hostedResearchResult(input: ResearchInput, output: { draft: ResearchResult['draft']; sources: EvidenceSource[]; rejected: ResearchResult['rejected'] }, details: { durationMs: number; counters: Record<string, number> }): ResearchResult {
+export function hostedResearchResult(input: ResearchInput, output: { draft: ResearchResult['draft']; sources: EvidenceSource[]; rejected: ResearchResult['rejected'] }, details: { durationMs: number; counters: Record<string, number>; model?: string }): ResearchResult {
   return {
     input, ...output, ...details,
-    provenance: { executor: 'eve', model: 'openai/gpt-6.1-sol', promptVersion: 'research-v1', codeRevision: process.env.VERCEL_GIT_COMMIT_SHA ?? 'development' },
+    provenance: { executor: 'eve', model: details.model ?? DEFAULT_HOSTED_RESEARCH_MODEL, promptVersion: 'research-v1', codeRevision: process.env.VERCEL_GIT_COMMIT_SHA ?? 'development' },
     attempts: [], status: output.sources.length === 0 ? 'no_sources' : output.draft.description && output.draft.funFacts.length > 0 ? 'ok' : 'partial',
     cost: { usd: null, missing: 1 }, cache: 'unknown',
   }

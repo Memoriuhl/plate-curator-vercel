@@ -72,14 +72,14 @@ export function usePipelineQueue(existingBatchId?: string | null) {
     }
   }
 
-  async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false, tagModelId?: string) {
+  async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false, tagModelId?: string, researchModelId?: string) {
     if (!plates.length || disabledReason) return null
     if (previewOnly && workspace.mode !== 'selected' && !existingBatchId) { setMessage('Preview requires an existing open Batch.'); return null }
     return perform('enqueue', async () => {
       const batchId = workspace.mode === 'selected' ? workspace.id : previewOnly ? existingBatchId! : await ensureBatch(plates[0])
       if (currentUser.current !== uid) throw Error('Session changed')
       const input: Omit<EnqueueInput, 'requestId'> = { batchId, plateIds: plates.map(plate => plate.id), stages, options, previewOnly,
-        ...(modelId ? { modelId } : {}), ...(tagModelId ? { tagModelId } : {}) }
+        ...(modelId ? { modelId } : {}), ...(tagModelId ? { tagModelId } : {}), ...(researchModelId ? { researchModelId } : {}) }
       const intent = enqueueIntent(localStorage, uid!, input, () => crypto.randomUUID())
       const { run } = await api.send<{ run: PipelineRun }>('POST', pipelineQueueKey, intent)
       confirmQueueRequest(localStorage, uid!, 'enqueue', intent.requestId)

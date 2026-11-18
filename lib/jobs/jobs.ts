@@ -7,6 +7,7 @@ import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
 import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
+import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
 // Server coordinator only. The public worker by-id claim still refuses queue jobs.
@@ -34,6 +35,7 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
 }
 
 export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+  if (input.stage === 'research') return { ok: false, error: 'forbidden' } // Research requires the persisted queue model/policy contract.
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
   if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
@@ -147,6 +149,13 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
+    if (job.stage === 'research') {
+      if (!job.researchModel || result.model !== job.researchModel.model) return { ok: false, error: 'invalid_result' }
+      if (result.fieldSuggestion?.kind === 'fields') {
+        result.fieldSuggestion.fields = filterEnrichmentFields(result.fieldSuggestion.fields, job.inputPlate!, job.researchPolicy ?? 'fill-missing')
+        if (!Object.keys(result.fieldSuggestion.fields).length) { delete result.fieldSuggestion; result.stageError = 'no_supported_fields' }
+      }
+    }
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
     if (result.fieldSuggestion?.kind === 'group') {

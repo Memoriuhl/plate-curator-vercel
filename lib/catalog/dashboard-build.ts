@@ -21,6 +21,7 @@ function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardDa
     templateFamily: family, templateRole: role, variantOfPlateId: plate.variantOfPlateId ?? null,
     isStandard: plate.isStandard ?? false, sortOrder: plate.sortOrder ?? index,
     revision: plateRevision(plate), checks,
+    ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { funFacts: plate.funFacts ?? [], readMore: plate.readMore ?? [], wikiUrl: plate.wikiUrl ?? null, firstIssuedYear: plate.firstIssuedYear ?? null, colorDetail: plate.colorDetail ?? null, lineageColor: plate.lineageColor ?? null } : {}),
     complete: isComplete(checks),
   }
 }

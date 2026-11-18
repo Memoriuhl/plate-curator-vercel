@@ -1,3 +1,4 @@
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models'
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -43,7 +44,7 @@ export async function executeResearchBenchmark(options: Pick<ReturnType<typeof r
   const baseline = options.executor === 'control' ? await loadResearchArtifacts(options.baseline ?? 'eval-results/research-baseline', manifest.inputs) : []
   const hash = createHash('sha256').update(manifestText).digest('hex')
   await mkdir(options.output, { recursive: true })
-  const config = { manifestSha256: hash, executor: options.executor, budgetUsd: options.budgetUsd, model: options.executor !== 'desktop' ? 'openai/gpt-6.1-sol' : 'gemma4:12b', promptVersion: 'research-v1', searchVariant: process.env.RESEARCH_SEARCH_PROVIDER ?? 'existing', searchProviders: { serper: !!process.env.SERPER_API_KEY, brave: !!process.env.BRAVE_API_KEY }, cache: 'persistent-cache-state-recorded-as-unknown', paidCampaign: process.env.RESEARCH_BUDGET_ID }
+  const config = { manifestSha256: hash, executor: options.executor, budgetUsd: options.budgetUsd, model: options.executor !== 'desktop' ? DEFAULT_HOSTED_RESEARCH_MODEL : 'gemma4:12b', promptVersion: 'research-v1', searchVariant: process.env.RESEARCH_SEARCH_PROVIDER ?? 'existing', searchProviders: { serper: !!process.env.SERPER_API_KEY, brave: !!process.env.BRAVE_API_KEY }, cache: 'persistent-cache-state-recorded-as-unknown', paidCampaign: process.env.RESEARCH_BUDGET_ID }
   const configFile = resolve(options.output, 'configuration.json')
   try { await writeFile(configFile, JSON.stringify(config, null, 2), { flag: 'wx' }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || await readFile(configFile, 'utf8') !== JSON.stringify(config, null, 2)) throw error }
   const client = new Client({ baseUrl: process.env.RESEARCH_BENCHMARK_EVE_URL ?? 'http://localhost:4283' })

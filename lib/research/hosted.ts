@@ -41,7 +41,7 @@ export async function finishEveResearch(deps: ResearchDeps, id: string, state: R
     if (!active) next = { ...job, state: 'failed', error: 'requester_removed' }
     else if (output) {
       const input = await researchInput({ ...deps, review: { ...deps.review, store: tx.review ?? deps.review.store } }, job.batchId, job.input.plateId)
-      const result = normalizeResearchReport(hostedResearchResult(job.input, output, { durationMs: Math.max(0, deps.now() - job.createdAt), counters }), job)
+      const result = normalizeResearchReport(hostedResearchResult(job.input, output, { durationMs: Math.max(0, deps.now() - job.createdAt), counters, model: job.model }), job)
       if (result && settled?.costUsd !== undefined) result.cost = { usd: settled.costUsd + (nativeCost?.usd ?? 0), missing: (settled.missingModelCosts ?? 0) + (nativeCost ? nativeCost.missing : Number(!!counters['web-search'])) }
       if (!result) next = { ...job, state: 'failed', error: 'invalid_result' }
       else if (input?.inputRevision !== job.input.inputRevision) next = { ...job, state: 'failed', error: 'stale_input', result }

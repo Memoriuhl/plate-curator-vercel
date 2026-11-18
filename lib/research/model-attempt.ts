@@ -3,10 +3,10 @@ import { RESEARCH_LIMITS } from './limits'
 import { reserveResearchSpend, settleResearchModelSpend } from './budget'
 
 type Attempt = { id: string; costUsd?: number }
-export async function createResearchModelAttempt(store: ResearchStateStore, runId: string, options: { campaign: string; limitUsd: number; deadline: number }) {
+export async function createResearchModelAttempt(store: ResearchStateStore, runId: string, options: { campaign: string; limitUsd: number; deadline: number; maxCalls?: number }) {
   const sequence = await store.update<Record<string, number>, number | null>(`limits/${runId}`, prior => {
     const value = prior ?? {}
-    if (Date.now() >= options.deadline || (value.model ?? 0) >= RESEARCH_LIMITS.model) return { value, result: null }
+    if (Date.now() >= options.deadline || (value.model ?? 0) >= (options.maxCalls ?? RESEARCH_LIMITS.model)) return { value, result: null }
     return { value: { ...value, model: (value.model ?? 0) + 1 }, result: (value.model ?? 0) + 1 }
   })
   if (sequence === null) throw new Error('Research model limit exhausted')
@@ -14,9 +14,10 @@ export async function createResearchModelAttempt(store: ResearchStateStore, runI
   if (!await reserveResearchSpend(store, options.campaign, id, 'model', 0.2, options.limitUsd)) throw new Error('Research campaign budget exhausted')
   await store.update<Attempt[], null>(`model-attempts/${runId}`, prior => ({ value: [...(prior ?? []), { id }], result: null }))
   return {
-    async settle(costUsd: number | undefined) {
+    async settle(costUsd: number | undefined, usage?: Record<string, number>) {
       await settleResearchModelSpend(store, options.campaign, id, costUsd)
       if (costUsd !== undefined) await store.update<Attempt[], null>(`model-attempts/${runId}`, prior => ({ value: (prior ?? []).map(attempt => attempt.id === id ? { id, costUsd } : attempt), result: null }))
+      if (usage) await store.update(`usage/${runId}`, () => ({ value: usage, result: null }))
     },
   }
 }

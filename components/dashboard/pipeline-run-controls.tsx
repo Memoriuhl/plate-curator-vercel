@@ -15,6 +15,7 @@ import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
+import { ResearchModelPicker, useResearchModelChoice } from './research-model-picker'
 
 type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> & Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities'>>
 
@@ -24,6 +25,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const selected = useSelectedPlates()
   const choice = useTaggingModelChoice()
   const desktopChoice = useTaggingModelChoice('pipeline-desktop-model:v1')
+  const researchChoice = useResearchModelChoice()
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
@@ -46,13 +48,14 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   if (resolvedOptions.group) for (const key of ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const) {
     if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
   }
-  const steps = planPipeline(planned.map(plate => ({ ...plate, hasStory: plate.hasStory ?? plate.checks?.funFacts.status === 'good' })), stages, resolvedOptions)
+  const steps = planPipeline(planned.map(plate => ({ ...plate, description: plate.description ?? plate.checks?.description?.value, hasStory: plate.hasStory ?? plate.checks?.funFacts.status === 'good' })), stages, resolvedOptions)
   const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), resolvedOptions)
   const needsTagModel = steps.some(step => step.stage === 'tag')
-  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
+  const needsResearchModel = steps.some(step => step.stage === 'research')
+  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || needsResearchModel && !researchChoice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined)) setOpen(false)
+    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined, needsResearchModel ? researchChoice.modelId : undefined)) setOpen(false)
   }
   function option(stage: keyof PipelineOptions, key: string, value: string | boolean) {
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
@@ -101,6 +104,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
         </section>
         {needsTagModel ? <div className="grid gap-1"><p className="label">Tag model</p><TaggingModelPicker choice={choice} /></div> : null}
         {needsModel ? <div className="grid gap-1"><p className="label">Desktop stage model</p><TaggingModelPicker choice={localChoice} /></div> : null}
+        {needsResearchModel ? <ResearchModelPicker choice={researchChoice} /> : null}
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
           <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>

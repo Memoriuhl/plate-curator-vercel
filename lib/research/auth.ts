@@ -23,9 +23,19 @@ export async function researchAgentAuthentication(request: Request) {
   if (!bearer) return null
   const service = await verifyResearchServiceToken(bearer, process.env.RESEARCH_SERVICE_SECRET ?? '', researchEnvironment())
   let jobId: string | undefined
+  let pipelineJobId: string | undefined
+  const { pipelineResearchStore } = await import('./pipeline-context')
+  const queue = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? await pipelineResearchStore() : null
+  const pipelineService = !service && queue ? await verifyResearchServiceToken(bearer, process.env.RESEARCH_SERVICE_SECRET ?? '', queue.store.env) : null
   const state = await researchState()
   const result = await authorizeResearchAgent(request, {
     async actor() {
+      if (pipelineService && queue) {
+        const job = await queue.store.transaction(tx => tx.get(pipelineService.jobId))
+        if (!job || job.localScope !== queue.scope || job.requestedBy !== pipelineService.uid || job.route !== 'hosted' || job.stage !== 'research' || job.state !== 'claimed' || job.leaseExpiresAt! <= Date.now()) return null
+        pipelineJobId = job.id
+        return { uid: pipelineService.uid, role: 'owner', active: await activeResearchOwner(pipelineService.uid) }
+      }
       if (service) {
         const store = firestoreResearchStore(await researchDatabase(), researchEnvironment())
         const job = await store.transaction(tx => tx.get(service.jobId))
@@ -40,8 +50,8 @@ export async function researchAgentAuthentication(request: Request) {
     },
     async owner(id) {
       const binding = await state.read<ResearchSessionBinding>(`session/${id}`)
-      return binding && (!service || binding.jobId === service.jobId) ? binding.ownerUid : null
+      return binding && (!service || binding.jobId === service.jobId) && (!pipelineService || binding.pipelineJobId === pipelineService.jobId) ? binding.ownerUid : null
     },
   })
-  return result && jobId ? { ...result, attributes: { ...result.attributes, jobId } } : result
+  return result && (jobId || pipelineJobId) ? { ...result, attributes: { ...result.attributes, ...(jobId ? { jobId } : {}), ...(pipelineJobId ? { pipelineJobId } : {}) } } : result
 }

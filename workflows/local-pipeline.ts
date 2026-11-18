@@ -48,5 +48,8 @@ async function observe(id: string, attempt: number, index: number) {
 
 async function executeHosted(id: string) {
   'use step'
-  return executeHostedQueueStage(jobsDeps(), id, hostedTaggingDeps)
+  return executeHostedQueueStage(jobsDeps(), id, hostedTaggingDeps, async job => {
+    const { hostedQueueResearch } = await import('../lib/server/research-context')
+    return hostedQueueResearch(job)
+  })
 }

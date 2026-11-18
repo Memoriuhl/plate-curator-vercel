@@ -4,6 +4,25 @@ import { activeResearchMember } from '../research/auth'
 import { researchDatabase, researchEnvironment } from '../research/storage'
 import { firestoreResearchStore } from '../research/firestore-store'
 import type { ResearchDeps } from '../research/jobs'
+import type { TaggingJob } from '../jobs/types'
+
+export async function hostedQueueResearch(job: TaggingJob) {
+  const { jobsDeps } = await import('./context')
+  const { researchState } = await import('../research/storage')
+  const { activeResearchOwner } = await import('../research/auth')
+  const { executeQueueResearch } = await import('../research/queue-hosted')
+  const { createEveResearchDelivery } = await import('../research/delivery')
+  if (process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true') throw Error('Hosted research model calls are disabled')
+  return executeQueueResearch(jobsDeps(), job, {
+    state: await researchState(), activeOwner: activeResearchOwner,
+    deliver: (job, input, message) => createEveResearchDelivery({ id: job.id, env: job.env, requestedBy: job.requestedBy, input }, {
+      baseUrl: process.env.RESEARCH_EVE_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'),
+      secret: process.env.RESEARCH_SERVICE_SECRET ?? '', deploymentHost: process.env.VERCEL_URL,
+      trustedOidc: process.env.VERCEL ? async () => (await import('@vercel/oidc')).getVercelOidcToken() : undefined,
+      protectionBypass: process.env.VERCEL_AUTOMATION_BYPASS_SECRET, fetch,
+    }, message),
+  })
+}
 
 export async function researchDeps(): Promise<ResearchDeps> {
   return { store: firestoreResearchStore(await researchDatabase(), researchEnvironment()), review: reviewDeps(), active: activeResearchMember, now: Date.now, id: () => crypto.randomUUID(), hostedEnabled: process.env.RESEARCH_ENABLE_MODEL_CALLS === 'true', legacyRevision: process.env.RESEARCH_LEGACY_REVISION }

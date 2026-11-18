@@ -39,7 +39,10 @@ Preview has a separate USD 0.50 campaign cap within that same total. This is not
 an ongoing spending authorization.
 Once authorized, set `RESEARCH_ENABLE_MODEL_CALLS=true` in an ignored `.env.local`
 or the executing process environment. The selected model is explicit in `agent.ts`;
-the initial candidate is `openai/gpt-6.1-sol`, verified in the Gateway catalog.
+the current hosted default is `google/gemini-2.5-flash-lite`. The original
+GPT-6.1-Sol benchmark remains historical evidence; existing artifacts are not
+rewritten or relabelled. New agent, control and explicitly selected nested search
+calls use the cheap hosted default and retain the existing budget gates.
 
 For existing web search, configure `SERPER_API_KEY` and optionally `BRAVE_API_KEY`
 on the executing host. Without keys, Wikipedia remains available and web search
@@ -197,3 +200,33 @@ shared story validator; the local pipeline flag gates direct
 Batch-edit input. The domain preserves validated story fields with that flag off,
 as do Standard rebuilds and unrelated edits. The scoped review transaction and
 image provenance are preserved.
+
+## Dashboard bulk enrichment
+
+With the local pipeline flag, select one or more Dashboard plates and choose
+**Research / enrich** in Run pipeline. **Fill missing** is the default;
+**Replace existing** may replace supported values but never clears a field when
+a retrieval or generated draft has no result. Fully populated plates are skipped.
+The server plans against the selected Batch and checks projected inputs again.
+The separate **Research model** picker offers allowlisted Desktop/Ollama choices
+and, for an active Owner with the existing model-call gate enabled, Vercel/Eve
+with Gemini 2.5 Flash Lite. This preference is separate from Tag. The resolved
+model and policy are persisted on the run and jobs, including retries.
+
+Bulk research reuses the Wiki matching and bounded passage adapters. It fetches
+evidence once per plate, synthesizes all requested fields in one call, and does
+not invoke specialized web search. An Eve session receives captured passages,
+exposes only the existing submit_draft tool and ends after that structured call.
+Its model-call, context, output and campaign budget gates remain enforced. Actual
+model, token usage and known/missing costs are retained with the queue result.
+Missing required inputs stop chained work before inference; standalone enrichment
+with no usable passages produces no result without a model call.
+
+Suggestions remain in the queue projection until normal-mode **Apply** commits
+the coherent bundle with revision checks. Preview is inspect-only. Source URLs
+remain attached to facts and read-more links; plate-level sourceUrl remains image
+provenance. No new research-job ledger is created for the bulk action.
+
+The hosted default and its published $0.10/M input / $0.40/M output rate were
+verified against the [Gateway model page](https://vercel.com/ai-gateway/models/google/gemini-2.5-flash-lite)
+on 2026-11-17. This is configuration verification, not a new paid benchmark.

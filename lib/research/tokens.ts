@@ -26,7 +26,7 @@ export async function revokeResearchWorkerToken(store: ResearchStore, digest: st
   if (record) await store.setToken({ ...record, revokedAt: Date.now() })
 }
 
-export async function researchServiceToken(job: ResearchJob, secret: string) {
+export async function researchServiceToken(job: Pick<ResearchJob, 'id' | 'env' | 'requestedBy'>, secret: string) {
   if (secret.length < 32) throw new Error('RESEARCH_SERVICE_SECRET must contain at least 32 characters')
   return new SignJWT({ jobId: job.id, env: job.env }).setProtectedHeader({ alg: 'HS256' }).setIssuer('plate-curator-research').setAudience('eve-research').setSubject(job.requestedBy).setIssuedAt().setExpirationTime('10m').sign(new TextEncoder().encode(secret))
 }

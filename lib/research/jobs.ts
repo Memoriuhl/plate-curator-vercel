@@ -6,6 +6,7 @@ import { plateRevision } from '../review/revision'
 import { validateResearchResult, researchDraftSchema } from './validate'
 import type { ResearchStore } from './store'
 import type { ResearchExecutor, ResearchInput, ResearchJob, ResearchResult } from './types'
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
 
 export type ResearchError = 'forbidden' | 'not_found' | 'invalid_state' | 'request_mismatch' | 'unavailable' | 'superseded' | 'claim_mismatch' | 'claim_expired' | 'stale_input' | 'invalid_result' | 'result_mismatch'
 export type ResearchOutcome<T> = { ok: true; value: T } | { ok: false; error: ResearchError }
@@ -39,7 +40,7 @@ export async function startResearch(deps: ResearchDeps, actor: Actor, request: {
     const old = request.replaceJobId ? await tx.get(request.replaceJobId) : null
     if (request.replaceJobId && (!old || old.requestedBy !== actor.uid || old.batchId !== request.batchId || old.input.plateId !== request.plateId)) return { ok: false as const, error: 'not_found' as const }
     if (old?.replacedBy) return { ok: false as const, error: 'superseded' as const }
-    const job: ResearchJob = { id, requestKey: request.requestKey, batchId: request.batchId, requestedBy: actor.uid, env: deps.store.env, input, executor: request.executor, model: request.executor === 'eve' ? 'openai/gpt-6.1-sol' : 'gemma4:12b', state: 'queued', createdAt: deps.now(), deadline: deps.now() + (request.executor === 'eve' ? 300000 : 86400000), counters: {}, ...(request.executor === 'desktop' ? { legacyRevision: deps.legacyRevision } : {}) }
+    const job: ResearchJob = { id, requestKey: request.requestKey, batchId: request.batchId, requestedBy: actor.uid, env: deps.store.env, input, executor: request.executor, model: request.executor === 'eve' ? DEFAULT_HOSTED_RESEARCH_MODEL : 'gemma4:12b', state: 'queued', createdAt: deps.now(), deadline: deps.now() + (request.executor === 'eve' ? 300000 : 86400000), counters: {}, ...(request.executor === 'desktop' ? { legacyRevision: deps.legacyRevision } : {}) }
     if (old) tx.set({ ...old, state: 'superseded', replacedBy: id })
     tx.set(job)
     return { ok: true as const, value: job }
