@@ -241,7 +241,7 @@ export function FamilyCard({
         </Link>
         </PlateImageHover>
         <div className="family-plate-details flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex items-start justify-between gap-2">
+          <div className="family-plate-heading flex items-start justify-between gap-2">
             <h3 title={plate.displayName + ' · ' + plate.id} className={cn('plate-name min-w-0 flex-1 truncate', small ? 'text-[13px] leading-[18px]' : 'text-[15px] leading-5')}>
               <Link lang="en" prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} onFocus={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
             </h3>
