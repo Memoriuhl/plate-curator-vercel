@@ -7,7 +7,9 @@ import type { TaggingJob } from '@/lib/jobs/types'
 import type { QueueRunSummary, QueueRunView } from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import { PipelineFieldValue, pipelineFieldLabel } from './pipeline-field-value'
-import { pipelineStages } from './pipeline-stages'
+import { PipelineRunCard } from './pipeline-run-card'
+import { queueProgress } from '@/lib/jobs/run-progress'
+import styles from './pipeline-runs.module.css'
 import { SpecializedSuggestion } from './specialized-suggestion'
 
 type QueueControls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'selected' | 'select' | 'loading' | 'error' | 'refresh' | 'action' | 'message' | 'cancel' | 'retry' | 'apply' | 'chooseImage' | 'recover'> &
@@ -18,13 +20,13 @@ function label(run: QueueRunSummary) {
   if (run.cancelRequestedAt !== undefined && run.status === 'running') return 'Cancellation requested · waiting for the active stage to finish'
   if (run.waitReason === 'recovery') return 'Recovery needed · waiting for the worker to confirm it stopped'
   if (run.waitReason === 'image_choice') return 'Waiting for your image selection'
-  if (attempt.outcome === 'no_result') return `No result · ${attempt.error?.replaceAll('_', ' ') ?? 'no supported suggestion'}`
+  if (attempt.outcome === 'no_result') return `Failed · ${attempt.error?.replaceAll('_', ' ') ?? 'no supported suggestion'}`
   if (attempt.outcome === 'partial') return 'Completed with gaps'
   if (run.status === 'queued') return 'Queued · waiting for a local worker and available resources'
   return run.status[0].toUpperCase() + run.status.slice(1)
 }
 
-export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueControls; renderSpecialized?(job: TaggingJob, run: QueueRunView): ReactNode }) {
+export function PipelineQueuePanel({ queue, renderSpecialized, header, requester }: { queue: QueueControls; header?: ReactNode; requester?(uid: string): string | undefined; renderSpecialized?(job: TaggingJob, run: QueueRunView): ReactNode }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
   const selected = queue.selected
   const attempt = selected?.attempts.at(-1)
@@ -32,9 +34,9 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
   const plateNames = Object.fromEntries(entries.map(entry => [entry.batchInput.id, entry.batchInput.displayName]))
   const currentJob = selected?.jobs.find(job => job.queueAttempt === attempt?.number && job.queueStep === attempt?.cursor)
   const leaseActive = currentJob?.leaseExpiresAt !== undefined && (queue.observedAt === undefined || currentJob.leaseExpiresAt > queue.observedAt)
-  return <section aria-label="Pipeline queue and history" className="col-span-full grid basis-full gap-[var(--stack-gap)] rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]">
-    <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="label">Pipeline queue and history</h2>
-      <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>Refresh queue</Button></div>
+  return <section aria-label="Pipeline queue and history" className={styles.panel}>
+    {header ?? <h2 className="sr-only">Pipeline queue and history</h2>}
+    {queue.error ? <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>Refresh queue</Button> : null}
     {queue.loading ? <p role="status">Loading saved runs…</p> : null}
     {queue.error ? <p role="alert">Could not load saved runs. Refresh to try again.</p> : null}
     {!queue.loading && !queue.error && !queue.runs.length ? <p className="caption">Queued runs and their results will stay here after reload.</p> : null}
@@ -50,17 +52,13 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
     <ol className="grid gap-[var(--stack-gap)]">{queue.runs.map(run => {
       const attempt = run.attempts.at(-1)!
       const unresolved = run.jobs.some(job => job.state === 'claimed')
-      return <li key={run.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
-        <p><strong>{run.plateIds.length} plates · {run.stages.map(id => pipelineStages.find(stage => stage.id === id)?.label ?? id).join(' → ')}</strong></p>
-        <p className="caption" role="status">{label(run)} · {attempt.completedCount ?? attempt.completedJobIds?.length ?? 0}/{attempt.stepCount ?? attempt.steps?.length ?? 0} stages{attempt.noResultCount ? ` · ${attempt.noResultCount} without suggestions` : ''} · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
-        <p className="caption">Requested {new Date(run.createdAt).toLocaleString()} · {run.batchName ?? 'Batch'}</p>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View results</Button>
-          {['queued', 'running'].includes(run.status) && run.cancelRequestedAt === undefined ? <Button size="sm" variant="ghost" disabled={!run.editable || !!queue.action} onClick={() => void queue.cancel(run.id)}>Cancel remaining stages</Button> : null}
-          {['failed', 'cancelled'].includes(run.status) && !unresolved ? <Button size="sm" variant="outline" disabled={!run.editable || !!queue.action} onClick={() => void queue.retry(run.id)}>Retry pending stages</Button> : null}
-        </div>
-        {!run.editable ? <p className="caption">This Batch is read-only.</p> : null}
-      </li>
+      return <li key={run.id} className="min-w-0"><PipelineRunCard run={run} stages={run.stages} progress={run.progress ?? queueProgress(run)} observedAt={queue.observedAt} requester={requester?.(run.requestedBy)}>
+        <span className="caption mr-auto" role="status">{run.cancelRequestedAt !== undefined || run.waitReason === 'recovery' || run.waitReason === 'image_choice' ? label(run) : run.previewOnly ? 'Preview only' : !run.editable ? 'This Batch is read-only.' : ''}</span>
+        <Button size="sm" variant="ghost" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View results</Button>
+        {['queued', 'running'].includes(run.status) && run.cancelRequestedAt === undefined ? <Button size="sm" variant="ghost" disabled={!run.editable || !!queue.action} onClick={() => void queue.cancel(run.id)}>Cancel remaining stages</Button> : null}
+        {['failed', 'cancelled'].includes(run.status) && !unresolved ? <Button size="sm" variant="outline" disabled={!run.editable || !!queue.action} onClick={() => void queue.retry(run.id)}>Retry pending stages</Button> : null}
+        <details className={styles.activity}><summary>Run activity</summary><p>{run.status} · attempt {attempt.number} · Requested {new Date(run.createdAt).toLocaleString()} · {run.batchName ?? 'Batch'}</p>{attempt.error ? <p>{attempt.error.replaceAll('_', ' ')}</p> : null}</details>
+      </PipelineRunCard></li>
     })}</ol>
     {selected ? <div className="grid gap-[var(--stack-gap)]">
       <div className="flex flex-wrap justify-between gap-2"><h3 className="label">Coherent run result</h3>

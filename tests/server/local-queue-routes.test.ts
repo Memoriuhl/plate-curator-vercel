@@ -44,6 +44,8 @@ test('authenticated enqueue starts installed Workflow once with an attempt token
   expect(restored.runs[0].attempts[0]).toMatchObject({ stepCount: 1, completedCount: 0 })
   expect(restored.selected.attempts[0].projection).toBeTruthy()
   expect(restored.selected.id).toBe(restored.runs[0].id)
+  expect(restored.runs[0].progress).toMatchObject({ steps: [{ stage: 'tag', status: 'queued', plateName: 'One' }], workerIds: [] })
+  expect(restored.runs[0].progress.steps[0]).not.toHaveProperty('inputPlate')
 })
 
 test('enqueue acknowledgement loss/start failure recovers the same persisted run on retry or GET', async () => {

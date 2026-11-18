@@ -4,6 +4,8 @@ import { badRequest, json, readJson } from '../../../../lib/server/respond'
 import { queueResponse, reconcileQueueWorkflow, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
 import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
+import { queueProgress } from '../../../../lib/jobs/run-progress'
+import { workflowVisibilityUrl } from '../../../../lib/jobs/workflow-visibility'
 
 export async function GET(request: Request) {
   const auth = await currentActor(request)
@@ -23,6 +25,11 @@ export async function GET(request: Request) {
   if (reconciled) { result = await listRuns(jobsDeps(), auth.actor); if (!result.ok) return queueResponse(result) }
   const selectedId = new URL(request.url).searchParams.get('detail')
   const selected = selectedId ? result.value.find(run => run.id === selectedId) : result.value.find(run => run.status === 'running') ?? result.value[0]
+  for (const run of result.value) {
+    run.progress = queueProgress(run)
+    const attempt = run.attempts.at(-1)!
+    run.progress.workflowUrl = attempt.workflowUrl === undefined ? workflowVisibilityUrl(attempt.workflowId, process.env.VERCEL_ENV) : attempt.workflowUrl
+  }
   const summaries = result.value.map(run => ({ ...run,
     fingerprint: undefined,
     attempts: run.attempts.map(attempt => ({ ...Object.fromEntries(Object.entries(attempt).filter(([key]) => !['projection', 'steps', 'completedJobIds', 'jobIds', 'choices'].includes(key))),

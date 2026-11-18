@@ -137,8 +137,16 @@ test('a missing Wiki result stops the research run before any model job is dispa
   expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'describe-hook')).toBeNull()
   expect(await claimNext(s.deps, 'worker')).toBeNull()
   const [saved] = await s.deps.store.transaction(tx => tx.runs())
-  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, outcome: 'no_result', error: 'no_sources' }] })
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, outcome: 'no_result', error: 'no_sources', steps: [
+    { stage: 'wiki-link', status: 'failed', reason: 'no_sources', endedAt: 100 },
+    { stage: 'describe', status: 'cancelled', reason: 'upstream_failed', endedAt: 100 },
+    { stage: 'story', status: 'cancelled', reason: 'upstream_failed', endedAt: 100 },
+  ] }] })
   expect(await s.review.listEdits('batch')).toEqual([])
+  const retry = await retryRun(s.deps, actor, run.id, 'retry-source')
+  if (!retry.ok) throw Error(retry.error)
+  expect(retry.value.attempts[0].steps.map(step => step.status)).toEqual(['failed', 'cancelled', 'cancelled'])
+  expect(retry.value.attempts[1].steps.every(step => step.status === undefined && step.endedAt === undefined && step.reason === undefined)).toBe(true)
 })
 
 test('dispatch refuses a persisted run that advanced without its selected Wiki prerequisite', async () => {

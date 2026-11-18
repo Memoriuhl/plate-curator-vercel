@@ -9,11 +9,14 @@ import { PipelineRunControls } from '../../components/dashboard/pipeline-run-con
 import { TAGGING_MODELS } from '../../lib/tagging/models'
 import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboard/pipeline-field-value'
 import { imageGroupCapabilities } from '../../lib/jobs/image-options'
+import { PipelineRunCard } from '../../components/dashboard/pipeline-run-card'
+import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
+import { queueProgress } from '../../lib/jobs/run-progress'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   models: [] as (typeof TAGGING_MODELS)[number][], workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
-vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace }))
+vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
 vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: 'desktop-gemma4-12b' }), TaggingModelPicker: () => <span>Local model</span> }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
@@ -167,6 +170,45 @@ test('Preview never bootstraps or changes Batch metadata; it uses an existing Ba
   await act(async () => { await existing.result.current.enqueue([plate], ['tag'], undefined, {}, true) })
   expect(mocks.ensure).not.toHaveBeenCalled()
   expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ batchId: 'existing-batch', previewOnly: true }))
+})
+
+test('run cards show a failed Wiki step, cancelled dependants, duration, and a real Visibility link', () => {
+  const run = saved({ status: 'failed', stages: ['wiki-link', 'describe', 'story'] })
+  run.attempts[0] = { ...run.attempts[0], status: 'failed', endedAt: 33100, workflowId: 'wrun_real', workflowUrl: 'https://vercel.com/memoriuhl/plate-curator-vercel/workflows/runs/wrun_real?environment=preview', steps: [
+    { index: 0, plateId: 'AK.one', stage: 'wiki-link', resourceClass: 'io', status: 'failed', startedAt: 100, endedAt: 33100, reason: 'no_sources' },
+    { index: 1, plateId: 'AK.one', stage: 'describe', resourceClass: 'gpu', status: 'cancelled', reason: 'upstream_failed' },
+    { index: 2, plateId: 'AK.one', stage: 'story', resourceClass: 'gpu', status: 'cancelled', reason: 'upstream_failed' },
+  ] }
+  render(<PipelineRunCard run={run} stages={run.stages} progress={queueProgress(run)} observedAt={99999} requester="Editor" />)
+  expect(screen.getByRole('button', { name: /Wiki link: Failed · 00:33/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Describe: Cancelled · not run/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Story: Cancelled · not run/ })).toBeTruthy()
+  const link = screen.getByRole('link', { name: 'View workflow for run saved-run' })
+  expect(link.getAttribute('href')).toBe(run.attempts[0].workflowUrl)
+  expect(link.getAttribute('target')).toBe('_blank')
+  expect(screen.queryByRole('progressbar')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /Describe: Cancelled/ }))
+  expect(screen.getByText('An earlier step failed. This step did not run.')).toBeTruthy()
+  expect(screen.queryByText('Workflow run')).toBeNull()
+})
+
+test('execution dropdown switches local workers and gateway views without mutating or restarting runs', async () => {
+  const local = saved()
+  local.progress = { ...queueProgress(local), workerIds: ['Studio PC', 'Laptop'] }
+  mocks.api.get.mockImplementation(async (path: string) => path.startsWith('/api/local-pipeline') ? { runs: [local], observedAt: 1000 } : { runs: [{
+    id: 'gateway-run', batchId: 'batch', requestedBy: 'editor', plateIds: ['AK.one'], modelId: 'gateway-gemma4-26b', createdAt: 100, status: 'completed',
+    progress: { workerIds: [], endedAt: 800, steps: [{ index: 0, plateId: 'AK.one', plateName: 'One', stage: 'tag', status: 'completed', durationMs: 700 }], workflowUrl: null }, results: [],
+  }], observedAt: 1000 })
+  function Runs() { return <PipelineRuns queue={usePipelineQueue()} /> }
+  render(<Runs />, { wrapper })
+  await waitFor(() => expect(screen.getByRole('article', { name: 'Pipeline run saved-run' })).toBeTruthy())
+  fireEvent.keyDown(screen.getByRole('button', { name: /View runs: Local PC/ }), { key: 'Enter' })
+  await waitFor(() => expect(screen.getByRole('menuitemradio', { name: 'Studio PC' })).toBeTruthy())
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Vercel Gateway/ }))
+  await waitFor(() => expect(screen.getByRole('article', { name: 'Pipeline run gateway-run' })).toBeTruthy())
+  expect(screen.queryByRole('article', { name: 'Pipeline run saved-run' })).toBeNull()
+  expect(screen.getByRole('button', { name: /View runs: Vercel Gateway. Gemma 4 26B/ })).toBeTruthy()
+  expect(mocks.api.send).not.toHaveBeenCalled()
 })
 
 test('coherent facts and read-more links use readable text and cited links instead of raw JSON', () => {

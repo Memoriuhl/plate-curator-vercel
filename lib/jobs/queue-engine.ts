@@ -7,11 +7,13 @@ import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
 import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { storyUrl } from '../review/fields'
+import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
 
 function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number) {
   attempt.completedJobIds.push(jobId)
+  Object.assign(attempt.steps[attempt.cursor], { status: 'completed', endedAt: now })
   attempt.cursor++
   delete attempt.error
   if (attempt.cursor === attempt.steps.length) {
@@ -42,7 +44,9 @@ export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number,
     const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status) || attempt.workflowId && attempt.workflowId !== workflowId) return false
-    attempt.workflowId = workflowId; run.updatedAt = d.now(); tx.setRun(run)
+    attempt.workflowId = workflowId
+    attempt.workflowUrl = workflowVisibilityUrl(workflowId, process.env.VERCEL_ENV)
+    run.updatedAt = d.now(); tx.setRun(run)
     return true
   })
 }

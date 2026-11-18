@@ -6,7 +6,13 @@ export const canonicalStages: readonly LocalRunStage[] = ['find-image', 'wiki-li
 export const stageDependencies: Record<LocalRunStage, readonly LocalRunStage[]> = {
   'find-image': [], 'wiki-link': [], colors: ['find-image'], describe: ['wiki-link'], story: ['wiki-link', 'describe'], tag: ['find-image', 'colors'], group: ['colors', 'tag'],
 }
-export type RunStep = { index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass }
+export type RunStep = {
+  index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass
+  status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  startedAt?: number
+  endedAt?: number
+  reason?: string
+}
 
 export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRunStage[] {
   const result: LocalRunStage[] = []
