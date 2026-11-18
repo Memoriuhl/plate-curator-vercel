@@ -9,7 +9,7 @@ import type { CatalogSource, Snapshot } from './types'
 export function firestoreCatalogSource(
   db: Firestore,
   loadSnapshot: (version: number) => Promise<Snapshot>,
-  imageBase: string | null = null,
+  imageBase: string | null = null
 ): CatalogSource {
   /**
    * Read the current catalog pointer and reject versions that cannot identify a
@@ -18,7 +18,8 @@ export function firestoreCatalogSource(
   const readVersion = async () => {
     const pointer = await db.doc('config/catalog').get()
     const version = pointer.get('version')
-    if (typeof version !== 'number') throw new Error('config/catalog has no numeric version')
+    if (typeof version !== 'number')
+      throw new Error('config/catalog has no numeric version')
     return version
   }
   return {
@@ -33,7 +34,10 @@ export function firestoreCatalogSource(
     async readCuratorState() {
       const snapshot = await db.doc('curator/workflow').get()
       const state = snapshot.data()
-      return { stateOrder: state?.stateOrder ?? {}, stateProgress: state?.stateProgress ?? {} }
+      return {
+        stateOrder: state?.stateOrder ?? {},
+        stateProgress: state?.stateProgress ?? {},
+      }
     },
     /** Resolve a catalog plate image using this source's configured image base. */
     imageUrl(plate) {

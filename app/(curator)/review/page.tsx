@@ -23,7 +23,7 @@ async function ReviewData({ searchParams }: { searchParams: Search }) {
           id,
           displayName,
           imageUrl,
-        }),
+        })
       ),
     }
   })

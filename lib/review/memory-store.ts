@@ -1,14 +1,35 @@
 import { canCopyForFreshReview } from './access'
-import { currentDraftChanges, draftChange, reviewChanges, type DraftChange, type ReviewCheckpoint } from './checkpoint'
+import {
+  currentDraftChanges,
+  draftChange,
+  reviewChanges,
+  type DraftChange,
+  type ReviewCheckpoint,
+} from './checkpoint'
 import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
 
 /**
  * Create an in-memory review adapter that supports revision checks, checkpoints and
  * publish metadata for fixtures.
  */
-export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'stateOrders'> & { createdByName?: string | null; stateOrders?: Record<string, string[]> })[], head: () => number = () => 1): ReviewStore & { signalRevision(batchId: string): number | null } {
-  const batches = new Map(seed.map(batch => [batch.id, structuredClone({ ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} })]))
-  const signals = new Map(seed.map(batch => [batch.id, batch.revision]))
+export function createMemoryStore(
+  seed: (Omit<ReviewBatch, 'createdByName' | 'stateOrders'> & {
+    createdByName?: string | null
+    stateOrders?: Record<string, string[]>
+  })[],
+  head: () => number = () => 1
+): ReviewStore & { signalRevision(batchId: string): number | null } {
+  const batches = new Map(
+    seed.map((batch) => [
+      batch.id,
+      structuredClone({
+        ...batch,
+        createdByName: batch.createdByName ?? null,
+        stateOrders: batch.stateOrders ?? {},
+      }),
+    ])
+  )
+  const signals = new Map(seed.map((batch) => [batch.id, batch.revision]))
   const edits = new Map<string, Map<string, ProposedEdit>>()
 
   const checkpoints = new Map<string, Map<string, ReviewCheckpoint>>()
@@ -18,13 +39,26 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
    * Read draft changes after a revision and retain only changes still present in the
    * draft.
    */
-  const recentChanges = (batch: ReviewBatch, since: number) => currentDraftChanges(batch, [...edits.get(batch.id)?.values() ?? []].filter(edit => Object.keys(edit.fields).length > 0).map(edit => edit.plateId), (changes.get(batch.id) ?? []).filter(change => change.revision > since))
+  const recentChanges = (batch: ReviewBatch, since: number) =>
+    currentDraftChanges(
+      batch,
+      [...(edits.get(batch.id)?.values() ?? [])]
+        .filter((edit) => Object.keys(edit.fields).length > 0)
+        .map((edit) => edit.plateId),
+      (changes.get(batch.id) ?? []).filter((change) => change.revision > since)
+    )
 
   return {
     /** Return the distinct active draft plate IDs changed after a given revision. */
     async recentPlateIds(batchId, since) {
       const batch = batches.get(batchId)
-      return batch ? [...new Set(recentChanges(batch, since).flatMap(change => change.plateIds))] : null
+      return batch
+        ? [
+            ...new Set(
+              recentChanges(batch, since).flatMap((change) => change.plateIds)
+            ),
+          ]
+        : null
     },
     /**
      * Save the viewer's reviewed revision after checking that it belongs to the batch.
@@ -33,7 +67,8 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       const batch = batches.get(batchId)
       if (!batch || revision > batch.revision) return false
       const viewers = checkpoints.get(batchId) ?? new Map()
-      if ((viewers.get(uid)?.revision ?? -1) < revision) viewers.set(uid, { revision, viewedAt })
+      if ((viewers.get(uid)?.revision ?? -1) < revision)
+        viewers.set(uid, { revision, viewedAt })
       checkpoints.set(batchId, viewers)
       return true
     },
@@ -42,7 +77,11 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       const batch = batches.get(batchId)
       if (batch?.revision !== revision) return null
       const current = checkpoints.get(batchId)?.get(uid) ?? null
-      return reviewChanges(revision, current, current ? recentChanges(batch, current.revision) : [])
+      return reviewChanges(
+        revision,
+        current,
+        current ? recentChanges(batch, current.revision) : []
+      )
     },
     /** Apply a metadata-only publish update when the batch exists. */
     async updatePublishMetadata(batchId, revision, fields) {
@@ -60,17 +99,25 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
       if (existing) return { ok: true, value: structuredClone(existing) }
       const source = batches.get(input.sourceId)
       if (!source) return { ok: false, error: 'not_found' }
-      if (source.revision !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
-      if (!canCopyForFreshReview(source, input.targetVersion)) return { ok: false, error: 'invalid_state' }
+      if (source.revision !== input.sourceRevision)
+        return { ok: false, error: 'superseded_revision' }
+      if (!canCopyForFreshReview(source, input.targetVersion))
+        return { ok: false, error: 'invalid_state' }
       const liveVersion = head()
-      if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
+      if (liveVersion !== input.targetVersion)
+        return { ok: false, error: 'head_moved', liveVersion }
       batches.set(input.batch.id, structuredClone(input.batch))
-      edits.set(input.batch.id, new Map(input.edits.map(edit => [edit.plateId, structuredClone(edit)])))
+      edits.set(
+        input.batch.id,
+        new Map(
+          input.edits.map((edit) => [edit.plateId, structuredClone(edit)])
+        )
+      )
       signals.set(input.batch.id, input.batch.revision)
       return { ok: true, value: structuredClone(input.batch) }
     },
     /** Expose the latest live signal revision recorded for the batch. */
-    signalRevision: batchId => signals.get(batchId) ?? null,
+    signalRevision: (batchId) => signals.get(batchId) ?? null,
     /** Create a new batch and initialize its signal while rejecting an existing ID. */
     async create(batch) {
       if (batches.has(batch.id)) return 'exists'
@@ -80,18 +127,28 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
     },
     /** List matching batch summaries and clone them to protect stored state. */
     async list(filter) {
-      return structuredClone([...batches.values()]
-        .filter(batch => filter.states === undefined || filter.states.includes(batch.state))
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)))
+      return structuredClone(
+        [...batches.values()]
+          .filter(
+            (batch) =>
+              filter.states === undefined || filter.states.includes(batch.state)
+          )
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      )
     },
     /** Return a snapshot of the current edits for the batch. */
     async listEdits(batchId) {
-      return structuredClone([...edits.get(batchId)?.values() ?? []])
+      return structuredClone([...(edits.get(batchId)?.values() ?? [])])
     },
     /** Read the batch and all its edits together as a detached snapshot. */
     async readBatch(batchId) {
       const batch = batches.get(batchId)
-      return batch ? structuredClone({ batch, edits: [...edits.get(batchId)?.values() ?? []] }) : null
+      return batch
+        ? structuredClone({
+            batch,
+            edits: [...(edits.get(batchId)?.values() ?? [])],
+          })
+        : null
     },
     /** Return a copy of the requested batch so callers can edit it locally. */
     async getBatch(id) {
@@ -104,7 +161,14 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
     /** Attach an approval run while its requested batch revision is still current. */
     async recordRun(batchId, revision, runId) {
       const batch = batches.get(batchId)
-      if (!batch || !(batch.state === 'submitted' && batch.revision === revision || batch.state === 'approved' && batch.approval?.revision === revision)) return false
+      if (
+        !batch ||
+        !(
+          (batch.state === 'submitted' && batch.revision === revision) ||
+          (batch.state === 'approved' && batch.approval?.revision === revision)
+        )
+      )
+        return false
       batch.approvalRun = { runId, revision }
       return true
     },
@@ -114,7 +178,8 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
      */
     async requestPublish(batchId, revision, at, requestedBy) {
       const batch = batches.get(batchId)
-      if (!batch || batch.state !== 'approved' || batch.revision !== revision) return false
+      if (!batch || batch.state !== 'approved' || batch.revision !== revision)
+        return false
       batch.publishRequestedAt = at
       if (requestedBy) batch.publishRequestedBy = structuredClone(requestedBy)
       return true
@@ -124,19 +189,47 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
      * concurrency.
      */
     async commit(batchId, expectedRevision, next) {
-      if (batches.get(batchId)?.revision !== expectedRevision) return 'revision_mismatch'
+      if (batches.get(batchId)?.revision !== expectedRevision)
+        return 'revision_mismatch'
       const saved = structuredClone(next)
       const current = batches.get(batchId)!
-      if (current.publishAbandonment) saved.batch.publishAbandonment = structuredClone(current.publishAbandonment)
-      if (current.approvalRun) saved.batch.approvalRun = structuredClone(current.approvalRun)
-      if (current.publishRequestedAt && ['approved', 'published'].includes(saved.batch.state)) { saved.batch.publishRequestedAt = current.publishRequestedAt; if (current.publishRequestedBy) saved.batch.publishRequestedBy = structuredClone(current.publishRequestedBy) }
+      if (current.publishAbandonment)
+        saved.batch.publishAbandonment = structuredClone(
+          current.publishAbandonment
+        )
+      if (current.approvalRun)
+        saved.batch.approvalRun = structuredClone(current.approvalRun)
+      if (
+        current.publishRequestedAt &&
+        ['approved', 'published'].includes(saved.batch.state)
+      ) {
+        saved.batch.publishRequestedAt = current.publishRequestedAt
+        if (current.publishRequestedBy)
+          saved.batch.publishRequestedBy = structuredClone(
+            current.publishRequestedBy
+          )
+      }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()
-      if (saved.deleteEditFor !== undefined) batchEdits.delete(saved.deleteEditFor)
+      if (saved.deleteEditFor !== undefined)
+        batchEdits.delete(saved.deleteEditFor)
       for (const id of saved.deleteEditsFor ?? []) batchEdits.delete(id)
-      const updates = [...(saved.edits ?? []), ...(saved.edit ? [saved.edit] : [])]
-      const deletes = [...(saved.deleteEditsFor ?? []), ...(saved.deleteEditFor ? [saved.deleteEditFor] : [])]
-      const change = draftChange(current, saved.batch, updates, deletes, saved.by)
-      if (change) changes.set(batchId, [...(changes.get(batchId) ?? []), change])
+      const updates = [
+        ...(saved.edits ?? []),
+        ...(saved.edit ? [saved.edit] : []),
+      ]
+      const deletes = [
+        ...(saved.deleteEditsFor ?? []),
+        ...(saved.deleteEditFor ? [saved.deleteEditFor] : []),
+      ]
+      const change = draftChange(
+        current,
+        saved.batch,
+        updates,
+        deletes,
+        saved.by
+      )
+      if (change)
+        changes.set(batchId, [...(changes.get(batchId) ?? []), change])
       for (const edit of updates) batchEdits.set(edit.plateId, edit)
       edits.set(batchId, batchEdits)
       batches.set(batchId, saved.batch)

@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { clientApp, clientAuth } from '../../lib/client/firebase'
 
-const mocks = vi.hoisted(() => ({ apps: vi.fn(), initialize: vi.fn(), auth: vi.fn() }))
-vi.mock('firebase/app', () => ({ getApps: mocks.apps, initializeApp: mocks.initialize }))
+const mocks = vi.hoisted(() => ({
+  apps: vi.fn(),
+  initialize: vi.fn(),
+  auth: vi.fn(),
+}))
+vi.mock('firebase/app', () => ({
+  getApps: mocks.apps,
+  initializeApp: mocks.initialize,
+}))
 vi.mock('firebase/auth', () => ({ getAuth: mocks.auth }))
 
 const variables = {
@@ -19,12 +26,15 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 
-test.each(Object.keys(variables))('rejects missing %s before initializing Firebase', name => {
-  vi.stubEnv(name, '')
-  expect(() => clientAuth()).toThrow('Firebase sign-in is not configured')
-  expect(mocks.initialize).not.toHaveBeenCalled()
-  expect(mocks.auth).not.toHaveBeenCalled()
-})
+test.each(Object.keys(variables))(
+  'rejects missing %s before initializing Firebase',
+  (name) => {
+    vi.stubEnv(name, '')
+    expect(() => clientAuth()).toThrow('Firebase sign-in is not configured')
+    expect(mocks.initialize).not.toHaveBeenCalled()
+    expect(mocks.auth).not.toHaveBeenCalled()
+  }
+)
 
 test('rejects whitespace-only configuration', () => {
   vi.stubEnv('NEXT_PUBLIC_FIREBASE_API_KEY', '  ')
@@ -38,7 +48,10 @@ test('normalizes configuration and initializes authentication', () => {
   mocks.initialize.mockReturnValue(app)
   clientAuth()
   expect(mocks.initialize).toHaveBeenCalledWith({
-    apiKey: 'test-api-key', authDomain: 'test.firebaseapp.com', projectId: 'test', appId: 'test-app',
+    apiKey: 'test-api-key',
+    authDomain: 'test.firebaseapp.com',
+    projectId: 'test',
+    appId: 'test-app',
   })
   expect(mocks.auth).toHaveBeenCalledWith(app)
 })

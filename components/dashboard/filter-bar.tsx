@@ -4,7 +4,11 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { NEEDS_WORK_CHECKS, type FilterCounts } from './family-data'
 import { useWorkspaceBatch, useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 
 /**
@@ -24,11 +28,19 @@ export function FilterBar({
 }) {
   const workspace = useWorkspaceBatch()
   const batches = useBatches(['open'], { mine: true })
-  const batch = workspace.mode === 'selected' ? workspace.detail?.batch : batches.data?.[0]
+  const batch =
+    workspace.mode === 'selected' ? workspace.detail?.batch : batches.data?.[0]
   const changedCount = new Set(
-    batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? [],
+    batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? []
   ).size
-  return <FilterBarControls counts={counts} changedCount={changedCount} resolveGroup={resolveGroup} onSelectGroup={onSelectGroup} />
+  return (
+    <FilterBarControls
+      counts={counts}
+      changedCount={changedCount}
+      resolveGroup={resolveGroup}
+      onSelectGroup={onSelectGroup}
+    />
+  )
 }
 
 /**
@@ -52,14 +64,19 @@ export function FilterBarControls({
     { key: 'all', label: 'All plates', count: counts.all },
     { key: 'changed', label: 'Changed in a batch', count: changedCount },
     ...NEEDS_WORK_CHECKS.map(({ key, label, checkKey }) => ({
-      key, label, icon: CHECK_META[checkKey].icon,
+      key,
+      label,
+      icon: CHECK_META[checkKey].icon,
       count: counts.groups[key].total,
-      detail: key === 'standardPlate'
-        ? 'States with missing or multiple Standards, or a Standard that is not the first plate'
-        : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
+      detail:
+        key === 'standardPlate'
+          ? 'States with missing or multiple Standards, or a Standard that is not the first plate'
+          : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
     })),
   ]
-  const selected = filters.some(filter => filter.key === params.get('show')) ? params.get('show') : 'all'
+  const selected = filters.some((filter) => filter.key === params.get('show'))
+    ? params.get('show')
+    : 'all'
   return (
     <div className="filter-bar">
       <div className="filter-chips" role="group" aria-label="Filter plates">
@@ -72,10 +89,15 @@ export function FilterBarControls({
               <TooltipTrigger asChild>
                 <Toggle
                   count={filter.count}
-                  onClick={event => {
-                    if (event.shiftKey && 'detail' in filter && (!filter.count || (onSelectGroup && resolveGroup))) {
+                  onClick={(event) => {
+                    if (
+                      event.shiftKey &&
+                      'detail' in filter &&
+                      (!filter.count || (onSelectGroup && resolveGroup))
+                    ) {
                       event.preventDefault()
-                      if (!filter.count || !onSelectGroup || !resolveGroup) return
+                      if (!filter.count || !onSelectGroup || !resolveGroup)
+                        return
                       const ids = resolveGroup(filter.key)
                       if (ids.length) onSelectGroup(filter.key, ids)
                     }
@@ -93,7 +115,12 @@ export function FilterBarControls({
               </TooltipTrigger>
               <TooltipContent>
                 {'detail' in filter ? filter.detail : filter.label}
-                {onSelectGroup && resolveGroup && filter.count > 0 && 'detail' in filter ? '; Shift-click to select group' : ''}
+                {onSelectGroup &&
+                resolveGroup &&
+                filter.count > 0 &&
+                'detail' in filter
+                  ? '; Shift-click to select group'
+                  : ''}
               </TooltipContent>
             </Tooltip>
           </span>

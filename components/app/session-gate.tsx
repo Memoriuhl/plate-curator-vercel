@@ -20,19 +20,38 @@ function MembershipGate({ children }: { children: ReactNode }) {
   async function handleSignOut() {
     setPending(true)
     setError(false)
-    try { await signOut() } catch { setError(true) } finally { setPending(false) }
+    try {
+      await signOut()
+    } catch {
+      setError(true)
+    } finally {
+      setPending(false)
+    }
   }
-  if (me.error instanceof ApiError && me.error.code === 'not_member') return (
-    <main className="sign-in-main">
-      <section className="sign-in-card" aria-labelledby="no-access-title">
-        <h1 id="no-access-title">No access</h1>
-        <p>Your account doesn&apos;t have access to Plate Curator. Ask the Owner for an invite.</p>
-        <Button onClick={() => void handleSignOut()} disabled={pending}>Sign out</Button>
-        {error ? <p role="alert">Could not sign out. Try again.</p> : null}
-      </section>
-    </main>
-  )
-  if (!me.data) return <main className="session-loading" role="status">{me.error ? 'Could not check access. Please try again.' : 'Checking access...'}</main>
+  if (me.error instanceof ApiError && me.error.code === 'not_member')
+    return (
+      <main className="sign-in-main">
+        <section className="sign-in-card" aria-labelledby="no-access-title">
+          <h1 id="no-access-title">No access</h1>
+          <p>
+            Your account doesn&apos;t have access to Plate Curator. Ask the
+            Owner for an invite.
+          </p>
+          <Button onClick={() => void handleSignOut()} disabled={pending}>
+            Sign out
+          </Button>
+          {error ? <p role="alert">Could not sign out. Try again.</p> : null}
+        </section>
+      </main>
+    )
+  if (!me.data)
+    return (
+      <main className="session-loading" role="status">
+        {me.error
+          ? 'Could not check access. Please try again.'
+          : 'Checking access...'}
+      </main>
+    )
   return children
 }
 
@@ -56,5 +75,9 @@ export function SessionGate({
         Redirecting...
       </main>
     )
-  return signedIn && ready && user ? <MembershipGate>{children}</MembershipGate> : children
+  return signedIn && ready && user ? (
+    <MembershipGate>{children}</MembershipGate>
+  ) : (
+    children
+  )
 }

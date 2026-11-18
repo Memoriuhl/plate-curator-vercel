@@ -17,7 +17,7 @@ function Tabs({
       data-orientation={orientation}
       className={cn(
         'group/tabs flex gap-2 data-horizontal:flex-col',
-        className,
+        className
       )}
       {...props}
     />
@@ -29,7 +29,7 @@ const tabsListVariants = cva(
   {
     variants: { variant: { default: '', line: 'bg-transparent' } },
     defaultVariants: { variant: 'default' },
-  },
+  }
 )
 
 /** Render the tab controls with the chosen shared visual treatment. */
@@ -59,7 +59,7 @@ function TabsTrigger({
       data-slot="tabs-trigger"
       className={cn(
         'inline-flex h-[34px] items-center justify-center gap-2 rounded-[var(--radius-pill)] px-[18px] text-sm font-extrabold whitespace-nowrap text-foreground active:opacity-80 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground disabled:opacity-50',
-        className,
+        className
       )}
       {...props}
     />

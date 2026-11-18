@@ -53,7 +53,7 @@ function SelectTrigger({
       data-size={size}
       className={cn(
         'flex h-[34px] w-fit items-center justify-between gap-2 rounded-[var(--radius-pill)] bg-muted px-3 text-sm font-extrabold text-foreground disabled:opacity-50 data-[state=open]:outline-2 data-[state=open]:outline-primary *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2',
-        className,
+        className
       )}
       {...props}
     >
@@ -82,7 +82,7 @@ function SelectContent({
           'relative z-50 max-h-(--radix-select-content-available-height) min-w-36 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-lg)] bg-popover text-popover-foreground    duration-100 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
           position === 'popper' &&
             'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
-          className,
+          className
         )}
         position={position}
         align={align}
@@ -93,7 +93,7 @@ function SelectContent({
           data-position={position}
           className={cn(
             'data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)',
-            position === 'popper' && '',
+            position === 'popper' && ''
           )}
         >
           {children}
@@ -129,7 +129,7 @@ function SelectItem({
       data-slot="select-item"
       className={cn(
         "relative flex w-full cursor-default items-center gap-1.5 rounded-[var(--radius-md)] py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
-        className,
+        className
       )}
       {...props}
     >
@@ -167,7 +167,7 @@ function SelectScrollUpButton({
       data-slot="select-scroll-up-button"
       className={cn(
         "z-10 flex cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
-        className,
+        className
       )}
       {...props}
     >
@@ -186,7 +186,7 @@ function SelectScrollDownButton({
       data-slot="select-scroll-down-button"
       className={cn(
         "z-10 flex cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
-        className,
+        className
       )}
       {...props}
     >

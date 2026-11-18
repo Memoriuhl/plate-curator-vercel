@@ -12,7 +12,16 @@ export function hashInviteToken(token: string): string {
 }
 
 /** Create a time-bound invitation record from the issued token and clock. */
-export function createInvite(token: string, now: () => string = () => new Date().toISOString()): NonNullable<Member['invite']> {
+export function createInvite(
+  token: string,
+  now: () => string = () => new Date().toISOString()
+): NonNullable<Member['invite']> {
   const issuedAt = now()
-  return { tokenHash: hashInviteToken(token), issuedAt, expiresAt: new Date(Date.parse(issuedAt) + 7 * 24 * 60 * 60 * 1000).toISOString() }
+  return {
+    tokenHash: hashInviteToken(token),
+    issuedAt,
+    expiresAt: new Date(
+      Date.parse(issuedAt) + 7 * 24 * 60 * 60 * 1000
+    ).toISOString(),
+  }
 }

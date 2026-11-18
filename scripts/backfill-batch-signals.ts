@@ -12,9 +12,17 @@ async function main() {
   assertStagingProject(process.env.GCP_PROJECT_ID)
   const { stagingFirestore } = await import('../lib/gcp/firestore')
   const { reviewEnv } = await import('../lib/server/context')
-  console.log(JSON.stringify(await backfillBatchSignals(firestoreBatchSignalsBackfillStore(stagingFirestore()), {
-    projectId: process.env.GCP_PROJECT_ID, env: reviewEnv(),
-  })))
+  console.log(
+    JSON.stringify(
+      await backfillBatchSignals(
+        firestoreBatchSignalsBackfillStore(stagingFirestore()),
+        {
+          projectId: process.env.GCP_PROJECT_ID,
+          env: reviewEnv(),
+        }
+      )
+    )
+  )
 }
 
 main().catch(() => {

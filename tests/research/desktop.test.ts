@@ -5,13 +5,36 @@ import { runResearchWorkerOnce } from '../../worker/research-run'
 
 test('a rejected claim stops the desktop bridge before invoking Ollama', async () => {
   let ran = false
-  const outcome = await runResearchWorkerOnce({ apiBase: 'https://example.com', token: 'fixture', fetch: (async () => new Response('', { status: 401 })) as typeof fetch, /** Fail immediately if an unclaimable job reaches the desktop research runner. */ run: async () => { ran = true; throw new Error('should not run') }, heartbeatMs: 1000, /** Skip real delays so the retry or polling scenario runs immediately. */ sleep: async () => undefined })
+  const outcome = await runResearchWorkerOnce({
+    apiBase: 'https://example.com',
+    token: 'fixture',
+    fetch: (async () => new Response('', { status: 401 })) as typeof fetch,
+    /** Fail immediately if an unclaimable job reaches the desktop research runner. */ run: async () => {
+      ran = true
+      throw new Error('should not run')
+    },
+    heartbeatMs: 1000,
+    /** Skip real delays so the retry or polling scenario runs immediately. */ sleep:
+      async () => undefined,
+  })
   expect(outcome).toBe('stopped')
   expect(ran).toBe(false)
 })
 
 test('idle desktop polling makes no model calls', async () => {
-  expect(await runResearchWorkerOnce({ apiBase: 'https://example.com', token: 'fixture', fetch: (async () => new Response(null, { status: 204 })) as typeof fetch, /** Fail if any work runs after an unsuccessful claim response. */ run: async () => { throw new Error('should not run') }, heartbeatMs: 1000, /** Skip real delays so the retry or polling scenario runs immediately. */ sleep: async () => undefined })).toBe('idle')
+  expect(
+    await runResearchWorkerOnce({
+      apiBase: 'https://example.com',
+      token: 'fixture',
+      fetch: (async () => new Response(null, { status: 204 })) as typeof fetch,
+      /** Fail if any work runs after an unsuccessful claim response. */ run: async () => {
+        throw new Error('should not run')
+      },
+      heartbeatMs: 1000,
+      /** Skip real delays so the retry or polling scenario runs immediately. */ sleep:
+        async () => undefined,
+    })
+  ).toBe('idle')
 })
 
 test('a long-running desktop result renews its claim and reports only staged data', async () => {
@@ -24,23 +47,63 @@ test('a long-running desktop result renews its claim and reports only staged dat
     const calls: string[] = []
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       calls.push(String(url))
-      if (String(url).endsWith('/claim')) return Response.json({ job: started.value, claimId: 'claim', leaseExpiresAt: Date.now() + 5000 })
-      if (String(url).endsWith('/heartbeat')) return Response.json({ ok: true, value: { leaseExpiresAt: Date.now() + 5000 } })
+      if (String(url).endsWith('/claim'))
+        return Response.json({
+          job: started.value,
+          claimId: 'claim',
+          leaseExpiresAt: Date.now() + 5000,
+        })
+      if (String(url).endsWith('/heartbeat'))
+        return Response.json({
+          ok: true,
+          value: { leaseExpiresAt: Date.now() + 5000 },
+        })
       return Response.json({ ok: true })
     })
-    const outcome = runResearchWorkerOnce({ apiBase: 'https://example.com', token: 'fixture', fetch: fetcher as typeof fetch, /** Keep the runner pending while the test observes research lease renewal. */ run: () => new Promise(resolve => { finish = resolve }), heartbeatMs: 1000, /** Skip real delays so the retry or polling scenario runs immediately. */ sleep: async () => undefined })
+    const outcome = runResearchWorkerOnce({
+      apiBase: 'https://example.com',
+      token: 'fixture',
+      fetch: fetcher as typeof fetch,
+      /** Keep the runner pending while the test observes research lease renewal. */ run: () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      heartbeatMs: 1000,
+      /** Skip real delays so the retry or polling scenario runs immediately. */ sleep:
+        async () => undefined,
+    })
     await vi.advanceTimersByTimeAsync(1100)
-    expect(calls.some(url => url.endsWith('/heartbeat'))).toBe(true)
+    expect(calls.some((url) => url.endsWith('/heartbeat'))).toBe(true)
     finish(f.result(started.value))
     expect(await outcome).toBe('reported')
     expect(calls.at(-1)).toMatch(/\/report$/)
-    expect(calls.some(url => /accept|publish|plates\//.test(url))).toBe(false)
-  } finally { vi.useRealTimers() }
+    expect(calls.some((url) => /accept|publish|plates\//.test(url))).toBe(false)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('a Preview worker carries short-lived deployment authentication alongside its research token', async () => {
- let headers: Headers | undefined
- expect(await runResearchWorkerOnce({ apiBase: 'https://preview.example.com', token: 'fixture-research-token', trustedOidc: 'fixture-deployment-token', fetch: (async (_url, init) => { headers = new Headers(init?.headers); return new Response(null, { status: 204 }) }) as typeof fetch, /** Reject unexpected desktop work while the test checks its route or network failure path. */ run: async () => { throw new Error('unexpected') }, heartbeatMs: 1000, /** Skip real delays so the retry or polling scenario runs immediately. */ sleep: async () => undefined })).toBe('idle')
- expect(headers?.get('authorization')).toBe('Bearer fixture-research-token')
- expect(headers?.get('x-vercel-trusted-oidc-idp-token')).toBe('fixture-deployment-token')
+  let headers: Headers | undefined
+  expect(
+    await runResearchWorkerOnce({
+      apiBase: 'https://preview.example.com',
+      token: 'fixture-research-token',
+      trustedOidc: 'fixture-deployment-token',
+      fetch: (async (_url, init) => {
+        headers = new Headers(init?.headers)
+        return new Response(null, { status: 204 })
+      }) as typeof fetch,
+      /** Reject unexpected desktop work while the test checks its route or network failure path. */ run: async () => {
+        throw new Error('unexpected')
+      },
+      heartbeatMs: 1000,
+      /** Skip real delays so the retry or polling scenario runs immediately. */ sleep:
+        async () => undefined,
+    })
+  ).toBe('idle')
+  expect(headers?.get('authorization')).toBe('Bearer fixture-research-token')
+  expect(headers?.get('x-vercel-trusted-oidc-idp-token')).toBe(
+    'fixture-deployment-token'
+  )
 })

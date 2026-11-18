@@ -20,7 +20,10 @@ function PendingIndicator() {
       data-navigation-pending
       className="absolute right-2 top-2 size-3"
     >
-      <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
+      <IoReloadOutline
+        className="size-3 motion-safe:animate-spin"
+        aria-hidden="true"
+      />
       <span className="sr-only">Loading jurisdiction…</span>
     </span>
   )
@@ -29,7 +32,13 @@ function PendingIndicator() {
 /**
  * Render a jurisdiction link with its plate counts, active state and selection marker.
  */
-export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
+export function JurisdictionCard({
+  jurisdiction,
+  prefetchNearby = false,
+}: {
+  jurisdiction: JurisdictionSummary
+  prefetchNearby?: boolean
+}) {
   const hasSelection = useStateSelected(jurisdiction.code)
   const batchId = useSelectedBatchId()
   const params = useParams<{ code: string }>()
@@ -47,9 +56,17 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
       const vertical = getComputedStyle(strip).flexDirection === 'column'
       const start = vertical ? bounds.top : bounds.left
       const end = vertical ? bounds.bottom : bounds.right
-      const viewportStart = vertical ? viewport.top + strip.clientTop : viewport.left + strip.clientLeft
-      const viewportEnd = viewportStart + (vertical ? strip.clientHeight : strip.clientWidth)
-      const delta = start < viewportStart ? start - viewportStart : end > viewportEnd ? end - viewportEnd : 0
+      const viewportStart = vertical
+        ? viewport.top + strip.clientTop
+        : viewport.left + strip.clientLeft
+      const viewportEnd =
+        viewportStart + (vertical ? strip.clientHeight : strip.clientWidth)
+      const delta =
+        start < viewportStart
+          ? start - viewportStart
+          : end > viewportEnd
+            ? end - viewportEnd
+            : 0
       if (delta) strip.scrollBy(vertical ? { top: delta } : { left: delta })
     }
     reveal()
@@ -69,7 +86,11 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
       onFocus={() => setPrefetch(true)}
       scroll={false}
       aria-current={selected ? 'page' : undefined}
-      className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected', hasSelection && 'outline-2 outline-offset-2 outline-[var(--primary)]')}
+      className={cn(
+        'jurisdiction-card relative',
+        selected && 'jurisdiction-selected',
+        hasSelection && 'outline-2 outline-offset-2 outline-[var(--primary)]'
+      )}
     >
       <strong>{jurisdiction.code}</strong>
       <PendingIndicator />

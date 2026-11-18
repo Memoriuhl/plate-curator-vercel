@@ -13,7 +13,10 @@ async function clear() {
 
 batchBaselineScenarios(async () => {
   await clear()
-  return { review: firestoreReviewStore(db, 'development'), jobs: firestoreJobsStore(db, 'development') }
+  return {
+    review: firestoreReviewStore(db, 'development'),
+    jobs: firestoreJobsStore(db, 'development'),
+  }
 }, 20000)
 
 afterAll(async () => {

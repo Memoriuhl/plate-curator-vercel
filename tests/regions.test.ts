@@ -28,6 +28,9 @@ test.each([
   [{ id: 'ON.army' }, '/review/ON.army', 'US'],
   [{ code: 'unknown' }, '/states/unknown', 'US'],
   [{}, '/', 'US'],
-])('region follows the jurisdiction URL with a US default: %j', (params, pathname, expected) => {
-  expect(routeRegion(params, pathname, jurisdictions)).toBe(expected)
-})
+])(
+  'region follows the jurisdiction URL with a US default: %j',
+  (params, pathname, expected) => {
+    expect(routeRegion(params, pathname, jurisdictions)).toBe(expected)
+  }
+)

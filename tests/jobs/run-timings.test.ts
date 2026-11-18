@@ -10,10 +10,32 @@ const actor: Actor = { uid: 'editor', name: null, role: 'editor' }
 /**
  * Build a completed timing sample with overrides for executor, stage and duration cases.
  */
-function completed(id: string, durationMs: number, overrides: Partial<TaggingJob> = {}): TaggingJob {
-  return { id, env: 'development', localScope: 'demo', requestedBy: 'editor', batchId: 'batch', plateId: 'AK.one', inputHash: 'hash',
-    createdAt: 1, completedAt: 10, state: 'completed', workerId: 'Studio PC',
-    result: { backend: 'ollama', model: 'gemma4:12b', durationMs, promptVersion: 'v1', suggestions: [] }, ...overrides }
+function completed(
+  id: string,
+  durationMs: number,
+  overrides: Partial<TaggingJob> = {}
+): TaggingJob {
+  return {
+    id,
+    env: 'development',
+    localScope: 'demo',
+    requestedBy: 'editor',
+    batchId: 'batch',
+    plateId: 'AK.one',
+    inputHash: 'hash',
+    createdAt: 1,
+    completedAt: 10,
+    state: 'completed',
+    workerId: 'Studio PC',
+    result: {
+      backend: 'ollama',
+      model: 'gemma4:12b',
+      durationMs,
+      promptVersion: 'v1',
+      suggestions: [],
+    },
+    ...overrides,
+  }
 }
 
 /**
@@ -21,30 +43,71 @@ function completed(id: string, durationMs: number, overrides: Partial<TaggingJob
  * data.
  */
 function setup(): JobsDeps {
-  return { store: createMemoryJobsStore(createMemoryStore([]), 'development'), localScope: 'demo', /** Simulate an absent plate in the catalog baseline for this case. */ baseline: async () => null,
+  return {
+    store: createMemoryJobsStore(createMemoryStore([]), 'development'),
+    localScope: 'demo',
+    /** Simulate an absent plate in the catalog baseline for this case. */ baseline:
+      async () => null,
     /** Pin the operation clock so timestamps and lease checks are reproducible. */
-    now: () => 1000, /** Supply a deterministic ID so the test can identify the generated record. */ id: () => 'id', leaseMs: 1000 }
+    now: () => 1000,
+    /** Supply a deterministic ID so the test can identify the generated record. */ id: () =>
+      'id',
+    leaseMs: 1000,
+  }
 }
 
 test('timing averages use the reporting desktop, model, stage and hosted executor within the visible scope', async () => {
   const d = setup()
   const available = { available: true }
-  await d.store.writeCapabilities('demo', { workerId: 'Studio PC', reportedAt: 990, capabilities: {
-    group: available, embeddings: available, mask: available, vision: available, pollIntervalMs: 500,
-  } })
+  await d.store.writeCapabilities('demo', {
+    workerId: 'Studio PC',
+    reportedAt: 990,
+    capabilities: {
+      group: available,
+      embeddings: available,
+      mask: available,
+      vision: available,
+      pollIntervalMs: 500,
+    },
+  })
   const fast = completed('fast', 1000)
-  await d.store.transaction(async tx => {
-    for (const job of [fast, completed('slow', 3000), completed('other-owner', 100_000, { requestedBy: 'other' }),
-      completed('laptop', 100_000, { workerId: 'Laptop', completedAt: 100 }), completed('other-scope', 100_000, { localScope: 'elsewhere' }),
-      completed('other-env', 100_000, { env: 'production' }), completed('failed', 100_000, { state: 'failed' }),
-      completed('no-image', 10, { result: { ...fast.result!, backend: 'missing-image' } }),
-      completed('no-result', 10, { result: { ...fast.result!, stageError: 'no_sources' } }),
-      completed('different-model', 5000, { result: { ...fast.result!, model: 'gemma4:26b', durationMs: 5000 } }),
-      completed('colors', 6000, { stage: 'colors' }), completed('gateway', 7000, { route: 'hosted', workerId: 'hosted' }),
-      completed('eve', 8000, { stage: 'research', route: 'hosted', workerId: 'hosted', startedAt: 2 }),
-      completed('legacy-eve', 60_000, { stage: 'research', route: 'hosted', workerId: 'hosted' }),
-      completed('enhancement', 2500, { stage: 'enhance-image', result: { ...fast.result!, model: 'sharp', durationMs: 2500 } }),
-    ]) tx.create(job)
+  await d.store.transaction(async (tx) => {
+    for (const job of [
+      fast,
+      completed('slow', 3000),
+      completed('other-owner', 100_000, { requestedBy: 'other' }),
+      completed('laptop', 100_000, { workerId: 'Laptop', completedAt: 100 }),
+      completed('other-scope', 100_000, { localScope: 'elsewhere' }),
+      completed('other-env', 100_000, { env: 'production' }),
+      completed('failed', 100_000, { state: 'failed' }),
+      completed('no-image', 10, {
+        result: { ...fast.result!, backend: 'missing-image' },
+      }),
+      completed('no-result', 10, {
+        result: { ...fast.result!, stageError: 'no_sources' },
+      }),
+      completed('different-model', 5000, {
+        result: { ...fast.result!, model: 'gemma4:26b', durationMs: 5000 },
+      }),
+      completed('colors', 6000, { stage: 'colors' }),
+      completed('gateway', 7000, { route: 'hosted', workerId: 'hosted' }),
+      completed('eve', 8000, {
+        stage: 'research',
+        route: 'hosted',
+        workerId: 'hosted',
+        startedAt: 2,
+      }),
+      completed('legacy-eve', 60_000, {
+        stage: 'research',
+        route: 'hosted',
+        workerId: 'hosted',
+      }),
+      completed('enhancement', 2500, {
+        stage: 'enhance-image',
+        result: { ...fast.result!, model: 'sharp', durationMs: 2500 },
+      }),
+    ])
+      tx.create(job)
   })
   expect(await listRunTimings(d, actor)).toEqual({
     [runTimingKey('tag', 'desktop', 'gemma4:12b')]: 2000,
@@ -58,9 +121,10 @@ test('timing averages use the reporting desktop, model, stage and hosted executo
 
 test('old samples roll out as more jobs finish for the same stage, device and model', async () => {
   const d = setup()
-  await d.store.transaction(async tx => {
+  await d.store.transaction(async (tx) => {
     tx.create(completed('oldest', 200_000, { completedAt: 2 }))
-    for (let index = 0; index < 50; index++) tx.create(completed(`recent-${index}`, 6000, { completedAt: index + 3 }))
+    for (let index = 0; index < 50; index++)
+      tx.create(completed(`recent-${index}`, 6000, { completedAt: index + 3 }))
   })
   expect(await listRunTimings(d, actor)).toEqual({
     [runTimingKey('tag', 'desktop', 'gemma4:12b')]: 6000,

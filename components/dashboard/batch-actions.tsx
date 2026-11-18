@@ -37,15 +37,36 @@ export function BatchActions({
   const pathname = usePathname()
   const batches = useBatches(['open'], { mine: true })
   const personalBatch = mostRecentBatch(batches.data)
-  const batch = workspace.mode === 'selected' ? workspace.detail?.batch : personalBatch
-  const personalDetail = useBatch(workspace.mode === 'personal' ? batch?.id ?? null : null, { reuse: true })
-  const detail = workspace.mode === 'selected' ? { data: workspace.detail, isLoading: workspace.status === 'loading', error: workspace.status === 'unavailable' } : personalDetail
+  const batch =
+    workspace.mode === 'selected' ? workspace.detail?.batch : personalBatch
+  const personalDetail = useBatch(
+    workspace.mode === 'personal' ? (batch?.id ?? null) : null,
+    { reuse: true }
+  )
+  const detail =
+    workspace.mode === 'selected'
+      ? {
+          data: workspace.detail,
+          isLoading: workspace.status === 'loading',
+          error: workspace.status === 'unavailable',
+        }
+      : personalDetail
   const me = useMe()
   const run = useTagRun()
   const queue = useDashboardPipeline()
   const batchPlates =
     detail.data?.plates.map(({ proposed, revision }) => {
-      const { id, state, displayName, tags, description, wikiUrl, funFacts, firstIssuedYear, readMore } = proposed
+      const {
+        id,
+        state,
+        displayName,
+        tags,
+        description,
+        wikiUrl,
+        funFacts,
+        firstIssuedYear,
+        readMore,
+      } = proposed
       return {
         id,
         state,
@@ -53,7 +74,11 @@ export function BatchActions({
         revision,
         tags,
         hasStory: Array.isArray(funFacts) && funFacts.length > 0,
-        description, wikiUrl, funFacts, firstIssuedYear, readMore,
+        description,
+        wikiUrl,
+        funFacts,
+        firstIssuedYear,
+        readMore,
       }
     }) ?? []
   return (
@@ -63,14 +88,24 @@ export function BatchActions({
         {workspace.mode === 'personal' && batch ? (
           <span className="batch-summary min-w-0 flex-wrap">
             <Avatar size="sm">
-              <AvatarFallback>{(batch.createdByName || batch.createdBy).slice(0, 1).toUpperCase()}</AvatarFallback>
+              <AvatarFallback>
+                {(batch.createdByName || batch.createdBy)
+                  .slice(0, 1)
+                  .toUpperCase()}
+              </AvatarFallback>
             </Avatar>
             <strong>{batch.name}</strong>
             <BatchLastChanged batch={detail.data?.batch ?? batch} />
           </span>
         ) : null}
-        {workspace.mode === 'personal' && batch ? <Link href={batchHref(pathname, batch.id)}>Open / Share</Link> : null}
-        {batch ? <Link href={reviewHref(undefined, undefined, batch.id)}>Review Batch</Link> : null}
+        {workspace.mode === 'personal' && batch ? (
+          <Link href={batchHref(pathname, batch.id)}>Open / Share</Link>
+        ) : null}
+        {batch ? (
+          <Link href={reviewHref(undefined, undefined, batch.id)}>
+            Review Batch
+          </Link>
+        ) : null}
         <RunMenu
           queue={queue}
           underTagged={underTagged}
@@ -78,14 +113,30 @@ export function BatchActions({
           batchPlates={batchPlates}
           stateName={stateName}
           disabledReason={run.disabledReason}
-          disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
+          disabled={
+            !!run.disabledReason || run.entries.length > 0 || run.starting
+          }
           modelError={run.modelError}
-          start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
+          start={(plates, retry, modelId, stage) =>
+            void run.start(plates, retry, modelId, stage)
+          }
         />
-        <PublishButton batchId={workspace.mode === 'selected' ? workspace.id : batch?.id} owner={me.data?.role === 'owner'} />
-        {workspace.mode === 'personal' && batches.isLoading && !batch ? <span role="status">Loading your Batch…</span> : null}
-        {workspace.mode === 'personal' && !batches.isLoading && !batches.error && !batch ? <span>No open Batch yet</span> : null}
-        {(workspace.mode === 'personal' && batches.error) || detail.error ? <span role="alert">Could not load this Batch.</span> : null}
+        <PublishButton
+          batchId={workspace.mode === 'selected' ? workspace.id : batch?.id}
+          owner={me.data?.role === 'owner'}
+        />
+        {workspace.mode === 'personal' && batches.isLoading && !batch ? (
+          <span role="status">Loading your Batch…</span>
+        ) : null}
+        {workspace.mode === 'personal' &&
+        !batches.isLoading &&
+        !batches.error &&
+        !batch ? (
+          <span>No open Batch yet</span>
+        ) : null}
+        {(workspace.mode === 'personal' && batches.error) || detail.error ? (
+          <span role="alert">Could not load this Batch.</span>
+        ) : null}
       </div>
       <TagRunBanner
         entries={run.entries}

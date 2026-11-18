@@ -17,7 +17,7 @@ beforeEach(() => detail.mockReset())
 test('hover requests the full plate through the shared detail hook', () => {
   detail.mockReturnValue({ data: { plate: plateCards[0] } })
   const html = renderToStaticMarkup(
-    <PlateHoverCard plate={summary} left={8} top={8} />,
+    <PlateHoverCard plate={summary} left={8} top={8} />
   )
   expect(detail).toHaveBeenCalledWith(summary.id)
   expect(html).toContain(plateCards[0].checks.description.value!)
@@ -26,7 +26,7 @@ test('hover requests the full plate through the shared detail hook', () => {
 test('pending details never masquerade as missing catalog values', () => {
   detail.mockReturnValue({})
   const html = renderToStaticMarkup(
-    <PlateHoverCard plate={summary} left={8} top={8} />,
+    <PlateHoverCard plate={summary} left={8} top={8} />
   )
   expect(html).toContain('Loading plate details')
   expect(html).not.toContain('No description')
@@ -34,7 +34,7 @@ test('pending details never masquerade as missing catalog values', () => {
 test('detail failures leave navigation available and explain the missing preview', () => {
   detail.mockReturnValue({ error: new Error('Unavailable') })
   const html = renderToStaticMarkup(
-    <PlateHoverCard plate={summary} left={8} top={8} />,
+    <PlateHoverCard plate={summary} left={8} top={8} />
   )
   expect(html).toContain('Unable to load plate details')
   expect(html).toContain('Click to open')

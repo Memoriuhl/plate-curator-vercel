@@ -1,4 +1,13 @@
-import { IoDocumentTextOutline, IoBulbOutline, IoLinkOutline, IoPricetagsOutline, IoGitNetworkOutline, IoImageOutline, IoDiamondOutline, IoRemoveOutline } from 'react-icons/io5'
+import {
+  IoDocumentTextOutline,
+  IoBulbOutline,
+  IoLinkOutline,
+  IoPricetagsOutline,
+  IoGitNetworkOutline,
+  IoImageOutline,
+  IoDiamondOutline,
+  IoRemoveOutline,
+} from 'react-icons/io5'
 import type { Check, PlateCheckKey } from '@/lib/catalog/dashboard-types'
 import { cn } from '@/components/utils'
 
@@ -13,7 +22,13 @@ export const CHECK_META = {
 } as const
 
 /** Render the current result for one completeness check with a readable status label. */
-export function StatusIcon({ checkKey, check }: { checkKey: PlateCheckKey; check: Check }) {
+export function StatusIcon({
+  checkKey,
+  check,
+}: {
+  checkKey: PlateCheckKey
+  check: Check
+}) {
   const { label, icon: Icon } = CHECK_META[checkKey]
   return (
     <span
@@ -24,11 +39,18 @@ export function StatusIcon({ checkKey, check }: { checkKey: PlateCheckKey; check
         'relative inline-flex size-[26px] shrink-0 items-center justify-center',
         check.status === 'good' && 'text-[var(--success)]',
         check.status === 'weak' && 'text-[var(--warning)]',
-        check.status === 'missing' && 'text-[var(--danger)]',
+        check.status === 'missing' && 'text-[var(--danger)]'
       )}
     >
       <Icon size={20} aria-hidden="true" />
-      {check.status === 'missing' && <IoRemoveOutline aria-hidden="true" data-status-slash="" size={24} className="absolute rotate-45" />}
+      {check.status === 'missing' && (
+        <IoRemoveOutline
+          aria-hidden="true"
+          data-status-slash=""
+          size={24}
+          className="absolute rotate-45"
+        />
+      )}
     </span>
   )
 }

@@ -18,6 +18,7 @@ export function stagingFirestore(): Firestore {
 export async function readCatalogVersion(): Promise<number> {
   const snapshot = await stagingFirestore().doc('config/catalog').get()
   const version = snapshot.get('version')
-  if (typeof version !== 'number') throw new Error('config/catalog has no numeric version')
+  if (typeof version !== 'number')
+    throw new Error('config/catalog has no numeric version')
   return version
 }

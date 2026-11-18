@@ -1,5 +1,8 @@
 import { catalogPushDeps } from '../lib/server/context'
-import { sendCatalogPush, type CatalogPushResult } from '../lib/publish/catalog-push'
+import {
+  sendCatalogPush,
+  type CatalogPushResult,
+} from '../lib/publish/catalog-push'
 
 /**
  * Deliver post-publish notifications in a durable step without turning a notification

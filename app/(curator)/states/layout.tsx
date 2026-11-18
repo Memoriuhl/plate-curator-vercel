@@ -1,4 +1,7 @@
-import { DashboardPipelineProvider, DashboardPipelineRail } from '@/components/dashboard/pipeline-runs'
+import {
+  DashboardPipelineProvider,
+  DashboardPipelineRail,
+} from '@/components/dashboard/pipeline-runs'
 import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
 import { Suspense } from 'react'
 import { JurisdictionStrip } from '@/components/dashboard/dashboard-data'
@@ -10,13 +13,32 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton'
  * Render the shared jurisdiction navigation and active state content within a loading
  * boundary.
  */
-export default function StatesLayout({ children }: { children: React.ReactNode }) {
+export default function StatesLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <Suspense fallback={<main className="app-main"><DashboardSkeleton kind="state" /></main>}>
+    <Suspense
+      fallback={
+        <main className="app-main">
+          <DashboardSkeleton kind="state" />
+        </main>
+      }
+    >
       <DashboardPipelineProvider>
         <main className="app-main dashboard states-layout group/states">
           <div className="states-review">
-            <Suspense fallback={<div className="review-loading flex h-11 items-center" role="status">Loading review batches…</div>}>
+            <Suspense
+              fallback={
+                <div
+                  className="review-loading flex h-11 items-center"
+                  role="status"
+                >
+                  Loading review batches…
+                </div>
+              }
+            >
               <ReviewStrip />
               <SelectedBatchBar />
             </Suspense>
@@ -24,7 +46,13 @@ export default function StatesLayout({ children }: { children: React.ReactNode }
           <Suspense fallback={<DashboardSkeleton kind="jurisdictions" />}>
             <JurisdictionStrip />
           </Suspense>
-          <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>
+          <Suspense
+            fallback={
+              <div className="dashboard-search" role="status">
+                Loading search…
+              </div>
+            }
+          >
             <DashboardSearch />
           </Suspense>
           <DashboardPipelineRail />

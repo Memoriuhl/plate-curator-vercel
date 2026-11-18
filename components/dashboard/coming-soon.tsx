@@ -36,7 +36,9 @@ export function ComingSoon({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{localPipelineReason('No action connected')}</TooltipContent>
+        <TooltipContent>
+          {localPipelineReason('No action connected')}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

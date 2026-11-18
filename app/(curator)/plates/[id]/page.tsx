@@ -45,9 +45,13 @@ async function PlateContent({ params }: { params: Promise<{ id: string }> }) {
         description: plate.description,
         sourceUrl: plate.sourceUrl,
         wikiUrl: plate.wikiUrl,
-        ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? {
-          funFacts: plate.funFacts, readMore: plate.readMore, firstIssuedYear: plate.firstIssuedYear,
-        } : {}),
+        ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+          ? {
+              funFacts: plate.funFacts,
+              readMore: plate.readMore,
+              firstIssuedYear: plate.firstIssuedYear,
+            }
+          : {}),
       }}
       plates={jurisdiction.plates.map(slimPlate)}
       stateName={jurisdiction.name}

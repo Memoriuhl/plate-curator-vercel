@@ -23,21 +23,50 @@ function CurrentTabs() {
   const me = useMe()
   const batch = useSearchParams()?.get('batch') ?? null
   const owner = me.data?.role === 'owner'
-  const active = pathname.startsWith('/publish') ? '/publish' : pathname.startsWith('/review') ? '/review' : '/'
-  const personalDashboard = owner && batch === null && (pathname.startsWith('/states/') || pathname.startsWith('/plates/'))
-  const personal = useBatches(['open'], { mine: true, enabled: personalDashboard })
-  const currentBatch = batch ?? (personalDashboard ? mostRecentBatch(personal.data)?.id ?? null : null)
-  return <TabsView batch={currentBatch} owner={owner && !(personalDashboard && personal.isLoading)} active={active} />
+  const active = pathname.startsWith('/publish')
+    ? '/publish'
+    : pathname.startsWith('/review')
+      ? '/review'
+      : '/'
+  const personalDashboard =
+    owner &&
+    batch === null &&
+    (pathname.startsWith('/states/') || pathname.startsWith('/plates/'))
+  const personal = useBatches(['open'], {
+    mine: true,
+    enabled: personalDashboard,
+  })
+  const currentBatch =
+    batch ??
+    (personalDashboard ? (mostRecentBatch(personal.data)?.id ?? null) : null)
+  return (
+    <TabsView
+      batch={currentBatch}
+      owner={owner && !(personalDashboard && personal.isLoading)}
+      active={active}
+    />
+  )
 }
 
 /** Render the navigation links and selected state for the available workspace tabs. */
-function TabsView({ active, owner = false, batch = null }: { active: '' | '/' | '/review' | '/publish'; owner?: boolean; batch?: string | null }) {
+function TabsView({
+  active,
+  owner = false,
+  batch = null,
+}: {
+  active: '' | '/' | '/review' | '/publish'
+  owner?: boolean
+  batch?: string | null
+}) {
   return (
     <nav className="workspace-tabs" aria-label="Workspace">
       <Tabs value={active} activationMode="manual">
         <TabsList aria-label="Workspace">
           <TabsTrigger value="/" asChild>
-            <Link href={batchHref('/', batch)} aria-current={active === '/' ? 'page' : undefined}>
+            <Link
+              href={batchHref('/', batch)}
+              aria-current={active === '/' ? 'page' : undefined}
+            >
               Dashboard
             </Link>
           </TabsTrigger>
@@ -49,7 +78,16 @@ function TabsView({ active, owner = false, batch = null }: { active: '' | '/' | 
               Review
             </Link>
           </TabsTrigger>
-          {owner && <TabsTrigger value="/publish" asChild><Link href={batchHref('/publish', batch)} aria-current={active === '/publish' ? 'page' : undefined}>Publish</Link></TabsTrigger>}
+          {owner && (
+            <TabsTrigger value="/publish" asChild>
+              <Link
+                href={batchHref('/publish', batch)}
+                aria-current={active === '/publish' ? 'page' : undefined}
+              >
+                Publish
+              </Link>
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
     </nav>

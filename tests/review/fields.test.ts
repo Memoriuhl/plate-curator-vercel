@@ -1,8 +1,18 @@
 import { expect, test } from 'vitest'
-import { limits, parseBatchInput, parseEditableFields } from '../../lib/review/fields'
+import {
+  limits,
+  parseBatchInput,
+  parseEditableFields,
+} from '../../lib/review/fields'
 
 test('accepts every editable field with valid values', () => {
-  const fields = { tags: ['bear', 'blue'], templateFamily: 'ak-gold', templateRole: 'variant', variantOfPlateId: 'AK.standard_gold', isStandard: false }
+  const fields = {
+    tags: ['bear', 'blue'],
+    templateFamily: 'ak-gold',
+    templateRole: 'variant',
+    variantOfPlateId: 'AK.standard_gold',
+    isStandard: false,
+  }
   expect(parseEditableFields(fields)).toEqual(fields)
 })
 
@@ -28,28 +38,49 @@ test.each([
 })
 
 test('batch input needs a bounded name and accepts a state-sized list of distinct Plate IDs', () => {
-  expect(parseBatchInput({ name: ' AK review ', plateIds: ['AK.a', 'AK.b'] })).toEqual({ name: 'AK review', plateIds: ['AK.a', 'AK.b'] })
-  expect(parseBatchInput({ name: 'x'.repeat(121), plateIds: ['AK.a'] })).toBeNull()
+  expect(
+    parseBatchInput({ name: ' AK review ', plateIds: ['AK.a', 'AK.b'] })
+  ).toEqual({ name: 'AK review', plateIds: ['AK.a', 'AK.b'] })
+  expect(
+    parseBatchInput({ name: 'x'.repeat(121), plateIds: ['AK.a'] })
+  ).toBeNull()
   expect(parseBatchInput({ name: 'ok', plateIds: [] })).toBeNull()
   const fullState = Array.from({ length: limits.plates }, (_, i) => `MD.${i}`)
-  expect(parseBatchInput({ name: 'Maryland', plateIds: fullState })).toEqual({ name: 'Maryland', plateIds: fullState })
-  expect(parseBatchInput({ name: 'ok', plateIds: [...fullState, 'MD.extra'] })).toBeNull()
+  expect(parseBatchInput({ name: 'Maryland', plateIds: fullState })).toEqual({
+    name: 'Maryland',
+    plateIds: fullState,
+  })
+  expect(
+    parseBatchInput({ name: 'ok', plateIds: [...fullState, 'MD.extra'] })
+  ).toBeNull()
   expect(parseBatchInput({ name: 'ok', plateIds: [42] })).toBeNull()
 })
 
 test('description accepts trimmed text up to 2000 characters or null to clear', () => {
-  expect(parseEditableFields({ description: ' New description ' })).toEqual({ description: 'New description' })
-  expect(parseEditableFields({ description: 'x'.repeat(2000) })).toEqual({ description: 'x'.repeat(2000) })
-  expect(parseEditableFields({ description: null })).toEqual({ description: null })
+  expect(parseEditableFields({ description: ' New description ' })).toEqual({
+    description: 'New description',
+  })
+  expect(parseEditableFields({ description: 'x'.repeat(2000) })).toEqual({
+    description: 'x'.repeat(2000),
+  })
+  expect(parseEditableFields({ description: null })).toEqual({
+    description: null,
+  })
   for (const description of ['', '   ', 'x'.repeat(2001), 1, false, []]) {
     expect(parseEditableFields({ description })).toBeNull()
   }
 })
 
 test('variant link accepts null to clear and a bounded string to set', () => {
-  const detached = { templateRole: 'template', variantOfPlateId: null, templateFamily: 'AK.one' }
+  const detached = {
+    templateRole: 'template',
+    variantOfPlateId: null,
+    templateFamily: 'AK.one',
+  }
   expect(parseEditableFields(detached)).toEqual(detached)
-  expect(parseEditableFields({ variantOfPlateId: ' AK.parent ' })).toEqual({ variantOfPlateId: 'AK.parent' })
+  expect(parseEditableFields({ variantOfPlateId: ' AK.parent ' })).toEqual({
+    variantOfPlateId: 'AK.parent',
+  })
   for (const variantOfPlateId of ['', ' ', 1, false, [], {}, 'x'.repeat(121)]) {
     expect(parseEditableFields({ variantOfPlateId })).toBeNull()
   }

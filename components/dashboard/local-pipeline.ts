@@ -8,7 +8,15 @@ export const localStageReasons: Record<string, string> = {
 }
 
 /** Choose a bounded set of plates for tagging, favoring plates with incomplete tags. */
-export function planTagRun(plates: readonly RunPlate[], onlyUnderTagged: boolean, limit: number) {
+export function planTagRun(
+  plates: readonly RunPlate[],
+  onlyUnderTagged: boolean,
+  limit: number
+) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 25) return []
-  return plates.filter(plate => !onlyUnderTagged || plate.tags.length < minimumPlateTagCount).slice(0, limit)
+  return plates
+    .filter(
+      (plate) => !onlyUnderTagged || plate.tags.length < minimumPlateTagCount
+    )
+    .slice(0, limit)
 }

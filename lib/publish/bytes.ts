@@ -6,12 +6,18 @@ import type { Snapshot } from '../catalog/types'
  * and checksum.
  */
 export function snapshotBytes(snapshot: Snapshot): Uint8Array {
-  return Buffer.from(JSON.stringify(snapshot, (_key, value) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
-    }
-    return value
-  }))
+  return Buffer.from(
+    JSON.stringify(snapshot, (_key, value) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, value[key]])
+        )
+      }
+      return value
+    })
+  )
 }
 
 /** Compute the SHA-256 checksum used to identify and verify persisted snapshot bytes. */

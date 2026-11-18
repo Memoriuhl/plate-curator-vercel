@@ -19,11 +19,11 @@ const imageUrl = () => null
 export const dashboardFixture: DashboardData = buildDashboard(
   snapshot,
   curator,
-  imageUrl,
+  imageUrl
 )
 export const alaskaFixture: JurisdictionData = buildJurisdiction(
   snapshot,
   curator,
   imageUrl,
-  'AK',
+  'AK'
 )!

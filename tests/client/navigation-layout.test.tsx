@@ -3,9 +3,24 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { ThemeToggle } from '@/components/app/theme-toggle'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
-const mounted = vi.hoisted(() => ({ strip: 0, review: 0, search: 0, code: 'AK' as string | undefined, id: undefined as string | undefined, pathname: '/states/AK', query: '', push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }))
+const mounted = vi.hoisted(() => ({
+  strip: 0,
+  review: 0,
+  search: 0,
+  code: 'AK' as string | undefined,
+  id: undefined as string | undefined,
+  pathname: '/states/AK',
+  query: '',
+  push: vi.fn(),
+  prefetch: vi.fn(),
+  replace: vi.fn(),
+}))
 vi.mock('next/navigation', () => ({
   /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(mounted.query),
@@ -18,17 +33,39 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('next/link', () => ({
   /** Render a plain link with the prefetch setting visible to navigation assertions. */
-  default: ({ children, prefetch, scroll, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
+  default: ({
+    children,
+    prefetch,
+    scroll,
+    ...props
+  }: React.PropsWithChildren<Record<string, unknown>>) => {
     void scroll
-    return <a {...props} data-prefetch={String(prefetch)}>{children}</a>
+    return (
+      <a {...props} data-prefetch={String(prefetch)}>
+        {children}
+      </a>
+    )
   },
   /** Set the fixture navigation pending state without starting a real transition. */
   useLinkStatus: () => ({ pending: false }),
 }))
 vi.mock('@/components/ui/select', () => ({
   /** Use a native select to exercise region changes through a deterministic input. */
-  Select: ({ children, value, onValueChange }: React.PropsWithChildren<{ value: string; onValueChange(value: string): void }>) => (
-    <select aria-label="Region" value={value} onChange={(event) => onValueChange(event.target.value)}>{children}</select>
+  Select: ({
+    children,
+    value,
+    onValueChange,
+  }: React.PropsWithChildren<{
+    value: string
+    onValueChange(value: string): void
+  }>) => (
+    <select
+      aria-label="Region"
+      value={value}
+      onChange={(event) => onValueChange(event.target.value)}
+    >
+      {children}
+    </select>
   ),
   /**
    * Omit the Radix trigger because the native fixture select supplies its own control.
@@ -39,12 +76,19 @@ vi.mock('@/components/ui/select', () => ({
   /** Expose the supplied options directly to the fixture's native select. */
   SelectContent: ({ children }: React.PropsWithChildren) => children,
   /** Render each selectable region as a native option in the fixture. */
-  SelectItem: ({ children, ...props }: React.PropsWithChildren<{ value: string; disabled: boolean }>) => <option {...props}>{children}</option>,
+  SelectItem: ({
+    children,
+    ...props
+  }: React.PropsWithChildren<{ value: string; disabled: boolean }>) => (
+    <option {...props}>{children}</option>
+  ),
 }))
 vi.mock('@/components/dashboard/dashboard-data', () => ({
   /** Count navigation strip mounts so route changes can detect an unexpected remount. */
   JurisdictionStrip: function Strip() {
-    useEffect(() => { mounted.strip++ }, [])
+    useEffect(() => {
+      mounted.strip++
+    }, [])
     return <nav aria-label="Jurisdictions">Jurisdictions</nav>
   },
 }))
@@ -53,7 +97,9 @@ vi.mock('@/components/dashboard/search', () => ({
    * Count search field mounts so the test can verify it survives workspace navigation.
    */
   DashboardSearch: function Search() {
-    useEffect(() => { mounted.search++ }, [])
+    useEffect(() => {
+      mounted.search++
+    }, [])
     return <input aria-label="Search" />
   },
 }))
@@ -62,14 +108,21 @@ vi.mock('@/components/dashboard/review-strip', () => ({
    * Count review strip mounts while rendering a simple stand-in for layout assertions.
    */
   ReviewStrip: function Review() {
-    useEffect(() => { mounted.review++ }, [])
+    useEffect(() => {
+      mounted.review++
+    }, [])
     return <div>Review</div>
   },
 }))
 
-vi.mock('@/components/dashboard/selected-batch-bar', () => ({ /** Omit the unrelated batch bar from the navigation layout fixture. */ SelectedBatchBar: () => null }))
+vi.mock('@/components/dashboard/selected-batch-bar', () => ({
+  /** Omit the unrelated batch bar from the navigation layout fixture. */ SelectedBatchBar:
+    () => null,
+}))
 
-vi.mock('@/lib/client/session', () => ({ useSession: () => ({ user: null, api: {} }) }))
+vi.mock('@/lib/client/session', () => ({
+  useSession: () => ({ user: null, api: {} }),
+}))
 
 const { default: StatesLayout } = await import('@/app/(curator)/states/layout')
 const { useParams } = await import('next/navigation')
@@ -80,7 +133,10 @@ function StatePage() {
   return <p>{code}</p>
 }
 
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 beforeEach(() => {
   mounted.code = 'AK'
@@ -90,24 +146,47 @@ beforeEach(() => {
   mounted.push.mockClear()
   mounted.prefetch.mockClear()
   mounted.replace.mockReset()
-  vi.stubGlobal('ResizeObserver', class { /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {} /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {} })
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      /** Satisfy observer registration in the test DOM without starting a browser observer. */ observe() {}
+      /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {}
+    }
+  )
 })
 test('appearance segments stay open, persist choices, and support arrow keys', () => {
   document.documentElement.removeAttribute('data-theme')
   localStorage.clear()
-  render(<DropdownMenu defaultOpen><DropdownMenuTrigger>Profile</DropdownMenuTrigger><DropdownMenuContent><ThemeToggle /></DropdownMenuContent></DropdownMenu>)
+  render(
+    <DropdownMenu defaultOpen>
+      <DropdownMenuTrigger>Profile</DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <ThemeToggle />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
   fireEvent.click(screen.getByRole('radio', { name: 'Dark' }))
   expect(document.documentElement.dataset.theme).toBe('dark')
   expect(localStorage.getItem('plate-curator-theme')).toBe('dark')
   expect(screen.getByRole('radiogroup', { name: 'Appearance' })).toBeTruthy()
-  expect(screen.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')).toBe('true')
-  fireEvent.keyDown(screen.getByRole('radio', { name: 'Dark' }), { key: 'ArrowLeft' })
+  expect(
+    screen.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')
+  ).toBe('true')
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Dark' }), {
+    key: 'ArrowLeft',
+  })
   expect(document.documentElement.dataset.theme).toBe('light')
-  expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Light' }))
-  fireEvent.keyDown(screen.getByRole('radio', { name: 'Light' }), { key: 'Home' })
+  expect(document.activeElement).toBe(
+    screen.getByRole('radio', { name: 'Light' })
+  )
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Light' }), {
+    key: 'Home',
+  })
   expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   expect(localStorage.getItem('plate-curator-theme')).toBe('system')
-  fireEvent.keyDown(screen.getByRole('radio', { name: 'System' }), { key: 'ArrowLeft' })
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'System' }), {
+    key: 'ArrowLeft',
+  })
   expect(document.documentElement.dataset.theme).toBe('dark')
   fireEvent.click(screen.getByRole('radio', { name: 'Light' }))
   expect(document.documentElement.style.colorScheme).toBe('light')
@@ -117,14 +196,24 @@ test('appearance segments stay open, persist choices, and support arrow keys', (
 })
 
 test('shared controls stay mounted when the router changes the state parameter', () => {
-  const view = render(<StatesLayout><StatePage key={mounted.code} /></StatesLayout>)
+  const view = render(
+    <StatesLayout>
+      <StatePage key={mounted.code} />
+    </StatesLayout>
+  )
   const strip = screen.getByRole('navigation')
   const search = screen.getByRole('textbox')
   const pipeline = screen.getByRole('region', { name: 'Plate Pipeline' })
   const state = screen.getByText('AK')
-  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(state.closest('.states-content'))
+  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(
+    state.closest('.states-content')
+  )
   mounted.code = 'AL'
-  view.rerender(<StatesLayout><StatePage key={mounted.code} /></StatesLayout>)
+  view.rerender(
+    <StatesLayout>
+      <StatePage key={mounted.code} />
+    </StatesLayout>
+  )
   expect(screen.getByText('AL')).toBeTruthy()
   expect(screen.getByRole('navigation')).toBe(strip)
   expect(screen.getByRole('textbox')).toBe(search)
@@ -134,26 +223,54 @@ test('shared controls stay mounted when the router changes the state parameter',
   expect(mounted.search).toBe(1)
 })
 
-const { JurisdictionNav } = await import('@/components/dashboard/jurisdiction-nav')
+const { JurisdictionNav } =
+  await import('@/components/dashboard/jurisdiction-nav')
 const { CuratorHeader } = await import('@/components/app/curator-header')
 const { RegionPill } = await import('@/components/app/region-pill')
 const { summarizeRegions } = await import('@/components/app/regions')
-vi.mock('@/components/app/header-actions', () => ({ /** Provide a visible account-actions placeholder for the shared header fixture. */ HeaderActions: () => <div>Actions</div> }))
-vi.mock('@/components/app/workspace-tabs', () => ({ /** Provide a visible workspace-tabs placeholder for the shared header fixture. */ WorkspaceTabs: () => <div>Tabs</div> }))
+vi.mock('@/components/app/header-actions', () => ({
+  /** Provide a visible account-actions placeholder for the shared header fixture. */ HeaderActions:
+    () => <div>Actions</div>,
+}))
+vi.mock('@/components/app/workspace-tabs', () => ({
+  /** Provide a visible workspace-tabs placeholder for the shared header fixture. */ WorkspaceTabs:
+    () => <div>Tabs</div>,
+}))
 
 const jurisdictions = [
   { code: 'AK', name: 'Alaska', region: 'US' },
   { code: 'MD', name: 'Maryland', region: 'US' },
   { code: 'ON', name: 'Ontario', region: 'CA' },
   { code: 'BC', name: 'British Columbia', region: 'CA' },
-].map((item) => ({ ...item, completeCount: 1, plateCount: 2, progress: null })) satisfies JurisdictionSummary[]
+].map((item) => ({
+  ...item,
+  completeCount: 1,
+  plateCount: 2,
+  progress: null,
+})) satisfies JurisdictionSummary[]
 
 test('prefetches only two neighbors on each side and keeps viewport and intent prefetch', () => {
-  const states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT'].map(code => ({ ...jurisdictions[0], code, name: code }))
+  const states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT'].map((code) => ({
+    ...jurisdictions[0],
+    code,
+    name: code,
+  }))
   mounted.code = 'AR'
-  const view = render(<JurisdictionNav jurisdictions={[...states, jurisdictions[2]]} />)
-  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual(['/states/AK', '/states/AZ', '/states/CA', '/states/CO'])
-  expect(screen.getAllByRole('link').filter(link => link.dataset.prefetch === 'true').map(link => link.textContent?.slice(0, 2))).toEqual(['AK', 'AZ', 'CA', 'CO'])
+  const view = render(
+    <JurisdictionNav jurisdictions={[...states, jurisdictions[2]]} />
+  )
+  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual([
+    '/states/AK',
+    '/states/AZ',
+    '/states/CA',
+    '/states/CO',
+  ])
+  expect(
+    screen
+      .getAllByRole('link')
+      .filter((link) => link.dataset.prefetch === 'true')
+      .map((link) => link.textContent?.slice(0, 2))
+  ).toEqual(['AK', 'AZ', 'CA', 'CO'])
   const distant = screen.getByRole('link', { name: /CT/ })
   expect(distant.dataset.prefetch).toBe('auto')
   fireEvent.mouseEnter(distant)
@@ -164,21 +281,28 @@ test('prefetches only two neighbors on each side and keeps viewport and intent p
   mounted.prefetch.mockClear()
   mounted.code = 'AL'
   view.rerender(<JurisdictionNav jurisdictions={states} />)
-  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual(['/states/AK', '/states/AZ'])
+  expect(mounted.prefetch.mock.calls.map(([href]) => href)).toEqual([
+    '/states/AK',
+    '/states/AZ',
+  ])
 })
 
 test('one navigation filters by URL region and keeps its DOM node across state switches', () => {
   const view = render(<JurisdictionNav jurisdictions={jurisdictions} />)
   const nav = screen.getByRole('navigation')
   expect(screen.getAllByRole('navigation')).toHaveLength(1)
-  expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/states/AK', '/states/MD'])
+  expect(
+    screen.getAllByRole('link').map((link) => link.getAttribute('href'))
+  ).toEqual(['/states/AK', '/states/MD'])
   mounted.code = 'MD'
   view.rerender(<JurisdictionNav jurisdictions={jurisdictions} />)
   expect(screen.getByRole('navigation')).toBe(nav)
   mounted.code = 'ON'
   view.rerender(<JurisdictionNav jurisdictions={jurisdictions} />)
   expect(screen.getByRole('navigation')).toBe(nav)
-  expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/states/ON', '/states/BC'])
+  expect(
+    screen.getAllByRole('link').map((link) => link.getAttribute('href'))
+  ).toEqual(['/states/ON', '/states/BC'])
   mounted.code = undefined
   mounted.id = 'BC.army'
   mounted.pathname = '/plates/BC.army'
@@ -188,21 +312,51 @@ test('one navigation filters by URL region and keeps its DOM node across state s
 })
 
 test('region options depend on availability and navigate to the first jurisdiction', () => {
-  const view = render(<RegionPill regions={summarizeRegions(jurisdictions)} jurisdictions={jurisdictions} />)
+  const view = render(
+    <RegionPill
+      regions={summarizeRegions(jurisdictions)}
+      jurisdictions={jurisdictions}
+    />
+  )
   const select = screen.getByRole('combobox') as HTMLSelectElement
   expect(select.value).toBe('US')
-  expect((screen.getByRole('option', { name: /Canada/ }) as HTMLOptionElement).disabled).toBe(false)
-  expect((screen.getByRole('option', { name: /Mexico.*Coming soon/ }) as HTMLOptionElement).disabled).toBe(true)
-  expect((screen.getByRole('option', { name: /Europe.*Coming soon/ }) as HTMLOptionElement).disabled).toBe(true)
+  expect(
+    (screen.getByRole('option', { name: /Canada/ }) as HTMLOptionElement)
+      .disabled
+  ).toBe(false)
+  expect(
+    (
+      screen.getByRole('option', {
+        name: /Mexico.*Coming soon/,
+      }) as HTMLOptionElement
+    ).disabled
+  ).toBe(true)
+  expect(
+    (
+      screen.getByRole('option', {
+        name: /Europe.*Coming soon/,
+      }) as HTMLOptionElement
+    ).disabled
+  ).toBe(true)
   fireEvent.change(select, { target: { value: 'CA' } })
   expect(mounted.push).toHaveBeenCalledWith('/states/ON')
   mounted.code = undefined
   mounted.id = 'BC.army'
   mounted.pathname = '/plates/BC.army'
-  view.rerender(<RegionPill regions={summarizeRegions(jurisdictions)} jurisdictions={jurisdictions} />)
+  view.rerender(
+    <RegionPill
+      regions={summarizeRegions(jurisdictions)}
+      jurisdictions={jurisdictions}
+    />
+  )
   expect(select.value).toBe('CA')
   mounted.pathname = '/review'
-  view.rerender(<RegionPill regions={summarizeRegions(jurisdictions)} jurisdictions={jurisdictions} />)
+  view.rerender(
+    <RegionPill
+      regions={summarizeRegions(jurisdictions)}
+      jurisdictions={jurisdictions}
+    />
+  )
   expect(select.value).toBe('US')
 })
 
@@ -213,40 +367,59 @@ test.each([
   ['row', 20, 80, null],
   ['row', -20, 40, { left: -20 }],
   ['row', 80, 140, { left: 40 }],
-] as const)('selected card scrolls only its container when outside %s bounds %i..%i', (direction, start, end, expected) => {
-  const scrollBy = vi.fn()
-  const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return this.tagName === 'NAV'
-      ? { top: 0, left: 0, bottom: 100, right: 100 } as DOMRect
-      : { top: start, left: start, bottom: end, right: end } as DOMRect
-  })
-  const style = vi.spyOn(window, 'getComputedStyle').mockReturnValue({ flexDirection: direction } as CSSStyleDeclaration)
-  const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
-  const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100)
-  HTMLElement.prototype.scrollBy = scrollBy
-  render(<JurisdictionNav jurisdictions={jurisdictions} />)
-  if (expected) expect(scrollBy).toHaveBeenCalledExactlyOnceWith(expected)
-  else expect(scrollBy).not.toHaveBeenCalled()
-  rect.mockRestore()
-  style.mockRestore()
-  width.mockRestore()
-  height.mockRestore()
-})
-
+] as const)(
+  'selected card scrolls only its container when outside %s bounds %i..%i',
+  (direction, start, end, expected) => {
+    const scrollBy = vi.fn()
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.tagName === 'NAV'
+          ? ({ top: 0, left: 0, bottom: 100, right: 100 } as DOMRect)
+          : ({ top: start, left: start, bottom: end, right: end } as DOMRect)
+      })
+    const style = vi
+      .spyOn(window, 'getComputedStyle')
+      .mockReturnValue({ flexDirection: direction } as CSSStyleDeclaration)
+    const width = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(100)
+    const height = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(100)
+    HTMLElement.prototype.scrollBy = scrollBy
+    render(<JurisdictionNav jurisdictions={jurisdictions} />)
+    if (expected) expect(scrollBy).toHaveBeenCalledExactlyOnceWith(expected)
+    else expect(scrollBy).not.toHaveBeenCalled()
+    rect.mockRestore()
+    style.mockRestore()
+    width.mockRestore()
+    height.mockRestore()
+  }
+)
 
 test('region switch is first in jurisdiction navigation and absent from the header', () => {
   const view = render(
     <JurisdictionNav jurisdictions={jurisdictions}>
-      <RegionPill regions={summarizeRegions(jurisdictions)} jurisdictions={jurisdictions} />
-    </JurisdictionNav>,
+      <RegionPill
+        regions={summarizeRegions(jurisdictions)}
+        jurisdictions={jurisdictions}
+      />
+    </JurisdictionNav>
   )
-  expect(screen.getByRole('navigation').firstElementChild?.contains(screen.getByRole('combobox'))).toBe(true)
+  expect(
+    screen
+      .getByRole('navigation')
+      .firstElementChild?.contains(screen.getByRole('combobox'))
+  ).toBe(true)
   view.unmount()
   render(<CuratorHeader />)
   expect(screen.queryByRole('combobox')).toBeNull()
 })
 
-const { DashboardSearch: ActualDashboardSearch } = await vi.importActual<typeof import('@/components/dashboard/search')>('@/components/dashboard/search')
+const { DashboardSearch: ActualDashboardSearch } = await vi.importActual<
+  typeof import('@/components/dashboard/search')
+>('@/components/dashboard/search')
 
 /**
  * Render the real search field with controllable navigation, input and debounce timing.
@@ -256,17 +429,30 @@ function searchHarness(query = '') {
   mounted.query = query
   const requests: { href: string; commit(): Promise<void> }[] = []
   const view = render(<ActualDashboardSearch />)
-  const input = screen.getByRole('searchbox', { name: 'Search every plate by name, id or tag' }) as HTMLInputElement
+  const input = screen.getByRole('searchbox', {
+    name: 'Search every plate by name, id or tag',
+  }) as HTMLInputElement
   expect(input.value).toBe(new URLSearchParams(query).get('q') ?? '')
   mounted.replace.mockImplementation((href: string) => {
     let release!: () => void
-    const committed = new Promise<void>(resolve => { release = resolve }).then(() => {
+    const committed = new Promise<void>((resolve) => {
+      release = resolve
+    }).then(() => {
       const url = new URL(href, window.location.origin)
       mounted.pathname = url.pathname
       mounted.query = url.search.slice(1)
       view.rerender(<ActualDashboardSearch />)
     })
-    requests.push({ href, /** Release the pending router update and wait for it to commit inside React's test boundary. */ commit: async () => { await act(async () => { release(); await committed }) } })
+    requests.push({
+      href,
+      /** Release the pending router update and wait for it to commit inside React's test boundary. */ commit:
+        async () => {
+          await act(async () => {
+            release()
+            await committed
+          })
+        },
+    })
   })
   return {
     input,
@@ -276,10 +462,15 @@ function searchHarness(query = '') {
      * changes.
      */
     type(text: string) {
-      for (const character of text) fireEvent.change(input, { target: { value: input.value + character } })
+      for (const character of text)
+        fireEvent.change(input, { target: { value: input.value + character } })
     },
     /** Advance the debounce timer to publish the pending search query. */
-    async publish() { await act(async () => { await vi.advanceTimersByTimeAsync(300) }) },
+    async publish() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300)
+      })
+    },
     /**
      * Simulate an external navigation by updating the mocked URL and rerendering search.
      */
@@ -292,7 +483,11 @@ function searchHarness(query = '') {
      * Dispatch browser history navigation and rerender the search field at its new URL.
      */
     popstate(nextQuery: string) {
-      window.history.replaceState(null, '', `${mounted.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
+      window.history.replaceState(
+        null,
+        '',
+        `${mounted.pathname}${nextQuery ? `?${nextQuery}` : ''}`
+      )
       fireEvent.popState(window)
       mounted.query = nextQuery
       view.rerender(<ActualDashboardSearch />)
@@ -307,14 +502,18 @@ test('search keeps every fast character before the router commits and coalesces 
   expect(search.input.value).toBe('motorcycle')
   await search.publish()
   expect(search.requests).toHaveLength(1)
-  expect(search.requests[0].href).toBe('/states/AK?batch=shared&show=undertagged&custom=keep&q=motorcycle')
+  expect(search.requests[0].href).toBe(
+    '/states/AK?batch=shared&show=undertagged&custom=keep&q=motorcycle'
+  )
   expect(new URLSearchParams(mounted.query).has('q')).toBe(false)
   await search.requests[0].commit()
   expect(search.input.value).toBe('motorcycle')
   expect(new URLSearchParams(mounted.query).get('q')).toBe('motorcycle')
   await search.publish()
   expect(search.requests).toHaveLength(1)
-  expect(mounted.replace).toHaveBeenCalledWith(search.requests[0].href, { scroll: false })
+  expect(mounted.replace).toHaveBeenCalledWith(search.requests[0].href, {
+    scroll: false,
+  })
 })
 
 test('older search acknowledgements cannot replace newer typing and out-of-order commits converge', async () => {
@@ -345,7 +544,9 @@ test('older search acknowledgements cannot replace newer typing and out-of-order
 
 test('search Backspace and clear remove q while preserving Batch, other params, and scroll', async () => {
   const search = searchHarness('q=army&batch=shared&custom=one&custom=two')
-  fireEvent.change(search.input, { target: { value: search.input.value.slice(0, -1) } })
+  fireEvent.change(search.input, {
+    target: { value: search.input.value.slice(0, -1) },
+  })
   expect(search.input.value).toBe('arm')
   await search.publish()
   expect(search.requests).toHaveLength(1)
@@ -355,11 +556,17 @@ test('search Backspace and clear remove q while preserving Batch, other params, 
   expect(search.input.value).toBe('')
   await search.publish()
   expect(search.requests).toHaveLength(2)
-  expect(search.requests[1].href).toBe('/states/AK?batch=shared&custom=one&custom=two')
+  expect(search.requests[1].href).toBe(
+    '/states/AK?batch=shared&custom=one&custom=two'
+  )
   await search.requests[1].commit()
   expect(new URLSearchParams(mounted.query).has('q')).toBe(false)
-  expect(new URLSearchParams(mounted.query).getAll('custom')).toEqual(['one', 'two'])
-  for (const call of mounted.replace.mock.calls) expect(call[1]).toEqual({ scroll: false })
+  expect(new URLSearchParams(mounted.query).getAll('custom')).toEqual([
+    'one',
+    'two',
+  ])
+  for (const call of mounted.replace.mock.calls)
+    expect(call[1]).toEqual({ scroll: false })
 })
 
 test('external search navigation replaces the draft and cancels an unpublished edit', async () => {
@@ -421,7 +628,11 @@ test('back/forward overrides a pending own value and cancels newer unpublished t
     search.type('r')
     await search.publish()
     expect(search.requests).toHaveLength(1)
-    expect(new URL(search.requests[0].href, window.location.origin).searchParams.get('q')).toBe('ar')
+    expect(
+      new URL(search.requests[0].href, window.location.origin).searchParams.get(
+        'q'
+      )
+    ).toBe('ar')
     search.type('m')
     search.popstate('q=ar&batch=shared')
     expect(search.input.value).toBe('ar')
@@ -432,29 +643,43 @@ test('back/forward overrides a pending own value and cancels newer unpublished t
   }
 })
 
-test.each(['motorcycle', 'army'])('the latest external route and params survive an outstanding own acknowledgement with q=%s', async query => {
-  const search = searchHarness('batch=A')
-  search.type('army')
-  await search.publish()
-  expect(search.requests[0].href).toBe('/states/AK?batch=A&q=army')
-  search.external(`q=${query}&batch=B&custom=keep`, '/states/CO')
-  expect(search.input.value).toBe(query)
-  await search.requests[0].commit()
-  expect(search.input.value).toBe(query)
-  await search.publish()
-  expect(search.requests).toHaveLength(2)
-  expect(search.requests[1].href).toBe(`/states/CO?q=${query}&batch=B&custom=keep`)
-  expect(mounted.replace).toHaveBeenLastCalledWith(search.requests[1].href, { scroll: false })
-  await search.requests[1].commit()
-  expect(mounted.pathname).toBe('/states/CO')
-  expect(Object.fromEntries(new URLSearchParams(mounted.query))).toEqual({ q: query, batch: 'B', custom: 'keep' })
-  await search.publish()
-  expect(search.requests).toHaveLength(2)
-})
+test.each(['motorcycle', 'army'])(
+  'the latest external route and params survive an outstanding own acknowledgement with q=%s',
+  async (query) => {
+    const search = searchHarness('batch=A')
+    search.type('army')
+    await search.publish()
+    expect(search.requests[0].href).toBe('/states/AK?batch=A&q=army')
+    search.external(`q=${query}&batch=B&custom=keep`, '/states/CO')
+    expect(search.input.value).toBe(query)
+    await search.requests[0].commit()
+    expect(search.input.value).toBe(query)
+    await search.publish()
+    expect(search.requests).toHaveLength(2)
+    expect(search.requests[1].href).toBe(
+      `/states/CO?q=${query}&batch=B&custom=keep`
+    )
+    expect(mounted.replace).toHaveBeenLastCalledWith(search.requests[1].href, {
+      scroll: false,
+    })
+    await search.requests[1].commit()
+    expect(mounted.pathname).toBe('/states/CO')
+    expect(Object.fromEntries(new URLSearchParams(mounted.query))).toEqual({
+      q: query,
+      batch: 'B',
+      custom: 'keep',
+    })
+    await search.publish()
+    expect(search.requests).toHaveLength(2)
+  }
+)
 
 test('Backspace through the final character removes q and leaves the bare pathname', async () => {
   const search = searchHarness('q=ar')
-  while (search.input.value) fireEvent.change(search.input, { target: { value: search.input.value.slice(0, -1) } })
+  while (search.input.value)
+    fireEvent.change(search.input, {
+      target: { value: search.input.value.slice(0, -1) },
+    })
   expect(search.input.value).toBe('')
   await search.publish()
   expect(search.requests).toHaveLength(1)
@@ -480,7 +705,11 @@ test('a query from a canceled own navigation can be typed and published again', 
   fireEvent.change(search.input, { target: { value: 'army' } })
   await search.publish()
   expect(search.requests).toHaveLength(2)
-  expect(new URL(search.requests[1].href, window.location.origin).searchParams.get('q')).toBe('army')
+  expect(
+    new URL(search.requests[1].href, window.location.origin).searchParams.get(
+      'q'
+    )
+  ).toBe('army')
   await search.requests[1].commit()
   expect(search.input.value).toBe('army')
   expect(new URLSearchParams(mounted.query).get('q')).toBe('army')

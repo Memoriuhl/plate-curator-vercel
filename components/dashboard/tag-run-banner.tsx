@@ -7,7 +7,10 @@ import { editErrors, type RunEntry, type RunPlate } from './use-tag-run'
 import { parseFieldSuggestion } from '@/lib/jobs/suggestions'
 import type { FieldSuggestion as Suggestion } from '@/lib/jobs/types'
 import { FieldSuggestion } from './field-suggestion'
-import { SpecializedSuggestion, type SpecializedAccept } from './specialized-suggestion'
+import {
+  SpecializedSuggestion,
+  type SpecializedAccept,
+} from './specialized-suggestion'
 import { useSession } from '@/lib/client/session'
 import { useSWRConfig } from 'swr'
 
@@ -19,7 +22,7 @@ export function mergeTags(tags: string[], accepted: string[]) {
     ...new Set(
       [...tags, ...accepted]
         .map((tag) => tag.trim().toLowerCase())
-        .filter(Boolean),
+        .filter(Boolean)
     ),
   ]
 }
@@ -42,7 +45,11 @@ export function TagRunBanner({
   retry(plate: RunPlate): void
 }) {
   const workspace = useWorkspaceBatch()
-  const blocked = workspace.mode === 'selected' && (workspace.status !== 'ready' || workspace.id !== batchId || workspace.detail?.batch.state !== 'open')
+  const blocked =
+    workspace.mode === 'selected' &&
+    (workspace.status !== 'ready' ||
+      workspace.id !== batchId ||
+      workspace.detail?.batch.state !== 'open')
   const detail = useBatch(batchId, { reuse: true })
   const { api } = useSession()
   const { mutate } = useSWRConfig()
@@ -53,16 +60,31 @@ export function TagRunBanner({
   const saving = useRef(false)
   /** Count results that are still progressing or completed without a stage error. */
   const counts = (state: string) =>
-    entries.filter((entry) => !entry.error && entry.job.state === state && (state !== 'completed' || !entry.job.stageError)).length
+    entries.filter(
+      (entry) =>
+        !entry.error &&
+        entry.job.state === state &&
+        (state !== 'completed' || !entry.job.stageError)
+    ).length
   const active = starting || counts('queued') + counts('claimed') > 0
   /**
    * Apply a specialized stage result through its endpoint and refresh the saved batch.
    */
-  async function acceptSpecialized(entry: RunEntry, payload: SpecializedAccept) {
-    if (entry.job.previewOnly || blocked || !batchId || !entry.jobId) throw new Error('Result is unavailable')
+  async function acceptSpecialized(
+    entry: RunEntry,
+    payload: SpecializedAccept
+  ) {
+    if (entry.job.previewOnly || blocked || !batchId || !entry.jobId)
+      throw new Error('Result is unavailable')
     const endpoint = 'candidateId' in payload ? 'images' : 'group'
-    await api.send('POST', `/api/batches/${batchId}/${endpoint}/accept`, { ...payload, jobId: entry.jobId })
-    setSavedFields(current => ({ ...current, [entry.plate.id]: entry.jobId! }))
+    await api.send('POST', `/api/batches/${batchId}/${endpoint}/accept`, {
+      ...payload,
+      jobId: entry.jobId,
+    })
+    setSavedFields((current) => ({
+      ...current,
+      [entry.plate.id]: entry.jobId!,
+    }))
     await mutate(`/api/batches/${batchId}`)
   }
   /**
@@ -74,15 +96,38 @@ export function TagRunBanner({
     if (saving.current || blocked || !batchId || !entry.job.inputHash) return
     saving.current = true
     try {
-      const result = await edit(entry.plate as Parameters<typeof edit>[0], suggestion.fields, { batchId, baseRevision: entry.job.inputHash })
-      setMessages(current => ({ ...current, [entry.plate.id]: result.ok ? 'Saved to your batch' : editErrors[result.error] }))
-      if (result.ok) setSavedFields(current => ({ ...current, [entry.plate.id]: entry.jobId ?? entry.job.inputHash! }))
+      const result = await edit(
+        entry.plate as Parameters<typeof edit>[0],
+        suggestion.fields,
+        { batchId, baseRevision: entry.job.inputHash }
+      )
+      setMessages((current) => ({
+        ...current,
+        [entry.plate.id]: result.ok
+          ? 'Saved to your batch'
+          : editErrors[result.error],
+      }))
+      if (result.ok)
+        setSavedFields((current) => ({
+          ...current,
+          [entry.plate.id]: entry.jobId ?? entry.job.inputHash!,
+        }))
     } catch {
-      setMessages(current => ({ ...current, [entry.plate.id]: 'Could not save. Check your connection and try again.' }))
-    } finally { saving.current = false }
+      setMessages((current) => ({
+        ...current,
+        [entry.plate.id]:
+          'Could not save. Check your connection and try again.',
+      }))
+    } finally {
+      saving.current = false
+    }
   }
   /** Save the selected tag suggestions and keep the run's per-plate status up to date. */
-  async function accept(plate: RunPlate, suggestions: string[], revision: string) {
+  async function accept(
+    plate: RunPlate,
+    suggestions: string[],
+    revision: string
+  ) {
     if (saving.current || blocked || !batchId) return
     saving.current = true
     const currentTags =
@@ -92,7 +137,11 @@ export function TagRunBanner({
       plate.tags
     const tags = mergeTags(currentTags, suggestions)
     try {
-      const result = await edit(plate as Parameters<typeof edit>[0], { tags }, { batchId, baseRevision: revision })
+      const result = await edit(
+        plate as Parameters<typeof edit>[0],
+        { tags },
+        { batchId, baseRevision: revision }
+      )
       setMessages((current) => ({
         ...current,
         [plate.id]: result.ok
@@ -118,10 +167,23 @@ export function TagRunBanner({
     <section className="col-span-full basis-full rounded-xl bg-[var(--card)] p-4 text-[var(--ink)]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" aria-live="polite">
-          {entries.some(entry => entry.job.stage) ? 'Running pipeline on' : 'Tagging'} {entries.length} plates · {counts('queued')} queued ·{' '}
-          {counts('claimed')} claimed · {entries.filter(entry => entry.job.state === 'completed' && !entry.job.stageError).length} done ·{' '}
-          {counts('expired')} expired
-          {entries.some(entry => entry.job.state === 'completed' && entry.job.stageError) ? ` · ${entries.filter(entry => entry.job.state === 'completed' && entry.job.stageError).length} no result` : ''}
+          {entries.some((entry) => entry.job.stage)
+            ? 'Running pipeline on'
+            : 'Tagging'}{' '}
+          {entries.length} plates · {counts('queued')} queued ·{' '}
+          {counts('claimed')} claimed ·{' '}
+          {
+            entries.filter(
+              (entry) =>
+                entry.job.state === 'completed' && !entry.job.stageError
+            ).length
+          }{' '}
+          done · {counts('expired')} expired
+          {entries.some(
+            (entry) => entry.job.state === 'completed' && entry.job.stageError
+          )
+            ? ` · ${entries.filter((entry) => entry.job.state === 'completed' && entry.job.stageError).length} no result`
+            : ''}
           {counts('failed') ? ` · ${counts('failed')} failed` : ''}
           {counts('cancelled') ? ` · ${counts('cancelled')} cancelled` : ''}
           {entries.some((entry) => entry.error)
@@ -139,18 +201,23 @@ export function TagRunBanner({
         {entries
           .filter(
             (entry) =>
-              entry.error || ['completed', 'expired', 'failed', 'cancelled'].includes(entry.job.state),
+              entry.error ||
+              ['completed', 'expired', 'failed', 'cancelled'].includes(
+                entry.job.state
+              )
           )
           .map((entry) => {
-            const fieldSuggestion = entry.job.stage ? parseFieldSuggestion(entry.job.fieldSuggestion, entry.job.stage) : null
+            const fieldSuggestion = entry.job.stage
+              ? parseFieldSuggestion(entry.job.fieldSuggestion, entry.job.stage)
+              : null
             const tags =
               detail.data?.plates.find(
-                (item) => item.proposed.id === entry.plate.id,
+                (item) => item.proposed.id === entry.plate.id
               )?.proposed.tags ??
               saved[entry.plate.id] ??
               entry.plate.tags
             const suggestions = mergeTags([], entry.job.suggestions).filter(
-              (tag) => !mergeTags(tags, []).includes(tag),
+              (tag) => !mergeTags(tags, []).includes(tag)
             )
             return (
               <div
@@ -158,31 +225,82 @@ export function TagRunBanner({
                 className="grid gap-2 border-t border-[var(--hairline)] py-3"
               >
                 <strong>{entry.plate.displayName}</strong>
-                {!entry.job.stage ? <p className="caption">
-                  Current tags: {tags.join(', ') || 'None'}
-                </p> : null}
+                {!entry.job.stage ? (
+                  <p className="caption">
+                    Current tags: {tags.join(', ') || 'None'}
+                  </p>
+                ) : null}
                 {entry.error ? <p role="alert">{entry.error}</p> : null}
-                {entry.job.previewOnly ? <p className="caption">Preview result · inspect only. Rerun normally to apply.</p> : null}
-                {entry.job.state === 'completed' && !entry.error && fieldSuggestion?.kind === 'fields' ? <FieldSuggestion
-                  suggestion={fieldSuggestion}
-                  before={detail.data?.plates.find(item => item.proposed.id === entry.plate.id)?.proposed}
-                  blocked={pending || blocked || !entry.job.inputHash}
-                  accepted={!!entry.job.inputHash && savedFields[entry.plate.id] === (entry.jobId ?? entry.job.inputHash)}
-                  inspectOnly={entry.job.previewOnly}
-                  accept={() => void acceptFields(entry, fieldSuggestion)}
-                /> : null}
-                {entry.job.state === 'completed' && !entry.error && (fieldSuggestion?.kind === 'image' || fieldSuggestion?.kind === 'group') ? <SpecializedSuggestion
-                  suggestion={fieldSuggestion}
-                  plates={detail.data?.plates.map(item => item.proposed) ?? []}
-                  baseRevision={entry.job.inputHash}
-                  batchRevision={detail.data?.batch.revision}
-                  blocked={pending || blocked || !entry.jobId}
-                  accepted={!!entry.jobId && savedFields[entry.plate.id] === entry.jobId}
-                  accept={entry.job.previewOnly ? undefined : payload => acceptSpecialized(entry, payload)}
-                /> : null}
-                {entry.job.state === 'completed' && entry.job.stage && !fieldSuggestion ? <p role="alert">{entry.job.stageError === 'no_sources' ? 'No usable Wikipedia source was found for this plate.' : entry.job.stageError === 'missing_image' ? 'The local plate image could not be read.' : entry.job.stageError === 'no_supported_fields' ? 'The sources do not support a suggestion for this plate.' : 'This stage result is unavailable or invalid.'}</p> : null}
-                {entry.job.previewOnly && !entry.job.stage ? <p className="caption">Suggested tags: {entry.job.suggestions.join(', ') || 'None'}</p> : null}
-                {entry.job.state === 'completed' && !entry.error && !entry.job.stage && !entry.job.previewOnly ? (
+                {entry.job.previewOnly ? (
+                  <p className="caption">
+                    Preview result · inspect only. Rerun normally to apply.
+                  </p>
+                ) : null}
+                {entry.job.state === 'completed' &&
+                !entry.error &&
+                fieldSuggestion?.kind === 'fields' ? (
+                  <FieldSuggestion
+                    suggestion={fieldSuggestion}
+                    before={
+                      detail.data?.plates.find(
+                        (item) => item.proposed.id === entry.plate.id
+                      )?.proposed
+                    }
+                    blocked={pending || blocked || !entry.job.inputHash}
+                    accepted={
+                      !!entry.job.inputHash &&
+                      savedFields[entry.plate.id] ===
+                        (entry.jobId ?? entry.job.inputHash)
+                    }
+                    inspectOnly={entry.job.previewOnly}
+                    accept={() => void acceptFields(entry, fieldSuggestion)}
+                  />
+                ) : null}
+                {entry.job.state === 'completed' &&
+                !entry.error &&
+                (fieldSuggestion?.kind === 'image' ||
+                  fieldSuggestion?.kind === 'group') ? (
+                  <SpecializedSuggestion
+                    suggestion={fieldSuggestion}
+                    plates={
+                      detail.data?.plates.map((item) => item.proposed) ?? []
+                    }
+                    baseRevision={entry.job.inputHash}
+                    batchRevision={detail.data?.batch.revision}
+                    blocked={pending || blocked || !entry.jobId}
+                    accepted={
+                      !!entry.jobId &&
+                      savedFields[entry.plate.id] === entry.jobId
+                    }
+                    accept={
+                      entry.job.previewOnly
+                        ? undefined
+                        : (payload) => acceptSpecialized(entry, payload)
+                    }
+                  />
+                ) : null}
+                {entry.job.state === 'completed' &&
+                entry.job.stage &&
+                !fieldSuggestion ? (
+                  <p role="alert">
+                    {entry.job.stageError === 'no_sources'
+                      ? 'No usable Wikipedia source was found for this plate.'
+                      : entry.job.stageError === 'missing_image'
+                        ? 'The local plate image could not be read.'
+                        : entry.job.stageError === 'no_supported_fields'
+                          ? 'The sources do not support a suggestion for this plate.'
+                          : 'This stage result is unavailable or invalid.'}
+                  </p>
+                ) : null}
+                {entry.job.previewOnly && !entry.job.stage ? (
+                  <p className="caption">
+                    Suggested tags: {entry.job.suggestions.join(', ') || 'None'}
+                  </p>
+                ) : null}
+                {entry.job.state === 'completed' &&
+                !entry.error &&
+                !entry.job.stage &&
+                !entry.job.previewOnly ? (
                   <div className="flex flex-wrap gap-2">
                     {suggestions.map((tag) => (
                       <Button
@@ -191,7 +309,13 @@ export function TagRunBanner({
                         variant="outline"
                         disabled={pending || blocked}
                         aria-label={`Accept ${tag} for ${entry.plate.displayName}`}
-                        onClick={() => void accept(entry.plate, [tag], entry.job.inputHash ?? entry.plate.revision)}
+                        onClick={() =>
+                          void accept(
+                            entry.plate,
+                            [tag],
+                            entry.job.inputHash ?? entry.plate.revision
+                          )
+                        }
                       >
                         {tag} +
                       </Button>
@@ -200,7 +324,13 @@ export function TagRunBanner({
                       <Button
                         size="sm"
                         disabled={pending || blocked}
-                        onClick={() => void accept(entry.plate, suggestions, entry.job.inputHash ?? entry.plate.revision)}
+                        onClick={() =>
+                          void accept(
+                            entry.plate,
+                            suggestions,
+                            entry.job.inputHash ?? entry.plate.revision
+                          )
+                        }
                       >
                         Accept all
                       </Button>
@@ -209,9 +339,18 @@ export function TagRunBanner({
                     )}
                   </div>
                 ) : null}
-                {entry.job.state === 'failed' ? <p role="alert">This stage failed. Later stages did not run.</p> : null}
-                {entry.job.state === 'cancelled' ? <p role="status">Cancelled after the active stage ended.</p> : null}
-                {entry.job.state === 'expired' || entry.job.state === 'failed' || entry.error || entry.job.stageError ? (
+                {entry.job.state === 'failed' ? (
+                  <p role="alert">
+                    This stage failed. Later stages did not run.
+                  </p>
+                ) : null}
+                {entry.job.state === 'cancelled' ? (
+                  <p role="status">Cancelled after the active stage ended.</p>
+                ) : null}
+                {entry.job.state === 'expired' ||
+                entry.job.state === 'failed' ||
+                entry.error ||
+                entry.job.stageError ? (
                   <div className="flex items-center gap-2">
                     {entry.job.state === 'expired' ? (
                       <span>Timed out; try again</span>

@@ -1,6 +1,7 @@
 /** Read valid provider-reported Gateway cost for settling a model reservation. */
 export function reportedGatewayCost(metadata: unknown): number | undefined {
-  const value = (metadata as { gateway?: { cost?: unknown } } | undefined)?.gateway?.cost
+  const value = (metadata as { gateway?: { cost?: unknown } } | undefined)
+    ?.gateway?.cost
   if (typeof value !== 'string' && typeof value !== 'number') return undefined
   if (typeof value === 'string' && !value.trim()) return undefined
   const cost = Number(value)

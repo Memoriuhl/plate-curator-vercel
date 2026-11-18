@@ -10,8 +10,13 @@ import { catalogSourceKind } from './source-kind'
 const loadInputs = cache(async () => {
   const { version, curator } = await cachedCatalogHead()
   return {
-    version, curator, imageUrl: catalog().imageUrl,
-    kind: catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }),
+    version,
+    curator,
+    imageUrl: catalog().imageUrl,
+    kind: catalogSourceKind({
+      CATALOG_SOURCE: process.env.CATALOG_SOURCE,
+      VERCEL_ENV: process.env.VERCEL_ENV,
+    }),
     imageBase: process.env.PLATE_IMAGE_BASE || null,
   }
 })
@@ -22,8 +27,9 @@ export const loadDashboard = cache(async () => {
   const summary = await cachedDashboard(version, kind, imageBase)
   return {
     ...summary,
-    jurisdictions: summary.jurisdictions.map(jurisdiction => ({
-      ...jurisdiction, progress: curator.stateProgress[jurisdiction.code] ?? null,
+    jurisdictions: summary.jurisdictions.map((jurisdiction) => ({
+      ...jurisdiction,
+      progress: curator.stateProgress[jurisdiction.code] ?? null,
     })),
   }
 })

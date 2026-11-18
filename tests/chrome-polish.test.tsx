@@ -5,8 +5,14 @@ import { Button } from '../components/ui/button'
 import { PublishButton } from '../components/dashboard/publish-button'
 import { WorkspaceTabs } from '../components/app/workspace-tabs'
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/', useSearchParams: () => new URLSearchParams('batch=batch%20%2FB') }))
-vi.mock('../lib/client/hooks', () => ({ useMe: () => ({ data: { role: 'owner' } }), useBatches: () => ({}) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams('batch=batch%20%2FB'),
+}))
+vi.mock('../lib/client/hooks', () => ({
+  useMe: () => ({ data: { role: 'owner' } }),
+  useBatches: () => ({}),
+}))
 
 test('Owners can open Publish for the exact Batch', () => {
   const html = renderToStaticMarkup(<PublishButton batchId="batch /B" owner />)
@@ -16,7 +22,9 @@ test('Owners can open Publish for the exact Batch', () => {
 })
 
 test('only an Owner with a selected Batch sees the contextual Publish action', () => {
-  expect(renderToStaticMarkup(<PublishButton batchId="batch-b" owner={false} />)).toBe('')
+  expect(
+    renderToStaticMarkup(<PublishButton batchId="batch-b" owner={false} />)
+  ).toBe('')
   expect(renderToStaticMarkup(<PublishButton owner />)).toBe('')
 })
 
@@ -29,10 +37,27 @@ test('Review opens all changes while Dashboard and Publish carry the selected Ba
 })
 
 test('all button variants and sizes share flex alignment and fixed icon sizes', () => {
-  for (const variant of ['primary', 'outline', 'ghost', 'publish', 'push'] as const) {
+  for (const variant of [
+    'primary',
+    'outline',
+    'ghost',
+    'publish',
+    'push',
+  ] as const) {
     for (const size of ['default', 'sm', 'icon'] as const) {
-      const html = renderToStaticMarkup(<Button variant={variant} size={size}><svg aria-hidden="true" />{size !== 'icon' && 'Add fact'}</Button>)
-      for (const token of ['items-center', 'justify-center', 'font-sans', '[&amp;_svg]:size-4']) expect(html).toContain(token)
+      const html = renderToStaticMarkup(
+        <Button variant={variant} size={size}>
+          <svg aria-hidden="true" />
+          {size !== 'icon' && 'Add fact'}
+        </Button>
+      )
+      for (const token of [
+        'items-center',
+        'justify-center',
+        'font-sans',
+        '[&amp;_svg]:size-4',
+      ])
+        expect(html).toContain(token)
       for (const token of ['pt-[0.2em]', '[&amp;_svg]:-mt-[0.2em]']) {
         if (size === 'icon') expect(html).not.toContain(token)
         else expect(html).toContain(token)
@@ -43,7 +68,13 @@ test('all button variants and sizes share flex alignment and fixed icon sizes', 
 
 test('toggle sizes use the measured text offset and preserve icon position', () => {
   for (const size of ['default', 'sm', 'lg'] as const) {
-    const html = renderToStaticMarkup(<Toggle size={size}><svg />Set by hand</Toggle>)
-    for (const token of ['font-sans', 'pt-[0.2em]', '[&amp;_svg]:-mt-[0.2em]']) expect(html).toContain(token)
+    const html = renderToStaticMarkup(
+      <Toggle size={size}>
+        <svg />
+        Set by hand
+      </Toggle>
+    )
+    for (const token of ['font-sans', 'pt-[0.2em]', '[&amp;_svg]:-mt-[0.2em]'])
+      expect(html).toContain(token)
   }
 })

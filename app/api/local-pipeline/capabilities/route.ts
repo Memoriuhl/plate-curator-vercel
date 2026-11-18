@@ -7,7 +7,8 @@ import { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
  * enabled.
  */
 export async function GET(request: Request) {
-  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1')
+    return json({ error: 'not_found' }, 404)
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   return json(await readLocalWorkerCapabilities(jobsDeps()))

@@ -1,12 +1,18 @@
 vi.mock('../components/ui/tooltip', () => ({
   /** Pass through the tooltip provider while rendering the dashboard frame. */
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   /** Keep the tooltip children in the fixture DOM for frame assertions. */
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   /** Expose the filter control without the Radix trigger wrapper. */
-  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   /** Render tooltip text in the fixture where queries can find it by role. */
-  TooltipContent: ({ children }: { children: React.ReactNode }) => <span role="tooltip">{children}</span>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <span role="tooltip">{children}</span>
+  ),
 }))
 import { filterCounts } from '../components/dashboard/family-data'
 import type { ComponentProps } from 'react'
@@ -22,7 +28,7 @@ const navigation = vi.hoisted(() => ({
   pathname: '/states/AK',
 }))
 const toggles = vi.hoisted(
-  () => new Map<string, { onPressedChange: (pressed: boolean) => void }>(),
+  () => new Map<string, { onPressedChange: (pressed: boolean) => void }>()
 )
 vi.mock('next/navigation', () => ({
   /** Capture or stub navigation so the test can drive routing without Next.js. */
@@ -41,7 +47,7 @@ vi.mock('../components/ui/toggle', () => ({
       count: number
       pressed: boolean
       onPressedChange: (pressed: boolean) => void
-    },
+    }
   ) => {
     const label = Array.isArray(props.children)
       ? String(props.children.at(-1))
@@ -69,7 +75,7 @@ test('jurisdiction card exposes selected border, destination, counts and proport
     completeCount: 11,
   }
   const html = renderToStaticMarkup(
-    <JurisdictionCard jurisdiction={jurisdiction} />,
+    <JurisdictionCard jurisdiction={jurisdiction} />
   )
   expect(html).toContain('jurisdiction-selected')
   expect(html).toContain('aria-current="page"')
@@ -78,7 +84,7 @@ test('jurisdiction card exposes selected border, destination, counts and proport
   expect(html).toContain('width:25%')
   navigation.pathname = '/states/AL'
   const unselected = renderToStaticMarkup(
-    <JurisdictionCard jurisdiction={jurisdiction} />,
+    <JurisdictionCard jurisdiction={jurisdiction} />
   )
   expect(unselected).not.toContain('aria-current')
   expect(unselected).not.toContain('jurisdiction-selected')
@@ -89,7 +95,7 @@ test('filter bar renders fixture check counts and preserves query when selecting
     <FilterBarControls
       counts={filterCounts(alaskaFixture.plates)}
       changedCount={3}
-    />,
+    />
   )
   expect(html).toContain('All plates<span>44</span>')
   expect(html).toContain('Changed in a batch<span>3</span>')
@@ -99,14 +105,14 @@ test('filter bar renders fixture check counts and preserves query when selecting
   toggles.get('Under-tagged')!.onPressedChange(true)
   expect(navigation.replace).toHaveBeenCalledWith(
     '/states/AK?q=gold&show=undertagged',
-    { scroll: false },
+    { scroll: false }
   )
 })
 
 test('URL selects one chip and empty plates have zero counts', () => {
   navigation.query = 'show=generic'
   const html = renderToStaticMarkup(
-    <FilterBarControls counts={filterCounts([])} changedCount={0} />,
+    <FilterBarControls counts={filterCounts([])} changedCount={0} />
   )
   expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
   expect(html).toContain('Generic description<span>0</span>')
@@ -126,7 +132,7 @@ test('needs-work counts include weak and missing metadata', () => {
   plates[2].checks.description.status = 'good'
   plates[0].checks.funFacts.status = 'good'
   const html = renderToStaticMarkup(
-    <FilterBarControls counts={filterCounts(plates)} changedCount={0} />,
+    <FilterBarControls counts={filterCounts(plates)} changedCount={0} />
   )
   expect(html).toContain('Under-tagged<span>2</span>')
   expect(html).toContain('Generic description<span>1</span>')

@@ -18,13 +18,37 @@ export function ReissueInvite({ member }: { member: MemberSummary }) {
     if (pending) return
     setPending(true)
     setError(false)
-    try { setLink((await reissue(member.email)).inviteUrl) } catch { setError(true) } finally { setPending(false) }
+    try {
+      setLink((await reissue(member.email)).inviteUrl)
+    } catch {
+      setError(true)
+    } finally {
+      setPending(false)
+    }
   }
   return (
     <div className="mt-3">
-      <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => void submit()}>{pending ? 'Re-issuing…' : 'Re-issue invite'}</Button>
-      {error ? <p role="alert" className="mt-2 text-sm">Could not re-issue the invite. Refresh Members and try again.</p> : null}
-      {link ? <InviteResult key={link} result={{ member, inviteUrl: link }} onDismiss={() => setLink(null)} /> : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={pending}
+        onClick={() => void submit()}
+      >
+        {pending ? 'Re-issuing…' : 'Re-issue invite'}
+      </Button>
+      {error ? (
+        <p role="alert" className="mt-2 text-sm">
+          Could not re-issue the invite. Refresh Members and try again.
+        </p>
+      ) : null}
+      {link ? (
+        <InviteResult
+          key={link}
+          result={{ member, inviteUrl: link }}
+          onDismiss={() => setLink(null)}
+        />
+      ) : null}
     </div>
   )
 }

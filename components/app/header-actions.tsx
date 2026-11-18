@@ -49,13 +49,18 @@ export function HeaderActions() {
     <div className="header-actions">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span tabIndex={0} aria-label={`Inbox: ${localPipelineReason('No Inbox route or notification feed')}`}>
+          <span
+            tabIndex={0}
+            aria-label={`Inbox: ${localPipelineReason('No Inbox route or notification feed')}`}
+          >
             <Button variant="ghost" size="icon" disabled aria-label="Inbox">
               <IoFileTrayOutline className="chrome-icon" aria-hidden="true" />
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{localPipelineReason('No Inbox route or notification feed')}</TooltipContent>
+        <TooltipContent>
+          {localPipelineReason('No Inbox route or notification feed')}
+        </TooltipContent>
       </Tooltip>
       {!ready ? (
         <span role="status" className="caption">
@@ -84,7 +89,10 @@ export function HeaderActions() {
             <DropdownMenuLabel>{user.email || 'Signed in'}</DropdownMenuLabel>
             {me.data?.role === 'owner' ? (
               <DropdownMenuItem asChild>
-                <Link href="/members"><IoPeopleOutline className="chrome-icon" aria-hidden="true" />Members</Link>
+                <Link href="/members">
+                  <IoPeopleOutline className="chrome-icon" aria-hidden="true" />
+                  Members
+                </Link>
               </DropdownMenuItem>
             ) : null}
             <ThemeToggle />

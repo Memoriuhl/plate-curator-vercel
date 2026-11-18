@@ -9,7 +9,9 @@ export type RegionSummary = { region: string; firstCode: string; count: number }
 export type JurisdictionRegion = { code: string; region: string }
 
 /** Group available jurisdictions by region for the navigation picker. */
-export function summarizeRegions(jurisdictions: JurisdictionRegion[]): RegionSummary[] {
+export function summarizeRegions(
+  jurisdictions: JurisdictionRegion[]
+): RegionSummary[] {
   const regions = new Map<string, RegionSummary>()
   for (const { code, region } of jurisdictions) {
     const summary = regions.get(region)
@@ -23,12 +25,16 @@ export function summarizeRegions(jurisdictions: JurisdictionRegion[]): RegionSum
 export function routeRegion(
   params: { code?: string | string[]; id?: string | string[] },
   pathname: string,
-  jurisdictions: JurisdictionRegion[],
+  jurisdictions: JurisdictionRegion[]
 ) {
-  const code = typeof params.code === 'string'
-    ? params.code
-    : pathname.startsWith('/plates/') && typeof params.id === 'string'
-      ? params.id.split('.')[0]
-      : undefined
-  return jurisdictions.find((jurisdiction) => jurisdiction.code === code)?.region ?? 'US'
+  const code =
+    typeof params.code === 'string'
+      ? params.code
+      : pathname.startsWith('/plates/') && typeof params.id === 'string'
+        ? params.id.split('.')[0]
+        : undefined
+  return (
+    jurisdictions.find((jurisdiction) => jurisdiction.code === code)?.region ??
+    'US'
+  )
 }

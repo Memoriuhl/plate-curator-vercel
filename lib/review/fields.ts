@@ -5,12 +5,33 @@ import { commonsImageUrl, commonsSourceUrl } from '../jobs/image-options'
 export const limits = { tags: 50, tag: 60, text: 120, plates: 1000 }
 const storyKeys = storyFieldKeys
 export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
-export const draftGroupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
+export const draftGroupingFields = [
+  'templateFamily',
+  'templateRole',
+  'variantOfPlateId',
+] as const
 const imageKeys = ['imageUrl', 'sourceUrl'] as const
-export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys, ...colorFieldKeys] as const
+export const editableKeys = [
+  'tags',
+  'templateFamily',
+  'templateRole',
+  'variantOfPlateId',
+  'isStandard',
+  'description',
+  'deleted',
+  ...storyKeys,
+  ...imageKeys,
+  ...colorFieldKeys,
+] as const
 /** List the editable plate fields enabled by the current local pipeline configuration. */
 export function editableFieldKeys() {
-  return editableKeys.filter(key => process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' || ![...storyKeys, ...imageKeys, ...colorFieldKeys].some(localKey => localKey === key))
+  return editableKeys.filter(
+    (key) =>
+      process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ||
+      ![...storyKeys, ...imageKeys, ...colorFieldKeys].some(
+        (localKey) => localKey === key
+      )
+  )
 }
 
 /**
@@ -21,8 +42,14 @@ export function storyUrl(value: unknown): string | null {
   if (!text) return null
   try {
     const url = new URL(text)
-    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? text : null
-  } catch { return null }
+    return ['http:', 'https:'].includes(url.protocol) &&
+      !url.username &&
+      !url.password
+      ? text
+      : null
+  } catch {
+    return null
+  }
 }
 
 /** Narrow an incoming field payload to an object so its keys can be validated. */
@@ -41,10 +68,14 @@ function boundedText(value: unknown, max: number): string | null {
  * Normalize the recognized field values and reject changes outside the supplied
  * allowlist.
  */
-function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields | null {
+function parseFields(
+  input: unknown,
+  keys: ReadonlySet<string>
+): EditableFields | null {
   if (!isRecord(input)) return null
   const entries = Object.entries(input)
-  if (entries.length === 0 || entries.some(([key]) => !keys.has(key))) return null
+  if (entries.length === 0 || entries.some(([key]) => !keys.has(key)))
+    return null
 
   const fields: EditableFields = {}
   for (const [key, value] of entries) {
@@ -57,7 +88,14 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
       if (value !== null && !url) return null
       fields.imageUrl = url
     } else if (key === 'firstIssuedYear') {
-      if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1800 || value > 2100)) return null
+      if (
+        value !== null &&
+        (typeof value !== 'number' ||
+          !Number.isInteger(value) ||
+          value < 1800 ||
+          value > 2100)
+      )
+        return null
       fields.firstIssuedYear = value as number | null
     } else if (key === 'wikiUrl' || key === 'sourceUrl') {
       const url = storyUrl(value)
@@ -67,10 +105,19 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
       if (!Array.isArray(value) || value.length > 4) return null
       const facts = []
       for (const fact of value) {
-        if (!isRecord(fact) || Object.keys(fact).some(key => !['text', 'sourceUrl', 'sourceTitle'].includes(key))) return null
+        if (
+          !isRecord(fact) ||
+          Object.keys(fact).some(
+            (key) => !['text', 'sourceUrl', 'sourceTitle'].includes(key)
+          )
+        )
+          return null
         const text = boundedText(fact.text, 500)
         const sourceUrl = storyUrl(fact.sourceUrl)
-        const sourceTitle = fact.sourceTitle === undefined ? undefined : boundedText(fact.sourceTitle, 300)
+        const sourceTitle =
+          fact.sourceTitle === undefined
+            ? undefined
+            : boundedText(fact.sourceTitle, 300)
         if (!text || !sourceUrl || sourceTitle === null) return null
         facts.push({ text, sourceUrl, ...(sourceTitle ? { sourceTitle } : {}) })
       }
@@ -79,7 +126,13 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
       if (!Array.isArray(value) || value.length > 8) return null
       const links = []
       for (const link of value) {
-        if (!isRecord(link) || Object.keys(link).some(key => !['title', 'site', 'url'].includes(key))) return null
+        if (
+          !isRecord(link) ||
+          Object.keys(link).some(
+            (key) => !['title', 'site', 'url'].includes(key)
+          )
+        )
+          return null
         const title = boundedText(link.title, 200)
         const site = boundedText(link.site, 200)
         const url = storyUrl(link.url)
@@ -116,10 +169,25 @@ function parseFields(input: unknown, keys: ReadonlySet<string>): EditableFields 
 /**
  * Validate curator-editable fields and keep an image URL paired with its Commons source.
  */
-export function parseEditableFields(input: unknown, candidate?: { imageUrl: string; sourceUrl: string }): EditableFields | null {
-  if (isRecord(input) && (Object.hasOwn(input, 'sourceUrl') || Object.hasOwn(input, 'imageUrl'))) {
-    if (!Object.hasOwn(input, 'sourceUrl') || !Object.hasOwn(input, 'imageUrl')) return null
-    if (input.imageUrl === null ? input.sourceUrl !== null : !candidate || input.imageUrl !== candidate.imageUrl || input.sourceUrl !== candidate.sourceUrl || !commonsSourceUrl(input.sourceUrl)) return null
+export function parseEditableFields(
+  input: unknown,
+  candidate?: { imageUrl: string; sourceUrl: string }
+): EditableFields | null {
+  if (
+    isRecord(input) &&
+    (Object.hasOwn(input, 'sourceUrl') || Object.hasOwn(input, 'imageUrl'))
+  ) {
+    if (!Object.hasOwn(input, 'sourceUrl') || !Object.hasOwn(input, 'imageUrl'))
+      return null
+    if (
+      input.imageUrl === null
+        ? input.sourceUrl !== null
+        : !candidate ||
+          input.imageUrl !== candidate.imageUrl ||
+          input.sourceUrl !== candidate.sourceUrl ||
+          !commonsSourceUrl(input.sourceUrl)
+    )
+      return null
   }
   return parseFields(input, new Set(editableFieldKeys()))
 }
@@ -135,11 +203,19 @@ export function parseColorFields(input: unknown): EditableFields | null {
 }
 
 /** Parse the requested title and plate IDs before creating a review batch. */
-export function parseBatchInput(input: unknown): { name: string; plateIds: string[] } | null {
+export function parseBatchInput(
+  input: unknown
+): { name: string; plateIds: string[] } | null {
   if (!isRecord(input)) return null
   const name = boundedText(input.name, limits.text)
   const plateIds = input.plateIds
-  if (name === null || !Array.isArray(plateIds) || plateIds.length === 0 || plateIds.length > limits.plates) return null
+  if (
+    name === null ||
+    !Array.isArray(plateIds) ||
+    plateIds.length === 0 ||
+    plateIds.length > limits.plates
+  )
+    return null
   if (!plateIds.every((id) => boundedText(id, limits.text) === id)) return null
   return { name, plateIds: plateIds as string[] }
 }

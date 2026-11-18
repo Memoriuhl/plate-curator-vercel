@@ -6,7 +6,14 @@ export const HOSTED_WORKER = 'hosted'
 export const CHUNK_SIZE = 5
 export const CHUNKS_IN_FLIGHT = 2
 
-export type HostedPlate = { id: string; state: string; displayName: string; image: string; tags: string[]; imageUrl?: string }
+export type HostedPlate = {
+  id: string
+  state: string
+  displayName: string
+  image: string
+  tags: string[]
+  imageUrl?: string
+}
 export type HostedDeps = {
   jobs: JobsDeps
   adapter: ModelAdapter
@@ -15,7 +22,10 @@ export type HostedDeps = {
 }
 export type FinalOutcome = 'completed' | 'stale' | 'failed'
 export type PlateOutcome = FinalOutcome | 'retry' | 'waiting'
-export type ChunkResult = { outcomes: Record<string, PlateOutcome>; retryAfterMs: number | null }
+export type ChunkResult = {
+  outcomes: Record<string, PlateOutcome>
+  retryAfterMs: number | null
+}
 
 /** Read an upstream HTTP status when the hosted adapter supplies one. */
 function errorStatus(error: unknown) {
@@ -32,14 +42,21 @@ function transient(status: number | null) {
  * Claim and execute one hosted tagging job, then report its result against the current
  * plate revision.
  */
-export async function tagHostedJob(d: HostedDeps, jobId: string): Promise<{ outcome: PlateOutcome; retryAfterMs?: number }> {
+export async function tagHostedJob(
+  d: HostedDeps,
+  jobId: string
+): Promise<{ outcome: PlateOutcome; retryAfterMs?: number }> {
   const existing = await getJob(d.jobs, jobId)
   if (!existing || existing.state === 'expired') return { outcome: 'failed' }
   if (existing.state === 'completed') return { outcome: 'completed' }
 
-  const reserved = existing.queueRunId ? await claimHostedQueueJob(d.jobs, jobId) : undefined
+  const reserved = existing.queueRunId
+    ? await claimHostedQueueJob(d.jobs, jobId)
+    : undefined
   if (existing.queueRunId && !reserved) return { outcome: 'waiting' }
-  const claim = reserved ? { ok: true as const, value: reserved } : await claimJob(d.jobs, HOSTED_WORKER, jobId)
+  const claim = reserved
+    ? { ok: true as const, value: reserved }
+    : await claimJob(d.jobs, HOSTED_WORKER, jobId)
   if (!claim.ok) return { outcome: 'failed' }
   if (claim.value.job.state === 'completed') return { outcome: 'completed' }
 
@@ -61,13 +78,26 @@ export async function tagHostedJob(d: HostedDeps, jobId: string): Promise<{ outc
   } catch (error) {
     if (!transient(errorStatus(error))) return { outcome: 'failed' }
     const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs
-    return { outcome: 'retry', ...(typeof retryAfterMs === 'number' ? { retryAfterMs } : {}) }
+    return {
+      outcome: 'retry',
+      ...(typeof retryAfterMs === 'number' ? { retryAfterMs } : {}),
+    }
   }
 
-  const report = await reportResult(d.jobs, HOSTED_WORKER, jobId, claim.value.claimId, {
-    suggestions, backend, model: d.adapter.model, promptVersion: d.adapter.promptVersion,
-    durationMs: Math.max(0, d.jobs.now() - start), ...(usage ? { usage } : {}),
-  })
+  const report = await reportResult(
+    d.jobs,
+    HOSTED_WORKER,
+    jobId,
+    claim.value.claimId,
+    {
+      suggestions,
+      backend,
+      model: d.adapter.model,
+      promptVersion: d.adapter.promptVersion,
+      durationMs: Math.max(0, d.jobs.now() - start),
+      ...(usage ? { usage } : {}),
+    }
+  )
   if (report.ok) return { outcome: 'completed' }
   return { outcome: report.error === 'stale_input' ? 'stale' : 'failed' }
 }
@@ -76,14 +106,23 @@ export async function tagHostedJob(d: HostedDeps, jobId: string): Promise<{ outc
  * Run a chunk of hosted jobs concurrently and retain their outcomes and retry delays
  * independently.
  */
-export async function tagHostedChunk(d: HostedDeps, jobIds: string[]): Promise<ChunkResult> {
-  const settled = await Promise.allSettled(jobIds.map(id => tagHostedJob(d, id)))
+export async function tagHostedChunk(
+  d: HostedDeps,
+  jobIds: string[]
+): Promise<ChunkResult> {
+  const settled = await Promise.allSettled(
+    jobIds.map((id) => tagHostedJob(d, id))
+  )
   const outcomes: Record<string, PlateOutcome> = {}
   let retryAfterMs: number | null = null
   settled.forEach((result, index) => {
-    const value = result.status === 'fulfilled' ? result.value : { outcome: 'retry' as const }
+    const value =
+      result.status === 'fulfilled'
+        ? result.value
+        : { outcome: 'retry' as const }
     outcomes[jobIds[index]] = value.outcome
-    if ('retryAfterMs' in value && typeof value.retryAfterMs === 'number') retryAfterMs = Math.max(retryAfterMs ?? 0, value.retryAfterMs)
+    if ('retryAfterMs' in value && typeof value.retryAfterMs === 'number')
+      retryAfterMs = Math.max(retryAfterMs ?? 0, value.retryAfterMs)
   })
   return { outcomes, retryAfterMs }
 }
@@ -97,13 +136,21 @@ export function retryDelayMs(result: ChunkResult, attempt: number) {
 }
 
 /** Turn unresolved jobs into failures when the workflow exhausts its retry budget. */
-export function finalOutcomes(result: ChunkResult): Record<string, FinalOutcome> {
-  return Object.fromEntries(Object.entries(result.outcomes).map(([id, outcome]) => [id, outcome === 'retry' || outcome === 'waiting' ? 'failed' : outcome]))
+export function finalOutcomes(
+  result: ChunkResult
+): Record<string, FinalOutcome> {
+  return Object.fromEntries(
+    Object.entries(result.outcomes).map(([id, outcome]) => [
+      id,
+      outcome === 'retry' || outcome === 'waiting' ? 'failed' : outcome,
+    ])
+  )
 }
 
 /** Partition jobs into bounded chunks so hosted execution can control concurrency. */
 export function chunks<T>(items: T[], size = CHUNK_SIZE): T[][] {
   const out: T[][] = []
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size))
   return out
 }

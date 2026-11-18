@@ -8,9 +8,12 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response
 
   const body = await readJson(request)
-  const workerId = typeof body?.workerId === 'string' ? body.workerId.trim() : ''
+  const workerId =
+    typeof body?.workerId === 'string' ? body.workerId.trim() : ''
   if (workerId.length === 0 || workerId.length > 64) return badRequest()
 
   const outcome = await issueWorkerToken(jobsDeps(), auth.actor, workerId)
-  return outcome.ok ? json({ workerId, token: outcome.value.token, hash: outcome.value.hash }) : json({ error: outcome.error }, 403)
+  return outcome.ok
+    ? json({ workerId, token: outcome.value.token, hash: outcome.value.hash })
+    : json({ error: outcome.error }, 403)
 }

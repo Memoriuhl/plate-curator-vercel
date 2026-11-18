@@ -1,22 +1,205 @@
 <!-- @dsCard group="Plate" height=120 -->
-<link rel="stylesheet" href="../../tokens.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:ital,wght@0,400;0,600;0,700;0,800;0,900;1,800;1,900&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../../tokens.css" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Overpass:ital,wght@0,400;0,600;0,700;0,800;0,900;1,800;1,900&family=Geist+Mono:wght@400;500&display=swap"
+/>
 <style>
-body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font-sans)}
-.stage{padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-.btn{height:40px;padding:0 18px;border-radius:999px;font-family:var(--font-sans);font-weight:800;font-size:15px;border:2px solid transparent;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
-.btn-primary{background:var(--primary);color:var(--on-primary)}
-.btn-outline{background:transparent;border-color:var(--primary);color:var(--primary)}
-.btn-ghost{background:transparent;color:var(--ink)}
-.btn-publish{background:var(--info);color:#FFFFFF}
-.btn-push{background:var(--danger);color:#FFFFFF}
-.btn-sm{height:32px;padding:0 12px;font-size:13px}
-.mono{font-family:var(--font-mono)}
-.card{background:var(--card);border-radius:20px;padding:14px}
-.av{width:24px;height:24px;border-radius:50%;color:#FFFFFF;font-weight:800;font-size:11px;display:inline-flex;align-items:center;justify-content:center;position:relative}
-.badge{position:absolute;right:-4px;bottom:-4px;width:14px;height:14px;border-radius:50%;background:var(--card);display:inline-flex;align-items:center;justify-content:center}
-.ico{display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center}
-.good{color:var(--success)}.weak{color:var(--warning)}.missing{color:var(--danger)}
-.cap{font-size:12px;font-weight:600;color:var(--ink-2)}
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+  }
+  .stage {
+    padding: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .btn {
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 999px;
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 15px;
+    border: 2px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: var(--on-primary);
+  }
+  .btn-outline {
+    background: transparent;
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-publish {
+    background: var(--info);
+    color: #ffffff;
+  }
+  .btn-push {
+    background: var(--danger);
+    color: #ffffff;
+  }
+  .btn-sm {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+  .card {
+    background: var(--card);
+    border-radius: 20px;
+    padding: 14px;
+  }
+  .av {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .badge {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--card);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ico {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+  }
+  .good {
+    color: var(--success);
+  }
+  .weak {
+    color: var(--warning);
+  }
+  .missing {
+    color: var(--danger);
+  }
+  .cap {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
 </style>
-<div class="stage" style="flex-direction:column;align-items:stretch;max-width:560px"><div class="card" style="display:flex;align-items:center;gap:12px;padding:8px;background:var(--fill)"><img src="../../assets/Plates/ak_army.webp" alt="" style="width:72px;height:36px;object-fit:contain"><span style="flex:1;display:flex;flex-direction:column"><span style="font-weight:800;font-size:14px">Army</span><span class="mono" style="font-size:11px;color:var(--ink-3)">AK.army</span></span><span style="height:24px;padding:0 9px;border-radius:999px;background:var(--info-tint);color:var(--info);font-weight:800;font-size:12px;display:inline-flex;align-items:center">description</span><span class="av" style="background:var(--player-friend);">D<span class="badge" style="color:var(--info)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></span></span></div><div style="display:flex;align-items:center;gap:12px;padding:8px"><img src="../../assets/Plates/ak_standard_gold.webp" alt="" style="width:72px;height:36px;object-fit:contain"><span style="flex:1;display:flex;flex-direction:column"><span style="font-weight:800;font-size:14px">Standard Gold</span><span class="mono" style="font-size:11px;color:var(--ink-3)">AK.standard_gold</span></span><span style="height:24px;padding:0 9px;border-radius:999px;background:var(--success-tint);color:var(--success);font-weight:800;font-size:12px;display:inline-flex;align-items:center">new</span><span class="av" style="background:var(--player-you);">J<span class="badge" style="color:var(--info)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></span></span></div></div>
+<div
+  class="stage"
+  style="flex-direction: column; align-items: stretch; max-width: 560px"
+>
+  <div
+    class="card"
+    style="
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px;
+      background: var(--fill);
+    "
+  >
+    <img
+      src="../../assets/Plates/ak_army.webp"
+      alt=""
+      style="width: 72px; height: 36px; object-fit: contain"
+    /><span style="flex: 1; display: flex; flex-direction: column"
+      ><span style="font-weight: 800; font-size: 14px">Army</span
+      ><span class="mono" style="font-size: 11px; color: var(--ink-3)"
+        >AK.army</span
+      ></span
+    ><span
+      style="
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: var(--info-tint);
+        color: var(--info);
+        font-weight: 800;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+      "
+      >description</span
+    ><span class="av" style="background: var(--player-friend)"
+      >D<span class="badge" style="color: var(--info)"
+        ><svg
+          width="9"
+          height="9"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></span
+    ></span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px; padding: 8px">
+    <img
+      src="../../assets/Plates/ak_standard_gold.webp"
+      alt=""
+      style="width: 72px; height: 36px; object-fit: contain"
+    /><span style="flex: 1; display: flex; flex-direction: column"
+      ><span style="font-weight: 800; font-size: 14px">Standard Gold</span
+      ><span class="mono" style="font-size: 11px; color: var(--ink-3)"
+        >AK.standard_gold</span
+      ></span
+    ><span
+      style="
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: var(--success-tint);
+        color: var(--success);
+        font-weight: 800;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+      "
+      >new</span
+    ><span class="av" style="background: var(--player-you)"
+      >J<span class="badge" style="color: var(--info)"
+        ><svg
+          width="9"
+          height="9"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></span
+    ></span>
+  </div>
+</div>

@@ -13,9 +13,13 @@ type Search = Promise<{ batch?: string | string[] }>
  */
 async function FirstJurisdiction({ searchParams }: { searchParams: Search }) {
   await connection()
-  const [{ jurisdictions }, query] = await Promise.all([loadDashboard(), searchParams])
+  const [{ jurisdictions }, query] = await Promise.all([
+    loadDashboard(),
+    searchParams,
+  ])
   const batch = Array.isArray(query.batch) ? query.batch[0] : query.batch
-  if (jurisdictions[0]) redirect(batchHref(`/states/${jurisdictions[0].code}`, batch ?? null))
+  if (jurisdictions[0])
+    redirect(batchHref(`/states/${jurisdictions[0].code}`, batch ?? null))
   return <p>No jurisdictions available.</p>
 }
 

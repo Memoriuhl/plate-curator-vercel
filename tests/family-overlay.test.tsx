@@ -16,13 +16,13 @@ function Probe() {
 }
 test('grid delegates to the shared overlay with client-only null check values', () => {
   overlay.mockImplementation((plates: PlateCardData[]) =>
-    plates.map((plate) => ({ ...plate, changedInBatch: true })),
+    plates.map((plate) => ({ ...plate, changedInBatch: true }))
   )
   expect(renderToStaticMarkup(<Probe />)).toContain('true')
   const input = overlay.mock.calls[0][0][0]
   expect(input.id).toBe(plateCards[0].id)
   expect(input.checks.description.value).toBeNull()
   expect(input.checks.description.status).toBe(
-    plateCards[0].checks.description.status,
+    plateCards[0].checks.description.status
   )
 })

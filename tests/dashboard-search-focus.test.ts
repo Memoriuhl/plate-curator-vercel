@@ -6,7 +6,7 @@ const tokens = readFileSync('design-system/tokens.css', 'utf8')
 
 /** Convert a hex color to relative luminance for the focus ring contrast test. */
 function luminance(hex: string) {
-  const channels = hex.match(/[a-f\d]{2}/gi)!.map(channel => {
+  const channels = hex.match(/[a-f\d]{2}/gi)!.map((channel) => {
     const value = parseInt(channel, 16) / 255
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
   })
@@ -22,7 +22,11 @@ test('search focus surrounds the whole field for every focus method', () => {
 })
 
 test('focus ring contrasts with the surrounding ground in every theme', () => {
-  const themes = [...tokens.matchAll(/--ground:\s*(#[a-f\d]+);([\s\S]*?)--ink-2:\s*(#[a-f\d]+);/gi)]
+  const themes = [
+    ...tokens.matchAll(
+      /--ground:\s*(#[a-f\d]+);([\s\S]*?)--ink-2:\s*(#[a-f\d]+);/gi
+    ),
+  ]
   expect(themes.length).toBeGreaterThanOrEqual(2)
   for (const [, ground, , ink] of themes) {
     const values = [luminance(ground), luminance(ink)].sort((a, b) => b - a)

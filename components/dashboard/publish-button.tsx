@@ -8,7 +8,11 @@ import { batchHref } from '@/lib/review/href'
 /**
  * Link to the batch's publish flow or explain why publishing is currently unavailable.
  */
-export function PublishButton({ batchId, owner, size = 'default' }: {
+export function PublishButton({
+  batchId,
+  owner,
+  size = 'default',
+}: {
   batchId?: string
   owner: boolean
   size?: 'default' | 'sm'

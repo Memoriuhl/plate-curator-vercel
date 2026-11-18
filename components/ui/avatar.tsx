@@ -26,7 +26,7 @@ function Avatar({
       data-activity={activity}
       className={cn(
         'group/avatar relative flex size-8 shrink-0 rounded-full select-none data-[size=lg]:size-10 data-[size=sm]:size-6',
-        className,
+        className
       )}
       {...props}
     >
@@ -54,7 +54,7 @@ function AvatarImage({
       data-slot="avatar-image"
       className={cn(
         'aspect-square size-full rounded-full object-cover',
-        className,
+        className
       )}
       {...props}
     />
@@ -71,7 +71,7 @@ function AvatarFallback({
       data-slot="avatar-fallback"
       className={cn(
         'flex size-full items-center justify-center rounded-full bg-[var(--player-you)] pt-px text-sm leading-none font-extrabold text-[var(--on-color)] group-data-[size=sm]/avatar:pt-0 group-data-[size=sm]/avatar:text-xs group-data-[size=sm]/avatar:leading-none',
-        className,
+        className
       )}
       {...props}
     />
@@ -85,7 +85,7 @@ function AvatarBadge({ className, ...props }: React.ComponentProps<'span'>) {
       data-slot="avatar-badge"
       className={cn(
         'absolute -right-1 -bottom-1 z-10 inline-flex size-[14px] items-center justify-center rounded-full bg-card text-foreground [&>svg]:size-[10px] group-data-[activity=editing]/avatar:text-success',
-        className,
+        className
       )}
       {...props}
     />
@@ -113,7 +113,7 @@ function AvatarGroupCount({
       data-slot="avatar-group-count"
       className={cn(
         'relative flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm text-muted-foreground  group-has-data-[size=lg]/avatar-group:size-10 group-has-data-[size=sm]/avatar-group:size-6 [&>svg]:size-4 group-has-data-[size=lg]/avatar-group:[&>svg]:size-5 group-has-data-[size=sm]/avatar-group:[&>svg]:size-3',
-        className,
+        className
       )}
       {...props}
     />

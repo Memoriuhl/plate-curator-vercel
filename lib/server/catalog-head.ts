@@ -13,7 +13,10 @@ export async function cachedCatalogHead() {
   cacheTag(CATALOG_HEAD_TAG)
   cacheLife({ stale: 60, revalidate: 300, expire: 3600 })
   const source = catalog()
-  const [version, curator] = await Promise.all([source.readVersion(), source.readCuratorState()])
+  const [version, curator] = await Promise.all([
+    source.readVersion(),
+    source.readCuratorState(),
+  ])
   return { version, curator }
 }
 

@@ -11,10 +11,14 @@ export function DashboardSkeleton({
       aria-label={`Loading ${kind}`}
     >
       <span className="sr-only">Loading {kind}…</span>
-      {kind === 'jurisdictions' ? <span className="jurisdiction-region jurisdiction-region-skeleton" /> : null}
-      {kind === 'jurisdictions' ? Array.from({ length: 8 }, (_, index) => (
-        <span key={index} className="jurisdiction-skeleton-card" />
-      )) : null}
+      {kind === 'jurisdictions' ? (
+        <span className="jurisdiction-region jurisdiction-region-skeleton" />
+      ) : null}
+      {kind === 'jurisdictions'
+        ? Array.from({ length: 8 }, (_, index) => (
+            <span key={index} className="jurisdiction-skeleton-card" />
+          ))
+        : null}
     </div>
   )
 }

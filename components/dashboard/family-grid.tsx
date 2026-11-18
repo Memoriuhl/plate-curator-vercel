@@ -2,20 +2,38 @@
 
 import { Button } from '@/components/ui/button'
 import { useStandardConfirmation } from '@/components/plate/standard-confirmation'
-import { plateSelection, useSelectionKeyboard, SelectionPresence } from './plate-selection'
+import {
+  plateSelection,
+  useSelectionKeyboard,
+  SelectionPresence,
+} from './plate-selection'
 import { SelectionBar } from './selection-bar'
 import dynamic from 'next/dynamic'
 import { FilterBar } from './filter-bar'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { familyColumns } from './grid-feel'
 import { useGridEntrance } from './use-grid-entrance'
 import { useDragFlip } from './use-drag-flip'
 import { estimatedFamilyHeight } from './variant-list-layout'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useWorkspaceBatch, useDraftOverlay, useEditPlate, useMe, useReorderState, usePreloadPlateDetail } from '@/lib/client/hooks'
+import {
+  useWorkspaceBatch,
+  useDraftOverlay,
+  useEditPlate,
+  useMe,
+  useReorderState,
+  usePreloadPlateDetail,
+} from '@/lib/client/hooks'
 import { useSWRConfig } from 'swr'
 import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
@@ -38,8 +56,11 @@ import type { PlateCheckKey } from '@/lib/catalog/dashboard-types'
 
 /** Load the hover card on demand so the grid can render before the preview code is needed. */
 const ReadyPlatePreview = dynamic(
-  () => import('@/components/plate/ready-plate-preview').then(module => module.ReadyPlatePreview),
-  { loading: () => null },
+  () =>
+    import('@/components/plate/ready-plate-preview').then(
+      (module) => module.ReadyPlatePreview
+    ),
+  { loading: () => null }
 )
 
 /**
@@ -55,7 +76,12 @@ export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
  * Render the state family grid with filtering, selection, drag editing and virtualized
  * rows.
  */
-export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
+export function FamilyGrid({
+  plates,
+  code,
+  catalogVersion,
+  onSelectGroup,
+}: {
   plates: FamilyPlate[]
   code?: string
   catalogVersion?: number
@@ -65,29 +91,52 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const pathname = usePathname()
   const latestOverlay = useFamilyBatchOverlay(plates)
   const [publishedOnly, setPublishedOnly] = useState(false)
-  const published = useMemo(() => publishedOnly ? plates.map(plate => ({
-    ...expandFamilyPlate(plate), changedInBatch: false,
-  })) : null, [plates, publishedOnly])
-  const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(null)
+  const published = useMemo(
+    () =>
+      publishedOnly
+        ? plates.map((plate) => ({
+            ...expandFamilyPlate(plate),
+            changedInBatch: false,
+          }))
+        : null,
+    [plates, publishedOnly]
+  )
+  const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(
+    null
+  )
   const overlaid = published ?? heldOverlay ?? latestOverlay
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
-  const attachedIds = useMemo(() => attachedFamilyIds(overlaid, baselineFamilies), [overlaid, baselineFamilies])
-  const counts = useMemo(() => filterCounts(overlaid, attachedIds), [overlaid, attachedIds])
+  const attachedIds = useMemo(
+    () => attachedFamilyIds(overlaid, baselineFamilies),
+    [overlaid, baselineFamilies]
+  )
+  const counts = useMemo(
+    () => filterCounts(overlaid, attachedIds),
+    [overlaid, attachedIds]
+  )
   const workspace = useWorkspaceBatch()
   const changedIds = useMemo(
     () =>
       new Set(
         overlaid
           .filter((plate) => plate.changedInBatch)
-          .map((plate) => plate.id),
+          .map((plate) => plate.id)
       ),
-    [overlaid],
+    [overlaid]
   )
   const filter = params.get('show') ?? 'all'
   const show = publishedOnly && filter === 'changed' ? 'all' : filter
   const query = params.get('q') ?? ''
   const focusPlateId = params.get('plate')
-  const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show, '', attachedIds) : []), [overlaid, show, attachedIds])
+  const standardIds = useMemo(
+    () =>
+      new Set(
+        show === 'standardPlate'
+          ? plateIdsForCheck(overlaid, show, '', attachedIds)
+          : []
+      ),
+    [overlaid, show, attachedIds]
+  )
   /**
    * Apply the current search and completeness filters with the precomputed family
    * context.
@@ -95,7 +144,11 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const matches = (plate: PlateCardData) =>
     matchesPlate(plate, show, query, changedIds, standardIds, attachedIds)
   const container = useRef<HTMLDivElement>(null)
-  const [layout, setLayout] = useState({ columns: 5, margin: 420, ready: false })
+  const [layout, setLayout] = useState({
+    columns: 5,
+    margin: 420,
+    ready: false,
+  })
   const [preview, setPreview] = useState<{
     plate: PlateCardData
     anchor: HTMLElement
@@ -116,7 +169,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     setPreview(null)
   }
   const leavePreview = () => {
-    if (!opened.current) { close(); return }
+    if (!opened.current) {
+      close()
+      return
+    }
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(close, 230)
   }
@@ -125,32 +181,60 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const edits = useEditPlate()
   const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
-  const draftBatch = workspace.mode === 'selected' ? workspace.detail?.batch : ordering.batch
+  const draftBatch =
+    workspace.mode === 'selected' ? workspace.detail?.batch : ordering.batch
   const standardConfirmation = useStandardConfirmation()
   const standardRepairs = useMemo(() => {
     if (show !== 'standardPlate') return []
-    const states = new Set(overlaid.filter(plate => standardIds.has(plate.id)).map(plate => plate.state))
-    return [...states].filter(state => ordering.stateOrders?.[state]).flatMap(state => {
-      const first = baselineFamilies.find(family => family.template.state === state && !family.template.deleted && family.template.templateRole === 'template')?.template
-      return first ? [first] : []
-    })
+    const states = new Set(
+      overlaid
+        .filter((plate) => standardIds.has(plate.id))
+        .map((plate) => plate.state)
+    )
+    return [...states]
+      .filter((state) => ordering.stateOrders?.[state])
+      .flatMap((state) => {
+        const first = baselineFamilies.find(
+          (family) =>
+            family.template.state === state &&
+            !family.template.deleted &&
+            family.template.templateRole === 'template'
+        )?.template
+        return first ? [first] : []
+      })
   }, [show, overlaid, standardIds, baselineFamilies, ordering.stateOrders])
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
   const [resolutionError, setResolutionError] = useState('')
   const { mutate } = useSWRConfig()
-  const canEdit = !publishedOnly && (workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner')
+  const canEdit =
+    !publishedOnly &&
+    (workspace.mode === 'selected'
+      ? workspace.status === 'ready'
+      : me.data?.role === 'editor' || me.data?.role === 'owner')
   const drag = usePlateDrag({
     bulkEdits,
     catalogVersion,
-    families: baselineFamilies, canEdit: canEdit && ordering.ready !== false && !issue && !standardConfirmation.pending, show, query, ordering,
-    edits: { ...edits, edit: async (plate, fields, reviewed) => {
-      const result = await edits.edit(plate, fields, reviewed)
-      if (!result.ok && result.error === 'stale_plate') setIssue({ plate, fields, result })
-      return result
-    } },
+    families: baselineFamilies,
+    canEdit:
+      canEdit &&
+      ordering.ready !== false &&
+      !issue &&
+      !standardConfirmation.pending,
+    show,
+    query,
+    ordering,
+    edits: {
+      ...edits,
+      edit: async (plate, fields, reviewed) => {
+        const result = await edits.edit(plate, fields, reviewed)
+        if (!result.ok && result.error === 'stale_plate')
+          setIssue({ plate, fields, result })
+        return result
+      },
+    },
     /** Freeze the projected grid while a drag or write is using its current geometry. */
-    holdOverlay: held => setHeldOverlay(held ? overlaid : null),
+    holdOverlay: (held) => setHeldOverlay(held ? overlaid : null),
     /**
      * Collect drop targets from the baseline families so drag hit testing stays
      * anchored.
@@ -158,7 +242,10 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     targets: () => collectDragTargets(container.current, baselineFamilies),
     closePreview: close,
     /** Reload cached batch data after a remote edit or conflict changes the overlay. */
-    reload: () => mutate(key => typeof key === 'string' && key.startsWith('/api/batches')),
+    reload: () =>
+      mutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/batches')
+      ),
   })
   /** Restore the plate's prior deletion state and surface any failed undo. */
   async function undoDelete(plate: PlateCardData) {
@@ -167,7 +254,9 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
       const result = await edits.edit(plate, { deleted: false })
       if (!result.ok) setIssue({ plate, fields: { deleted: false }, result })
     } catch {
-      setResolutionError('Could not undo deletion. Check your connection and try again.')
+      setResolutionError(
+        'Could not undo deletion. Check your connection and try again.'
+      )
     }
   }
   /**
@@ -175,42 +264,75 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
    * choice.
    */
   async function resolveConflict(reapply: boolean) {
-    if (!issue || issue.result.error !== 'stale_plate' || resolving || edits.pending) return
+    if (
+      !issue ||
+      issue.result.error !== 'stale_plate' ||
+      resolving ||
+      edits.pending
+    )
+      return
     setResolving(true)
     setResolutionError('')
     try {
       if (reapply) {
         const { currentRevision, batchId, draft } = issue.result
         if (!currentRevision) throw new Error('Missing conflict revision')
-        const result = await edits.edit(issue.plate, draft, { batchId, baseRevision: currentRevision, ...(issue.standard ? { standard: issue.standard } : {}) })
+        const result = await edits.edit(issue.plate, draft, {
+          batchId,
+          baseRevision: currentRevision,
+          ...(issue.standard ? { standard: issue.standard } : {}),
+        })
         setIssue(result.ok ? null : { ...issue, result })
       } else {
         await mutate(`/api/batches/${issue.result.batchId}`)
         setIssue(null)
       }
     } catch {
-      setResolutionError('Could not resolve this move. Check your connection and try again.')
+      setResolutionError(
+        'Could not resolve this move. Check your connection and try again.'
+      )
     } finally {
       setResolving(false)
     }
   }
   const families = useMemo(() => {
-    if (!drag.optimisticOrder && !drag.optimisticEdit && !drag.optimisticEdits.size) return baselineFamilies
-    const positions = new Map(drag.optimisticOrder?.map((id, index) => [id, index]))
-    return groupFamilies(overlaid.map(plate => ({
-      ...plate,
-      ...drag.optimisticEdits.get(plate.id),
-      ...(drag.optimisticEdit?.plateId === plate.id ? drag.optimisticEdit.fields : {}),
-      sortOrder: positions.get(plate.id) ?? plate.sortOrder,
-    })))
-  }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdit, drag.optimisticEdits])
+    if (
+      !drag.optimisticOrder &&
+      !drag.optimisticEdit &&
+      !drag.optimisticEdits.size
+    )
+      return baselineFamilies
+    const positions = new Map(
+      drag.optimisticOrder?.map((id, index) => [id, index])
+    )
+    return groupFamilies(
+      overlaid.map((plate) => ({
+        ...plate,
+        ...drag.optimisticEdits.get(plate.id),
+        ...(drag.optimisticEdit?.plateId === plate.id
+          ? drag.optimisticEdit.fields
+          : {}),
+        sortOrder: positions.get(plate.id) ?? plate.sortOrder,
+      }))
+    )
+  }, [
+    baselineFamilies,
+    overlaid,
+    drag.optimisticOrder,
+    drag.optimisticEdit,
+    drag.optimisticEdits,
+  ])
   const displayedFamilies = drag.reflow?.families ?? families
   const visible = displayedFamilies
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) => [family.template, ...family.variants].some(matches))
   useEffect(() => {
     plateSelection.register(overlaid)
-    plateSelection.visible(visible.flatMap(family => [family.template, ...family.variants]).filter(matches))
+    plateSelection.visible(
+      visible
+        .flatMap((family) => [family.template, ...family.variants])
+        .filter(matches)
+    )
   })
   useLayoutEffect(() => {
     /**
@@ -269,7 +391,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const rows = Array.from(
     { length: Math.ceil(visible.length / layout.columns) },
     (_, index) =>
-      visible.slice(index * layout.columns, (index + 1) * layout.columns),
+      visible.slice(index * layout.columns, (index + 1) * layout.columns)
   )
   const virtualizer = useWindowVirtualizer({
     count: rows.length,
@@ -278,61 +400,130 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     estimateSize: (index) =>
       Math.max(
         ...rows[index].map((family) =>
-          estimatedFamilyHeight(family.variants.length),
-        ),
+          estimatedFamilyHeight(family.variants.length)
+        )
       ) + 16,
     overscan: 1,
     scrollMargin: layout.margin,
-    scrollPaddingStart: typeof document === 'undefined' ? 0 :
-      Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 0,
+    scrollPaddingStart:
+      typeof document === 'undefined'
+        ? 0
+        : Number.parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue(
+              '--header-h'
+            )
+          ) || 0,
     /** Use the row index as the virtual grid's key for its current layout. */
     getItemKey: (index) => index,
   })
   const virtualRows = virtualizer.getVirtualItems()
-  const focusIndex = focusPlateId ? visible.findIndex(family => family.template.id === focusPlateId || family.variants.some(plate => plate.id === focusPlateId)) : -1
-  const focusKey = focusIndex >= 0 ? `${pathname}:${workspace.mode === 'selected' ? workspace.id : ''}:${focusPlateId}` : null
+  const focusIndex = focusPlateId
+    ? visible.findIndex(
+        (family) =>
+          family.template.id === focusPlateId ||
+          family.variants.some((plate) => plate.id === focusPlateId)
+      )
+    : -1
+  const focusKey =
+    focusIndex >= 0
+      ? `${pathname}:${workspace.mode === 'selected' ? workspace.id : ''}:${focusPlateId}`
+      : null
   const lastFocus = useRef<string | null>(null)
-  const targetRowReady = focusIndex >= 0 && virtualRows.some(row => row.index === Math.floor(focusIndex / layout.columns))
+  const targetRowReady =
+    focusIndex >= 0 &&
+    virtualRows.some(
+      (row) => row.index === Math.floor(focusIndex / layout.columns)
+    )
   useEffect(() => {
-    if (!focusKey) { lastFocus.current = null; return }
+    if (!focusKey) {
+      lastFocus.current = null
+      return
+    }
     if (!layout.ready || lastFocus.current === focusKey) return
     if (!targetRowReady) {
-      virtualizer.scrollToIndex(Math.floor(focusIndex / layout.columns), { align: 'start' })
+      virtualizer.scrollToIndex(Math.floor(focusIndex / layout.columns), {
+        align: 'start',
+      })
       return
     }
     const frame = requestAnimationFrame(() => {
-      const row = Array.from(container.current?.querySelectorAll<HTMLElement>('[data-plate-row]') ?? [])
-        .find(element => element.dataset.plateRow === focusPlateId)
+      const row = Array.from(
+        container.current?.querySelectorAll<HTMLElement>('[data-plate-row]') ??
+          []
+      ).find((element) => element.dataset.plateRow === focusPlateId)
       if (!row) return
       row.scrollIntoView({ block: 'center', inline: 'nearest' })
       row.focus({ preventScroll: true })
       lastFocus.current = focusKey
     })
     return () => cancelAnimationFrame(frame)
-  }, [focusKey, focusPlateId, focusIndex, targetRowReady, layout.ready, layout.columns, virtualizer])
-  const reflowIdentity = visible.map(family => [family.template.id, ...family.variants.map(plate => plate.id)].join(':')).join('|') + virtualRows.map(row => `${row.index}:${row.start}`).join('|')
+  }, [
+    focusKey,
+    focusPlateId,
+    focusIndex,
+    targetRowReady,
+    layout.ready,
+    layout.columns,
+    virtualizer,
+  ])
+  const reflowIdentity =
+    visible
+      .map((family) =>
+        [family.template.id, ...family.variants.map((plate) => plate.id)].join(
+          ':'
+        )
+      )
+      .join('|') +
+    virtualRows.map((row) => `${row.index}:${row.start}`).join('|')
   useLayoutEffect(() => {
-    container.current?.querySelectorAll<HTMLElement>('[data-drag-row]').forEach(element => virtualizer.measureElement(element))
+    container.current
+      ?.querySelectorAll<HTMLElement>('[data-drag-row]')
+      .forEach((element) => virtualizer.measureElement(element))
   }, [displayedFamilies, virtualizer])
   useDragFlip(container, reflowIdentity, !!drag.active)
-  useSelectionKeyboard({ close, promote: drag.promote, disabled: !canEdit || drag.saving || edits.pending || bulkEdits.pending, dragging: !!drag.active })
+  useSelectionKeyboard({
+    close,
+    promote: drag.promote,
+    disabled: !canEdit || drag.saving || edits.pending || bulkEdits.pending,
+    dragging: !!drag.active,
+  })
   const keyboardSource = useRef<string | null>(null)
   useEffect(() => {
-    if (drag.active?.keyboard) keyboardSource.current = drag.active.item.plate.id
+    if (drag.active?.keyboard)
+      keyboardSource.current = drag.active.item.plate.id
     if (drag.active || drag.saving || !keyboardSource.current) return
     const id = keyboardSource.current
     keyboardSource.current = null
-    const index = families.findIndex(family => family.template.id === id || family.variants.some(plate => plate.id === id))
-    if (index >= 0) virtualizer.scrollToIndex(Math.floor(index / layout.columns), { align: 'auto' })
+    const index = families.findIndex(
+      (family) =>
+        family.template.id === id ||
+        family.variants.some((plate) => plate.id === id)
+    )
+    if (index >= 0)
+      virtualizer.scrollToIndex(Math.floor(index / layout.columns), {
+        align: 'auto',
+      })
     const frame = requestAnimationFrame(() => {
-      Array.from(container.current?.querySelectorAll<HTMLElement>('[data-drag-handle-id]') ?? []).find(handle => handle.dataset.dragHandleId === id)?.focus({ preventScroll: true })
+      Array.from(
+        container.current?.querySelectorAll<HTMLElement>(
+          '[data-drag-handle-id]'
+        ) ?? []
+      )
+        .find((handle) => handle.dataset.dragHandleId === id)
+        ?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(frame)
   }, [drag.active, drag.saving, families, virtualizer, layout.columns])
-  const keyboardSlot = drag.active?.keyboard && drag.active.target?.kind === 'family-slot' ? drag.active.target.index : null
+  const keyboardSlot =
+    drag.active?.keyboard && drag.active.target?.kind === 'family-slot'
+      ? drag.active.target.index
+      : null
   useEffect(() => {
     if (keyboardSlot === null) return
-    virtualizer.scrollToIndex(Math.floor(Math.min(keyboardSlot, visible.length - 1) / layout.columns), { align: 'auto' })
+    virtualizer.scrollToIndex(
+      Math.floor(Math.min(keyboardSlot, visible.length - 1) / layout.columns),
+      { align: 'auto' }
+    )
   }, [keyboardSlot, virtualizer, visible.length, layout.columns])
   /**
    * Schedule or immediately open a plate preview while idle and preload the detail
@@ -341,7 +532,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   function open(
     plate: PlateCardData,
     element: HTMLElement,
-    immediate: boolean,
+    immediate: boolean
   ) {
     if (drag.active || drag.saving) return
     if (timer.current) clearTimeout(timer.current)
@@ -352,46 +543,106 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   }
   const parent = preview
     ? families.find((family) =>
-        family.variants.some((plate) => plate.id === preview.plate.id),
+        family.variants.some((plate) => plate.id === preview.plate.id)
       )?.template.displayName
     : undefined
   return (
-    <section aria-label="Plate families" id="families" className="grid grid-cols-[minmax(0,1fr)] gap-[var(--stack-gap)] pb-56 sm:pb-32">
+    <section
+      aria-label="Plate families"
+      id="families"
+      className="grid grid-cols-[minmax(0,1fr)] gap-[var(--stack-gap)] pb-56 sm:pb-32"
+    >
       {catalogVersion !== undefined ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="caption">
             Published catalog v{catalogVersion}
-            {draftBatch && !publishedOnly ? ` · Batch: ${draftBatch.name} (based on catalog v${draftBatch.baselineVersion})` : null}
+            {draftBatch && !publishedOnly
+              ? ` · Batch: ${draftBatch.name} (based on catalog v${draftBatch.baselineVersion})`
+              : null}
           </p>
           {draftBatch || publishedOnly ? (
-            <Button variant="outline" size="sm" disabled={!!drag.active || drag.saving || !!issue} onClick={() => {
-              close()
-              setPublishedOnly(value => !value)
-            }}>{publishedOnly ? 'Show Batch changes' : 'Show published families'}</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!!drag.active || drag.saving || !!issue}
+              onClick={() => {
+                close()
+                setPublishedOnly((value) => !value)
+              }}
+            >
+              {publishedOnly ? 'Show Batch changes' : 'Show published families'}
+            </Button>
           ) : null}
         </div>
       ) : null}
-      {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={(key, ids) => {
-        const selectedIds = new Set(ids)
-        plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
-        onSelectGroup?.(key, ids)
-      }} /> : null}
-      {code && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && overlaid.some(plate => !plate.deleted) ? (
-        <Button variant="outline" size="sm" className="justify-self-start" onClick={() => plateSelection.selectState(code)}>Select all plates in this state</Button>
+      {code ? (
+        <FilterBar
+          counts={counts}
+          code={code}
+          resolveGroup={(key) =>
+            plateIdsForCheck(overlaid, key, query, attachedIds)
+          }
+          onSelectGroup={(key, ids) => {
+            const selectedIds = new Set(ids)
+            plateSelection.add(
+              overlaid.filter((plate) => selectedIds.has(plate.id))
+            )
+            onSelectGroup?.(key, ids)
+          }}
+        />
       ) : null}
-      {standardRepairs.map(first => <Button key={first.state} variant="outline" disabled={!canEdit || edits.pending || standardConfirmation.pending} onClick={async () => {
-        const standard = await standardConfirmation.confirm(overlaid.filter(plate => plate.state === first.state), first.id)
-        if (standard === false) return
-        const fields = { isStandard: true }
-        try {
-          const result = await edits.edit(first, fields, undefined, standard)
-          if (!result.ok) setIssue({ plate: first, fields, result, standard })
-        } catch { setResolutionError('Could not save the Standard. Try again.') }
-      }}>Make {first.displayName} the Standard</Button>)}
+      {code &&
+      process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' &&
+      overlaid.some((plate) => !plate.deleted) ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="justify-self-start"
+          onClick={() => plateSelection.selectState(code)}
+        >
+          Select all plates in this state
+        </Button>
+      ) : null}
+      {standardRepairs.map((first) => (
+        <Button
+          key={first.state}
+          variant="outline"
+          disabled={!canEdit || edits.pending || standardConfirmation.pending}
+          onClick={async () => {
+            const standard = await standardConfirmation.confirm(
+              overlaid.filter((plate) => plate.state === first.state),
+              first.id
+            )
+            if (standard === false) return
+            const fields = { isStandard: true }
+            try {
+              const result = await edits.edit(
+                first,
+                fields,
+                undefined,
+                standard
+              )
+              if (!result.ok)
+                setIssue({ plate: first, fields, result, standard })
+            } catch {
+              setResolutionError('Could not save the Standard. Try again.')
+            }
+          }}
+        >
+          Make {first.displayName} the Standard
+        </Button>
+      ))}
       {standardConfirmation.dialog}
       <SelectionPresence />
       <SelectionBar />
-      {issue ? <Conflict issue={issue} pending={resolving || edits.pending} onTheirs={() => void resolveConflict(false)} onMine={() => void resolveConflict(true)} /> : null}
+      {issue ? (
+        <Conflict
+          issue={issue}
+          pending={resolving || edits.pending}
+          onTheirs={() => void resolveConflict(false)}
+          onMine={() => void resolveConflict(true)}
+        />
+      ) : null}
       {resolutionError ? <p role="alert">{resolutionError}</p> : null}
       {!visible.length ? (
         <div className="py-12 text-center">
@@ -424,31 +675,56 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
                     drag={drag}
                     canEdit={canEdit}
                     focusPlateId={focusPlateId ?? undefined}
-                    onUndoDelete={plate => void undoDelete(plate)}
-                    undoPending={edits.pending || resolving || !!issue || drag.saving || !!drag.active}
+                    onUndoDelete={(plate) => void undoDelete(plate)}
+                    undoPending={
+                      edits.pending ||
+                      resolving ||
+                      !!issue ||
+                      drag.saving ||
+                      !!drag.active
+                    }
                     last={family.number === families.length}
                     matches={matches}
                     prefetchedIds={prefetchedIds}
                     onPreview={open}
                     onPreload={preload}
                     onDismissPreview={close}
-                    onLeaveCheck={preview?.checkKey === 'image' ? leavePreview : close}
+                    onLeaveCheck={
+                      preview?.checkKey === 'image' ? leavePreview : close
+                    }
                     onMarker={(plate, element) => {
                       if (drag.active || drag.saving) return
                       opened.current = false
                       anchor.current = element
-                      setPreview({ plate, anchor: element, immediate: false, markerName: userAvatarName(user) })
+                      setPreview({
+                        plate,
+                        anchor: element,
+                        immediate: false,
+                        markerName: userAvatarName(user),
+                      })
                     }}
                     onCheck={(plate, checkKey, element) => {
                       if (drag.active || drag.saving) return
                       opened.current = false
                       anchor.current = element
-                      setPreview({ plate, anchor: element, immediate: false, checkKey })
+                      setPreview({
+                        plate,
+                        anchor: element,
+                        immediate: false,
+                        checkKey,
+                      })
                     }}
                     onClosePreview={leavePreview}
                     badge={(plate) =>
                       changedIds.has(plate.id) && user ? (
-                        <UserAvatar user={user} size="sm" activity="changed" aria-label={userAvatarName(user) + ', edited in your batch'} />
+                        <UserAvatar
+                          user={user}
+                          size="sm"
+                          activity="changed"
+                          aria-label={
+                            userAvatarName(user) + ', edited in your batch'
+                          }
+                        />
                       ) : null
                     }
                   />
@@ -466,7 +742,9 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
         {preview && !drag.active && !drag.saving ? (
           <ReadyPlatePreview
             {...preview}
-            onReady={() => { opened.current = true }}
+            onReady={() => {
+              opened.current = true
+            }}
             parent={parent}
             onMouseEnter={() => {
               if (timer.current) clearTimeout(timer.current)
@@ -476,9 +754,27 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
         ) : null}
       </Suspense>
       {drag.standardDialog}
-      <p className="sr-only" aria-live="assertive" aria-atomic="true">{drag.announcement}</p>
-      {drag.announcement && !drag.active ? <p className="caption py-2" role="status">{drag.announcement}</p> : null}
-      {drag.active ? <DragPreview {...drag.active} selectionCount={drag.selectionCount} variantCount={drag.active.item.kind === 'family' ? families.find(family => family.template.id === drag.active?.item.plate.id)?.variants.length : undefined} /> : null}
+      <p className="sr-only" aria-live="assertive" aria-atomic="true">
+        {drag.announcement}
+      </p>
+      {drag.announcement && !drag.active ? (
+        <p className="caption py-2" role="status">
+          {drag.announcement}
+        </p>
+      ) : null}
+      {drag.active ? (
+        <DragPreview
+          {...drag.active}
+          selectionCount={drag.selectionCount}
+          variantCount={
+            drag.active.item.kind === 'family'
+              ? families.find(
+                  (family) => family.template.id === drag.active?.item.plate.id
+                )?.variants.length
+              : undefined
+          }
+        />
+      ) : null}
     </section>
   )
 }

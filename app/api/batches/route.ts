@@ -4,9 +4,20 @@ import { createBatch, listBatches } from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
 import { catalogChanged } from '../../../lib/server/catalog-head'
 import { catalog, currentActor, reviewDeps } from '../../../lib/server/context'
-import { badRequest, json, readJson, respond } from '../../../lib/server/respond'
+import {
+  badRequest,
+  json,
+  readJson,
+  respond,
+} from '../../../lib/server/respond'
 
-const states: BatchState[] = ['open', 'submitted', 'approved', 'published', 'conflict']
+const states: BatchState[] = [
+  'open',
+  'submitted',
+  'approved',
+  'published',
+  'conflict',
+]
 
 /**
  * List batches visible to the signed-in actor using the requested state and creator
@@ -19,9 +30,15 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams
   const requested = params.get('state')?.split(',') ?? undefined
-  if (requested?.some((state) => !states.includes(state as BatchState))) return badRequest()
+  if (requested?.some((state) => !states.includes(state as BatchState)))
+    return badRequest()
 
-  return json(await listBatches(reviewDeps(), { states: requested as BatchState[] | undefined, createdBy: params.get('mine') === '1' ? auth.actor.uid : undefined }))
+  return json(
+    await listBatches(reviewDeps(), {
+      states: requested as BatchState[] | undefined,
+      createdBy: params.get('mine') === '1' ? auth.actor.uid : undefined,
+    })
+  )
 }
 
 /** Validate requested plate IDs against the catalog before creating a new batch. */
@@ -34,7 +51,8 @@ export async function POST(request: Request) {
 
   const snapshot = await catalog().readSnapshot()
   const known = new Set(snapshot.plates.map((plate) => plate.id))
-  if (!input.plateIds.every((id) => known.has(id))) return json({ error: 'not_found' }, 404)
+  if (!input.plateIds.every((id) => known.has(id)))
+    return json({ error: 'not_found' }, 404)
 
   const outcome = await createBatch(reviewDeps(), auth.actor, {
     id: crypto.randomUUID(),

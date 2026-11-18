@@ -7,15 +7,29 @@ import { badRequest, json, readJson, respond } from '@/lib/server/respond'
  * Accept a stored group suggestion into the batch and invalidate cached catalog data
  * after success.
  */
-export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id]/group/accept'>) {
-  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return json({ error: 'not_found' }, 404)
+export async function POST(
+  request: Request,
+  ctx: RouteContext<'/api/batches/[id]/group/accept'>
+) {
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1')
+    return json({ error: 'not_found' }, 404)
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
-  if (body?.previewOnly !== undefined && body.previewOnly !== false) return badRequest()
-  if (!body || typeof body.jobId !== 'string' || !Number.isSafeInteger(body.batchRevision)) return badRequest()
+  if (body?.previewOnly !== undefined && body.previewOnly !== false)
+    return badRequest()
+  if (
+    !body ||
+    typeof body.jobId !== 'string' ||
+    !Number.isSafeInteger(body.batchRevision)
+  )
+    return badRequest()
   const { id } = await ctx.params
-  const saved = await acceptGroup(reviewDeps(), jobsDeps(), auth.actor, { batchId: id, jobId: body.jobId, batchRevision: Number(body.batchRevision) })
+  const saved = await acceptGroup(reviewDeps(), jobsDeps(), auth.actor, {
+    batchId: id,
+    jobId: body.jobId,
+    batchRevision: Number(body.batchRevision),
+  })
   if (saved.ok) catalogChanged()
   return respond(saved)
 }

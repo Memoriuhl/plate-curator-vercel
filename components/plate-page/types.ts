@@ -47,7 +47,7 @@ export function cardData(
     description?: string | null
     sourceUrl?: string | null
     wikiUrl?: string | null
-  },
+  }
 ): PlateCardData {
   const checks = plateChecks(
     {
@@ -58,7 +58,7 @@ export function cardData(
       templateRole: plate.templateRole ?? undefined,
       variantOfPlateId: plate.variantOfPlateId ?? undefined,
     },
-    plate.imageUrl,
+    plate.imageUrl
   )
   return {
     ...plate,

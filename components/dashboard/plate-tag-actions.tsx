@@ -1,6 +1,9 @@
 'use client'
 
-import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
+import {
+  TaggingModelPicker,
+  useTaggingModelChoice,
+} from './tagging-model-picker'
 import { Button } from '@/components/ui/button'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
@@ -15,7 +18,9 @@ export function PlateTagActions({ plate }: { plate: RunPlate }) {
       <Button
         size="sm"
         variant="outline"
-        disabled={!!run.disabledReason || run.starting || run.entries.length > 0}
+        disabled={
+          !!run.disabledReason || run.starting || run.entries.length > 0
+        }
         title={run.disabledReason}
         onClick={() => void run.start([plate], false, choice.modelId)}
       >

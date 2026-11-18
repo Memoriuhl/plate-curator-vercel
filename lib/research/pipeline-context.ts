@@ -11,5 +11,12 @@ import { researchDatabase, researchEnvironment } from './storage'
 export async function pipelineResearchStore() {
   const scope = localPipelineScope()
   if (!scope) throw Error('Pipeline research needs a dedicated local scope')
-  return { scope, store: firestoreJobsStore(await researchDatabase(), localJobsEnvironment(scope), researchEnvironment()) }
+  return {
+    scope,
+    store: firestoreJobsStore(
+      await researchDatabase(),
+      localJobsEnvironment(scope),
+      researchEnvironment()
+    ),
+  }
 }

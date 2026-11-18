@@ -3,7 +3,17 @@ export function batchHref(path: string, batch: string | null) {
 }
 
 /** Build a review URL that preserves the selected batch and plate when supplied. */
-export function reviewHref(state?: string, plate?: string, batch?: string, filters?: { run?: string | null; since?: string | null; scope?: string | null; focusBatch?: string | null }) {
+export function reviewHref(
+  state?: string,
+  plate?: string,
+  batch?: string,
+  filters?: {
+    run?: string | null
+    since?: string | null
+    scope?: string | null
+    focusBatch?: string | null
+  }
+) {
   const query = new URLSearchParams()
   if (state) query.set('state', state)
   if (plate) query.set('plate', plate)
@@ -15,7 +25,11 @@ export function reviewHref(state?: string, plate?: string, batch?: string, filte
   return query.size ? `/review?${query}` : '/review'
 }
 
-export function dashboardPlateHref(state: string, plateId: string, batch?: string) {
+export function dashboardPlateHref(
+  state: string,
+  plateId: string,
+  batch?: string
+) {
   const query = new URLSearchParams({ plate: plateId })
   if (batch) query.set('batch', batch)
   return `/states/${encodeURIComponent(state)}?${query}#families`

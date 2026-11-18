@@ -23,16 +23,32 @@ export function json(body: unknown, status = 200): Response {
 /** Map review outcomes to HTTP responses and include requested plate revision data. */
 export function respond<T>(outcome: Outcome<T>): Response {
   if (outcome.ok) return json(outcome.value)
-  return json({ error: outcome.error, ...(outcome.reasons ? { reasons: outcome.reasons } : {}), ...(outcome.current ? { current: outcome.current, currentRevision: plateRevision(outcome.current) } : {}) }, statusFor[outcome.error])
+  return json(
+    {
+      error: outcome.error,
+      ...(outcome.reasons ? { reasons: outcome.reasons } : {}),
+      ...(outcome.current
+        ? {
+            current: outcome.current,
+            currentRevision: plateRevision(outcome.current),
+          }
+        : {}),
+    },
+    statusFor[outcome.error]
+  )
 }
 
 /**
  * Read a JSON object from a request and treat malformed or non-object bodies as invalid.
  */
-export async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+export async function readJson(
+  request: Request
+): Promise<Record<string, unknown> | null> {
   try {
     const body: unknown = await request.json()
-    return body !== null && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null
+    return body !== null && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null
   } catch {
     return null
   }
