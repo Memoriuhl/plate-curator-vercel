@@ -10,6 +10,7 @@ import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
+import { enhancementOperations } from '@/lib/jobs/image-enhancement'
 import { useSelectedPlates } from './plate-selection'
 import { newRunStages, stageAvailability } from './pipeline-stages'
 import { PipelineOptionSelect } from './pipeline-option-select'
@@ -57,6 +58,8 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   if (resolvedOptions.group) for (const feature of groupFeatures) {
     if (!queue.capabilities?.[feature].available) resolvedOptions.group[feature] = false
   }
+  const enhancement = resolvedOptions['enhance-image']
+  const invalidEnhancement = !!enhancement && !enhancementOperations.some(key => enhancement[key])
   const runPlates = selected.map(({ id, tags, imageUrl, checks, wikiUrl, funFacts, firstIssuedYear, readMore }) => ({
     id, tags, imageUrl, description: checks?.description?.value, wikiUrl, funFacts, firstIssuedYear, readMore,
   }))
@@ -68,7 +71,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const researchModel = needsResearchModel ? researchChoice.model : undefined
   const useSavedSources = shouldReuseSavedSources(options.research)
   const blocked = !!queue.disabledReason || overLimit || !steps.length || needsModel && !modelId ||
-    needsTagModel && !tagModel || needsResearchModel && !researchModel || !!queue.action || unavailable || groupOutsideBatch || invalidGroupSize
+    needsTagModel && !tagModel || needsResearchModel && !researchModel || !!queue.action || unavailable || invalidEnhancement || groupOutsideBatch || invalidGroupSize
 
   async function enqueue() {
     if (blocked) return
@@ -170,6 +173,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
           })}
         </div>
         <footer className="sticky bottom-0 grid gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
+          {invalidEnhancement ? <p role="alert" className="caption">Choose at least one enhancement.</p> : null}
           {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
           {invalidGroupSize ? <p role="alert" className="caption">Group needs up to {groupSelectionLimit} plates from one state.</p>
             : groupOutsideBatch ? <p role="alert" className="caption">Every Group member must already be in this Batch.</p> : null}

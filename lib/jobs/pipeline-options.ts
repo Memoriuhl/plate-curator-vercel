@@ -1,7 +1,9 @@
+import { defaultImageEnhancement, type ImageEnhancementOptions } from './image-enhancement'
 import { shouldReuseSavedSources, type EnrichmentOptions } from '../research/enrichment'
 
 export type PipelineOptions = {
   research?: EnrichmentOptions & Required<Pick<EnrichmentOptions, 'policy'>>
+  'enhance-image'?: ImageEnhancementOptions
   'find-image'?: { onlyMissingImage: boolean }
   story?: { redoExisting: boolean }
   tag?: { onlyUnderTagged: boolean }
@@ -11,6 +13,7 @@ export type PipelineOptions = {
 export const defaultPipelineOptions: Required<PipelineOptions> = {
   research: { policy: 'fill-missing' },
   'find-image': { onlyMissingImage: false },
+  'enhance-image': defaultImageEnhancement,
   story: { redoExisting: false },
   tag: { onlyUnderTagged: false },
   group: { method: 'embeddings', colorSignal: true, backgroundMask: false, visionTiebreak: false },

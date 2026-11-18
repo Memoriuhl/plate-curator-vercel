@@ -1,12 +1,13 @@
 import { minimumPlateTagCount } from '../catalog/plate-checks'
+import { defaultImageEnhancement, enhancementOperations } from './image-enhancement'
 import type { Plate } from '../catalog/types'
 import type { PipelineOptions } from './pipeline-options'
 import type { LocalRunStage, ResourceClass } from './queue-types'
 import { enrichmentTargets } from '../research/enrichment'
 
-export const canonicalStages: readonly LocalRunStage[] = ['find-image', 'research', 'wiki-link', 'colors', 'describe', 'story', 'tag', 'group']
+export const canonicalStages: readonly LocalRunStage[] = ['find-image', 'enhance-image', 'research', 'wiki-link', 'colors', 'describe', 'story', 'tag', 'group']
 export const stageDependencies: Record<LocalRunStage, readonly LocalRunStage[]> = {
-  'find-image': [], research: [], 'wiki-link': ['research'], colors: ['find-image'], describe: ['research', 'wiki-link'], story: ['research', 'wiki-link', 'describe'], tag: ['find-image', 'colors'], group: ['colors', 'tag'],
+  'find-image': [], 'enhance-image': ['find-image'], research: [], 'wiki-link': ['research'], colors: ['find-image'], describe: ['research', 'wiki-link'], story: ['research', 'wiki-link', 'describe'], tag: ['find-image', 'colors'], group: ['colors', 'tag'],
 }
 export type RunStep = {
   index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass
@@ -38,6 +39,7 @@ export function planPipeline(plates: PlanningPlate[], stages: LocalRunStage[], o
   const steps: Omit<RunStep, 'index'>[] = []
   for (const plate of plates) for (const stage of selected) {
     if (stage === 'group' || stage === 'research' && !enrichmentTargets(plate, options.research?.policy ?? 'fill-missing').length || stage === 'find-image' && options['find-image']?.onlyMissingImage && (plate.image || plate.imageUrl) ||
+      stage === 'enhance-image' && !enhancementOperations.some(key => (options['enhance-image'] ?? defaultImageEnhancement)[key]) ||
       stage === 'tag' && options.tag?.onlyUnderTagged && plate.tags.length >= minimumPlateTagCount ||
       stage === 'story' && options.story?.redoExisting === false && (plate.hasStory ?? !!plate.funFacts?.length)) continue
     steps.push({ plateId: plate.id, stage, resourceClass: ['tag', 'describe', 'story', 'colors'].includes(stage) ? 'gpu' : 'io' })

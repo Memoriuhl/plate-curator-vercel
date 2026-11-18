@@ -2,11 +2,12 @@ import type { IconType } from 'react-icons'
 import {
   IoAddCircleOutline, IoBookOutline, IoCheckmarkCircleOutline, IoColorPaletteOutline, IoDocumentTextOutline,
   IoGitMergeOutline, IoGridOutline, IoImagesOutline, IoLinkOutline, IoListOutline, IoPencilOutline,
-  IoPricetagsOutline, IoScanOutline, IoSearchOutline,
+  IoPricetagsOutline, IoScanOutline, IoSearchOutline, IoSparklesOutline, IoOptionsOutline, IoDownloadOutline,
 } from 'react-icons/io5'
 import type { InlineSelectChoice } from '@/components/ui/inline-select'
 import { minimumPlateTagCount } from '@/lib/catalog/plate-checks'
 import type { PipelineStage } from '@/lib/jobs/types'
+import { defaultImageEnhancement } from '@/lib/jobs/image-enhancement'
 import type { PipelineOptions } from '@/lib/jobs/pipeline-options'
 import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 export { stageDependencies } from '@/lib/jobs/pipeline-plan'
@@ -46,6 +47,14 @@ export const pipelineStages: readonly StageDefinition[] = [
   { id: 'find-image', icon: IoImagesOutline, label: 'Find image', description: 'Search for a clean plate photo', duration: '0:20', jobKind: 'find-image', localEnabled: true,
     flow: [{ label: 'Search Commons', icon: IoSearchOutline }, { label: 'Check images', icon: IoCheckmarkCircleOutline }, { label: 'Offer candidates', icon: IoImagesOutline }],
     options: [{ id: 'onlyMissingImage', label: 'Only plates missing an image', kind: 'boolean', default: false }] },
+  { id: 'enhance-image', icon: IoSparklesOutline, label: 'Enhance image', description: 'Create a downloadable WebP from the current plate image',
+    duration: '0:05', jobKind: 'enhance-image', localEnabled: true,
+    flow: [{ label: 'Apply edits', icon: IoOptionsOutline }, { label: 'Export WebP', icon: IoDownloadOutline }],
+    options: [
+      { id: 'upscale', label: 'Upscale', kind: 'boolean', default: defaultImageEnhancement.upscale },
+      { id: 'crop', label: 'Crop margins', kind: 'boolean', default: defaultImageEnhancement.crop },
+      { id: 'roundCorners', label: 'Round corners', kind: 'boolean', default: defaultImageEnhancement.roundCorners },
+    ] },
   { id: 'wiki-link', icon: IoLinkOutline, label: 'Wiki link', description: 'Match a Wikipedia or DMV page', duration: '0:15', jobKind: 'wiki-link', localEnabled: true, legacyResearch: true, options: [] },
   { id: 'colors', icon: IoColorPaletteOutline, label: 'Colors', description: 'Background and text colours', duration: '0:05', jobKind: 'colors', localEnabled: true, options: [] },
   { id: 'describe', icon: IoDocumentTextOutline, label: 'Describe', description: 'Write the description from the source', duration: '1:30', jobKind: 'describe', localEnabled: true, legacyResearch: true, options: [] },
@@ -75,11 +84,13 @@ export const newRunStages = pipelineStages.filter(
 export type PipelineCapabilities = Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
 
 export function stageAvailability(stage: StageDefinition, local: boolean, capabilities?: PipelineCapabilities) {
-  if (local && (stage.id === 'group' || stage.id === 'find-image')) {
+  if (local && (stage.id === 'group' || stage.id === 'find-image' || stage.id === 'enhance-image')) {
     if (!capabilities) return 'Local worker not reporting'
     if (stage.id === 'group') {
       if (!capabilities.group.available) return capabilities.group.reason ?? 'Grouping is unavailable'
       if (!capabilities.embeddings.available) return capabilities.embeddings.reason ?? 'No grouping methods are available'
+    } else if (stage.id === 'enhance-image') {
+      if (!capabilities[stage.id].available) return capabilities[stage.id].reason ?? 'Image enhancement is unavailable'
     } else if (!capabilities['find-image'].available) {
       return 'reason' in capabilities['find-image'] ? capabilities['find-image'].reason : 'Image search is unavailable'
     }

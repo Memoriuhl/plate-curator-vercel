@@ -116,7 +116,7 @@ test.each(['desktop', 'eve'] as const)('%s skips a plate without saved evidence 
     if (executor === 'eve') await executeHostedQueueStage(s.jobs, id, async () => { throw Error('unexpected Tag') }, s.hosted)
     else {
       expect(await claimNext(s.jobs, 'old-worker')).toBeNull()
-      const claim = (await claimNext(s.jobs, 'new-worker', true))!
+      const claim = (await claimNext(s.jobs, 'new-worker', { supportsSavedSources: true }))!
       const result = await s.handler({ plate: claim.job.inputPlate!, model, ...claim.job.stageOptions })
       expect(await reportResult(s.jobs, 'new-worker', id, claim.claimId, { ...result, durationMs: 1 })).toMatchObject({ ok: true })
     }

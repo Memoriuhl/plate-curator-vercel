@@ -3,7 +3,9 @@ import { queueLimits } from './queue'
 import type { PipelineRun, ResourceClass } from './queue-types'
 import type { JobsDeps, TaggingJob } from './types'
 
-export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local', supportsSavedSources = false) {
+export type LocalClaimFeatures = { supportsSavedSources?: boolean; enhanceImage?: boolean }
+
+export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local', features: LocalClaimFeatures = {}) {
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter(job => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
@@ -11,9 +13,10 @@ export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: Pipel
   const lastByUser = new Map<string, number>()
   for (const run of runs) if (run.localScope === d.localScope) lastByUser.set(run.requestedBy, Math.max(lastByUser.get(run.requestedBy) ?? 0, run.lastDispatchedAt ?? 0))
   return scoped.filter(job => {
+    if (job.stage === 'enhance-image' && !features.enhanceImage) return false
     if ((job.route === 'hosted') !== (route === 'hosted') || occupied[job.resourceClass ?? 'gpu'] >= queueLimits[job.resourceClass ?? 'gpu']) return false
     if (route === 'hosted' && !job.queueRunId) return false
-    if (route === 'local' && !supportsSavedSources && job.stage === 'research' && shouldReuseSavedSources(job.stageOptions)) return false
+    if (route === 'local' && !features.supportsSavedSources && job.stage === 'research' && shouldReuseSavedSources(job.stageOptions)) return false
     if (!job.queueRunId) return job.state === 'queued'
     const run = runs.find(run => run.id === job.queueRunId && run.localScope === d.localScope)
     const attempt = run?.attempts.at(-1)

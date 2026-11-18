@@ -5,6 +5,7 @@ import type { PipelineRun } from './queue-types'
 
 export function createMemoryJobsStore(review: ReviewStore, environment: Environment) {
   const jobs = new Map<string, TaggingJob>()
+  const enhancedImages = new Map<string, Buffer>()
   const tokens = new Map<string, WorkerToken>()
   const capabilities = new Map<string, WorkerCapabilityRecord>()
   const runs = new Map<string, PipelineRun>()
@@ -12,6 +13,10 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
   function forEnvironment(env: Environment, scopedReview = env === environment ? review : undefined): JobsStore {
     return {
       env,
+      async readEnhancedImage(id) {
+        const bytes = enhancedImages.get(`${env}:${id}`)
+        return bytes ? Buffer.from(bytes) : null
+      },
       async readCapabilities(scope) { return structuredClone(capabilities.get(`${env}:${scope}`) ?? null) },
       async writeCapabilities(scope, record) {
         const key = `${env}:${scope}`
@@ -20,6 +25,7 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
       transaction(run) {
         const next = pending.then(async () => {
           const writes = new Map<string, TaggingJob>()
+          const imageWrites = new Map<string, Buffer>()
           const runWrites = new Map<string, PipelineRun>()
           const value = await run({
             async createDraftBatch(batch) {
@@ -49,7 +55,9 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
               writes.set(job.id, structuredClone(job))
             },
             set(job) { writes.set(job.id, structuredClone(job)) },
+            setEnhancedImage(id, bytes) { imageWrites.set(id, Buffer.from(bytes)) },
           })
+          for (const [id, bytes] of imageWrites) enhancedImages.set(`${env}:${id}`, bytes)
           for (const [id, job] of writes) jobs.set(id, job)
           for (const [id, run] of runWrites) runs.set(id, run)
           return value

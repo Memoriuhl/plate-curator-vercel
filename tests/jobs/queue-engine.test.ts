@@ -1,3 +1,5 @@
+import sharp from 'sharp'
+import { createEnhanceImageRunner } from '../../worker/enhance-image'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
@@ -369,4 +371,31 @@ test('existing hosted Tag jobs retain their by-id lifecycle and never reserve lo
   expect(await claimNext(s.deps, 'local-worker')).not.toBeNull()
   expect(await listLocalOrphanJobs(s.deps, actor)).toEqual([])
   expect(await expireJob(s.deps, 'hosted')).toMatchObject({ value: { state: 'expired' } })
+})
+
+
+test('enhancement skips old workers, verifies the WebP and stores it with the completed queue job', async () => {
+  const s = setup()
+  s.plates[0].image = 'AK/one.webp'
+  const run = await s.run('enhancement', ['enhance-image'])
+  expect(run.modelId).toBeUndefined()
+  expect(await claimNext(s.deps, 'previous-version-worker')).toBeNull()
+  const claim = (await claimNext(s.deps, 'enhancement-worker', { enhanceImage: true }))!
+  const input = await sharp({ create: { width: 200, height: 100, channels: 3, background: 'white' } }).png().toBuffer()
+  const readImage = vi.fn(async () => input.toString('base64'))
+  const result = await createEnhanceImageRunner(readImage)({ stage: 'enhance-image', plate: claim.job.inputPlate!, options: claim.job.stageOptions })
+  expect(readImage).toHaveBeenCalledWith('AK/one.webp')
+  expect(result.fieldSuggestion).toMatchObject({ kind: 'enhanced-image', width: 400, height: 200 })
+  const report = { ...base, ...result }
+  const reportJob = (body: ReportInput) => reportResult(s.deps, 'enhancement-worker', claim.job.id, claim.claimId, body)
+  expect(await reportJob({ ...report, enhancedImage: 'eA==' })).toEqual({ ok: false, error: 'invalid_result' })
+  expect(await s.deps.store.readEnhancedImage(claim.job.id)).toBeNull()
+  expect(await reportJob(report)).toMatchObject({ ok: true, value: { state: 'completed' } })
+  expect(await reportJob(report)).toMatchObject({ ok: true })
+  expect((await s.deps.store.readEnhancedImage(claim.job.id))?.toString('base64')).toBe(result.enhancedImage)
+  expect(await observeQueueStage(s.deps, run.id, 1, 0)).toEqual({ phase: 'done' })
+  const [saved] = await listRuns(s.deps, actor).then(outcome => outcome.ok ? outcome.value : [])
+  expect(saved).toMatchObject({ status: 'completed', attempts: [{ cursor: 1 }] })
+  expect(saved.jobs[0].result).not.toHaveProperty('enhancedImage')
+  expect(await s.review.listEdits('batch')).toEqual([])
 })

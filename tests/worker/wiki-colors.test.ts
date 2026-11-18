@@ -15,7 +15,7 @@ test('Wiki link selects a relevant Wikipedia search hit without any model reques
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ query: { search: [{ title: 'Wildlife (film)' }, { title: 'Rocky Mountain Elk Foundation' }] } }))
   const result = await findWikipediaLink({ displayName: 'Rocky Mountain Elk Foundation', state: 'MD', image: '', tags: [] }, fetch)
   expect(suggestedFields(result)).toEqual({ wikiUrl: 'https://en.wikipedia.org/wiki/Rocky_Mountain_Elk_Foundation' })
-  expect(result.fieldSuggestion?.sources).toEqual(['https://en.wikipedia.org/wiki/Rocky_Mountain_Elk_Foundation'])
+  expect(result.fieldSuggestion?.kind === 'fields' && result.fieldSuggestion.sources).toEqual(['https://en.wikipedia.org/wiki/Rocky_Mountain_Elk_Foundation'])
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(String(fetch.mock.calls[0][0])).toMatch(/^https:\/\/en.wikipedia.org\/w\/api.php/)
 })

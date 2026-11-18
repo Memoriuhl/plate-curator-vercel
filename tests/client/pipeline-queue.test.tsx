@@ -145,18 +145,20 @@ test('the stage cards show icons and diagrams before the editable options', () =
   const enqueue = vi.fn()
   render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  for (const stage of ['Research / enrich', 'Find image', 'Tag', 'Group']) {
+  for (const stage of ['Research / enrich', 'Find image', 'Enhance image', 'Tag', 'Group']) {
     expect(screen.getByText(stage).querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
   }
   const flows = screen.getAllByRole('list')
   expect(flows.map(flow => Array.from(flow.querySelectorAll('[role="listitem"]'), node => node.textContent))).toEqual([
     ['Find sources', 'Draft description & story'],
     ['Search Commons', 'Check images', 'Offer candidates'],
+    ['Apply edits', 'Export WebP'],
     ['Embed images', 'Compare', 'Propose families'],
   ])
   expect(flows.map(flow => flow.style.gridTemplateColumns)).toEqual([
     'repeat(2, max-content)',
     'repeat(3, max-content)',
+    'repeat(2, max-content)',
     'repeat(3, max-content)',
   ])
   const researchFlow = screen.getByRole('list', { name: 'Research / enrich steps' })
@@ -519,4 +521,37 @@ test('the form enforces 200 selected plates and keeps the Group limit', async ()
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
   fireEvent.click(start)
   await waitFor(() => expect(enqueue.mock.calls[0]?.[0]).toEqual(allowed))
+})
+
+
+test('Enhance image toggles independently and queues without a model', async () => {
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  const capabilities = { ...imageGroupCapabilities(), 'enhance-image': { available: true }, reportedAt: 100, pollIntervalMs: 1000 }
+  render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Enhance image' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Enhance image' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Upscale' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Crop margins' }))
+  expect((screen.getByRole('button', { name: 'Start Run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('Choose at least one enhancement.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Round corners' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledExactlyOnceWith(
+    [plate], ['enhance-image'], undefined, { 'enhance-image': { upscale: false, crop: false, roundCorners: true } }, false, undefined, undefined, 'Alaska pipeline',
+  ))
+})
+
+test('enhancement-only results offer a preview and download from the completed job', async () => {
+  const run = saved({ status: 'completed', stages: ['enhance-image'], previewOnly: false, incrementalDrafts: true })
+  run.jobs = [{ id: 'enhanced-one', batchId: 'batch', plateId: plate.id, requestedBy: 'editor', env: run.env, inputHash: 'hash', state: 'completed', createdAt: 100,
+    result: { suggestions: [], fieldSuggestion: { kind: 'enhanced-image', stage: 'enhance-image', width: 640, height: 320, originalWidth: 320, originalHeight: 160, sha256: 'a'.repeat(64) },
+      backend: 'local', model: 'sharp', promptVersion: 'enhance-image-v1', durationMs: 4 } }]
+  mocks.api.get.mockResolvedValue({ image: 'AQIDBA==' })
+  render(<PipelineQueuePanel queue={{ runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(), action: null,
+    message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Preview enhanced image' }))
+  const link = await screen.findByRole('link', { name: 'Download WebP' })
+  expect(link.getAttribute('href')).toBe('data:image/webp;base64,AQIDBA==')
+  expect(mocks.api.get).toHaveBeenCalledExactlyOnceWith('/api/local-pipeline/jobs/enhanced-one/enhanced-image')
 })

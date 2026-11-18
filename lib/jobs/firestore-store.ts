@@ -10,11 +10,17 @@ import { liveEnvKey, signalPath } from '../review/live-signal'
 
 export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
+  const enhancedImages = db.collection('localPipelineEnhancedImages')
   const tokens = db.collection('workerTokens')
   const capabilities = db.collection('localPipelineCapabilities')
   const runs = db.collection('localPipelineRuns')
   return {
     env,
+    async readEnhancedImage(id) {
+      const doc = await enhancedImages.doc(id).get()
+      const bytes: unknown = doc.get('bytes')
+      return doc.get('env') === env && Buffer.isBuffer(bytes) ? bytes : null
+    },
     async readCapabilities(scope) {
       const doc = await capabilities.doc(`${encodeURIComponent(env)}--${scope}`).get()
       return doc.exists ? doc.data() as import('./capabilities').WorkerCapabilityRecord : null
@@ -83,6 +89,7 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
         commitDraft: firestoreReviewStore(db, reviewEnv, transaction).commit,
         create(job) { transaction.create(jobs.doc(job.id), job) },
         set(job) { transaction.set(jobs.doc(job.id), job) },
+        setEnhancedImage(id, bytes) { transaction.create(enhancedImages.doc(id), { bytes, env }) },
       }))
     },
     async getToken(hash) {

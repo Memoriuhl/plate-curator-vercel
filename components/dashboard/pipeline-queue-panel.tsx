@@ -17,6 +17,7 @@ import { PipelineRunRail } from './pipeline-run-rail'
 import { PipelineRunPlates } from './pipeline-run-plates'
 import { queueProgress } from '@/lib/jobs/run-progress'
 import styles from './pipeline-runs.module.css'
+import { EnhancedImageResult } from './enhanced-image-result'
 import { SpecializedSuggestion } from './specialized-suggestion'
 
 type QueueControls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'selected' | 'select' | 'loading' | 'error' | 'refresh' | 'action' | 'message' | 'cancel' | 'retry' | 'apply' | 'chooseImage' | 'recover'> &
@@ -42,6 +43,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
   const selected = queue.selected
   const attempt = selected?.attempts.at(-1)
+  const enhancementOnly = selected?.stages.every(stage => stage === 'enhance-image')
   const entries = Object.values(attempt?.projection?.plates ?? {})
   const plateNames = Object.fromEntries(entries.map(entry => [entry.batchInput.id, entry.batchInput.displayName]))
   const currentJob = selected?.jobs.find(job => job.queueAttempt === attempt?.number && job.queueStep === attempt?.cursor)
@@ -66,7 +68,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
       historyHref={run => reviewHref(undefined, undefined, run.batchId, { run: run.id })}
       renderHistory={run => <>
         <p className="caption">{run.batchName ?? 'Batch'} · {requester?.(run.requestedBy) ?? run.requestedBy}</p>
-        {run.incrementalDrafts && <p className="caption">{savedPlates(run)} draft</p>}
+        {run.incrementalDrafts && run.stages.some(stage => stage !== 'enhance-image') && <p className="caption">{savedPlates(run)} draft</p>}
         <PipelineRunPlates runId={run.id} plateIds={run.plateIds} steps={(run.progress ?? queueProgress(run)).steps} local />
         <PopoverPrimitive.Close asChild><Button size="sm" variant="ghost" onClick={() => queue.select(run.id)}>View saved results</Button></PopoverPrimitive.Close>
         {run.status === 'cancelled' && !run.jobs.some(job => job.state === 'claimed')
@@ -88,14 +90,22 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
     {selected ? <div className="grid gap-[var(--stack-gap)]">
       <div className="flex flex-wrap justify-between gap-2"><h3 className="label">{selected.incrementalDrafts ? 'Run results' : 'Coherent run result'}</h3>
         <Button size="sm" variant="ghost" onClick={() => queue.select('none')}>Hide results</Button></div>
-      <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : selected.incrementalDrafts
+      {!enhancementOnly && <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : selected.incrementalDrafts
         ? `${savedPlates(selected)} ${selected.batchName ?? 'your Batch'}. Valid changes are saved as each stage finishes.`
-        : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>
-      {selected.incrementalDrafts && <Button asChild size="sm" variant="publish" className="justify-self-start"><Link href={reviewHref(undefined, undefined, selected.batchId, { run: selected.id })}>Review run changes</Link></Button>}
+        : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>}
+      {selected.incrementalDrafts && !enhancementOnly && <Button asChild size="sm" variant="publish" className="justify-self-start"><Link href={reviewHref(undefined, undefined, selected.batchId, { run: selected.id })}>Review run changes</Link></Button>}
       {conflicts.map(step => <p role="alert" key={step.index}>{step.plateName} · {step.stage}: saved draft changed during the run. Your edits were kept.</p>)}
+      {selected.jobs.map(job => {
+        const suggestion = job.result?.fieldSuggestion
+        if (suggestion?.kind !== 'enhanced-image') return null
+        const plate = selected.plates?.find(plate => plate.id === job.plateId)
+        const source = job.inputPlate?.imageUrl
+        return <EnhancedImageResult key={job.id} jobId={job.id} suggestion={suggestion} plateName={plate?.displayName ?? job.inputPlate?.displayName ?? job.plateId}
+          before={typeof source === 'string' ? source : plate?.imageUrl ?? undefined} />
+      })}
       {selected.jobs.filter(job => job.result?.fieldSuggestion?.kind === 'image' || job.result?.fieldSuggestion?.kind === 'group').map(job => {
         const suggestion = job.result!.fieldSuggestion!
-        if (suggestion.kind === 'fields') return null
+        if (suggestion.kind !== 'image' && suggestion.kind !== 'group') return null
         const choice = selected.waitReason === 'image_choice' && currentJob?.id === job.id
         const plate = attempt?.projection?.plates[job.plateId]?.batchInput ?? job.inputPlate
         return <div key={job.id} className="grid gap-[var(--stack-gap)]">{suggestion.kind === 'image' ? <h4 className="label">Image for {plateNames[job.plateId] ?? job.inputPlate?.displayName ?? job.plateId}{plate?.state ? ` · ${plate.state}` : ''}</h4> : null}{renderSpecialized?.(job, selected) ?? <SpecializedSuggestion suggestion={suggestion} plates={entries.map(entry => entry.batchInput)}
@@ -127,7 +137,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
               <div><span className="caption">Run suggestion</span><PipelineFieldValue field={key} value={entry.executionPlate[key]} plateNames={plateNames} /></div></dd></div>)}</dl>
         </details> : null
       })}
-      {!selected.incrementalDrafts && selected.status === 'completed' && attempt?.outcome !== 'no_result' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
+      {!enhancementOnly && !selected.incrementalDrafts && selected.status === 'completed' && attempt?.outcome !== 'no_result' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
       {selected.waitReason === 'recovery' && currentJob?.claimId ? <details className="grid gap-2"><summary className="cursor-pointer">Recover a stopped worker</summary>
         <p className="caption">Verify that worker {currentJob.workerId} has stopped executing this stage. Releasing its slot cannot stop the worker.</p>
         <label className="caption flex items-center gap-2"><input type="checkbox" checked={verifiedClaim === currentJob.claimId} onChange={event => setVerifiedClaim(event.target.checked ? currentJob.claimId! : null)} />I verified this worker has stopped</label>

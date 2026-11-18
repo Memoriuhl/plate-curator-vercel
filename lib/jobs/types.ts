@@ -4,15 +4,16 @@ import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized
 
 import type { WorkerCapabilityRecord } from './capabilities'
 import type { PipelineRun, ResourceClass } from './queue-types'
+import type { EnhancedImageSuggestion, ImageEnhancementOptions } from './image-enhancement'
 import type { ImageGroupOptions } from './image-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
-export type PipelineStage = 'research' | 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
+export type PipelineStage = 'research' | 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'enhance-image' | 'group' | 'order'
 export type FieldsSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
-export type FieldSuggestion = FieldsSuggestion | ImageSuggestion | GroupSuggestion
+export type FieldSuggestion = FieldsSuggestion | ImageSuggestion | GroupSuggestion | EnhancedImageSuggestion
 export type StageError = 'no_sources' | 'no_supported_fields' | 'unavailable' | 'missing_image'
 export type JobResult = { suggestions: string[]; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
-export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion' | 'stageError'> & { suggestions?: unknown; fieldSuggestion?: unknown; stageError?: unknown }
+export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion' | 'stageError'> & { suggestions?: unknown; fieldSuggestion?: unknown; stageError?: unknown; enhancedImage?: unknown }
 export type TaggingJob = {
   id: string
   batchId: string
@@ -38,7 +39,7 @@ export type TaggingJob = {
   queueStep?: number
   queueOrder?: number
   completionHook?: string
-  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean; policy?: 'fill-missing' | 'replace'; reuseSavedSources?: boolean }
+  stageOptions?: ImageGroupOptions & Partial<ImageEnhancementOptions> & { redoExisting?: boolean; onlyUnderTagged?: boolean; policy?: 'fill-missing' | 'replace'; reuseSavedSources?: boolean }
   resourceClass?: ResourceClass
   failure?: string
   createdAt: number
@@ -72,9 +73,11 @@ export interface JobsTransaction {
   pipelineRequesterRole?(uid: string): Promise<Role | null>
   create(job: TaggingJob): void
   set(job: TaggingJob): void
+  setEnhancedImage(id: string, bytes: Buffer): void
 }
 export interface JobsStore {
   env: Environment
+  readEnhancedImage(id: string): Promise<Buffer | null>
   readCapabilities(scope: string): Promise<WorkerCapabilityRecord | null>
   writeCapabilities(scope: string, record: WorkerCapabilityRecord): Promise<void>
   transaction<T>(run: (transaction: JobsTransaction) => Promise<T>): Promise<T>

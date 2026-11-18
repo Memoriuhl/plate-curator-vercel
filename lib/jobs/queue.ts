@@ -4,6 +4,7 @@ import type { Actor, ReviewBatch } from '../review/types'
 import { localJobsEnvironment } from './local-scope'
 import { isPipelineStage } from './suggestions'
 import { canonicalStages, planPipeline, pipelineNeedsModel } from './pipeline-plan'
+import { defaultImageEnhancement, enhancementOperations } from './image-enhancement'
 import { parsePipelineOptions, snapshotPipelineOptions } from './pipeline-options'
 import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
 import type { JobsDeps, JobsTransaction } from './types'
@@ -33,9 +34,10 @@ export function parseEnqueue(input: unknown, limit = pipelineChunkSize): Enqueue
     typeof value.requestId !== 'string' || !requestPattern.test(value.requestId) || typeof value.batchId !== 'string' || !requestPattern.test(value.batchId) ||
     !Array.isArray(value.plateIds) || !value.plateIds.length || value.plateIds.length > limit ||
     value.plateIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9._-]{1,180}$/.test(id)) || new Set(value.plateIds).size !== value.plateIds.length ||
-    !Array.isArray(value.stages) || !value.stages.length || value.stages.length > 8 ||
+    !Array.isArray(value.stages) || !value.stages.length || value.stages.length > canonicalStages.length ||
     value.stages.some(stage => stage !== 'tag' && (!isPipelineStage(stage) || stage === 'order')) || new Set(value.stages).size !== value.stages.length ||
     ['modelId', 'tagModelId', 'researchModelId'].some(key => value[key] !== undefined && (typeof value[key] !== 'string' || !requestPattern.test(value[key] as string)))) return null
+  if (value.stages.includes('enhance-image') && !enhancementOperations.some(key => (options['enhance-image'] ?? defaultImageEnhancement)[key])) return null
   return { requestId: value.requestId, batchId: value.batchId, plateIds: value.plateIds as string[],
     stages: canonicalStages.filter(stage => (value.stages as unknown[]).includes(stage)), options: snapshotPipelineOptions(value.stages as string[], options), previewOnly: value.previewOnly === true,
     ...(value.modelId ? { modelId: value.modelId as string } : {}), ...(value.tagModelId ? { tagModelId: value.tagModelId as string } : {}), ...(value.researchModelId ? { researchModelId: value.researchModelId as string } : {}) }

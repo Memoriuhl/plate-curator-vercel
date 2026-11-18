@@ -1,6 +1,7 @@
 import type { ModelAdapter } from './model'
 import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
 import type { GroupInput } from '../lib/jobs/specialized-suggestions'
+import type { ImageEnhancementOptions } from '../lib/jobs/image-enhancement'
 import type { ImageGroupOptions } from '../lib/jobs/image-options'
 import type { LocalWorkerCapabilities } from '../lib/jobs/capabilities'
 import { localCapabilityReport, withCapabilityHeartbeat } from './capability-heartbeat'
@@ -8,7 +9,7 @@ import { savedResearchSourcesHeader, type EnrichmentOptions } from '../lib/resea
 import type { StoryFields } from '../lib/catalog/types'
 
 export type WorkerPlate = StoryFields & { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
-export type StageResult = { fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
+export type StageResult = { enhancedImage?: string; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
   capabilities?: LocalWorkerCapabilities
@@ -18,7 +19,7 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & EnrichmentOptions }) => Promise<StageResult>
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -33,7 +34,7 @@ interface Claim {
   stage?: PipelineStage
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions & EnrichmentOptions
+  stageOptions?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions
   plate: WorkerPlate
   local?: boolean
   queueRunId?: string
@@ -82,6 +83,7 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   let model = adapter.model
   let promptVersion = adapter.promptVersion
   let fieldSuggestion: FieldSuggestion | undefined
+  let enhancedImage: string | undefined
   let stageError: StageError | undefined
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
@@ -92,6 +94,7 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
     }
     const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.standardId ? { standardId: claim.standardId } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}) })
     fieldSuggestion = result.fieldSuggestion
+    enhancedImage = result.enhancedImage
     stageError = result.stageError
     backend = result.backend
     model = result.model
@@ -112,7 +115,7 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
       usage = result.usage
     }
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(enhancedImage ? { enhancedImage } : {}), ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {

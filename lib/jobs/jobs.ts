@@ -6,7 +6,7 @@ import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
-import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
+import { localClaimCandidate, localClaimsEnabled, type LocalClaimFeatures } from './queue-claim'
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
 import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
@@ -73,7 +73,7 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
   })
 }
 
-export async function claimNext(d: JobsDeps, workerId: string, supportsSavedSources = false) {
+export async function claimNext(d: JobsDeps, workerId: string, features: LocalClaimFeatures = {}) {
   if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
   const claimId = d.id()
   return d.store.transaction(async tx => {
@@ -81,7 +81,7 @@ export async function claimNext(d: JobsDeps, workerId: string, supportsSavedSour
     const jobs = await tx.list()
     const local = localClaimsEnabled(d)
     const runs = local ? await tx.runs() : []
-    const job = local ? localClaimCandidate(d, jobs, runs, 'local', supportsSavedSources) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
+    const job = local ? localClaimCandidate(d, jobs, runs, 'local', features) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
@@ -151,6 +151,14 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
+    const enhancement = result.fieldSuggestion?.kind === 'enhanced-image' ? result.fieldSuggestion : null
+    if (enhancement && (!job.queueRunId || !localClaimsEnabled(d)) || !enhancement && input.enhancedImage !== undefined) {
+      return { ok: false, error: 'invalid_result' }
+    }
+    const imageBytes = enhancement
+      ? await (await import('./verify-enhanced-image')).verifyEnhancedImage(input.enhancedImage, enhancement)
+      : null
+    if (enhancement && !imageBytes) return { ok: false, error: 'invalid_result' }
     if (job.stage === 'research') {
       if (!job.researchModel || result.model !== job.researchModel.model) return { ok: false, error: 'invalid_result' }
       if (result.fieldSuggestion?.kind === 'fields') {
@@ -197,6 +205,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
       if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
     }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
+    if (imageBytes) tx.setEnhancedImage(id, imageBytes)
     tx.set(completed)
     return { ok: true, value: completed }
   })

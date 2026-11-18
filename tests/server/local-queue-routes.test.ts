@@ -1,3 +1,5 @@
+import sharp from 'sharp'
+import { createEnhanceImageRunner } from '../../worker/enhance-image'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
@@ -9,6 +11,8 @@ import { GET, POST } from '../../app/api/local-pipeline/runs/route'
 import { POST as createSelection } from '../../app/api/local-pipeline/runs/selection/route'
 import { POST as cancel } from '../../app/api/local-pipeline/runs/[id]/cancel/route'
 import { POST as claim } from '../../app/api/worker/claim/route'
+import { POST as report } from '../../app/api/worker/jobs/[id]/report/route'
+import { GET as getEnhancedImage } from '../../app/api/local-pipeline/jobs/[id]/enhanced-image/route'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn(), workflow: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}), catalog: () => ({ readSnapshot: async () => ({ version: 1 }) }) }))
@@ -109,4 +113,33 @@ test('a named selection creates and starts one new draft instead of using the ex
   expect(await deps.store.transaction(tx => tx.batch(value.batchId))).toMatchObject({ name: 'New Alaska draft', plateIds: body.plateIds })
   expect(await (await createSelection(request())).json()).toMatchObject({ batchId: value.batchId, runIds: value.runIds })
   expect(mocks.start).toHaveBeenCalledTimes(1)
+})
+
+
+test('enhancement options reach the capable worker and the completed WebP is private to the run', async () => {
+  const options = { 'enhance-image': { upscale: false, crop: false, roundCorners: true } }
+  const payload = { ...body, stages: ['enhance-image'], options }
+  const request = (value: object) => new Request('https://example.org', { method: 'POST', body: JSON.stringify(value) })
+  expect((await POST(request({ ...payload, options: { 'enhance-image': { ...options['enhance-image'], roundCorners: false } } }))).status).toBe(400)
+  expect((await POST(request(payload))).status).toBe(202)
+  const [run] = await deps.store.transaction(tx => tx.runs())
+  await dispatchQueueStage(deps, run.id, 1, 0, 'worker-stage')
+  expect((await claim(request({}))).status).toBe(204)
+  const available = { available: true }
+  const capabilities = { group: available, embeddings: available, mask: available, vision: available, enhanceImage: available, pollIntervalMs: 1000 }
+  const claimed = await (await claim(request({ capabilities }))).json()
+  expect(claimed).toMatchObject({ stage: 'enhance-image', stageOptions: options['enhance-image'] })
+  const input = await sharp({ create: { width: 160, height: 80, channels: 3, background: 'red' } }).png().toBuffer()
+  const result = await createEnhanceImageRunner(async () => input.toString('base64'))({
+    stage: claimed.stage, plate: { ...claimed.plate, image: 'AK/one.webp' }, options: claimed.stageOptions,
+  })
+  const route = { params: Promise.resolve({ id: claimed.job.id }) }
+  expect((await report(request({ ...result, claimId: claimed.claimId, durationMs: 10 }), route)).status).toBe(200)
+  expect(await observeQueueStage(deps, run.id, 1, 0)).toEqual({ phase: 'done' })
+  const response = await getEnhancedImage(get(), route)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+  expect(await response.json()).toEqual({ image: result.enhancedImage })
+  mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
+  expect((await getEnhancedImage(get(), route)).status).toBe(404)
 })
