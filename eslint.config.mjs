@@ -5,5 +5,5 @@ import nextTypeScript from 'eslint-config-next/typescript'
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores(['app/.well-known/workflow/**', '.next/**', 'out/**', 'build/**', 'next-env.d.ts']),
+  globalIgnores(['.eve/**', '.output/**', 'eval-results/research-*/**', 'app/.well-known/workflow/**', '.next/**', 'out/**', 'build/**', 'next-env.d.ts']),
 ])

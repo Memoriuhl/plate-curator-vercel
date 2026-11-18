@@ -31,13 +31,26 @@ const api = createApiClient({ token: async () => (await clientAuth().currentUser
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
+  const [initializationFailed, setInitializationFailed] = useState(false)
   const checkingGoogle = useRef(false)
 
-  useEffect(() => onIdTokenChanged(clientAuth(), (next) => {
-    if (checkingGoogle.current) return
-    setUser(next)
-    setReady(true)
-  }), [])
+  useEffect(() => {
+    function failInitialization() {
+      setUser(null)
+      setReady(false)
+      setInitializationFailed(true)
+    }
+    try {
+      return onIdTokenChanged(clientAuth(), (next) => {
+        if (checkingGoogle.current) return
+        setUser(next)
+        setReady(true)
+        setInitializationFailed(false)
+      }, failInitialization)
+    } catch {
+      failInitialization()
+    }
+  }, [])
 
   const session = useMemo<Session>(() => ({
     user,
@@ -66,6 +79,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await signOut(clientAuth())
     },
   }), [user, ready])
+
+  if (initializationFailed) return (
+    <main className="sign-in-main">
+      <section className="sign-in-card" role="alert" aria-labelledby="auth-unavailable-title">
+        <h1 id="auth-unavailable-title" className="dialog-title">Sign-in unavailable</h1>
+        <p>Firebase authentication could not initialize. Check the NEXT_PUBLIC_FIREBASE_* configuration for this environment, then restart or redeploy the app.</p>
+        <a href="">Reload page</a>
+      </section>
+    </main>
+  )
 
   return (
     <SessionContext.Provider value={session}>

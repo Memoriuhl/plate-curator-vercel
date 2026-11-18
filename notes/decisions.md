@@ -11,3 +11,5 @@ Standalone image and Group acceptance load a completed, same-scope job by ID. Di
 Identical capability reports from the same worker skip storage writes until one poll interval has elapsed. Changed availability or a replacement worker is recorded immediately. Capability menus use plain availability reasons; runtime setup details stay in operator preflight notes.
 
 Persisted preview jobs are inspect-only. Acceptance checks the stored `previewOnly` flag and rejects conversion through request payloads. The UI hides Apply/Accept. To apply a result, rerun normally; normal runs still require explicit Apply.
+
+Research enrichment reuses the queue projection and coherent Apply rather than introducing another acceptance ledger. A matching protected research runtime and the local coordinator share both the queue scope and review/research environment. Campaign accounting is environment-partitioned; a reused campaign name on a new Preview does not preserve its previous balance. See `docs/eve-pipeline-demo.md` for the paid-off preflight and bounded live gate.

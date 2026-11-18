@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-11-17T18:49:14.703Z",
+  "rubric": [
+    "correct plate and subject",
+    "claim supported by cited passage",
+    "useful description and fact coverage",
+    "relevant fetched links",
+    "generic or duplicate output",
+    "latency, reliability and known/missing cost",
+    "blind curator acceptance and correction effort"
+  ],
+  "inputs": [
+    {
+      "plateId": "AZ.arizona_highways",
+      "displayName": "Arizona Highways",
+      "state": "AZ",
+      "inputRevision": "1ca5358e901e2d47b79a",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "AK.lions_club",
+      "displayName": "Lions Club",
+      "state": "AK",
+      "inputRevision": "335361d50c534a971e38",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "AL.law_enforcement_memorial",
+      "displayName": "Law Enforcement Memorial",
+      "state": "AL",
+      "inputRevision": "4c0803b2024a7ddb831b",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "DE.law_enforcement_memorial",
+      "displayName": "Law Enforcement Memorial",
+      "state": "DE",
+      "inputRevision": "ef7c1c3fb1cbd47e1a16",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "VT.lion_s_club",
+      "displayName": "Lion\u2019s Club",
+      "state": "VT",
+      "inputRevision": "25f95b0c1f6ebda8fc7a",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "CA.whale_tail",
+      "displayName": "WHALE TAIL",
+      "state": "CA",
+      "inputRevision": "cc5b78d64d85bb5338a6",
+      "baselineVersion": 16,
+      "split": "tuning"
+    },
+    {
+      "plateId": "CA.california_museums_snoopy",
+      "displayName": "California Museums (Snoopy)",
+      "state": "CA",
+      "inputRevision": "afd80a921427abe510cb",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AK.standard_gold",
+      "displayName": "Standard Gold",
+      "state": "AK",
+      "inputRevision": "1f0e53f5b7eafad7013f",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.standard_passenger",
+      "displayName": "Standard Passenger",
+      "state": "AL",
+      "inputRevision": "94ada31c8c31aa0dc5ba",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AK.purple_heart",
+      "displayName": "Purple Heart",
+      "state": "AK",
+      "inputRevision": "58975872314e299f3baa",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.louisiana_state_university",
+      "displayName": "Louisiana State University",
+      "state": "AL",
+      "inputRevision": "cb6564e27f9988c1f152",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.university_of_mississippi",
+      "displayName": "University of Mississippi",
+      "state": "AL",
+      "inputRevision": "38fd82b71c75e3044910",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.prostate_cancer_research",
+      "displayName": "Prostate Cancer Research",
+      "state": "AL",
+      "inputRevision": "14e3050336c9db10e0c7",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AK.historic_vehicle",
+      "displayName": "Historic Vehicle",
+      "state": "AK",
+      "inputRevision": "e80e6c177c59bbec6d9e",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AK.breast_cancer_awareness",
+      "displayName": "Breast Cancer Awareness",
+      "state": "AK",
+      "inputRevision": "ffc79217fce0e78c1a4b",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AK.veterans_commemorative",
+      "displayName": "Veterans Commemorative",
+      "state": "AK",
+      "inputRevision": "48523f75d059ead31c17",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.auburn_university",
+      "displayName": "Auburn University",
+      "state": "AL",
+      "inputRevision": "47ba283fd008d2ce8e4d",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.breast_cancer_research_uab",
+      "displayName": "Breast Cancer Research (UAB)",
+      "state": "AL",
+      "inputRevision": "5f8ce280121106b41461",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.curing_childhood_cancer",
+      "displayName": "Curing Childhood Cancer",
+      "state": "AL",
+      "inputRevision": "f86f76c8efb8f0b38ff4",
+      "baselineVersion": 16,
+      "split": "held-out"
+    },
+    {
+      "plateId": "AL.faulkner_university",
+      "displayName": "Faulkner University",
+      "state": "AL",
+      "inputRevision": "a02ad96efbca12c90a35",
+      "baselineVersion": 16,
+      "split": "held-out"
+    }
+  ],
+  "snapshotSource": "staging Snapshot v16",
+  "legacy": {
+    "revision": "b6f4ed51c0a17bd2aca03f33c21faac469673b35",
+    "model": "gemma4:12b",
+    "promptVersion": "story-v2",
+    "serperConfigured": false,
+    "braveConfigured": false
+  },
+  "candidate": {
+    "model": "openai/gpt-6.1-sol",
+    "promptVersion": "research-v1",
+    "serperConfigured": false,
+    "braveConfigured": false,
+    "limits": {
+      "model": 10,
+      "webSearch": 3,
+      "webPages": 6,
+      "deadlineSeconds": 300
+    },
+    "totalAuthorizedUsd": 2
+  }
+}

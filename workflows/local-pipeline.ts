@@ -1,6 +1,7 @@
 import { createHook, getWorkflowMetadata, sleep } from 'workflow'
 import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../lib/jobs/queue-engine'
-import { jobsDeps } from '../lib/server/context'
+import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
+import { executeHostedQueueStage } from '../lib/jobs/queue-hosted'
 
 export async function localPipelineRun(id: string, attempt: number, startIndex: number, stepCount: number) {
   'use workflow'
@@ -9,7 +10,13 @@ export async function localPipelineRun(id: string, attempt: number, startIndex: 
   for (let index = startIndex; index < stepCount; index++) {
     using hook = createHook<{ jobId?: string }>({ token: `local-pipeline:${id}:${attempt}:${index}` })
     if (await hook.getConflict()) return { outcome: 'hook_conflict' }
-    if (!await dispatch(id, attempt, index, hook.token)) return { outcome: 'stopped' }
+    const jobId = await dispatch(id, attempt, index, hook.token)
+    if (!jobId) return { outcome: 'stopped' }
+    for (;;) {
+      const hosted = await executeHosted(jobId)
+      if (hosted === 'settled') break
+      await sleep(hosted === 'waiting' ? '5s' : '30s')
+    }
     const events = hook[Symbol.asyncIterator]()
     let event = events.next()
     for (;;) {
@@ -37,4 +44,12 @@ async function dispatch(id: string, attempt: number, index: number, token: strin
 async function observe(id: string, attempt: number, index: number) {
   'use step'
   return observeQueueStage(jobsDeps(), id, attempt, index)
+}
+
+async function executeHosted(id: string) {
+  'use step'
+  return executeHostedQueueStage(jobsDeps(), id, hostedTaggingDeps, async job => {
+    const { hostedQueueResearch } = await import('../lib/server/research-context')
+    return hostedQueueResearch(job)
+  })
 }

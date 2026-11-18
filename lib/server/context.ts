@@ -36,6 +36,8 @@ import { json } from './respond'
 import { cachedJurisdiction } from './snapshot-cache'
 import { membersStore } from './members'
 import { createMemoryMembersStore } from '../members/memory-store'
+import { readCommonsImage } from '../../worker/remote-image'
+import { commonsImageUrl } from '../jobs/image-options'
 
 const platesByVersion = new Map<number, Map<string, Plate>>()
 const fixtureMembers = createMemoryMembersStore()
@@ -154,11 +156,13 @@ export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
     async plate(job) {
       const plate = job.inputPlate
       if (!plate) return null
-      const imageUrl = source.imageUrl(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { ...plate, imageUrl: undefined } : plate)
-      return { id: plate.id, state: plate.state, displayName: plate.displayName, image: plate.image, tags: plate.tags ?? [], ...(imageUrl ? { imageUrl } : {}) }
+      const projectedImage = job.queueRunId && commonsImageUrl(plate.imageUrl)
+      const imageUrl = projectedImage || source.imageUrl(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { ...plate, imageUrl: undefined } : plate)
+      return { ...plate, tags: plate.tags ?? [], ...(imageUrl ? { imageUrl } : {}) }
     },
     async image(plate) {
       if (!plate.imageUrl) return null
+      if (commonsImageUrl(plate.imageUrl)) return (await readCommonsImage(plate.imageUrl)).toString('base64')
       const response = await fetch(plate.imageUrl, { signal: AbortSignal.timeout(30_000) })
       if (response.status === 404) return null
       if (!response.ok) throw Object.assign(new Error(`Image request failed: ${response.status}`), { status: response.status })

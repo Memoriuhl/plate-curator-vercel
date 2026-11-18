@@ -38,7 +38,7 @@ export function usePipelineQueue(existingBatchId?: string | null) {
   const posting = useRef(false)
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [selectedId, select] = useState<string | undefined>()
+  const [selectedId, select] = useState<string | undefined>('none')
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
   const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number; capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>> }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
   useEffect(() => {
@@ -72,14 +72,14 @@ export function usePipelineQueue(existingBatchId?: string | null) {
     }
   }
 
-  async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false) {
+  async function enqueue(plates: RunPlate[], stages: LocalRunStage[], modelId?: string, options: PipelineOptions = {}, previewOnly = false, tagModelId?: string, researchModelId?: string) {
     if (!plates.length || disabledReason) return null
     if (previewOnly && workspace.mode !== 'selected' && !existingBatchId) { setMessage('Preview requires an existing open Batch.'); return null }
     return perform('enqueue', async () => {
       const batchId = workspace.mode === 'selected' ? workspace.id : previewOnly ? existingBatchId! : await ensureBatch(plates[0])
       if (currentUser.current !== uid) throw Error('Session changed')
       const input: Omit<EnqueueInput, 'requestId'> = { batchId, plateIds: plates.map(plate => plate.id), stages, options, previewOnly,
-        ...(modelId ? { modelId } : {}) }
+        ...(modelId ? { modelId } : {}), ...(tagModelId ? { tagModelId } : {}), ...(researchModelId ? { researchModelId } : {}) }
       const intent = enqueueIntent(localStorage, uid!, input, () => crypto.randomUUID())
       const { run } = await api.send<{ run: PipelineRun }>('POST', pipelineQueueKey, intent)
       confirmQueueRequest(localStorage, uid!, 'enqueue', intent.requestId)

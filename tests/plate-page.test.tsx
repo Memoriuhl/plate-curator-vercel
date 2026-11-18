@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   remote: null as PlateCardData | null,
   refreshed: false,
 }))
+vi.mock('../components/research/research-actions', () => ({ ResearchActions: () => null }))
 vi.mock('../components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
 vi.mock('../components/dashboard/plate-tag-actions', () => ({ PlateTagActions: () => null }))
 vi.mock('swr', () => ({ useSWRConfig: () => ({ mutate: state.mutate }) }))
@@ -86,6 +87,18 @@ test('story controls require the local flag on the plate page', () => {
   expect(screen.getByRole('spinbutton', { name: 'First issued year' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')).toBe(false)
   expect(screen.getByRole('button', { name: 'Add link' }).hasAttribute('disabled')).toBe(false)
+})
+
+test('accepted research facts and links display with local editing disabled', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  render(<PlatePage {...props} plate={{ ...props.plate,
+    funFacts: [{ text: 'The wildlife program began in 1987.', sourceUrl: 'https://example.com/fact', sourceTitle: 'Program history' }],
+    readMore: [{ title: 'Wildlife program', site: 'example.com', url: 'https://example.com/wildlife' }],
+  }} />)
+  expect(screen.getByText('The wildlife program began in 1987.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Program history' }).getAttribute('href')).toBe('https://example.com/fact')
+  expect(screen.getByRole('link', { name: /example.com/ }).getAttribute('href')).toBe('https://example.com/wildlife')
+  expect(screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')).toBe(true)
 })
 
 test('tags normalize on Enter, deduplicate, and remove individually', async () => {

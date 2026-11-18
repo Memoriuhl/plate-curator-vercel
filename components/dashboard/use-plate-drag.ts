@@ -106,9 +106,6 @@ export function usePlateDrag(options: Options) {
     const currentStates = new Set(latest.current.families.map(family => family.template.state))
     return [...latest.current.families, ...[...new Set(plates.map(plate => plate.state))].filter(state => !currentStates.has(state)).flatMap(state => groupFamilies(plateSelection.statePlates(state)))]
   }
-  function blockedTemplate(plate: PlateCardData, families: DragFamily[]) {
-    return plate.templateRole !== 'variant' && !!families.find(family => family.template.id === plate.id)?.variants.length
-  }
   async function editSelection(plates: readonly PlateCardData[], destination?: PlateCardData, placement?: { index: number; origin?: MoveOrigin }) {
     const { reload, ordering } = latest.current
     const edits = latest.current.bulkEdits ?? latest.current.edits
@@ -116,12 +113,17 @@ export function usePlateDrag(options: Options) {
     if (destination?.deleted) { announce('Cancelled'); return }
     let families = actionFamilies(plates)
     const initialFamilies = families
-    const skipped = destination ? plates.filter(plate => !plate.deleted && plate.state === destination.state && blockedTemplate(plate, families)) : []
+    if (destination) {
+      const expanded = plates.flatMap(plate => !plate.deleted && plate.id !== destination.id
+        ? [plate, ...(families.find(family => family.template.id === plate.id)?.variants ?? [])]
+        : [plate])
+      plates = [...new Map(expanded.map(plate => [plate.id, plate])).values()]
+    }
     const otherStates = destination ? plates.filter(plate => !plate.deleted && plate.state !== destination.state) : []
     const moving = plates.filter(plate => !plate.deleted && (destination
-      ? plate.state === destination.state && !skipped.includes(plate) && plate.id !== destination.id && plate.variantOfPlateId !== destination.id && !families.find(family => family.template.id === destination.id)?.variants.some(variant => variant.id === plate.id)
+      ? plate.state === destination.state && plate.id !== destination.id && plate.variantOfPlateId !== destination.id && !families.find(family => family.template.id === destination.id)?.variants.some(variant => variant.id === plate.id)
       : plate.templateRole === 'variant'))
-    const skippedMessage = [skipped.length ? 'Skipped ' + skipped.length + ' Templates with Variants' : '', otherStates.length ? 'Skipped ' + otherStates.length + ' plates from other states' : ''].filter(Boolean).join('. ')
+    const skippedMessage = otherStates.length ? 'Skipped ' + otherStates.length + ' plates from other states' : ''
     if (!moving.length) { latest.current.holdOverlay?.(false); announce(skippedMessage || (destination ? 'Dropped' : 'No Variants selected')); return }
     latest.current.closePreview()
     latest.current.holdOverlay?.(true)
@@ -209,7 +211,7 @@ export function usePlateDrag(options: Options) {
         const message = reverted === succeeded.length && orderRestored ? 'Saved ' + succeeded.length + ' of ' + moving.length + '; changes undone' : (succeeded.length - reverted) + ' of ' + moving.length + ' saved' + (orderRestored ? '' : '; order could not be restored')
         announce([message, skippedMessage].filter(Boolean).join('. '))
       } else {
-        plateSelection.replace([...skipped, ...otherStates])
+        plateSelection.replace(otherStates)
         const message = destination ? moving.length + (moving.length === 1 ? ' plate moved' : ' plates moved') : moving.length === 1 ? '1 plate is now a Template' : moving.length + ' plates are now Templates'
         announce([message, skippedMessage].filter(Boolean).join('. '))
       }
@@ -242,8 +244,8 @@ export function usePlateDrag(options: Options) {
     const destination = target.kind === 'merge' ? families.find(family => family.template.id === target.familyId) : undefined
     if (!source || item.plate.deleted || destination?.template.deleted) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
     if (target.kind === 'family-slot' && item.kind === 'variant' && selected.length > 1) { await editSelection(selected, undefined, { index: target.index, origin: drag.origin }); return }
-    if (destination && selected.length > 1) { await editSelection(selected, destination.template); return }
-    if (!source || (target.kind === 'merge' && ((item.kind === 'family' && source.variants.length > 0) || !destination || destination === source))) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (target.kind === 'merge' && (!destination || destination === source)) { latest.current.holdOverlay?.(false); announce('Cancelled'); return }
+    if (destination && ((item.kind === 'family' && source.variants.length > 0) || selected.length > 1)) { await editSelection(selected, destination.template); return }
     const order = reflowForDrop(families, item, target)?.order ?? orderForDrop(families, item, target)
     const promote = item.kind === 'variant' && target.kind === 'family-slot'
     if (!destination && (!order || !promote && order.every((id, index) => id === familyOrder(families)[index]))) { latest.current.holdOverlay?.(false); announce('Dropped'); return }
@@ -409,7 +411,7 @@ export function usePlateDrag(options: Options) {
       announce(`Moved to position ${index > sourceIndex ? index : index + 1}`)
     }
   }
-  const canMerge = active ? !active.selection.some(plate => blockedTemplate(plate, actionFamilies(active.selection))) : false
+  const canMerge = !!active
   const item = active?.item
   const target = active?.target
   const reflow = useMemo(() => item ? reflowForDrop(options.families, item, target ?? null) : null, [options.families, item, target])

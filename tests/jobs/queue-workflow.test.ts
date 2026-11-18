@@ -2,7 +2,8 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { localPipelineRun } from '../../workflows/local-pipeline'
 
 const mocks = vi.hoisted(() => ({ bind: vi.fn(), dispatch: vi.fn(), observe: vi.fn(), conflict: vi.fn(), sleep: vi.fn(), events: [] as string[] }))
-vi.mock('../../lib/server/context', () => ({ jobsDeps: () => ({}) }))
+vi.mock('../../lib/jobs/queue-hosted', () => ({ executeHostedQueueStage: async () => 'settled' }))
+vi.mock('../../lib/server/context', () => ({ jobsDeps: () => ({}), hostedTaggingDeps: vi.fn() }))
 vi.mock('../../lib/jobs/queue-engine', () => ({ bindQueueWorkflow: mocks.bind, dispatchQueueStage: mocks.dispatch, observeQueueStage: mocks.observe }))
 vi.mock('workflow', () => ({
   getWorkflowMetadata: () => ({ workflowRunId: 'workflow' }),

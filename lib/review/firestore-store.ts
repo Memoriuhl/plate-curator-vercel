@@ -73,13 +73,14 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       }).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     },
     async listEdits(batchId) {
-      return db.runTransaction(async transaction => {
+      const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
         if (!batch.exists || batch.get('env') !== env) return []
         const edits = await transaction.get(batchRef.collection('edits'))
         return edits.docs.map(doc => doc.data() as ProposedEdit)
-      }, { readOnly: true })
+      }
+      return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run, { readOnly: true })
     },
     async readBatch(batchId) {
       return db.runTransaction(async transaction => {
@@ -97,19 +98,20 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       }, { readOnly: true })
     },
     async getBatch(id) {
-      const snapshot = await batches.doc(id).get()
+      const snapshot = scopedTransaction ? await scopedTransaction.get(batches.doc(id)) : await batches.doc(id).get()
       const { env: storedEnv, ...batch } = snapshot.data() ?? {}
       delete batch.publishReservation
       return storedEnv === env ? { ...batch, createdByName: batch.createdByName ?? null, stateOrders: batch.stateOrders ?? {} } as ReviewBatch : null
     },
     async getEdit(batchId, plateId) {
-      return db.runTransaction(async transaction => {
+      const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
         if (!batch.exists || batch.get('env') !== env) return null
         const edit = await transaction.get(batchRef.collection('edits').doc(plateId))
         return edit.exists ? edit.data() as ProposedEdit : null
-      }, { readOnly: true })
+      }
+      return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run, { readOnly: true })
     },
     async recordRun(batchId, revision, runId) {
       return db.runTransaction(async transaction => {
@@ -130,7 +132,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
       })
     },
     async commit(batchId, expectedRevision, next) {
-      return db.runTransaction(async transaction => {
+      const run = async (transaction: Transaction) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
         if (!batch.exists || batch.get('env') !== env || batch.get('revision') !== expectedRevision) {
@@ -158,7 +160,8 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
           transaction.set(batchRef.collection('edits').doc(edit.plateId), edit)
         }
         return 'ok'
-      })
+      }
+      return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run)
     },
   }
 }

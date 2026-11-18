@@ -7,11 +7,14 @@ import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
 import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { storyUrl } from '../review/fields'
+import { taggingModel } from '../tagging/models'
+import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
 
 function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number) {
   attempt.completedJobIds.push(jobId)
+  Object.assign(attempt.steps[attempt.cursor], { status: 'completed', endedAt: now })
   attempt.cursor++
   delete attempt.error
   if (attempt.cursor === attempt.steps.length) {
@@ -42,7 +45,9 @@ export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number,
     const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status) || attempt.workflowId && attempt.workflowId !== workflowId) return false
-    attempt.workflowId = workflowId; run.updatedAt = d.now(); tx.setRun(run)
+    attempt.workflowId = workflowId
+    attempt.workflowUrl = workflowVisibilityUrl(workflowId, process.env.VERCEL_ENV)
+    run.updatedAt = d.now(); tx.setRun(run)
     return true
   })
 }
@@ -69,15 +74,19 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
       finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), error)
       tx.setRun(run); return null
     }
+    const modelId = step.stage === 'research' ? run.researchModel?.id : step.stage === 'tag' ? run.tagModelId ?? run.modelId : run.modelId
+    const hosted = step.stage === 'research' ? run.researchModel?.executor === 'eve' : step.stage === 'tag' && taggingModel(modelId)?.runsOn === 'gateway'
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
       env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
-      completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId && pipelineNeedsModel([step], run.options) ? { modelId: run.modelId } : {}),
+      completionHook, ...(hosted ? { route: 'hosted' as const } : {}), ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(modelId && pipelineNeedsModel([step], run.options) ? { modelId } : {}),
+      ...(step.stage === 'research' ? { researchModel: run.researchModel, researchPolicy: run.options.research?.policy ?? 'fill-missing' } : {}),
       ...(run.options[step.stage as keyof typeof run.options] ? { stageOptions: run.options[step.stage as keyof typeof run.options] } : {}),
       ...(step.stage === 'group' ? { groupScope: Object.values(attempt.projection!.plates).map(entry => ({ plate: entry.executionPlate, baseRevision: entry.batchInputHash })), ...(groupContext?.standardId ? { standardId: groupContext.standardId } : {}) } : {}),
     }
-    attempt.jobIds.push(jobId); attempt.status = 'running'; run.waitReason = 'worker'; run.updatedAt = d.now()
+    attempt.jobIds.push(jobId); attempt.status = 'running'; run.waitReason = hosted ? 'resource' : 'worker'; run.updatedAt = d.now()
+    if (hosted) run.status = 'running'
     if (!queueRecordFits(run)) { finishRun(run, 'failed', d.now(), 'payload_too_large'); tx.setRun(run); return null }
     tx.create(job); tx.setRun(run)
     return jobId

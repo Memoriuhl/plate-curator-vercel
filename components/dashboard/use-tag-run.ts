@@ -7,15 +7,17 @@ import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import type { FieldSuggestion, PipelineStage, StageError } from '@/lib/jobs/types'
+import type { StoryFields } from '@/lib/catalog/types'
 
-export type RunPlate = {
+export type RunPlate = StoryFields & {
   id: string
   state: string
   displayName: string
   revision: string
   tags: string[]
   hasStory?: boolean
-  checks?: { funFacts: { status: string } }
+  description?: string | null
+  checks?: { funFacts: { status: string }; description?: { value: string | null } }
 }
 export type TagJob = {
   previewOnly?: boolean

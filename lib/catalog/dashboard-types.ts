@@ -25,7 +25,9 @@ export type JurisdictionSummary = {
   progress: StateProgress | null
 }
 
-export type PlateCardData = {
+export type PlateCardData = StoryFields & {
+  colorDetail?: string | null
+  lineageColor?: string | null
   deleted?: boolean
   id: string
   state: string

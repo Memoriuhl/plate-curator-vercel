@@ -1,0 +1,10 @@
+.git
+node_modules
+.next
+.eve
+.output
+.remember
+.playwright-mcp
+eval-results
+.env*
+.hygiene-denylist

@@ -7,6 +7,26 @@ import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
 import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
+import { filterEnrichmentFields } from '../research/enrichment'
+import { workflowVisibilityUrl } from './workflow-visibility'
+
+// Server coordinator only. The public worker by-id claim still refuses queue jobs.
+export async function claimHostedQueueJob(d: JobsDeps, id: string) {
+  return d.store.transaction(async tx => {
+    const jobs = await tx.list()
+    const runs = await tx.runs()
+    const job = jobs.find(job => job.id === id && job.localScope === d.localScope && job.route === 'hosted' && job.queueRunId)
+    if (!job) return null
+    // Workflow retries retain the same reservation; never hand it to a desktop worker.
+    if (job.state === 'claimed' && job.workerId === 'hosted' && job.leaseExpiresAt! > d.now()) return { job, claimId: job.claimId! }
+    if (localClaimCandidate(d, jobs, runs, 'hosted')?.id !== id) return null
+    const claimed: TaggingJob = { ...job, state: 'claimed', workerId: 'hosted', claimId: d.id(), leaseExpiresAt: d.now() + queueStageTimeoutMs }
+    const run = runs.find(run => run.id === job.queueRunId)!
+    run.lastDispatchedAt = Math.max(d.now(), ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.waitReason = 'inference'; run.updatedAt = d.now()
+    tx.set(claimed); tx.setRun(run)
+    return { job: claimed, claimId: claimed.claimId! }
+  })
+}
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -14,7 +34,8 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+  if (input.stage === 'research') return { ok: false, error: 'forbidden' } // Research requires the persisted queue model/policy contract.
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
   if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
@@ -44,7 +65,7 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
       const current = await currentPlate(d, tx, input.batchId, member.plate.id)
       if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
     }
-    const job: TaggingJob = { ...input, ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
@@ -62,10 +83,12 @@ export async function claimNext(d: JobsDeps, workerId: string) {
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt }
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: now, workerId, claimId, leaseExpiresAt }
     tx.set(claimed)
     if (job.queueRunId) {
       const run = runs.find(run => run.id === job.queueRunId)!
+      const step = run.attempts.at(-1)?.steps[job.queueStep!]
+      if (step) Object.assign(step, { status: 'running', startedAt: now })
       run.lastDispatchedAt = Math.max(now, ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.updatedAt = now; run.waitReason = 'resource'
       tx.setRun(run)
     }
@@ -90,7 +113,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
     if (localClaimsEnabled(d) && job.route !== 'hosted' && job.state !== 'queued') return { ok: false, error: 'claim_mismatch' }
     if (localClaimsEnabled(d) && job.route !== 'hosted' && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: d.now(), workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
     tx.set(claimed)
     return { ok: true, value: { job: claimed, claimId } }
   })
@@ -126,6 +149,13 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
+    if (job.stage === 'research') {
+      if (!job.researchModel || result.model !== job.researchModel.model) return { ok: false, error: 'invalid_result' }
+      if (result.fieldSuggestion?.kind === 'fields') {
+        result.fieldSuggestion.fields = filterEnrichmentFields(result.fieldSuggestion.fields, job.inputPlate!, job.researchPolicy ?? 'fill-missing')
+        if (!Object.keys(result.fieldSuggestion.fields).length) { delete result.fieldSuggestion; result.stageError = 'no_supported_fields' }
+      }
+    }
     if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
     if (result.fieldSuggestion?.kind === 'group') {

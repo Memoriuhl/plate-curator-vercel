@@ -6,9 +6,7 @@ import { formatTaggingModel } from '@/lib/client/tagging-models'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-const storageKey = 'tagging-model:v1'
-
-export function useTaggingModelChoice() {
+export function useTaggingModelChoice(storageKey = 'tagging-model:v1') {
   const { data } = useTaggingModels()
   const [choice, setChoice] = useState<string | null>(() => {
     try { return localStorage.getItem(storageKey) } catch { return null }

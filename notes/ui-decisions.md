@@ -9,3 +9,5 @@ Order remains manual: drag families to reorder. Run-menu selection and queue int
 The standalone Preview-only menu control stays disabled until the connected run coordinator supplies that mode. Stored result generation alone does not make that menu option functional. The worker probes its runtime files, Python imports, cached weights and local vision service, then reports availability on polls and during inference. The app server reads those reports; after two missed poll intervals it disables the controls with “Local worker not reporting”.
 
 Results marked as previews show an inspect-only label and no Apply/Accept action. Choosing a normal request later does not convert a stored preview; a new normal run is required.
+
+Research / enrich sits in Run pipeline and has its own persisted model choice and Fill missing / Replace existing option. Suggestions appear in the normal coherent result with source links. The isolated browser proof restored the in-flight row after reload and saved one draft only after explicit Apply; it introduced no separate result screen.

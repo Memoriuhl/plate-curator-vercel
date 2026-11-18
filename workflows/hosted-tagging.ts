@@ -1,4 +1,4 @@
-import { RetryableError, getStepMetadata } from 'workflow'
+import { RetryableError, getStepMetadata, getWorkflowMetadata } from 'workflow'
 import { createJob, expireJob, getJob } from '../lib/jobs/jobs'
 import { CHUNKS_IN_FLIGHT, chunks, finalOutcomes, retryDelayMs, tagHostedChunk, type FinalOutcome } from '../lib/jobs/hosted'
 import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
@@ -8,7 +8,7 @@ type Request = { jobId: string; plateId: string }
 export async function hostedTaggingRun(jobId: string, batchId: string, plateId: string, requestedBy: string, modelId: string) {
   'use workflow'
 
-  if (!(await createHostedJobs(batchId, [{ jobId, plateId }], requestedBy, modelId)).length) return { outcome: 'not_created' as const }
+  if (!(await createHostedJobs(batchId, [{ jobId, plateId }], requestedBy, modelId, getWorkflowMetadata().workflowRunId)).length) return { outcome: 'not_created' as const }
   const outcomes = await tagChunk([jobId], modelId)
   return finishHosted(jobId, outcomes[jobId])
 }
@@ -16,7 +16,7 @@ export async function hostedTaggingRun(jobId: string, batchId: string, plateId: 
 export async function batchTaggingRun(batchId: string, requests: Request[], requestedBy: string, modelId: string) {
   'use workflow'
 
-  const created = await createHostedJobs(batchId, requests, requestedBy, modelId)
+  const created = await createHostedJobs(batchId, requests, requestedBy, modelId, getWorkflowMetadata().workflowRunId)
   const groups = chunks(created)
   const outcomes: Record<string, FinalOutcome> = {}
   for (let i = 0; i < groups.length; i += CHUNKS_IN_FLIGHT) {
@@ -32,12 +32,12 @@ export async function batchTaggingRun(batchId: string, requests: Request[], requ
   return { created: created.length, skipped: requests.length - created.length, outcomes }
 }
 
-async function createHostedJobs(batchId: string, requests: Request[], requestedBy: string, modelId: string) {
+async function createHostedJobs(batchId: string, requests: Request[], requestedBy: string, modelId: string, workflowId: string) {
   'use step'
   const d = jobsDeps()
   const created: string[] = []
   for (const request of requests) {
-    const outcome = await createJob(d, { id: request.jobId, batchId, plateId: request.plateId, requestedBy, route: 'hosted', modelId })
+    const outcome = await createJob(d, { id: request.jobId, batchId, plateId: request.plateId, requestedBy, route: 'hosted', modelId, workflowId })
     if (outcome.ok || outcome.error === 'already_exists') created.push(request.jobId)
   }
   return created

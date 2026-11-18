@@ -21,6 +21,7 @@ function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardDa
     templateFamily: family, templateRole: role, variantOfPlateId: plate.variantOfPlateId ?? null,
     isStandard: plate.isStandard ?? false, sortOrder: plate.sortOrder ?? index,
     revision: plateRevision(plate), checks,
+    ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { funFacts: plate.funFacts ?? [], readMore: plate.readMore ?? [], wikiUrl: plate.wikiUrl ?? null, firstIssuedYear: plate.firstIssuedYear ?? null, colorDetail: plate.colorDetail ?? null, lineageColor: plate.lineageColor ?? null } : {}),
     complete: isComplete(checks),
   }
 }
@@ -57,11 +58,9 @@ export function buildPlate(snapshot: Snapshot, curator: CuratorState, imageUrl: 
       ...plateCard(plate, index, imageUrl),
       description: plate.description ?? null, category: text(plate.category),
       sourceUrl: text(plate.sourceUrl), wikiUrl: text(plate.wikiUrl),
-      ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? {
-        funFacts: Array.isArray(plate.funFacts) ? plate.funFacts : [],
-        readMore: Array.isArray(plate.readMore) ? plate.readMore : [],
-        firstIssuedYear: plate.firstIssuedYear ?? null,
-      } : {}),
+      funFacts: Array.isArray(plate.funFacts) ? plate.funFacts : [],
+      readMore: Array.isArray(plate.readMore) ? plate.readMore : [],
+      ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? { firstIssuedYear: plate.firstIssuedYear ?? null } : {}),
     },
     family: plate.templateFamily ? plates.flatMap((member, memberIndex) =>
       member.templateFamily === plate.templateFamily ? [plateCard(member, memberIndex, imageUrl)] : []) : [],

@@ -7,7 +7,7 @@ import type { PipelineRun, ResourceClass } from './queue-types'
 import type { ImageGroupOptions } from './image-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
-export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
+export type PipelineStage = 'research' | 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
 export type FieldsSuggestion = { kind: 'fields'; stage: PipelineStage; fields: Partial<EditableFields>; sources: string[] }
 export type FieldSuggestion = FieldsSuggestion | ImageSuggestion | GroupSuggestion
 export type StageError = 'no_sources' | 'no_supported_fields' | 'unavailable' | 'missing_image'
@@ -24,6 +24,9 @@ export type TaggingJob = {
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
+  researchModel?: { id: string; executor: 'desktop' | 'eve'; model: string }
+  researchPolicy?: 'fill-missing' | 'replace'
+  eve?: { sessionId: string; deliveryId: string }
   stage?: PipelineStage
   localScope?: string
   previewOnly?: boolean
@@ -35,10 +38,13 @@ export type TaggingJob = {
   queueStep?: number
   queueOrder?: number
   completionHook?: string
-  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean }
+  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean; policy?: 'fill-missing' | 'replace' }
   resourceClass?: ResourceClass
   failure?: string
   createdAt: number
+  startedAt?: number
+  workflowId?: string
+  workflowUrl?: string | null
   state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
   endedAt?: number
   recoveryNeededAt?: number

@@ -2,7 +2,7 @@ import { standardEdits, standardOrderProblems } from './standard'
 import { canEdit, editableStates } from './access'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
-import { editableFieldKeys, editableKeys, limits } from './fields'
+import { editableKeys, limits } from './fields'
 import { sameEditableValue } from './story'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
@@ -24,7 +24,7 @@ export async function proposeEdit(
     const existing = await d.store.getEdit(i.batchId, i.plateId)
     const current = { ...baseline, ...existing?.fields }
     if (plateRevision(current) !== i.baseRevision) return { ok: false, error: 'stale_plate', current }
-    const changes = Object.fromEntries(editableFieldKeys()
+    const changes = Object.fromEntries(editableKeys
       .filter(key => i.fields[key] !== undefined && !sameEditableValue(key, current[key], i.fields[key]))
       .map(key => [key, i.fields[key]]))
     const plate = { ...current, ...changes }

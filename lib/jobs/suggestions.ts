@@ -4,6 +4,7 @@ import type { FieldSuggestion, PipelineStage } from './types'
 import { parseGroupSuggestion, parseImageSuggestion } from './specialized-suggestions'
 
 const stageFields: Record<PipelineStage, readonly (keyof EditableFields)[]> = {
+  research: ['wikiUrl', 'description', 'funFacts', 'firstIssuedYear', 'readMore'],
   describe: ['description'],
   story: ['funFacts', 'firstIssuedYear', 'readMore'],
   'wiki-link': ['wikiUrl'],
@@ -29,9 +30,9 @@ export function parseFieldSuggestion(input: unknown, expected: PipelineStage): F
   const sources = value.sources.map(storyUrl)
   if (sources.some(source => !source)) return null
   const normalizedSources = [...new Set(sources as string[])].sort()
-  if (['describe', 'story', 'wiki-link'].includes(expected) && !normalizedSources.length) return null
+  if (['research', 'describe', 'story', 'wiki-link'].includes(expected) && !normalizedSources.length) return null
   if (fields.funFacts?.some(fact => !normalizedSources.includes(fact.sourceUrl))) return null
-  if (fields.firstIssuedYear != null && !fields.funFacts?.some(fact => normalizedSources.includes(fact.sourceUrl))) return null
+  if (fields.firstIssuedYear != null && expected !== 'research' && !fields.funFacts?.some(fact => normalizedSources.includes(fact.sourceUrl))) return null
   if (fields.readMore?.some(link => !normalizedSources.includes(link.url))) return null
   if (fields.wikiUrl && !normalizedSources.includes(fields.wikiUrl)) return null
   return { kind: 'fields', stage: expected, fields: Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))), sources: normalizedSources }
