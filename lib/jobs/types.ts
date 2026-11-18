@@ -50,16 +50,18 @@ export type JobResult = {
   promptVersion: string
   durationMs: number
   usage?: Record<string, number>
+  skippedPhases?: number[]
 }
 export type ReportInput = Omit<
   JobResult,
-  'suggestions' | 'fieldSuggestion' | 'stageError'
+  'suggestions' | 'fieldSuggestion' | 'stageError' | 'skippedPhases'
 > & {
   suggestions?: unknown
   fieldSuggestion?: unknown
   stageError?: unknown
   enhancedImage?: unknown
   enhancedImageFrames?: unknown
+  skippedPhases?: unknown
 }
 export type TaggingJob = {
   id: string
@@ -84,8 +86,10 @@ export type TaggingJob = {
   queueAttempt?: number
   enqueuedBy?: string
   phaseIndex?: number
+  skippedPhases?: number[]
   queueStep?: number
   queueOrder?: number
+  parallelTag?: true
   completionHook?: string
   stageOptions?: ImageGroupOptions &
     Partial<ImageEnhancementOptions> & {

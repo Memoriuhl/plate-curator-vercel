@@ -18,6 +18,7 @@ import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
+import { inQueueWindow } from './queue-parallel'
 import {
   localClaimCandidate,
   localClaimsEnabled,
@@ -31,6 +32,7 @@ import {
 import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 import { claimable } from './claim-eligibility'
+import { normalizeSkippedPhases } from './job-phase'
 
 // Server coordinator only. The public worker by-id claim still refuses queue jobs.
 /** Claim a hosted queue job only when its run and attempt still authorize it. */
@@ -53,7 +55,8 @@ export async function claimHostedQueueJob(d: JobsDeps, id: string) {
       job.leaseExpiresAt! > d.now()
     )
       return { job, claimId: job.claimId! }
-    if (localClaimCandidate(d, jobs, runs, 'hosted')?.id !== id) return null
+    if (localClaimCandidate(d, jobs, runs, 'hosted', {}, id)?.id !== id)
+      return null
     const now = d.now()
     const claimed: TaggingJob = {
       ...job,
@@ -320,6 +323,8 @@ function normalize(
   input: ReportInput,
   stage?: PipelineStage
 ): JobResult | null {
+  const skippedPhases = normalizeSkippedPhases(input?.skippedPhases, stage)
+  if (skippedPhases === null) return null
   const stageError =
     stage &&
     process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' &&
@@ -386,6 +391,7 @@ function normalize(
     model: input.model,
     promptVersion: input.promptVersion,
     durationMs: input.durationMs,
+    ...(skippedPhases?.length ? { skippedPhases } : {}),
     ...(input.usage === undefined
       ? {}
       : {
@@ -514,7 +520,8 @@ export async function reportResult(
         run.batchId !== job.batchId ||
         run.requestedBy !== job.requestedBy ||
         attempt.number !== job.queueAttempt ||
-        attempt.cursor !== job.queueStep ||
+        !inQueueWindow(attempt, job.queueStep) ||
+        attempt.steps[job.queueStep!]?.plateId !== job.plateId ||
         !projected ||
         job.inputHash !== projected.batchInputHash ||
         job.executionHash !== projected.executionHash ||

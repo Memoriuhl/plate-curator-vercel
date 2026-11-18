@@ -8,6 +8,7 @@ import type { EvidenceSource } from './types'
 export type PageDeps = {
   resolve?: (host: string) => Promise<string[]>
   fetch?: typeof fetch
+  extractHtml?: (html: string, url: URL) => string
   reserve(): Promise<boolean>
   now(): number
 }
@@ -172,10 +173,14 @@ export async function fetchResearchPage(
         await reader.cancel().catch(() => undefined)
       }
       const body = new TextDecoder().decode(Buffer.concat(chunks))
-      const text = /^text\/plain/i.test(contentType)
-        ? body.replace(/\s+/g, ' ').trim().slice(0, 6000)
-        : readableText(body)
-      if (text.length < 200) return null
+      const plain = /^text\/plain/i.test(contentType)
+      if (plain && deps.extractHtml) return null
+      const text = (
+        plain
+          ? body.replace(/\s+/g, ' ').trim()
+          : (deps.extractHtml ?? readableText)(body, current)
+      ).slice(0, 6000)
+      if (text.length < (deps.extractHtml ? 40 : 200)) return null
       const title = /^text\/plain/i.test(contentType)
         ? current.hostname
         : parse(body).querySelector('title')?.text.trim() || current.hostname

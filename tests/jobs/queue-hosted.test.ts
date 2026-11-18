@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
-import { cancelRun, enqueueRun, listRuns, retryRun } from '../../lib/jobs/queue'
 import {
+  cancelRun,
+  enqueueRun,
+  enqueueSelection,
+  listRuns,
+  retryRun,
+} from '../../lib/jobs/queue'
+import {
+  dispatchGatewayTagWave,
   dispatchQueueStage,
   observeQueueStage,
 } from '../../lib/jobs/queue-engine'
@@ -20,15 +27,15 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 /** Create a hosted queue fixture and expose the model spy used to count inferences. */
-function setup() {
-  const plate = {
-    id: 'AK.one',
+function setup(slugs = ['one']) {
+  const plates = slugs.map((slug) => ({
+    id: `AK.${slug}`,
     state: 'AK',
-    slug: 'one',
-    displayName: 'One',
+    slug,
+    displayName: slug,
     image: 'one.webp',
-    tags: [],
-  }
+    tags: [] as string[],
+  }))
   const review = createMemoryStore([
     {
       id: 'batch',
@@ -38,7 +45,7 @@ function setup() {
       revision: 0,
       state: 'open',
       baselineVersion: 1,
-      plateIds: [plate.id],
+      plateIds: plates.map((plate) => plate.id),
       approval: null,
     },
   ])
@@ -46,15 +53,18 @@ function setup() {
   const jobs: JobsDeps = {
     store: createMemoryJobsStore(review, 'preview:local-pipeline-hosted'),
     localScope: 'hosted',
-    /** Supply the test plate as the catalog baseline. */
-    baseline: async () => plate,
+    /** Supply the requested test plate as the catalog baseline. */
+    baseline: async (id) => plates.find((plate) => plate.id === id) ?? null,
     /** Pin the operation clock so timestamps and lease checks are reproducible. */ now: () =>
       100,
     /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () =>
       `claim-${++sequence}`,
     leaseMs: 1000,
   }
-  const suggest = vi.fn(async () => ({ tags: ['blue'], usage: { tokens: 12 } }))
+  const suggest = vi.fn<HostedDeps['adapter']['suggest']>(async () => ({
+    tags: ['blue'],
+    usage: { tokens: 12 },
+  }))
   const hosted: HostedDeps = {
     jobs,
     adapter: {
@@ -68,7 +78,7 @@ function setup() {
     /** Provide a stable image payload to the hosted model double. */ image:
       async () => 'fixture-image',
   }
-  return { jobs, review, hosted, suggest }
+  return { jobs, review, hosted, suggest, plates }
 }
 
 test.each([false, true])(
@@ -276,4 +286,175 @@ test('a disabled hosted model is rejected at enqueue and hosted failure never ed
     value: [{ status: 'failed' }],
   })
   expect(await s.review.listEdits('batch')).toEqual([])
+})
+
+test('a 23-plate Gateway Tag run issues at most six model calls concurrently and keeps one run', async () => {
+  const s = setup(Array.from({ length: 24 }, (_, i) => `plate-${i}`))
+  const result = await enqueueSelection(s.jobs, actor, {
+    requestId: 'gateway-23',
+    batchId: 'batch',
+    plateIds: s.plates.slice(0, 23).map((plate) => plate.id),
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!result.ok) throw Error(result.error)
+  const [run] = result.value
+  const later = await enqueueRun(s.jobs, actor, {
+    requestId: 'next-tag',
+    batchId: 'batch',
+    plateIds: [s.plates[23].id],
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!later.ok) throw Error(later.error)
+  const laterJob = (await dispatchQueueStage(
+    s.jobs,
+    later.value.id,
+    1,
+    0,
+    'later'
+  ))!
+  let peak = 0
+  for (const start of [0, 6, 12, 18]) {
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let inFlight = 0
+    s.suggest.mockImplementation(async () => {
+      peak = Math.max(peak, ++inFlight)
+      await barrier
+      inFlight--
+      return { tags: ['blue'], usage: { tokens: 12 } }
+    })
+    const jobs = []
+    for (let i = start; i < Math.min(start + 6, 23); i++) {
+      jobs.push((await dispatchQueueStage(s.jobs, run.id, 1, i, `phase-${i}`))!)
+    }
+    expect(jobs.every(Boolean)).toBe(true)
+    expect(
+      await dispatchQueueStage(s.jobs, run.id, 1, start + 6, 'beyond-window')
+    ).toBeNull()
+    expect(
+      await executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
+    ).toBe('waiting')
+    const parallel = jobs.map((jobId) =>
+      executeHostedQueueStage(s.jobs, jobId, async () => s.hosted)
+    )
+    try {
+      await vi.waitFor(() => expect(inFlight).toBe(jobs.length))
+    } finally {
+      release()
+    }
+    expect(await Promise.all(parallel)).toEqual(jobs.map(() => 'settled'))
+    for (const [offset, jobId] of jobs.entries()) {
+      expect(await getJob(s.jobs, jobId)).toMatchObject({ state: 'completed' })
+      expect(
+        await observeQueueStage(s.jobs, run.id, 1, start + offset)
+      ).toMatchObject({ phase: start + offset === 22 ? 'done' : 'next' })
+    }
+  }
+  expect(peak).toBe(6)
+  expect(s.suggest).toHaveBeenCalledTimes(23)
+  expect(await s.review.listEdits('batch')).toHaveLength(23)
+  expect(await listRuns(s.jobs, actor)).toMatchObject({
+    value: expect.arrayContaining([
+      expect.objectContaining({
+        id: run.id,
+        status: 'completed',
+        attempts: [expect.objectContaining({ cursor: 23 })],
+      }),
+    ]),
+  })
+  await expect(
+    executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
+  ).resolves.toBe('settled')
+})
+
+test('cancel stops unsent Gateway Tag requests and keeps the already running results', async () => {
+  const s = setup(['one', 'two', 'three', 'four'])
+  const result = await enqueueSelection(s.jobs, actor, {
+    requestId: 'cancel-tags',
+    batchId: 'batch',
+    plateIds: s.plates.map((plate) => plate.id),
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!result.ok) throw Error(result.error)
+  const [run] = result.value
+  const jobs = []
+  for (let i = 0; i < 4; i++)
+    jobs.push((await dispatchQueueStage(s.jobs, run.id, 1, i, `cancel-${i}`))!)
+  expect(jobs.every(Boolean)).toBe(true)
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  s.suggest.mockImplementation(async () => {
+    await barrier
+    return { tags: ['blue'], usage: { tokens: 12 } }
+  })
+  const running = jobs
+    .slice(0, 2)
+    .map((job) => executeHostedQueueStage(s.jobs, job, async () => s.hosted))
+  try {
+    await vi.waitFor(() => expect(s.suggest).toHaveBeenCalledTimes(2))
+    expect(await cancelRun(s.jobs, actor, run.id)).toMatchObject({
+      ok: true,
+      value: { status: 'running' },
+    })
+    expect(await getJob(s.jobs, jobs[2])).toMatchObject({ state: 'cancelled' })
+    expect(await getJob(s.jobs, jobs[3])).toMatchObject({ state: 'cancelled' })
+  } finally {
+    release()
+  }
+  await Promise.all(running)
+  for (let i = 0; i < 4; i++) await observeQueueStage(s.jobs, run.id, 1, i)
+  expect(s.suggest).toHaveBeenCalledTimes(2)
+  expect(await s.review.listEdits('batch')).toHaveLength(2)
+  expect(await listRuns(s.jobs, actor)).toMatchObject({
+    value: [{ id: run.id, status: 'cancelled' }],
+  })
+})
+
+test('retrying a partial Gateway Tag run sends only the failed plate again', async () => {
+  const s = setup(['one', 'two', 'three'])
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'partial-tags',
+    batchId: 'batch',
+    plateIds: s.plates.map((plate) => plate.id),
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  s.suggest.mockImplementation(async ({ plate }) => {
+    if (plate.displayName === 'two')
+      throw Object.assign(new Error('Invalid input'), { status: 400 })
+    return { tags: ['blue'], usage: { tokens: 12 } }
+  })
+  const first = await dispatchGatewayTagWave(s.jobs, run.id, 1, 0)
+  await Promise.all(
+    first.map(({ id }) =>
+      executeHostedQueueStage(s.jobs, id, async () => s.hosted)
+    )
+  )
+  for (const { index } of first)
+    await observeQueueStage(s.jobs, run.id, 1, index)
+  expect(await s.review.listEdits('batch')).toHaveLength(2)
+
+  const retry = await retryRun(s.jobs, actor, run.id, 'retry-only-two')
+  if (!retry.ok) throw Error(retry.error)
+  const remaining = await dispatchGatewayTagWave(
+    s.jobs,
+    run.id,
+    2,
+    retry.value.attempts[1].cursor
+  )
+  expect(remaining.map(({ index }) => index)).toEqual([1])
+  s.suggest.mockResolvedValue({ tags: ['blue'], usage: { tokens: 12 } })
+  await executeHostedQueueStage(s.jobs, remaining[0].id, async () => s.hosted)
+  await observeQueueStage(s.jobs, run.id, 2, remaining[0].index)
+  expect(s.suggest).toHaveBeenCalledTimes(4)
+  expect(await s.review.listEdits('batch')).toHaveLength(3)
 })

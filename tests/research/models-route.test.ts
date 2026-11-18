@@ -38,10 +38,27 @@ test.each([
     )
     const result = await response.json()
     expect(
-      result.models.some(
+      result.models.filter(
         (model: { executor: string }) => model.executor === 'eve'
       )
-    ).toBe(hosted)
+    ).toEqual(
+      hosted
+        ? [
+            {
+              id: 'eve-gemini-2-5-flash-lite',
+              label: 'Gemini 2.5 Flash Lite',
+              executor: 'eve',
+              model: 'google/gemini-2.5-flash-lite',
+            },
+            {
+              id: 'eve-gemma4-26b',
+              label: 'Gemma 4 26B',
+              executor: 'eve',
+              model: 'google/gemma-4-26b-a4b-it',
+            },
+          ]
+        : []
+    )
     expect(result.default).toBe('desktop-gemma4-12b')
     expect(response.headers.get('cache-control')).toContain('no-store')
   }

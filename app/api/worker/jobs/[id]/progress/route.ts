@@ -17,7 +17,8 @@ export async function POST(
     auth.workerId,
     id,
     body.claimId,
-    body.index
+    body.index,
+    body.skippedPhases
   )
   if (!result.ok)
     return json(

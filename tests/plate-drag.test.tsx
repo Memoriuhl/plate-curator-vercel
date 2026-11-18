@@ -49,13 +49,23 @@ import { VirtualizedVariants } from '../components/plate/virtualized-variants'
 import { scrollDragList } from '../components/dashboard/drag-list-scroll'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
+const { confirmStandard } = vi.hoisted(() => ({
+  confirmStandard: vi
+    .fn<
+      (
+        plates: unknown,
+        to: string
+      ) => Promise<{ from: string; to: string } | undefined>
+    >()
+    .mockResolvedValue(undefined),
+}))
 vi.mock('../components/plate/standard-confirmation', () => ({
   /** Supply the default confirmation state for interactions that do not require a standard change. */ useStandardConfirmation:
     () => ({
       pending: false,
       dialog: null,
-      /** Resolve the confirmation stub without selecting a new standard plate. */ confirm:
-        async () => undefined,
+      /** Record the value submitted for confirmation. */ confirm:
+        confirmStandard,
     }),
 }))
 
@@ -112,6 +122,7 @@ afterEach(() => {
   cleanup()
   plateSelection.clear()
   push.mockClear()
+  confirmStandard.mockClear()
 })
 
 test('moves family blocks and variants while retaining the full permutation', () => {
@@ -285,6 +296,53 @@ test('keyboard lifts, moves, drops once and removes the global cursor', async ()
     'AK.w',
   ])
   expect(document.body.classList.contains('plate-dragging')).toBe(false)
+})
+
+test('a drag in a fresh Batch can keep the inherited Standard first', async () => {
+  const displayed = [
+    { template: { ...a, isStandard: true }, variants: [v, w] },
+    { template: b, variants: [] },
+  ]
+  const baseline = [{ ...b, isStandard: true }, a, v, w]
+  const reorder = vi.fn().mockResolvedValue(success)
+  const standard = { from: b.id, to: a.id }
+  confirmStandard.mockResolvedValueOnce(standard)
+  function Harness() {
+    const drag = usePlateDrag({
+      families: displayed,
+      canEdit: true,
+      show: 'all',
+      query: '',
+      edits: { edit: vi.fn(), pending: false },
+      ordering: { reorder, pending: false },
+      orderBaseline: () => ({ first: b.id, plates: baseline }),
+      targets: () => [],
+      closePreview: vi.fn(),
+      reload: vi.fn(),
+    })
+    return (
+      <button
+        onKeyDown={(event) =>
+          drag.onKeyDown({ kind: 'variant', plate: w }, event)
+        }
+      >
+        Move variant
+      </button>
+    )
+  }
+  render(<Harness />)
+  const handle = screen.getByRole('button', { name: 'Move variant' })
+  fireEvent.keyDown(handle, { key: ' ' })
+  fireEvent.keyDown(handle, { key: 'ArrowUp' })
+  fireEvent.keyDown(handle, { key: ' ' })
+  await waitFor(() =>
+    expect(reorder).toHaveBeenCalledExactlyOnceWith(
+      w.state,
+      [a.id, w.id, v.id, b.id],
+      standard
+    )
+  )
+  expect(confirmStandard).toHaveBeenCalledWith(baseline, a.id)
 })
 test('escape cancels and filters and roles prevent lifting', () => {
   const { handle, reorder } = setup()

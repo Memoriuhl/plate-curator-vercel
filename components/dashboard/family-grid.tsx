@@ -214,6 +214,7 @@ export function FamilyGrid({
     show,
     query,
     ordering,
+    orderBaseline: (state) => ordering.orderBaseline?.(state, plates),
     edits: {
       ...edits,
       edit: async (plate, fields, reviewed) => {

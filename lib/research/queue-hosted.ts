@@ -4,7 +4,7 @@ import { expireJob, getJob, reportResult } from '../jobs/jobs'
 import { failLocalJob } from '../jobs/queue-failure'
 import type { ResearchStateStore } from './state'
 import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
-import { enrichmentTargets, shouldReuseSavedSources } from './enrichment'
+import { enrichmentTargets } from './enrichment'
 import {
   enrichmentPrompt,
   enrichmentPromptVersion,
@@ -13,12 +13,13 @@ import {
   wikiOnlyDraft,
 } from './enrichment-result'
 import {
-  captureEnrichment,
-  captureSavedEnrichment,
+  prepareEnrichment,
+  type captureEnrichment,
+  type captureSavedEnrichment,
+  type PreparedEnrichment,
 } from '../../worker/pipeline/research'
 import { researchModelCosts } from './model-attempt'
 
-type Prepared = { sources: EvidenceSource[]; wikiUrl: string | null }
 export type QueueResearchDeps = {
   state: ResearchStateStore
   activeOwner(uid: string): Promise<boolean>
@@ -67,15 +68,24 @@ export async function executeQueueResearch(
   async function report(
     draft: unknown,
     sources: EvidenceSource[],
-    usage: Record<string, number>
+    usage: Record<string, number>,
+    skippedPhases: number[] = []
   ) {
     if (draft && sources.length)
-      await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 2)
+      await reportJobPhase(
+        jobs,
+        'hosted',
+        job.id,
+        job.claimId!,
+        2,
+        skippedPhases
+      )
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)
     const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, {
       ...meta,
       usage,
       durationMs: Math.max(0, jobs.now() - (job.startedAt ?? job.createdAt)),
+      ...(skippedPhases.length ? { skippedPhases } : {}),
       ...(fieldSuggestion
         ? { fieldSuggestion }
         : {
@@ -87,11 +97,15 @@ export async function executeQueueResearch(
   }
   if (!fields.length) return report(null, [], { modelCalls: 0 })
   // Persist captured evidence by job so later workflow polls can reuse it.
-  let prepared = await deps.state.read<Prepared>(`pipeline-evidence/${job.id}`)
+  let prepared = await deps.state.read<PreparedEnrichment>(
+    `pipeline-evidence/${job.id}`
+  )
   if (!prepared) {
-    prepared = shouldReuseSavedSources({ ...job.stageOptions, policy })
-      ? await (deps.captureSaved ?? captureSavedEnrichment)(plate)
-      : await (deps.capture ?? captureEnrichment)(plate)
+    prepared = await prepareEnrichment(
+      plate,
+      { ...job.stageOptions, policy },
+      deps
+    )
     await deps.state.update(`pipeline-evidence/${job.id}`, () => ({
       value: prepared,
       result: null,
@@ -101,14 +115,17 @@ export async function executeQueueResearch(
       result: null,
     }))
   }
-  if (!prepared.sources.length) return report(null, [], { modelCalls: 0 })
+  const skippedPhases = prepared.sourceLookupSkipped ? [0] : []
+  if (!prepared.sources.length)
+    return report(null, [], { modelCalls: 0 }, skippedPhases)
   if (!needsEnrichmentSynthesis(plate, policy))
     return report(
       wikiOnlyDraft(prepared.sources, prepared.wikiUrl),
       prepared.sources,
-      { modelCalls: 0 }
+      { modelCalls: 0 },
+      [...skippedPhases, 1]
     )
-  await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 1)
+  await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 1, skippedPhases)
   if (!job.eve) {
     const run = (await jobs.store.transaction((tx) => tx.runs())).find(
       (run) => run.id === job.queueRunId
@@ -170,12 +187,17 @@ export async function executeQueueResearch(
         output.draft.wikiSource ??
         wikiOnlyDraft(prepared.sources, prepared.wikiUrl).wikiSource,
     }
-    return report(draft, prepared.sources, {
-      ...usage,
-      modelCalls: costs.modelAttempts,
-      costUsd: costs.costUsd,
-      missingModelCosts: costs.missingModelCosts,
-    })
+    return report(
+      draft,
+      prepared.sources,
+      {
+        ...usage,
+        modelCalls: costs.modelAttempts,
+        costUsd: costs.costUsd,
+        missingModelCosts: costs.missingModelCosts,
+      },
+      skippedPhases
+    )
   }
   if ((await getJob(jobs, job.id))?.state !== 'claimed') return 'settled'
   return 'waiting'

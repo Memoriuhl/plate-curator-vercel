@@ -18,11 +18,12 @@ import {
   bindQueueWorkflow,
   chooseQueueImage,
   confirmStoppedWorker,
+  dispatchGatewayTagWave,
   dispatchQueueStage,
   observeQueueStage,
   recordQueueWorkflowFailure,
 } from '../lib/jobs/queue-engine'
-import { claimNext, reportResult } from '../lib/jobs/jobs'
+import { claimHostedQueueJob, claimNext, reportResult } from '../lib/jobs/jobs'
 import { proposeEdit, revertPipelineField } from '../lib/review/batch'
 import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
@@ -216,6 +217,42 @@ test('real serialized runs survive store recreation, dedupe, and enforce one GPU
       'production'
     )
   ).toBeNull()
+}, 20_000)
+
+test('Gateway Tag reserves two plates together and keeps out-of-order results in one Batch', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const created = await enqueueSelection(jobs, actor, {
+    requestId: 'parallel-tags',
+    batchId: 'batch',
+    plateIds: plates.map((plate) => plate.id),
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  const items = await dispatchGatewayTagWave(jobs, run.id, 1, 0)
+  expect(items).toHaveLength(2)
+  const claims = await Promise.all(
+    items.map(({ id }) => claimHostedQueueJob(jobs, id))
+  )
+  expect(claims.filter(Boolean)).toHaveLength(2)
+  for (const claim of [...claims].reverse()) {
+    const report = {
+      backend: 'fixture',
+      model: 'google/gemma-4-26b-a4b-it',
+      promptVersion: 'v1',
+      durationMs: 10,
+      suggestions: ['blue'],
+    }
+    expect(
+      await reportResult(jobs, 'hosted', claim!.job.id, claim!.claimId, report)
+    ).toMatchObject({ ok: true })
+  }
+  for (const { index } of items) await observeQueueStage(jobs, run.id, 1, index)
+  expect(await review.store.listEdits('batch')).toHaveLength(2)
+  expect(await readPipelineRun(jobs, actor, run.id)).toMatchObject({
+    value: { status: 'completed', attempts: [{ cursor: 2 }] },
+  })
 }, 20_000)
 
 test('stale worker restart remains reserved until verified stopped recovery; queued cancellation and retry retain history', async () => {

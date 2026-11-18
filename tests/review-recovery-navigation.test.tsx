@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   revisions: {} as Record<string, number>,
   mutate: vi.fn().mockResolvedValue(undefined),
   replace: vi.fn(),
+  discard: vi.fn().mockResolvedValue(undefined),
   params: new URLSearchParams('batch=fresh'),
 }))
 vi.mock('next/navigation', () => ({
@@ -74,7 +75,7 @@ vi.mock('../lib/client/hooks', () => ({
     isLoading: id === 'fresh' && !state.detail,
   }),
   /** Provide controllable batch actions so the test can inspect user requests. */
-  useReviewActions: () => ({}),
+  useReviewActions: () => ({ discardPlateChanges: state.discard }),
 }))
 afterEach(() => {
   cleanup()
@@ -82,6 +83,7 @@ afterEach(() => {
   state.extra = []
   state.revisions = {}
   state.mutate.mockClear()
+  state.discard.mockClear()
 })
 
 test('a copied Batch link waits for its detail and opens its own fresh before values despite another pending Batch', async () => {
@@ -294,4 +296,138 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   expect(
     await screen.findByRole('link', { name: 'Later pipeline change · CA' })
   ).toBeTruthy()
+})
+
+test('All review changes keeps one plate row with both batch comparisons and scoped removal', async () => {
+  state.params = new URLSearchParams()
+  const baseline = {
+    ...snapshot.plates[0],
+    id: 'CA.one',
+    displayName: 'Shared plate',
+    tags: ['catalog'],
+  }
+  state.old = {
+    batch: {
+      ...batch,
+      id: 'old',
+      name: 'Earlier batch',
+      state: 'submitted',
+      lastChangedAt: '2026-11-17T10:00:00Z',
+    },
+    plates: [
+      {
+        baseline,
+        proposed: {
+          ...baseline,
+          templateFamily: 'CA.group',
+          tags: ['earlier'],
+        },
+        edit: null,
+        revision: 'earlier',
+      },
+    ],
+  }
+  const latest: BatchDetail = {
+    batch: {
+      ...batch,
+      id: 'latest',
+      name: 'Latest batch',
+      state: 'open',
+      revision: 7,
+      lastChangedAt: '2026-11-18T10:00:00Z',
+    },
+    plates: [
+      {
+        baseline,
+        proposed: { ...baseline, tags: ['latest'] },
+        edit: null,
+        revision: 'latest',
+        order: { before: 1, after: 0, total: 2 },
+      },
+    ],
+  }
+  state.extra = [latest]
+  const props = { states: [{ code: 'CA', name: 'California', plates: [] }] }
+  const view = render(<ReviewWorkspace {...props} />)
+  const list = within(screen.getByRole('region', { name: 'Plates' }))
+  const row = await list.findByRole('link', { name: 'Shared plate · CA' })
+  expect(list.getAllByRole('link', { name: 'Shared plate · CA' })).toHaveLength(
+    1
+  )
+  expect(row.getAttribute('href')).toBe('/review?plate=CA.one')
+  expect(
+    within(row).getAllByRole('img', { name: 'Tags changed' })
+  ).toHaveLength(1)
+  expect(within(row).getByRole('img', { name: 'Family changed' })).toBeTruthy()
+  expect(within(row).getByRole('img', { name: 'Order changed' })).toBeTruthy()
+  expect(list.getByText('1 changed Plate')).toBeTruthy()
+  expect(
+    within(screen.getByRole('navigation', { name: 'Review states' })).getByRole(
+      'link',
+      { name: 'All changes 1' }
+    )
+  ).toBeTruthy()
+
+  fireEvent.change(
+    list.getByRole('searchbox', { name: 'Search changed plates' }),
+    { target: { value: 'earlier' } }
+  )
+  expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
+  const detail = within(
+    screen.getByRole('region', { name: 'Before and after' })
+  )
+  expect(detail.getAllByRole('heading', { name: 'Shared plate' })).toHaveLength(
+    1
+  )
+  const newest = within(
+    detail.getByRole('region', { name: 'Changes in Latest batch' })
+  )
+  expect(newest.getByText('Before: catalog; proposed: latest')).toBeTruthy()
+  expect(
+    within(
+      detail.getByRole('region', { name: 'Changes in Earlier batch' })
+    ).getByText('Before: catalog; proposed: earlier')
+  ).toBeTruthy()
+
+  const updated = {
+    ...latest,
+    batch: { ...latest.batch, revision: 8 },
+    plates: latest.plates.map((plate) => ({
+      ...plate,
+      proposed: { ...plate.proposed, tags: ['updated'] },
+    })),
+  }
+  state.extra = [updated]
+  view.rerender(<ReviewWorkspace {...props} />)
+  expect(
+    await newest.findByText('Before: catalog; proposed: updated')
+  ).toBeTruthy()
+  expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
+
+  fireEvent.click(newest.getByRole('button', { name: 'Remove all changes' }))
+  const dialog = within(
+    await screen.findByRole('alertdialog', {
+      name: 'Remove all changes for Shared plate?',
+    })
+  )
+  fireEvent.click(dialog.getByRole('button', { name: 'Remove all changes' }))
+  await waitFor(() =>
+    expect(state.discard).toHaveBeenCalledExactlyOnceWith(
+      'latest',
+      'CA.one',
+      8,
+      'all'
+    )
+  )
+
+  state.params = new URLSearchParams('plate=CA.one&focusBatch=latest')
+  state.extra = [{ ...updated, plates: [] }]
+  view.rerender(<ReviewWorkspace {...props} />)
+  await waitFor(() =>
+    expect(
+      detail.queryByRole('region', { name: 'Changes in Latest batch' })
+    ).toBeNull()
+  )
+  expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
+  expect(detail.getByText('Before: catalog; proposed: earlier')).toBeTruthy()
 })

@@ -1,8 +1,78 @@
 import { expect, test } from 'vitest'
 import { createMemoryStore } from '../../lib/review/memory-store'
+import { dashboardDrafts } from '../../lib/review/queries'
+import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 import { reviewQueryScenarios } from './query-scenarios'
 
 reviewQueryScenarios(() => createMemoryStore([]))
+
+test('dashboard reads saved orders and sparse edits from the signed-in curator’s pending Batches', async () => {
+  const actor = { uid: 'editor', name: null, role: 'editor' } as const
+  const plate = {
+    id: 'AK.one',
+    state: 'AK',
+    slug: 'one',
+    displayName: 'One',
+    tags: [],
+    image: '',
+  }
+  const batch: ReviewBatch = {
+    id: 'first',
+    name: 'First',
+    createdBy: actor.uid,
+    createdByName: null,
+    createdAt: '2026-11-18',
+    state: 'approved',
+    revision: 1,
+    baselineVersion: 1,
+    plateIds: [plate.id],
+    stateOrders: { AK: ['AK.two', plate.id], AL: ['AL.one'] },
+    approval: null,
+  }
+  const store = createMemoryStore([
+    batch,
+    { ...batch, id: 'published', state: 'published' },
+    { ...batch, id: 'other', createdBy: 'other' },
+    { ...batch, id: 'unrelated', plateIds: ['AL.one'], stateOrders: {} },
+  ])
+  const baselineAtVersion = async (_version: number, id: string) =>
+    id === plate.id ? plate : null
+  const deps: ReviewDeps = {
+    store,
+    baselineAtVersion,
+    baseline: (id) => baselineAtVersion(1, id),
+    stateBaseline: async () => [plate],
+    now: () => '2026-11-18',
+  }
+  await store.commit(batch.id, batch.revision, {
+    batch: { ...batch, revision: 2 },
+    edit: {
+      plateId: plate.id,
+      baseRevision: 'base',
+      fields: { tags: ['saved'] },
+      authorId: actor.uid,
+      updatedAt: deps.now(),
+      resultRevision: 'saved',
+    },
+  })
+
+  expect(await dashboardDrafts(deps, actor, new Set(['AK']))).toEqual([
+    {
+      batch: {
+        ...batch,
+        revision: 2,
+        stateOrders: { AK: ['AK.two', plate.id] },
+      },
+      plates: [
+        expect.objectContaining({
+          baseline: plate,
+          proposed: { ...plate, tags: ['saved'] },
+          revision: 'saved',
+        }),
+      ],
+    },
+  ])
+})
 
 test('legacy batches read back with a null creator name', async () => {
   const legacy = {

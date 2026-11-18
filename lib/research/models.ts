@@ -18,6 +18,12 @@ export const RESEARCH_MODELS = [
     executor: 'eve',
     model: DEFAULT_HOSTED_RESEARCH_MODEL,
   },
+  {
+    id: 'eve-gemma4-26b',
+    label: 'Gemma 4 26B',
+    executor: 'eve',
+    model: 'google/gemma-4-26b-a4b-it',
+  },
 ] as const
 export type ResearchModel = (typeof RESEARCH_MODELS)[number]
 /** Look up a configured research model by its stable identifier. */

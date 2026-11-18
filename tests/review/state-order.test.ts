@@ -104,6 +104,7 @@ test('reordering saves the full state from the pinned version without expanding 
       plateIds: ['AK.one', 'AK.two', 'AK.three'],
       revision: 5,
       stateOrders: { AK: order },
+      stateOrderChangedAt: { AK: '2026-11-17T16:15:00Z' },
       baselineOrders: { AK: plates.map((plate) => plate.id) },
     },
   })
@@ -111,6 +112,36 @@ test('reordering saves the full state from the pinned version without expanding 
   expect(await store.getBatch('batch')).toMatchObject({
     plateIds: ['AK.one', 'AK.two', 'AK.three'],
     stateOrders: { AK: order },
+  })
+})
+
+test('an unrelated edit leaves the saved state order timestamp intact', async () => {
+  const { deps, store } = setup()
+  const order = ['AK.two', 'AK.three', 'AK.one']
+  const orderedAt = deps.now()
+  expect(
+    await reorderState(deps, editor, {
+      batchId: 'batch',
+      state: 'AK',
+      batchRevision: 4,
+      order,
+    })
+  ).toMatchObject({ ok: true })
+
+  deps.now = () => '2026-11-18T16:15:00Z'
+  const plate = plates[1]
+  expect(
+    await proposeEdit(deps, editor, {
+      batchId: 'batch',
+      plateId: plate.id,
+      baseRevision: plateRevision(plate),
+      fields: { tags: ['updated'] },
+    })
+  ).toMatchObject({ ok: true })
+  expect(await store.getBatch('batch')).toMatchObject({
+    stateOrders: { AK: order },
+    stateOrderChangedAt: { AK: orderedAt },
+    lastChangedAt: deps.now(),
   })
 })
 

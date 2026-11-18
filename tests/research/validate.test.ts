@@ -28,6 +28,29 @@ test('valid drafts resolve only fetched sources and preserve supported facts', (
   })
 })
 
+test('exact fetched URLs resolve to evidence IDs without accepting unsupported claims or new URLs', () => {
+  const [{ url }] = sources
+  const result = validateResearchResult(
+    {
+      ...draft,
+      descriptionSources: [url],
+      funFacts: [
+        { ...draft.funFacts[0], sourceId: url },
+        { text: 'The wildlife program began in 1999.', sourceId: url },
+      ],
+      readMore: [url, 'S1', 'https://example.com/uncaptured'],
+    },
+    sources
+  )
+  expect(result).toEqual({
+    draft,
+    rejected: [
+      { field: 'funFacts', reason: 'unsupported_claim' },
+      { field: 'readMore', reason: 'source_not_fetched' },
+    ],
+  })
+})
+
 test('invented source IDs and unsupported numbers are rejected per field', () => {
   const result = validateResearchResult(
     {

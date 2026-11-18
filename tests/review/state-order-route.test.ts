@@ -152,6 +152,7 @@ test('signed-in creator receives the updated batch', async () => {
     plateIds: ['one', 'two'],
     revision: 5,
     stateOrders: { AK: ['two', 'one'] },
+    stateOrderChangedAt: { AK: '2026-11-17T16:15:00Z' },
     baselineOrders: { AK: ['one', 'two'] },
   })
 })

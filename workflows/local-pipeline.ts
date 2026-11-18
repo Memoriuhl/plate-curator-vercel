@@ -1,11 +1,16 @@
 import { createHook, getWorkflowMetadata, sleep } from 'workflow'
 import {
   bindQueueWorkflow,
+  dispatchGatewayTagWave,
   dispatchQueueStage,
   observeQueueStage,
 } from '../lib/jobs/queue-engine'
 import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
-import { executeHostedQueueStage } from '../lib/jobs/queue-hosted'
+import { expireJob } from '../lib/jobs/jobs'
+import {
+  executeHostedQueueAttempt,
+  executeHostedQueueStage,
+} from '../lib/jobs/queue-hosted'
 
 /**
  * Drive the queue attempt through its stages and wait for worker events, retries or
@@ -59,6 +64,70 @@ export async function localPipelineRun(
     }
   }
   return { outcome: 'completed' }
+}
+
+export async function parallelGatewayTagRun(
+  id: string,
+  attempt: number,
+  startIndex: number,
+  stepCount: number
+) {
+  'use workflow'
+  if (!(await bind(id, attempt, getWorkflowMetadata().workflowRunId)))
+    return { outcome: 'superseded' }
+
+  let index = startIndex
+  while (index < stepCount) {
+    const wave = await prepareTagWave(id, attempt, index)
+    if (!wave.length) return { outcome: 'stopped' }
+
+    const results = await Promise.allSettled(
+      wave.map((job) => finishGatewayTag(job.id))
+    )
+    const failure = results.find((result) => result.status === 'rejected')
+    if (failure) throw failure.reason
+
+    for (const job of wave) {
+      if (job.index < index) continue
+      const state = await observe(id, attempt, job.index)
+      if (state.phase === 'done') return { outcome: 'settled' }
+      if (state.phase !== 'next')
+        throw new Error('Gateway Tag job did not settle')
+      index = state.nextIndex ?? job.index + 1
+    }
+  }
+  return { outcome: 'completed' }
+}
+
+async function finishGatewayTag(jobId: string) {
+  let retries = 0
+  for (;;) {
+    const { outcome, retryAfterMs } = await executeGatewayTag(jobId)
+    if (outcome === 'settled') return
+    if (outcome === 'waiting') await sleep('5s')
+    else {
+      if (++retries === 5) {
+        await expireGatewayTag(jobId)
+        return
+      }
+      await sleep(Math.max(30_000, retryAfterMs ?? 0))
+    }
+  }
+}
+
+async function prepareTagWave(id: string, attempt: number, index: number) {
+  'use step'
+  return dispatchGatewayTagWave(jobsDeps(), id, attempt, index)
+}
+
+async function executeGatewayTag(jobId: string) {
+  'use step'
+  return executeHostedQueueAttempt(jobsDeps(), jobId, hostedTaggingDeps)
+}
+
+async function expireGatewayTag(jobId: string) {
+  'use step'
+  await expireJob(jobsDeps(), jobId)
 }
 
 /** Bind the workflow runtime ID to the queue attempt in a durable step. */

@@ -1,6 +1,10 @@
 import { connection } from 'next/server'
 import { parseBatchInput } from '../../../lib/review/fields'
-import { createBatch, listBatches } from '../../../lib/review/queries'
+import {
+  createBatch,
+  dashboardDrafts,
+  listBatches,
+} from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
 import { catalogChanged } from '../../../lib/server/catalog-head'
 import { catalog, currentActor, reviewDeps } from '../../../lib/server/context'
@@ -29,6 +33,22 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response
 
   const params = new URL(request.url).searchParams
+  const dashboard = params.get('dashboard')
+  if (dashboard !== null) {
+    const jurisdictions = dashboard.split(',')
+    if (
+      jurisdictions.length > 100 ||
+      jurisdictions.some((state) => !/^[A-Z]{2}$/.test(state))
+    )
+      return badRequest()
+    return json({
+      drafts: await dashboardDrafts(
+        reviewDeps(),
+        auth.actor,
+        new Set(jurisdictions)
+      ),
+    })
+  }
   const requested = params.get('state')?.split(',') ?? undefined
   if (requested?.some((state) => !states.includes(state as BatchState)))
     return badRequest()

@@ -65,6 +65,67 @@ export async function listBatches(
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
+export async function dashboardDrafts(
+  d: ReviewDeps,
+  actor: Actor,
+  jurisdictions: ReadonlySet<string>
+): Promise<BatchDetail[]> {
+  const states: BatchState[] = ['open', 'submitted', 'approved']
+  const batches = await listBatches(d, { states, createdBy: actor.uid })
+  const inScope = (plateId: string) => jurisdictions.has(plateId.split('.')[0])
+  const snapshots = await Promise.all(
+    batches
+      .filter(
+        (batch) =>
+          batch.plateIds.some(inScope) ||
+          Object.keys(batch.stateOrders).some((state) =>
+            jurisdictions.has(state)
+          )
+      )
+      .map((batch) => d.store.readBatch(batch.id))
+  )
+  const drafts: BatchDetail[] = []
+  for (const snapshot of snapshots) {
+    if (
+      !snapshot ||
+      snapshot.batch.createdBy !== actor.uid ||
+      !states.includes(snapshot.batch.state)
+    )
+      continue
+    const { batch, edits } = snapshot
+    const plates = await Promise.all(
+      edits
+        .filter(
+          (edit) => inScope(edit.plateId) && Object.keys(edit.fields).length
+        )
+        .map(async (edit) => {
+          const baseline = await d.baselineAtVersion(
+            batch.baselineVersion,
+            edit.plateId
+          )
+          return baseline
+            ? {
+                baseline,
+                proposed: { ...baseline, ...edit.fields },
+                edit,
+                revision: edit.resultRevision,
+              }
+            : null
+        })
+    )
+    const stateOrders = Object.fromEntries(
+      Object.entries(batch.stateOrders).filter(([state]) =>
+        jurisdictions.has(state)
+      )
+    )
+    drafts.push({
+      batch: { ...batch, stateOrders },
+      plates: plates.filter((plate) => plate !== null),
+    })
+  }
+  return drafts
+}
+
 /**
  * Build a page of batch differences with baseline plates, draft edits and state ordering
  * changes.

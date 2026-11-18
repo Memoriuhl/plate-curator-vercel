@@ -44,10 +44,14 @@ const session = vi.hoisted(() => ({
   user: { uid: 'jon' },
   api: { get: vi.fn(), send: vi.fn() },
 }))
-const navigation = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }))
+const navigation = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  replace: vi.fn(),
+  query: '',
+}))
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigation.query),
   useRouter: () => navigation,
 }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
@@ -141,6 +145,7 @@ function harness(fallback: Record<string, unknown> = {}) {
   }
 }
 beforeEach(() => {
+  navigation.query = ''
   navigation.refresh.mockClear()
   navigation.replace.mockClear()
   session.api.get
@@ -828,12 +833,17 @@ test('overlay uses the most recently updated batch and marks unedited entries un
   expect(session.api.get).not.toHaveBeenCalledWith('/api/batches/draft')
 })
 
-test('overlay passes cards through when there is no own open batch', async () => {
-  session.api.get.mockResolvedValue([])
+test('overlay passes cards through when there are no eligible drafts', async () => {
+  session.api.get.mockImplementation(async (key: string) =>
+    key === ownKey ? [] : { drafts: [] }
+  )
   const { result } = renderHook(() => useDraftOverlay([card]), harness())
   await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   expect(result.current).toEqual([{ ...card, changedInBatch: false }])
-  expect(session.api.get).toHaveBeenCalledTimes(1)
+  expect(session.api.get.mock.calls).toEqual([
+    [ownKey],
+    ['/api/batches?dashboard=AK'],
+  ])
 })
 
 test('fast edits are serialized, stay pending and use the revision returned after the first save', async () => {
@@ -1194,6 +1204,181 @@ test('overlay applies proposed state order to all cards including plates outside
   })
   expect(result.current[0].changedInBatch).toBe(true)
   expect(result.current[2]).toEqual({ ...plates[2], changedInBatch: false })
+})
+
+test('opening a fresh Batch keeps saved plate positions and fields, and new edits win by field', async () => {
+  const earlier = { ...batch, stateOrders: { AK: ['AK.other', card.id] } }
+  const fresh = { ...batch, id: 'fresh', revision: 0, createdAt: '2026-11-17' }
+  const tags = ['saved', 'earlier', 'tags']
+  const savedEdit = {
+    plateId: card.id,
+    baseRevision: card.revision,
+    fields: { tags },
+    authorId: 'jon',
+    updatedAt: '2026-11-16',
+    resultRevision: 'earlier-revision',
+  }
+  const prior = {
+    ...detail(savedEdit),
+    batch: earlier,
+    plates: [
+      {
+        baseline,
+        proposed: { ...baseline, tags },
+        edit: savedEdit,
+        revision: 'earlier-revision',
+      },
+    ],
+  }
+  let active = {
+    batch: fresh,
+    plates: [
+      { baseline, proposed: baseline, edit: null, revision: card.revision },
+    ],
+  } as BatchDetail
+  session.api.get.mockImplementation(async (key: string) => {
+    if (key === ownKey) return [earlier]
+    if (key === '/api/batches?dashboard=AK') return { drafts: [prior] }
+    if (key === '/api/batches/fresh') return active
+    if (key === '/api/me') return { uid: 'jon', role: 'owner' }
+    return prior
+  })
+  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+  const { result, rerender } = renderHook(
+    () => ({ cards: useDraftOverlay(plates), selected: useBatch('fresh') }),
+    harness()
+  )
+  await waitFor(() =>
+    expect(result.current.cards[0]).toMatchObject({ tags, sortOrder: 1 })
+  )
+
+  navigation.query = 'batch=fresh'
+  rerender()
+  expect(result.current.cards[0]).toMatchObject({ tags, sortOrder: 1 })
+  await waitFor(() =>
+    expect(result.current.cards[0]).toMatchObject({
+      revision: card.revision,
+      tags,
+      sortOrder: 1,
+    })
+  )
+
+  const description = 'A longer description saved in the newer Batch.'
+  active = {
+    batch: { ...fresh, revision: 1 },
+    plates: [
+      {
+        baseline,
+        proposed: { ...baseline, description },
+        revision: 'fresh-revision',
+        edit: {
+          ...savedEdit,
+          fields: { description },
+          updatedAt: '2026-11-17',
+          resultRevision: 'fresh-revision',
+        },
+      },
+    ],
+  }
+  await act(async () => {
+    await result.current.selected.mutate()
+  })
+  expect(result.current.cards[0]).toMatchObject({
+    tags,
+    sortOrder: 1,
+    revision: 'fresh-revision',
+    changedInBatch: true,
+    checks: { description: { status: 'good', value: description } },
+  })
+})
+
+test.each([undefined, { AK: '2026-11-16' }])(
+  'the most recent state order wins despite a later edit to an older Batch (%j)',
+  async (stateOrderChangedAt) => {
+    const previousOrder = {
+      ...batch,
+      id: 'previous',
+      lastChangedAt: '2026-11-18',
+      stateOrders: { AK: [card.id, 'AK.other'] },
+      stateOrderChangedAt,
+    }
+    const latestOrder = {
+      ...batch,
+      id: 'latest',
+      lastChangedAt: '2026-11-17',
+      stateOrders: { AK: ['AK.other', card.id] },
+      stateOrderChangedAt: { AK: '2026-11-17' },
+    }
+    session.api.get.mockImplementation(async (key: string) =>
+      key === ownKey
+        ? [previousOrder]
+        : key === '/api/batches?dashboard=AK'
+          ? {
+              drafts: [
+                { batch: latestOrder, plates: [] },
+                { batch: previousOrder, plates: [] },
+              ],
+            }
+          : { batch: previousOrder, plates: [] }
+    )
+    const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+    const { result } = renderHook(() => useDraftOverlay(plates), harness())
+    await waitFor(() =>
+      expect(result.current.map((plate) => plate.sortOrder)).toEqual([1, 0])
+    )
+  }
+)
+
+test('a lagging Batch read cannot undo a confirmed reorder', async () => {
+  const order = ['AK.other', card.id]
+  session.api.send.mockResolvedValue({
+    ...batch,
+    revision: 2,
+    stateOrders: { AK: order },
+  })
+  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+  const { result } = renderHook(
+    () => ({ ordering: useReorderState(), overlay: useDraftOverlay(plates) }),
+    harness()
+  )
+  await waitFor(() => expect(result.current.ordering.ready).toBe(true))
+
+  await act(async () => {
+    expect(await result.current.ordering.reorder('AK', order)).toMatchObject({
+      ok: true,
+    })
+  })
+
+  expect(result.current.ordering.batch?.revision).toBe(2)
+  expect(result.current.overlay.map((plate) => plate.sortOrder)).toEqual([1, 0])
+})
+
+test('Batch revalidation accepts newer revisions and retains the current order on older reads', async () => {
+  const saved = {
+    ...batch,
+    revision: 2,
+    stateOrders: { AK: ['AK.other', card.id] },
+  }
+  session.api.get.mockResolvedValue({ ...detail(), batch: saved })
+  const { result } = renderHook(() => useBatch(batch.id), harness())
+  await waitFor(() => expect(result.current.data?.batch).toEqual(saved))
+
+  session.api.get.mockResolvedValueOnce(detail())
+  await act(async () => {
+    await result.current.mutate()
+  })
+  expect(result.current.data?.batch).toEqual(saved)
+
+  const newer = {
+    ...batch,
+    revision: 3,
+    stateOrders: { AK: [card.id, 'AK.other'] },
+  }
+  session.api.get.mockResolvedValueOnce({ ...detail(), batch: newer })
+  await act(async () => {
+    await result.current.mutate()
+  })
+  expect(result.current.data?.batch).toEqual(newer)
 })
 
 test.each([

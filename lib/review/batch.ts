@@ -365,6 +365,11 @@ async function updatePlate(
       }
       nextBatch.plateIds = combined.value.plateIds
       nextBatch.stateOrders = { ...batch.stateOrders, [plate.state]: order }
+      if (order !== batch.stateOrders[plate.state])
+        nextBatch.stateOrderChangedAt = {
+          ...batch.stateOrderChangedAt,
+          [plate.state]: changedAt,
+        }
       nextBatch.baselineOrders = {
         ...batch.baselineOrders,
         [plate.state]:
@@ -588,14 +593,19 @@ export async function reorderState(
         input.standard
       )
   if (!combined.ok) return combined
+  const changedAt = d.now()
   const next: ReviewBatch = {
     ...batch,
-    lastChangedAt: d.now(),
+    lastChangedAt: changedAt,
     plateIds: combined.value.plateIds,
     state: 'open',
     approval: null,
     revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
+    stateOrderChangedAt: {
+      ...batch.stateOrderChangedAt,
+      [input.state]: changedAt,
+    },
     baselineOrders: {
       ...batch.baselineOrders,
       [input.state]:

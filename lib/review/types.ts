@@ -17,6 +17,7 @@ export type ReviewBatch = {
   revision: number
   baselineVersion: number
   stateOrders: Record<string, string[]>
+  stateOrderChangedAt?: Record<string, string>
   baselineOrders?: Record<string, string[]>
   plateIds: string[]
   approvalRun?: { runId: string; revision: number }

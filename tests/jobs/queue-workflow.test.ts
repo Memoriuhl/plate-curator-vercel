@@ -1,5 +1,8 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { localPipelineRun } from '../../workflows/local-pipeline'
+import {
+  localPipelineRun,
+  parallelGatewayTagRun,
+} from '../../workflows/local-pipeline'
 
 const mocks = vi.hoisted(() => ({
   bind: vi.fn(),
@@ -7,12 +10,17 @@ const mocks = vi.hoisted(() => ({
   observe: vi.fn(),
   conflict: vi.fn(),
   sleep: vi.fn(),
+  wave: vi.fn(),
+  tag: vi.fn(),
+  expire: vi.fn(),
   events: [] as string[],
 }))
 vi.mock('../../lib/jobs/queue-hosted', () => ({
-  /** Settle hosted execution immediately so tests can isolate workflow orchestration. */ executeHostedQueueStage:
-    async () => 'settled',
+  /** Settle hosted execution immediately so tests can isolate workflow orchestration. */
+  executeHostedQueueStage: async () => 'settled',
+  executeHostedQueueAttempt: mocks.tag,
 }))
+vi.mock('../../lib/jobs/jobs', () => ({ expireJob: mocks.expire }))
 vi.mock('../../lib/server/context', () => ({
   /** Provide an empty jobs dependency stub because queue operations are mocked separately. */ jobsDeps:
     () => ({}),
@@ -22,6 +30,7 @@ vi.mock('../../lib/jobs/queue-engine', () => ({
   bindQueueWorkflow: mocks.bind,
   dispatchQueueStage: mocks.dispatch,
   observeQueueStage: mocks.observe,
+  dispatchGatewayTagWave: mocks.wave,
 }))
 vi.mock('workflow', () => ({
   /** Return the run ID the fixture expects to bind to the workflow attempt. */
@@ -114,4 +123,47 @@ test('queue/offline wait uses a long durable wait and only claimed inference get
     '1h',
     new Date(12345),
   ])
+})
+
+test('Gateway Tag starts all available plates together and settles them in order', async () => {
+  const wave = Array.from({ length: 6 }, (_, index) => ({
+    id: `job-${index}`,
+    index,
+  }))
+  mocks.wave
+    .mockResolvedValueOnce(wave)
+    .mockResolvedValueOnce([{ id: 'job-6', index: 6 }])
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  mocks.tag.mockImplementation(async () => {
+    await barrier
+    return { outcome: 'settled' }
+  })
+  const running = parallelGatewayTagRun('run', 1, 0, 7)
+  try {
+    await vi.waitFor(() => expect(mocks.tag).toHaveBeenCalledTimes(6))
+    expect(mocks.observe).not.toHaveBeenCalled()
+  } finally {
+    release()
+  }
+  expect(await running).toEqual({ outcome: 'completed' })
+  expect(mocks.wave.mock.calls.map((args) => args[3])).toEqual([0, 6])
+  expect(mocks.observe.mock.calls.map((args) => args[3])).toEqual([
+    0, 1, 2, 3, 4, 5, 6,
+  ])
+})
+
+test('Gateway Tag honors provider backoff and stops retrying a single failing plate', async () => {
+  mocks.wave.mockResolvedValue([{ id: 'job-0', index: 0 }])
+  mocks.tag.mockResolvedValue({ outcome: 'retry', retryAfterMs: 62_000 })
+  expect(await parallelGatewayTagRun('run', 1, 0, 1)).toEqual({
+    outcome: 'completed',
+  })
+  expect(mocks.tag).toHaveBeenCalledTimes(5)
+  expect(mocks.sleep.mock.calls.flat()).toEqual([
+    62_000, 62_000, 62_000, 62_000,
+  ])
+  expect(mocks.expire).toHaveBeenCalledExactlyOnceWith({}, 'job-0')
 })

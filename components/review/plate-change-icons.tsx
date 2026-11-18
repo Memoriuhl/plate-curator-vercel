@@ -39,26 +39,40 @@ const changes = [
   },
 ] as const
 
-export function PlateChangeIcons({
-  entry,
-}: {
-  entry: BatchDetail['plates'][number]
-}) {
-  const { baseline, proposed, order } = entry
+type PlateChange = BatchDetail['plates'][number]
+
+export function PlateChangeIcons(
+  props: { entry: PlateChange } | { entries: readonly PlateChange[] }
+) {
+  const entries = 'entries' in props ? props.entries : [props.entry]
   const indicators: { label: string; icon: IconType }[] = changes
     .filter(({ fields }) =>
-      fields.some(
-        (field) => !sameEditableValue(field, baseline[field], proposed[field])
+      entries.some(({ baseline, proposed }) =>
+        fields.some(
+          (field) => !sameEditableValue(field, baseline[field], proposed[field])
+        )
       )
     )
     .map(({ label, icon }) => ({ label, icon }))
-  if (order || baseline.sortOrder !== proposed.sortOrder)
+  if (
+    entries.some(
+      ({ baseline, proposed, order }) =>
+        order || baseline.sortOrder !== proposed.sortOrder
+    )
+  )
     indicators.push({ label: 'Order', icon: IoSwapVerticalOutline })
-  if (!!baseline.deleted !== !!proposed.deleted)
-    indicators.push({
-      label: proposed.deleted ? 'Deleted' : 'Restored',
-      icon: IoTrashOutline,
-    })
+  if (
+    entries.some(
+      ({ baseline, proposed }) => !baseline.deleted && proposed.deleted
+    )
+  )
+    indicators.push({ label: 'Deleted', icon: IoTrashOutline })
+  if (
+    entries.some(
+      ({ baseline, proposed }) => baseline.deleted && !proposed.deleted
+    )
+  )
+    indicators.push({ label: 'Restored', icon: IoTrashOutline })
   if (!indicators.length) return null
   return (
     <span className="flex flex-wrap gap-1 text-muted-foreground">
