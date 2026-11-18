@@ -50,18 +50,26 @@ export function StateHeader({
     >
       <div>
         <h1 className="page-title">{jurisdiction.name}</h1>
-        <p>
-          {plates.length} plates ·{' '}
-          {
-            plates.filter(
-              (plate) =>
-                plate.templateRole === 'template' || !plate.templateFamily
-            ).length
-          }{' '}
-          templates ·{' '}
-          {plates.filter((plate) => plate.templateRole === 'variant').length}{' '}
-          variants · {plates.filter((plate) => plate.complete).length} complete
-        </p>
+        <ul
+          aria-label="Plate counts"
+          className="flex list-none flex-wrap gap-x-5 gap-y-1 text-[var(--ink-2)]"
+        >
+          <li>{plates.length} plates</li>
+          <li>
+            {
+              plates.filter(
+                (plate) =>
+                  plate.templateRole === 'template' || !plate.templateFamily
+              ).length
+            }{' '}
+            templates
+          </li>
+          <li>
+            {plates.filter((plate) => plate.templateRole === 'variant').length}{' '}
+            variants
+          </li>
+          <li>{plates.filter((plate) => plate.complete).length} complete</li>
+        </ul>
       </div>
     </BatchActions>
   )

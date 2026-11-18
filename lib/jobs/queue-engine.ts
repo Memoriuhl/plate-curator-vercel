@@ -74,7 +74,6 @@ function advanceCursor(run: PipelineRun, attempt: RunAttempt, now: number) {
   }
   run.updatedAt = now
   run.waitReason = 'worker'
-  run.status = 'queued'
 }
 
 /**
@@ -355,7 +354,6 @@ export async function dispatchQueueStage(
     attempt.status = 'running'
     run.waitReason = hosted ? 'resource' : 'worker'
     run.updatedAt = d.now()
-    if (hosted) run.status = 'running'
     if (!queueRecordFits(run)) {
       finishRun(run, 'failed', d.now(), 'payload_too_large')
       tx.setRun(run)
@@ -574,7 +572,7 @@ async function settleQueueStage(
     if (cancelled) finishRun(run, 'cancelled', d.now(), error)
     else if (error) finishRun(run, 'failed', d.now(), error)
   }
-  return run.status === 'queued'
+  return run.status === 'queued' || run.status === 'running'
     ? nextStage(attempt, job.queueStep!)
     : { phase: 'done' }
 }

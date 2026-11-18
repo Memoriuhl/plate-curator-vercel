@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
 import { ApiError } from '@/lib/client/api'
 import { useWorkspaceBatch } from '@/lib/client/hooks'
@@ -25,6 +26,10 @@ export const pipelineQueueKey = '/api/local-pipeline/runs'
 const queueSummaryKey = `${pipelineQueueKey}?detail=none`
 export const gatewayRunsKey = '/api/jobs/runs'
 
+export function pipelineRunDetailKey(id: string) {
+  return `${pipelineQueueKey}?detail=${encodeURIComponent(id)}&detailOnly=1`
+}
+
 type QueueSnapshot = {
   runs: QueueRunSummary[]
   selected?: QueueRunView
@@ -35,11 +40,12 @@ type QueueSnapshot = {
 
 export function PipelineQueueWarmup() {
   const { user, api } = useSession()
+  const pathname = usePathname()
   const key =
     process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
       ? queueSummaryKey
       : gatewayRunsKey
-  useSWR(user ? key : null, api.get)
+  useSWR(user && !pathname?.startsWith('/pipeline/runs/') ? key : null, api.get)
   return null
 }
 
@@ -71,7 +77,8 @@ function queueError(error: unknown) {
 export function usePipelineQueue(
   existingBatchId?: string | null,
   existingBatchName?: string,
-  detailId?: string
+  detailId?: string,
+  enabled = true
 ) {
   const { user, api, ready } = useSession()
   const { mutate } = useSWRConfig()
@@ -88,28 +95,65 @@ export function usePipelineQueue(
   const posting = useRef(false)
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [selectedId, select] = useState<string | undefined>(detailId ?? 'none')
-  const key =
-    selectedId && selectedId !== 'none'
+  const [selection, select] = useState<string | undefined>('none')
+  const selectedId = detailId ?? selection
+  const key = detailId
+    ? pipelineRunDetailKey(detailId)
+    : selectedId && selectedId !== 'none'
       ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}`
       : queueSummaryKey
-  // Cache the summary and each run separately, keeping the queue visible while a new key loads.
-  const list = useSWR<QueueSnapshot>(local && uid ? key : null, api.get, {
-    refreshInterval: (data) =>
-      data?.runs.some((run) => run.status === 'running') ? 1250 : 3000,
-    keepPreviousData: true,
-  })
+  const list = useSWR<QueueSnapshot>(
+    enabled && local && uid ? key : null,
+    api.get,
+    {
+      refreshInterval: (data) =>
+        data?.runs.some((run) => run.status === 'running') ? 1250 : 3000,
+      keepPreviousData: !detailId,
+    }
+  )
   const snapshot = list.data
   const loaded = !list.isLoading
   useEffect(() => {
     if (
+      !enabled ||
       !uid ||
       key === queueSummaryKey ||
       !loaded ||
       !snapshot ||
-      !snapshot.selected
+      snapshot.selected?.id !== selectedId
     )
       return
+    if (detailId) {
+      const updated = snapshot.runs.find((run) => run.id === detailId)
+      if (!updated) return
+      void mutate<QueueSnapshot>(
+        queueSummaryKey,
+        (previous) => {
+          const current = previous?.runs.find((run) => run.id === detailId)
+          if (
+            !previous ||
+            !current ||
+            current.updatedAt > updated.updatedAt ||
+            (previous.observedAt ?? -Infinity) >
+              (snapshot.observedAt ?? -Infinity)
+          )
+            return previous
+          const summary = {
+            ...updated,
+            queueWait:
+              current.status === updated.status ? current.queueWait : undefined,
+          }
+          return {
+            ...previous,
+            runs: previous.runs.map((run) =>
+              run.id === detailId ? summary : run
+            ),
+          }
+        },
+        { revalidate: false }
+      )
+      return
+    }
     const summary = {
       runs: snapshot.runs,
       orphanJobs: snapshot.orphanJobs,
@@ -124,7 +168,7 @@ export function usePipelineQueue(
           : summary,
       { revalidate: false }
     )
-  }, [uid, key, loaded, snapshot, mutate])
+  }, [enabled, uid, key, loaded, snapshot, selectedId, detailId, mutate])
   useEffect(() => {
     if (!uid || !list.data) return
     try {

@@ -91,23 +91,10 @@ export function FamilyGrid({
   const params = useSearchParams()
   const pathname = usePathname()
   const latestOverlay = useFamilyBatchOverlay(plates)
-  const [publishedOnly, setPublishedOnly] = useState(false)
-  // Reuse the published-only cards until the catalog or display mode changes.
-  const published = useMemo(
-    () =>
-      publishedOnly
-        ? plates.map((plate) => ({
-            ...expandFamilyPlate(plate),
-            changedInBatch: false,
-          }))
-        : null,
-    [plates, publishedOnly]
-  )
   const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(
     null
   )
-  const overlaid = published ?? heldOverlay ?? latestOverlay
-  // Reuse grouping, membership and counts while only interactions or search change.
+  const overlaid = heldOverlay ?? latestOverlay
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const attachedIds = useMemo(
     () => attachedFamilyIds(overlaid, baselineFamilies),
@@ -128,8 +115,7 @@ export function FamilyGrid({
       ),
     [overlaid]
   )
-  const filter = params.get('show') ?? 'all'
-  const show = publishedOnly && filter === 'changed' ? 'all' : filter
+  const show = params.get('show') ?? 'all'
   const query = params.get('q') ?? ''
   const focusPlateId = params.get('plate')
   // Reuse the state-wide Standard check as search text changes.
@@ -187,8 +173,6 @@ export function FamilyGrid({
   const edits = useEditPlate()
   const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
-  const draftBatch =
-    workspace.mode === 'selected' ? workspace.detail?.batch : ordering.batch
   const standardConfirmation = useStandardConfirmation()
   // Reuse candidate repairs until the affected families or saved state order changes.
   const standardRepairs = useMemo(() => {
@@ -215,10 +199,9 @@ export function FamilyGrid({
   const [resolutionError, setResolutionError] = useState('')
   const { mutate } = useSWRConfig()
   const canEdit =
-    !publishedOnly &&
-    (workspace.mode === 'selected'
+    workspace.mode === 'selected'
       ? workspace.status === 'ready'
-      : me.data?.role === 'editor' || me.data?.role === 'owner')
+      : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
     bulkEdits,
     catalogVersion,
@@ -560,29 +543,6 @@ export function FamilyGrid({
       id="families"
       className="grid grid-cols-[minmax(0,1fr)] gap-[var(--stack-gap)] pb-56 sm:pb-32"
     >
-      {catalogVersion !== undefined ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="caption">
-            Published catalog v{catalogVersion}
-            {draftBatch && !publishedOnly
-              ? ` · Batch: ${draftBatch.name} (based on catalog v${draftBatch.baselineVersion})`
-              : null}
-          </p>
-          {draftBatch || publishedOnly ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!!drag.active || drag.saving || !!issue}
-              onClick={() => {
-                close()
-                setPublishedOnly((value) => !value)
-              }}
-            >
-              {publishedOnly ? 'Show Batch changes' : 'Show published families'}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
       {code ? (
         <FilterBar
           counts={counts}

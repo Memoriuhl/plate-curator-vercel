@@ -1,11 +1,8 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 import { mostRecentBatch } from '@/lib/review/batch-selection'
-import { batchHref, reviewHref } from '@/lib/review/href'
 import {
   useWorkspaceBatch,
   useBatch,
@@ -34,7 +31,6 @@ export function BatchActions({
   children?: ReactNode
 }) {
   const workspace = useWorkspaceBatch()
-  const pathname = usePathname()
   const batches = useBatches(['open'], { mine: true })
   const personalBatch = mostRecentBatch(batches.data)
   const batch =
@@ -53,7 +49,7 @@ export function BatchActions({
       : personalDetail
   const me = useMe()
   const run = useTagRun()
-  const queue = useDashboardPipeline()
+  const { queue, openPipeline } = useDashboardPipeline()
   const batchPlates =
     detail.data?.plates.map(({ proposed, revision }) => {
       const {
@@ -98,14 +94,6 @@ export function BatchActions({
             <BatchLastChanged batch={detail.data?.batch ?? batch} />
           </span>
         ) : null}
-        {workspace.mode === 'personal' && batch ? (
-          <Link href={batchHref(pathname, batch.id)}>Open / Share</Link>
-        ) : null}
-        {batch ? (
-          <Link href={reviewHref(undefined, undefined, batch.id)}>
-            Review Batch
-          </Link>
-        ) : null}
         <RunMenu
           queue={queue}
           underTagged={underTagged}
@@ -117,9 +105,11 @@ export function BatchActions({
             !!run.disabledReason || run.entries.length > 0 || run.starting
           }
           modelError={run.modelError}
-          start={(plates, retry, modelId, stage) =>
-            void run.start(plates, retry, modelId, stage)
-          }
+          start={(plates, retry, modelId, stage) => {
+            void run.start(plates, retry, modelId, stage, (runId) =>
+              openPipeline(runId)
+            )
+          }}
         />
         <PublishButton
           batchId={workspace.mode === 'selected' ? workspace.id : batch?.id}

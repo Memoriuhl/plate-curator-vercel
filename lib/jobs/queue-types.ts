@@ -13,6 +13,7 @@ export type QueueWait =
   | 'worker_offline'
   | 'saved_sources_worker'
   | 'image_worker'
+  | 'prior_run'
   | 'gpu_busy'
   | 'io_busy'
   | 'gpu_recovery'

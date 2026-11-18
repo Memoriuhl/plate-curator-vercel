@@ -18,7 +18,7 @@ import type { QueueRunView } from '@/lib/jobs/queue-types'
 import type { RunPlateDetail } from '@/lib/jobs/run-plates'
 import { plateOutcomes, type StepProgress } from '@/lib/jobs/run-progress'
 import { pipelineStepReason, pipelineStages } from './pipeline-stages'
-import { pipelineQueueKey } from './use-pipeline-queue'
+import { pipelineRunDetailKey } from './use-pipeline-queue'
 import styles from './pipeline-runs.module.css'
 
 type Plates = {
@@ -97,9 +97,7 @@ function LocalPlates({
   const { api, user } = useSession()
   // Use the queue's detail key so expanded cards can share data already fetched for the run.
   const detail = useSWR<{ selected?: QueueRunView }>(
-    user && enabled
-      ? `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}`
-      : null,
+    user && enabled ? pipelineRunDetailKey(runId) : null,
     api.get
   )
   const plates = detail.data?.selected?.plates

@@ -737,7 +737,7 @@ test('a family drop rejects a remote edit during the gesture and refreshes the s
   expect((await deps.store.getBatch('shared'))!.revision).toBe(1)
 })
 
-test('a saved family drop survives a fresh workspace load and the published view stays at the same catalog version', async () => {
+test('a saved family drop survives a fresh workspace load as a draft', async () => {
   const first = render(<Workspace actor={editor} />)
   await ready(first)
   targetRects(first.container)
@@ -757,16 +757,16 @@ test('a saved family drop survives a fresh workspace load and the published view
   const family = (name: string) =>
     within(within(collaborator.container).getByRole('article', { name }))
   expect(family('Navy family').getByText('Variant')).toBeTruthy()
-  expect(collaborator.container.textContent).toContain(
-    'Published catalog v1 · Batch: shared Batch (based on catalog v1)'
+  expect(collaborator.container.textContent).not.toContain('Published catalog')
+  expect(
+    within(collaborator.container).queryByRole('button', {
+      name: 'Show published families',
+    })
+  ).toBeNull()
+  expect((await deps.store.getBatch('shared'))?.baselineVersion).toBe(1)
+  expect((await deps.baselineAtVersion(1, 'AK.v'))?.variantOfPlateId).toBe(
+    'AK.a'
   )
-  fireEvent.click(button(collaborator, 'Show published families'))
-  expect(family('Army family').getByText('Variant')).toBeTruthy()
-  expect(collaborator.container.textContent).not.toContain(
-    'based on catalog v1'
-  )
-  fireEvent.click(button(collaborator, 'Show Batch changes'))
-  expect(family('Navy family').getByText('Variant')).toBeTruthy()
 })
 
 test.each(['Description', 'Template family', 'Add tag'])(

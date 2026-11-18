@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { batchHref } from '@/lib/review/href'
+import { batchHref, reviewHref } from '@/lib/review/href'
 
 import { useState, type ReactNode } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
@@ -12,8 +12,21 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { QueueRunSummary, QueueWait } from '@/lib/jobs/queue-types'
+import type { GatewayRun } from '@/lib/jobs/gateway-runs'
+import type {
+  LocalRunStage,
+  QueueRunSummary,
+  QueueWait,
+} from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
+import { PipelinePlateList } from './pipeline-run-plates'
+import {
+  machineLabels,
+  queueRunExecution,
+  runModelLabel,
+  type PipelineMachineFilter,
+  type RunExecution,
+} from './pipeline-run-execution'
 import { PipelineRunCard } from './pipeline-run-card'
 import {
   PipelineRailSkeleton,
@@ -41,12 +54,20 @@ type QueueControls = Pick<
       'orphanJobs' | 'recoverOrphan' | 'observedAt'
     >
   >
+export type OpenStageResults = (
+  runId: string,
+  stage: LocalRunStage,
+  trigger: HTMLButtonElement
+) => void
 
 function resultsHref(run: QueueRunSummary) {
   return batchHref(`/pipeline/runs/${encodeURIComponent(run.id)}`, run.batchId)
 }
 
-const queueWaitLabels: Record<QueueWait, string> = {
+const queueWaitLabels: Record<
+  Exclude<QueueWait, 'worker_claim' | 'hosted'>,
+  string
+> = {
   starting_workflow: 'Starting workflow',
   dispatching: 'Preparing the next step',
   settling: 'Saving the previous result',
@@ -57,8 +78,7 @@ const queueWaitLabels: Record<QueueWait, string> = {
   io_busy: 'Waiting for an I/O slot',
   gpu_recovery: 'Waiting for a stopped GPU job to be recovered',
   io_recovery: 'Waiting for stopped I/O jobs to be recovered',
-  hosted: 'Waiting for the hosted worker',
-  worker_claim: 'Waiting for the local worker to pick up this step',
+  prior_run: 'Waiting for an earlier run to finish',
 }
 
 /**
@@ -79,26 +99,106 @@ function label(run: QueueRunSummary) {
   return run.status[0].toUpperCase() + run.status.slice(1)
 }
 
-/**
- * Show the selected queue run, saved drafts, stage results and permitted recovery
- * controls.
- */
+type GatewayView = {
+  runs: GatewayRun[]
+  loading: boolean
+  error?: unknown
+  observedAt?: number
+  refresh: () => unknown
+}
+type ListedRun = (
+  ({ source: 'queue' } & QueueRunSummary) | ({ source: 'gateway' } & GatewayRun)
+) & { execution: RunExecution[] }
+
+/** Show local and gateway pipeline runs, stage results and recovery actions. */
 export function PipelineQueuePanel({
   queue,
   header,
   requester,
+  stacked,
+  requestedRunId,
+  onOpenStageResults,
+  gateway,
+  localEnabled = true,
+  machineFilter = 'local',
 }: {
   queue: QueueControls
+  stacked?: boolean
+  requestedRunId?: string
   header?: (history: ReactNode) => ReactNode
   requester?(uid: string): string | undefined
+  onOpenStageResults?: OpenStageResults
+  gateway?: GatewayView
+  localEnabled?: boolean
+  machineFilter?: PipelineMachineFilter
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
-  const history = queue.loading ? null : (
+  const localRuns = localEnabled ? queue.runs : []
+  const queueIds = new Set(localRuns.map((run) => run.id))
+  const listed: ListedRun[] = localRuns
+    .map((run) => ({
+      ...run,
+      source: 'queue' as const,
+      execution: queueRunExecution(run),
+    }))
+    .filter(
+      (run) =>
+        machineFilter === 'all' ||
+        run.execution.some(({ machine }) => machine === machineFilter)
+    )
+  for (const run of gateway?.runs ?? []) {
+    if (queueIds.has(run.id)) continue
+    const model = runModelLabel(run.modelId)
+    listed.push({
+      ...run,
+      source: 'gateway',
+      execution: [{ machine: 'gateway', models: model ? [model] : [] }],
+    })
+  }
+  const showLocal = localEnabled && machineFilter !== 'gateway'
+  const loading =
+    !listed.length && ((localEnabled && queue.loading) || gateway?.loading)
+  const history = loading ? null : (
     <PipelineRunHistory
-      runs={queue.runs}
-      progress={(run) => run.progress ?? queueProgress(run)}
-      historyHref={resultsHref}
+      runs={listed.filter(
+        (run) => run.source === 'gateway' || run.dismissedAt !== undefined
+      )}
+      includeFinished
+      progress={(run) =>
+        run.source === 'gateway'
+          ? run.progress
+          : (run.progress ?? queueProgress(run))
+      }
+      historyHref={(run) =>
+        run.source === 'gateway'
+          ? reviewHref(undefined, undefined, run.batchId, { run: run.id })
+          : resultsHref(run)
+      }
       renderHistory={(run) => {
+        if (run.source === 'gateway')
+          return (
+            <>
+              <p className="caption">{runModelLabel(run.modelId)}</p>
+              <PipelinePlateList
+                plateIds={run.plateIds}
+                steps={run.progress.steps}
+                plates={run.plates}
+              />
+              {run.results.length ? (
+                <ul className={styles.stepList}>
+                  {run.results.map((result) => (
+                    <li key={result.jobId}>
+                      <strong>{result.plateName}</strong>
+                      <span>
+                        Suggested tags:{' '}
+                        {result.suggestions.join(', ') || 'None'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          )
         const { steps } = run.progress ?? queueProgress(run)
         const summary = plateOutcomeSummary(steps)
         return (
@@ -147,68 +247,104 @@ export function PipelineQueuePanel({
           {history}
         </header>
       )}
-      {queue.error ? (
+      {showLocal && queue.error ? (
         <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>
           Refresh queue
         </Button>
       ) : null}
 
-      {queue.error ? (
+      {showLocal && queue.error ? (
         <p role="alert">Could not load saved runs. Refresh to try again.</p>
       ) : null}
-      {!queue.loading && !queue.error && !queue.runs.length ? (
-        <p className="caption">No local runs yet.</p>
+      {gateway?.error ? (
+        <p role="alert">
+          Could not load gateway runs.{' '}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void gateway.refresh()}
+          >
+            Refresh runs
+          </Button>
+        </p>
+      ) : null}
+      {!loading &&
+      !(showLocal && queue.error) &&
+      !gateway?.error &&
+      !listed.length ? (
+        <p className="caption">
+          No {machineFilter === 'all' ? 'pipeline' : machineFilter} runs yet.
+        </p>
       ) : null}
       {queue.message ? <p role="alert">{queue.message}</p> : null}
-      {queue.orphanJobs?.map((job) => (
-        <div
-          key={job.id}
-          className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3"
-        >
-          <p role="status">
-            Earlier local {job.stage ?? 'tag'} job ·{' '}
-            {job.inputPlate?.displayName ?? job.plateId} ·{' '}
-            {job.recoveryNeededAt !== undefined
-              ? 'worker outcome unknown'
-              : 'running'}
-          </p>
-          {job.recoveryNeededAt !== undefined ? (
-            <details>
-              <summary className="cursor-pointer">
-                Recover earlier local worker
-              </summary>
-              <p className="caption">
-                Verify worker {job.workerId} has stopped executing. Releasing
-                its slot cannot stop it.
-              </p>
-              <label className="caption flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={verifiedClaim === job.claimId}
-                  onChange={(event) =>
-                    setVerifiedClaim(event.target.checked ? job.claimId! : null)
-                  }
-                />
-                I verified the earlier worker has stopped
-              </label>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!!queue.action || verifiedClaim !== job.claimId}
-                onClick={() => void queue.recoverOrphan?.(job)}
-              >
-                Release verified earlier worker
-              </Button>
-            </details>
-          ) : null}
-        </div>
-      ))}
-      {queue.loading ? (
+      {showLocal &&
+        queue.orphanJobs?.map((job) => (
+          <div
+            key={job.id}
+            className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3"
+          >
+            <p role="status">
+              Earlier local {job.stage ?? 'tag'} job ·{' '}
+              {job.inputPlate?.displayName ?? job.plateId} ·{' '}
+              {job.recoveryNeededAt !== undefined
+                ? 'worker outcome unknown'
+                : 'running'}
+            </p>
+            {job.recoveryNeededAt !== undefined ? (
+              <details>
+                <summary className="cursor-pointer">
+                  Recover earlier local worker
+                </summary>
+                <p className="caption">
+                  Verify worker {job.workerId} has stopped executing. Releasing
+                  its slot cannot stop it.
+                </p>
+                <label className="caption flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={verifiedClaim === job.claimId}
+                    onChange={(event) =>
+                      setVerifiedClaim(
+                        event.target.checked ? job.claimId! : null
+                      )
+                    }
+                  />
+                  I verified the earlier worker has stopped
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!queue.action || verifiedClaim !== job.claimId}
+                  onClick={() => void queue.recoverOrphan?.(job)}
+                >
+                  Release verified earlier worker
+                </Button>
+              </details>
+            ) : null}
+          </div>
+        ))}
+      {loading ? (
         <PipelineRailSkeleton />
       ) : (
         <PipelineRunRail
-          runs={queue.runs}
-          renderRun={(run) => {
+          runs={listed}
+          stacked={stacked}
+          requestedRunId={requestedRunId}
+          renderRun={(run, disclosure) => {
+            if (run.source === 'gateway')
+              return (
+                <PipelineRunCard
+                  run={run}
+                  disclosure={disclosure}
+                  execution={run.execution}
+                  progress={run.progress}
+                  stages={run.stages ?? ['tag']}
+                  observedAt={gateway?.observedAt}
+                  requester={requester?.(run.requestedBy)}
+                  plates={run.plates}
+                  device={machineLabels.gateway}
+                />
+              )
             const attempt = run.attempts.at(-1)!
             const progress = run.progress ?? queueProgress(run)
             const cancellationPending =
@@ -223,6 +359,9 @@ export function PipelineQueuePanel({
                   : !run.editable
                     ? 'This Batch is read-only.'
                     : undefined
+            const queueWait = run.queueWait
+            const waitingForWorker =
+              queueWait === 'worker_claim' || queueWait === 'hosted'
             const href = resultsHref(run)
             const unresolved = run.jobs.some((job) => job.state === 'claimed')
             const canRetry =
@@ -279,6 +418,8 @@ export function PipelineQueuePanel({
             return (
               <PipelineRunCard
                 run={run}
+                disclosure={disclosure}
+                execution={run.execution}
                 stages={run.stages}
                 progress={progress}
                 observedAt={queue.observedAt}
@@ -313,12 +454,20 @@ export function PipelineQueuePanel({
                   </>
                 }
                 waitLabel={
-                  run.queueWait ? queueWaitLabels[run.queueWait] : undefined
+                  queueWait && !waitingForWorker
+                    ? queueWaitLabels[queueWait]
+                    : undefined
                 }
+                waitingForWorker={waitingForWorker}
                 resultsHref={
                   run.status === 'queued' || run.status === 'running'
                     ? href
                     : undefined
+                }
+                onStageResults={
+                  onOpenStageResults &&
+                  ((stage, trigger) =>
+                    onOpenStageResults(run.id, stage, trigger))
                 }
                 stageResultsHref={(stage) =>
                   `${href}&stage=${encodeURIComponent(stage)}`

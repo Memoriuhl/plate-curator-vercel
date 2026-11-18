@@ -21,12 +21,14 @@ import {
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
 import {
+  captureEnrichment,
   captureSavedEnrichment,
   createEnrichmentHandler,
 } from '../../worker/pipeline/research'
 import { executeQueueResearch } from '../../lib/research/queue-hosted'
 import { createResearchMemoryState } from '../../lib/research/state'
 import { evidenceSource } from '../../lib/research/evidence'
+import { plateChecks } from '../../lib/catalog/plate-checks'
 import type { Plate } from '../../lib/catalog/types'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { EnrichmentPolicy } from '../../lib/research/enrichment'
@@ -64,12 +66,9 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 
-/**
- * Build a research queue fixture with source capture, local execution and hosted
- * delivery controls.
- */
-function setup() {
-  const plates: Plate[] = [
+/** Build a research queue fixture with local and hosted delivery controls. */
+function setup(
+  plates: Plate[] = [
     {
       id: 'AK.one',
       slug: 'one',
@@ -102,6 +101,7 @@ function setup() {
       ...saved,
     },
   ]
+) {
   const review = createMemoryStore([
     {
       id: 'batch',
@@ -333,6 +333,107 @@ test('saved-source capture only fetches saved links, deduplicates them and class
     museum.url,
   ])
   expect(result).toEqual({ sources: [source, museum], wikiUrl: source.url })
+})
+
+test('Alabama enrichment can draft a cited fact from the plate’s official page when Wikipedia is generic', async () => {
+  const plate: Plate = {
+    id: 'AL.alabama_forests',
+    slug: 'alabama_forests',
+    state: 'AL',
+    displayName: 'Alabama Forests',
+    image: '',
+    tags: [],
+    description: 'Saved plate description',
+    sourceUrl: 'https://www.revenue.alabama.gov/wp-content/uploads/forests.jpg',
+  }
+  const official = evidenceSource({
+    kind: 'web',
+    title: 'Alabama Forests - Alabama Department of Revenue',
+    url: 'https://www.revenue.alabama.gov/license-plates/alabama-forests/',
+    text: 'The proceeds are distributed to the Alabama Forests Forever Foundation to promote professional management of trees and related resources.',
+  })
+  const title = 'Vehicle registration plates of Alabama'
+  const request = vi.fn(async (url: string | URL | Request) => {
+    const target = new URL(String(url))
+    if (target.hostname === 'ollama.test')
+      return Response.json({
+        message: {
+          content: JSON.stringify({
+            description: null,
+            descriptionSources: [],
+            funFacts: [
+              {
+                text: 'Proceeds are distributed to the Alabama Forests Forever Foundation.',
+                sourceId: official.id,
+              },
+            ],
+            readMore: [official.id],
+            wikiSource: null,
+          }),
+        },
+      })
+    if (target.searchParams.has('list'))
+      return Response.json({ query: { search: [] } })
+    if (target.searchParams.get('action') === 'parse')
+      return Response.json({
+        parse: {
+          title,
+          text: '<p>Alabama residents with registered motor vehicles are required to display vehicle registration plates issued by the state.</p>',
+        },
+      })
+    return Response.json({ query: { pages: [{ title }] } })
+  })
+  const fetchPage = vi.fn(async () => official)
+  const capture: typeof captureEnrichment = (input) =>
+    captureEnrichment(input, request, fetchPage)
+  const handler = createEnrichmentHandler({
+    url: 'http://ollama.test',
+    capture,
+    fetch: request,
+  })
+  const { jobs, review } = setup([plate])
+  const queued = await enqueueSelection(jobs, actor, {
+    requestId: 'alabama-story',
+    batchId: 'batch',
+    plateIds: [plate.id],
+    stages: ['research'],
+  })
+  if (!queued.ok) throw Error(queued.error)
+  const [run] = queued.value
+  const jobId = (await dispatchQueueStage(
+    jobs,
+    run.id,
+    1,
+    0,
+    'alabama-story-hook'
+  ))!
+  const claim = (await claimNext(jobs, 'desktop'))!
+
+  const result = await handler({
+    plate: claim.job.inputPlate!,
+    policy: 'fill-missing',
+  })
+  expect(
+    await reportResult(jobs, 'desktop', jobId, claim.claimId, {
+      ...result,
+      durationMs: 1,
+    })
+  ).toMatchObject({ ok: true })
+  expect(await observeQueueStage(jobs, run.id, 1, 0)).toEqual({ phase: 'done' })
+
+  expect(fetchPage).toHaveBeenCalledWith(official.url, expect.any(Object))
+  const edit = await review.getEdit('batch', plate.id)
+  expect(edit?.fields).toMatchObject({
+    funFacts: [
+      {
+        text: 'Proceeds are distributed to the Alabama Forests Forever Foundation.',
+        sourceUrl: official.url,
+      },
+    ],
+  })
+  expect(plateChecks({ ...plate, ...edit?.fields }, null).funFacts.status).toBe(
+    'good'
+  )
 })
 
 test.each(['desktop', 'eve'] as const)(
@@ -710,7 +811,8 @@ test('cancelling an Eve session retains its IO reservation until physical settle
   const runs: PipelineRun[] = []
   const ids: string[] = []
   for (let index = 0; index < 3; index++) {
-    const result = await enqueueRun(s.jobs, actor, {
+    const requester = index ? { ...actor, uid: `owner-${index}` } : actor
+    const result = await enqueueRun(s.jobs, requester, {
       requestId: `pending-${index}`,
       batchId: 'batch',
       plateIds: ['AK.one'],

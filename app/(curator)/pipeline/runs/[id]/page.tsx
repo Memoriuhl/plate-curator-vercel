@@ -1,5 +1,7 @@
 import { Suspense } from 'react'
 import { PipelineRunResultsPage } from '@/components/dashboard/pipeline-run-results'
+import { PipelineResultsSkeleton } from '@/components/dashboard/pipeline-results-skeleton'
+import styles from '@/components/dashboard/pipeline-results.module.css'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -21,8 +23,8 @@ export default function Page(props: PageProps) {
   return (
     <Suspense
       fallback={
-        <main className="p-4 md:p-6">
-          <p role="status">Loading run results…</p>
+        <main className={styles.page}>
+          <PipelineResultsSkeleton header />
         </main>
       }
     >

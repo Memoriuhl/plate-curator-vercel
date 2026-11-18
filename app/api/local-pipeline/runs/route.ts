@@ -5,7 +5,9 @@ import {
   enqueueSelection,
   listRuns,
   parseEnqueue,
+  readPipelineRun,
 } from '../../../../lib/jobs/queue'
+import type { QueueRunView } from '../../../../lib/jobs/queue-types'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
 import {
@@ -19,62 +21,48 @@ import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { queueProgress } from '../../../../lib/jobs/run-progress'
 import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 
-/**
- * Read the current queue view, reconnect pending workflows and optionally return a
- * selected run's detail.
- */
-export async function GET(request: Request) {
-  const auth = await currentActor(request)
-  if (!auth.ok) return auth.response
-  const dependencies = jobsDeps()
-  const worker = await readLocalWorkerCapabilities(dependencies)
-  const selectedId = new URL(request.url).searchParams.get('detail')
-  let result = await listRuns(dependencies, auth.actor, worker, selectedId)
-  if (!result.ok) return queueResponse(result)
-  let reconciled = false
-  for (const run of result.value) {
-    if (run.status !== 'queued' && run.status !== 'running') continue
-    if (await reconcileQueueWorkflow(run).catch(() => false)) reconciled = true
-    await startQueueWorkflow(run).catch(() => undefined)
-    const attempt = run.attempts.at(-1)!
-    const current = run.jobs.find(
-      (job) =>
-        job.queueAttempt === attempt.number && job.queueStep === attempt.cursor
+/** Reconnect the workflow and recover the current stage from persisted state. */
+async function reconcileRun(run: QueueRunView) {
+  if (run.status !== 'queued' && run.status !== 'running') return false
+  const reconciled = await reconcileQueueWorkflow(run).catch(() => false)
+  await startQueueWorkflow(run).catch(() => undefined)
+  const attempt = run.attempts.at(-1)!
+  const current = run.jobs.find(
+    (job) =>
+      job.queueAttempt === attempt.number && job.queueStep === attempt.cursor
+  )
+  if (
+    current &&
+    current.state !== 'queued' &&
+    (current.state !== 'claimed' || run.waitReason === 'resource')
+  )
+    await wakeLocalJob(current)
+  return reconciled
+}
+
+function withProgress(run: QueueRunView) {
+  const progress = queueProgress(run)
+  const attempt = run.attempts.at(-1)!
+  progress.plateImages = Object.fromEntries(
+    Object.values(attempt.projection?.plates ?? {}).flatMap(
+      ({ executionPlate }) => {
+        const url = plateImageUrl(
+          executionPlate,
+          process.env.PLATE_IMAGE_BASE ?? null
+        )
+        return url ? [[executionPlate.id, url]] : []
+      }
     )
-    if (
-      current &&
-      current.state !== 'queued' &&
-      (current.state !== 'claimed' || run.waitReason === 'resource')
-    )
-      await wakeLocalJob(current)
-  }
-  if (reconciled) {
-    result = await listRuns(dependencies, auth.actor, worker, selectedId)
-    if (!result.ok) return queueResponse(result)
-  }
-  const selected = selectedId
-    ? result.value.find((run) => run.id === selectedId)
-    : (result.value.find((run) => run.status === 'running') ?? result.value[0])
-  for (const run of result.value) {
-    run.progress = queueProgress(run)
-    const attempt = run.attempts.at(-1)!
-    run.progress.plateImages = Object.fromEntries(
-      Object.values(attempt.projection?.plates ?? {}).flatMap(
-        ({ executionPlate }) => {
-          const url = plateImageUrl(
-            executionPlate,
-            process.env.PLATE_IMAGE_BASE ?? null
-          )
-          return url ? [[executionPlate.id, url]] : []
-        }
-      )
-    )
-    run.progress.workflowUrl = recordedWorkflowUrl(
-      attempt.workflowId,
-      attempt.workflowUrl
-    )
-  }
-  const summaries = result.value.map((run) => ({
+  )
+  progress.workflowUrl = recordedWorkflowUrl(
+    attempt.workflowId,
+    attempt.workflowUrl
+  )
+  return { ...run, progress }
+}
+
+function runSummary(run: QueueRunView) {
+  return {
     ...run,
     fingerprint: undefined,
     attempts: run.attempts.map((attempt) => ({
@@ -102,36 +90,73 @@ export async function GET(request: Request) {
           )
         )
       ),
-  }))
-  const entries = Object.values(
-    selected?.attempts.at(-1)?.projection?.plates ?? {}
-  )
-  const detail = selected
-    ? {
-        ...selected,
-        plates: entries.map((entry) => runPlateDetail(entry.batchInput)),
-        cards: entries.map((entry, index) =>
-          plateCard(entry.executionPlate, index, (plate) =>
-            plateImageUrl(plate, process.env.PLATE_IMAGE_BASE ?? null)
+  }
+}
+
+function runDetail(run: QueueRunView) {
+  const entries = Object.values(run.attempts.at(-1)?.projection?.plates ?? {})
+  return {
+    ...run,
+    plates: entries.map((entry) => runPlateDetail(entry.batchInput)),
+    cards: entries.map((entry, index) =>
+      plateCard(entry.executionPlate, index, (plate) =>
+        plateImageUrl(plate, process.env.PLATE_IMAGE_BASE ?? null)
+      )
+    ),
+    attempts: run.attempts.map((attempt, index) =>
+      index === run.attempts.length - 1
+        ? attempt
+        : Object.fromEntries(
+            Object.entries(attempt).filter(([key]) => key !== 'projection')
           )
-        ),
-        attempts: selected.attempts.map((attempt, index) =>
-          index === selected.attempts.length - 1
-            ? attempt
-            : Object.fromEntries(
-                Object.entries(attempt).filter(([key]) => key !== 'projection')
-              )
-        ),
-      }
-    : undefined
+    ),
+  }
+}
+
+export async function GET(request: Request) {
+  const auth = await currentActor(request)
+  if (!auth.ok) return auth.response
+  const dependencies = jobsDeps()
+  const params = new URL(request.url).searchParams
+  const selectedId = params.get('detail')
+  if (params.get('detailOnly') === '1') {
+    if (!selectedId || selectedId === 'none') return badRequest()
+    let result = await readPipelineRun(dependencies, auth.actor, selectedId)
+    if (!result.ok) return queueResponse(result)
+    if (await reconcileRun(result.value)) {
+      result = await readPipelineRun(dependencies, auth.actor, selectedId)
+      if (!result.ok) return queueResponse(result)
+    }
+    const selected = withProgress(result.value)
+    return json({
+      runs: [runSummary(selected)],
+      selected: runDetail(selected),
+      observedAt: dependencies.now(),
+    })
+  }
+  const worker = await readLocalWorkerCapabilities(dependencies)
+  let result = await listRuns(dependencies, auth.actor, worker, selectedId)
+  if (!result.ok) return queueResponse(result)
+  let reconciled = false
+  for (const run of result.value) {
+    if (await reconcileRun(run)) reconciled = true
+  }
+  if (reconciled) {
+    result = await listRuns(dependencies, auth.actor, worker, selectedId)
+    if (!result.ok) return queueResponse(result)
+  }
+  const runs = result.value.map(withProgress)
+  const selected = selectedId
+    ? runs.find((run) => run.id === selectedId)
+    : (runs.find((run) => run.status === 'running') ?? runs[0])
   const orphanJobs = await listLocalOrphanJobs(dependencies, auth.actor)
   const capabilities = { ...worker, previewOnly: { available: true } }
   return json({
-    runs: summaries,
+    runs: runs.map(runSummary),
     orphanJobs,
     capabilities,
     observedAt: dependencies.now(),
-    ...(detail ? { selected: detail } : {}),
+    ...(selected ? { selected: runDetail(selected) } : {}),
   })
 }
 

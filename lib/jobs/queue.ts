@@ -18,7 +18,7 @@ import {
   snapshotPipelineOptions,
 } from './pipeline-options'
 import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
-import type { JobsDeps, JobsTransaction } from './types'
+import type { JobsDeps, JobsTransaction, TaggingJob } from './types'
 import type {
   EnqueueInput,
   PipelineRun,
@@ -31,6 +31,7 @@ import type { Plate } from '../catalog/types'
 import { resolveResearchModel } from '../research/models'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
 import {
+  nextRunByRequester,
   queuedStageWait,
   queueResourceClaims,
   type QueueWorker,
@@ -527,10 +528,54 @@ export function enqueueSelection(
   return enqueueRuns(d, actor, input, true, draft)
 }
 
-/**
- * List active, recent and recoverable runs in the current worker scope for the actor's
- * queue.
- */
+function runView(
+  run: PipelineRun,
+  batch: ReviewBatch,
+  jobs: TaggingJob[]
+): QueueRunView {
+  return {
+    ...run,
+    batchName: batch.name,
+    jobs,
+    editable: batch.state === 'open',
+    applied:
+      !!batch.pipelineApplications?.[
+        `${run.id}:${run.attempts.at(-1)!.number}`
+      ],
+  }
+}
+
+export async function readPipelineRun(
+  d: JobsDeps,
+  actor: Actor,
+  id: string
+): Promise<QueueOutcome<QueueRunView>> {
+  if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
+  return d.store.transaction(async (tx) => {
+    const run = await tx.getRun(id)
+    if (
+      !run ||
+      run.localScope !== d.localScope ||
+      (run.requestedBy !== actor.uid && actor.role !== 'owner')
+    )
+      return { ok: false, error: 'not_found' }
+    const batch = await tx.batch(run.batchId)
+    if (!batch || !canEdit(batch, actor))
+      return { ok: false, error: 'not_found' }
+
+    const ids = [...new Set(run.attempts.flatMap((attempt) => attempt.jobIds))]
+    const jobs = tx.getMany
+      ? await tx.getMany(ids)
+      : await Promise.all(ids.map((jobId) => tx.get(jobId)))
+    const scopedJobs = jobs.filter(
+      (job): job is TaggingJob =>
+        job !== null && job.localScope === d.localScope
+    )
+    return { ok: true, value: runView(run, batch, scopedJobs) }
+  })
+}
+
+/** List the actor’s pipeline runs in the current worker scope. */
 export async function listRuns(
   d: JobsDeps,
   actor: Actor,
@@ -539,12 +584,12 @@ export async function listRuns(
 ): Promise<QueueOutcome<QueueRunView[]>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async (tx) => {
-    const runs = (await tx.runs())
-      .filter(
-        (run) =>
-          run.localScope === d.localScope &&
-          (run.requestedBy === actor.uid || actor.role === 'owner')
-      )
+    const scoped = (await tx.runs()).filter(
+      (run) => run.localScope === d.localScope
+    )
+    const next = nextRunByRequester(scoped, d.localScope)
+    const runs = scoped
+      .filter((run) => run.requestedBy === actor.uid || actor.role === 'owner')
       .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     const jobs = await tx.list()
     const claims = worker ? queueResourceClaims(jobs, d.localScope) : []
@@ -567,16 +612,16 @@ export async function listRuns(
           job.queueAttempt === attempt.number &&
           job.queueStep === attempt.cursor
       )
-      const queueWait = worker
-        ? queuedStageWait(run, current, claims, worker, now)
-        : undefined
+      const behindEarlierRun =
+        run.status === 'queued' && next.get(run.requestedBy)?.id !== run.id
+      const queueWait = behindEarlierRun
+        ? 'prior_run'
+        : worker
+          ? queuedStageWait(run, current, claims, worker, now)
+          : undefined
       visible.push({
-        ...run,
+        ...runView(run, batch, runJobs),
         ...(queueWait ? { queueWait } : {}),
-        batchName: batch.name,
-        jobs: runJobs,
-        editable: batch.state === 'open',
-        applied: !!batch.pipelineApplications?.[`${run.id}:${attempt.number}`],
       })
     }
     const retained = visible.filter((run) => run.dismissedAt === undefined)

@@ -185,6 +185,18 @@ export function firestoreJobsStore(
             return doc.get('env') === env ? (doc.data() as TaggingJob) : null
           },
           /** List this environment's jobs so claims and status use the same scope. */
+          async getMany(ids) {
+            const result: TaggingJob[] = []
+            for (let offset = 0; offset < ids.length; offset += 100) {
+              const snapshots = await transaction.getAll(
+                ...ids.slice(offset, offset + 100).map((id) => jobs.doc(id))
+              )
+              for (const snapshot of snapshots)
+                if (snapshot.get('env') === env)
+                  result.push(snapshot.data() as TaggingJob)
+            }
+            return result
+          },
           async list(plateId) {
             const scoped = jobs.where('env', '==', env)
             const snapshot = await transaction.get(

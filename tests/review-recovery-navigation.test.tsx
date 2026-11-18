@@ -238,6 +238,15 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   const draftLink = await screen.findByRole('link', {
     name: 'Draft change · CA',
   })
+  const batchSummary = screen.getByText('Batches')
+  expect(batchSummary.closest('details')?.open).toBe(false)
+  fireEvent.click(batchSummary)
+  expect(batchSummary.closest('details')?.open).toBe(true)
+  expect(
+    within(screen.getByRole('navigation', { name: 'Batches' }))
+      .getByRole('link', { name: 'Newest pipeline' })
+      .getAttribute('href')
+  ).toBe('/review?batch=empty')
   expect(
     screen.getByRole('link', { name: 'Submitted change · CA' })
   ).toBeTruthy()
