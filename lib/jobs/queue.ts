@@ -180,7 +180,8 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     if (previous.cursor >= previous.steps.length) return { ok: false, error: 'invalid_state' }
     const now = d.now()
     run.attempts.push({ number: previous.number + 1, requestId, createdAt: now, jobIds: [...previous.completedJobIds], completedJobIds: [...previous.completedJobIds], status: 'queued',
-      cursor: previous.cursor, steps: structuredClone(previous.steps), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
+      cursor: previous.cursor, ...(previous.noResultCount ? { noResultCount: previous.noResultCount } : {}),
+      steps: structuredClone(previous.steps), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
     run.status = 'queued'; run.queuedAt = now; run.updatedAt = now; run.waitReason = 'worker'
     run.enqueueSequence = Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1
     delete run.cancelRequestedAt

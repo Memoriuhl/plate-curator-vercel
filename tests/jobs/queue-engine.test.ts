@@ -119,20 +119,26 @@ test('sequential projected Wiki/Describe/Story survives server reconstruction an
   expect(await s.review.listEdits('batch')).toEqual([])
 })
 
-test('no-result and explicit handler failure stop all downstream dependencies', async () => {
-  for (const noResult of [true, false]) {
-    const s = setup()
-    const run = await s.run('failure', ['describe', 'story'])
-    const claim = (await claimNext(s.deps, 'worker'))!
-    if (noResult) await reportResult(s.deps, 'worker', claim.job.id, claim.claimId, { ...base, stageError: 'no_sources' })
-    else await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'no_handler')
-    expect(await observeQueueStage(s.deps, run.id, 1, 0)).toEqual({ phase: 'done' })
-    expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'never')).toBeNull()
-    const saved = (await s.deps.store.transaction(tx => tx.runs()))[0]
-    expect(saved.status).toBe('failed')
-    expect(saved.attempts[0].outcome).toBe(noResult ? 'no_result' : undefined)
-    expect(saved.attempts[0].jobIds).toHaveLength(1)
-  }
+test('an explicit handler failure still stops downstream stages', async () => {
+  const s = setup()
+  const run = await s.run('failure', ['describe', 'story'])
+  const claim = (await claimNext(s.deps, 'worker'))!
+  await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'no_handler')
+  expect(await observeQueueStage(s.deps, run.id, 1, 0)).toEqual({ phase: 'done' })
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'never')).toBeNull()
+  const saved = (await s.deps.store.transaction(tx => tx.runs()))[0]
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, error: 'no_handler' }] })
+})
+
+test('a research run with no usable sources finishes with no suggestions', async () => {
+  const s = setup()
+  const run = await s.run('no-sources', ['describe', 'story'])
+  await s.complete('worker', { ...base, stageError: 'no_sources' })
+  await dispatchQueueStage(s.deps, run.id, 1, 1, 'story-hook')
+  await s.complete('worker', { ...base, stageError: 'no_sources' })
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  expect(saved).toMatchObject({ status: 'completed', attempts: [{ cursor: 2, outcome: 'no_result', noResultCount: 2 }] })
+  expect(await s.review.listEdits('batch')).toEqual([])
 })
 
 test('cancellation is immediate before claim but remains requested until active worker acknowledges safe end', async () => {

@@ -19,6 +19,7 @@ function label(run: QueueRunSummary) {
   if (run.waitReason === 'recovery') return 'Recovery needed · waiting for the worker to confirm it stopped'
   if (run.waitReason === 'image_choice') return 'Waiting for your image selection'
   if (attempt.outcome === 'no_result') return `No result · ${attempt.error?.replaceAll('_', ' ') ?? 'no supported suggestion'}`
+  if (attempt.outcome === 'partial') return 'Completed with gaps'
   if (run.status === 'queued') return 'Queued · waiting for a local worker and available resources'
   return run.status[0].toUpperCase() + run.status.slice(1)
 }
@@ -51,7 +52,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
       const unresolved = run.jobs.some(job => job.state === 'claimed')
       return <li key={run.id} className="grid gap-2 rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
         <p><strong>{run.plateIds.length} plates · {run.stages.map(id => pipelineStages.find(stage => stage.id === id)?.label ?? id).join(' → ')}</strong></p>
-        <p className="caption" role="status">{label(run)} · {attempt.completedCount ?? attempt.completedJobIds?.length ?? 0}/{attempt.stepCount ?? attempt.steps?.length ?? 0} stages · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
+        <p className="caption" role="status">{label(run)} · {attempt.completedCount ?? attempt.completedJobIds?.length ?? 0}/{attempt.stepCount ?? attempt.steps?.length ?? 0} stages{attempt.noResultCount ? ` · ${attempt.noResultCount} without suggestions` : ''} · attempt {attempt.number}{run.previewOnly ? ' · Preview only' : ''}</p>
         <p className="caption">Requested {new Date(run.createdAt).toLocaleString()} · {run.batchName ?? 'Batch'}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View results</Button>
@@ -83,7 +84,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized }: { queue: QueueC
               <div><span className="caption">Run suggestion</span><PipelineFieldValue field={key} value={entry.executionPlate[key]} plateNames={plateNames} /></div></dd></div>)}</dl>
         </details> : null
       })}
-      {selected.status === 'completed' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
+      {selected.status === 'completed' && attempt?.outcome !== 'no_result' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
       {selected.waitReason === 'recovery' && currentJob?.claimId ? <details className="grid gap-2"><summary className="cursor-pointer">Recover a stopped worker</summary>
         <p className="caption">Verify that worker {currentJob.workerId} has stopped executing this stage. Releasing its slot cannot stop the worker.</p>
         <label className="caption flex items-center gap-2"><input type="checkbox" checked={verifiedClaim === currentJob.claimId} onChange={event => setVerifiedClaim(event.target.checked ? currentJob.claimId! : null)} />I verified this worker has stopped</label>

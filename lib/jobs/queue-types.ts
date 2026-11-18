@@ -14,7 +14,8 @@ export type RunAttempt = {
   status: RunStatus
   endedAt?: number
   error?: string
-  outcome?: 'no_result'
+  outcome?: 'no_result' | 'partial'
+  noResultCount?: number
   projection?: RunProjection
   workflowId?: string
   cursor: number

@@ -24,7 +24,7 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
   const attempt = run.attempts.at(-1)!
   const token = `${run.id}:${attempt.number}`
   if (batch.pipelineApplications?.[token]) return { ok: true, value: batch }
-  if (run.status !== 'completed' || !attempt.projection || Object.keys(batch.pipelineApplications ?? {}).length >= 50 ||
+  if (run.status !== 'completed' || attempt.outcome === 'no_result' || !attempt.projection || Object.keys(batch.pipelineApplications ?? {}).length >= 50 ||
     attempt.projection.baselineVersion !== batch.baselineVersion || attempt.cursor !== attempt.steps.length) return { ok: false, error: 'invalid_state' }
   const baselines = new Map<string, Plate>()
   const current = new Map<string, Plate>()

@@ -4,10 +4,24 @@ import { projectJob } from './queue-projection'
 import type { Actor } from '../review/types'
 import { canEdit } from '../review/access'
 import type { JobsDeps, TaggingJob } from './types'
-import type { PipelineRun, QueueOutcome } from './queue-types'
+import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
 import { pipelineNeedsModel } from './pipeline-plan'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
+
+function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number) {
+  attempt.completedJobIds.push(jobId)
+  attempt.cursor++
+  delete attempt.error
+  if (attempt.cursor === attempt.steps.length) {
+    if (attempt.noResultCount) attempt.outcome = attempt.noResultCount === attempt.cursor ? 'no_result' : 'partial'
+    finishRun(run, 'completed', now)
+    return
+  }
+  run.updatedAt = now
+  run.waitReason = 'worker'
+  run.status = 'queued'
+}
 
 export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number, workflowId: string): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
@@ -81,8 +95,14 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
     if (run.cancelRequestedAt !== undefined) finishRun(run, 'cancelled', d.now())
     else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
     else if (job.result?.stageError) {
-      if (['no_sources', 'no_supported_fields'].includes(job.result.stageError)) attempt.outcome = 'no_result'
-      finishRun(run, 'failed', d.now(), job.result.stageError)
+      const noResult = job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields'
+      if (noResult && (job.stage === 'wiki-link' || job.stage === 'describe' || job.stage === 'story')) {
+        attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+        advanceStage(run, attempt, job.id, d.now())
+      } else {
+        if (noResult) attempt.outcome = 'no_result'
+        finishRun(run, 'failed', d.now(), job.result.stageError)
+      }
     } else {
       const raw = job.result?.fieldSuggestion
       const candidateId = attempt.choices[job.id]
@@ -105,11 +125,7 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
       else {
         attempt.projection = projected.value
         if (!queueRecordFits(run)) { attempt.projection = original; error = 'payload_too_large' }
-        else {
-          attempt.completedJobIds.push(job.id); attempt.cursor++; delete attempt.error
-          run.updatedAt = d.now(); run.waitReason = 'worker'; run.status = 'queued'
-          if (attempt.cursor === attempt.steps.length) finishRun(run, 'completed', d.now())
-        }
+        else advanceStage(run, attempt, job.id, d.now())
       }
       if (error) finishRun(run, 'failed', d.now(), error)
     }
