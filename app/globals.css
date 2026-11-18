@@ -265,7 +265,16 @@ body {
   min-width: 0;
 }
 .states-review,
-.states-pipeline {
+.states-toolbar {
+  min-width: 0;
+}
+.states-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.states-toolbar > .dashboard-search {
   min-width: 0;
 }
 .review-strip {
@@ -472,6 +481,9 @@ body {
   font-size: 13px;
   color: var(--ink-2);
 }
+.batch-actions > .batch-summary {
+  margin-inline-end: var(--space-3);
+}
 .batch-actions [role='status'],
 .batch-actions [role='alert'] {
   flex-basis: 100%;
@@ -534,32 +546,28 @@ body {
 @media (min-width: 1024px) {
   .states-layout {
     grid-template-columns: calc(132px + var(--space-1)) minmax(0, 1fr);
-    grid-template-rows: auto auto auto 1fr;
+    grid-template-rows: auto auto 1fr;
     column-gap: var(--space-6);
     row-gap: var(--stack-gap);
     align-items: start;
   }
-  .states-layout > .states-pipeline {
+  .states-layout > .states-toolbar {
     grid-column: 2;
     grid-row: 1;
   }
-  .states-layout > .dashboard-search {
-    grid-column: 2;
-    grid-row: 2;
-  }
   .states-layout > .states-review {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 2;
   }
   .states-layout > .states-content,
   .states-layout > .skeleton-state {
     grid-column: 2;
-    grid-row: 4;
+    grid-row: 3;
   }
   .states-layout > .jurisdiction-strip,
   .states-layout > .skeleton-jurisdictions {
     grid-column: 1;
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 3;
     position: sticky;
     top: calc(var(--header-h) + var(--space-6));
     height: calc(100dvh - var(--header-h) - var(--space-6) * 2);

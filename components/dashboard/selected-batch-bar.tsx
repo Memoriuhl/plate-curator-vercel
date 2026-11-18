@@ -7,7 +7,6 @@ import { useWorkspaceBatch } from '@/lib/client/hooks'
 import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { useSWRConfig } from 'swr'
 import { Button } from '@/components/ui/button'
-import { BatchLastChanged } from '@/components/review/batch-last-changed'
 import { batchHref } from '@/lib/review/href'
 
 /**
@@ -35,18 +34,12 @@ export function SelectedBatchBar() {
       data-batch-id={workspace.id}
       data-batch-revision={batch?.revision}
     >
-      <strong>
-        {batch?.name ??
-          (workspace.status === 'unavailable'
+      {!batch ? (
+        <strong>
+          {workspace.status === 'unavailable'
             ? "This Batch isn't available"
-            : 'Loading Batch...')}
-      </strong>
-      {batch ? (
-        <>
-          <span>{batch.createdByName ?? batch.createdBy}</span>
-          <BatchLastChanged batch={batch} />
-          <span>{batch.state}</span>
-        </>
+            : 'Loading Batch...'}
+        </strong>
       ) : null}
       {workspace.status === 'unavailable' && batch ? (
         <span>{"This Batch isn't available"}</span>

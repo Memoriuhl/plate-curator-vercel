@@ -203,11 +203,18 @@ test('shared controls stay mounted when the router changes the state parameter',
   )
   const strip = screen.getByRole('navigation')
   const search = screen.getByRole('textbox')
-  const pipeline = screen.getByRole('region', { name: 'Plate Pipeline' })
+  const trigger = screen.getByRole('button', { name: 'Open Plate Pipeline' })
+  expect(trigger.getAttribute('data-size')).toBe('default')
+  expect(trigger.querySelector('span[aria-hidden="true"] svg')).toBeTruthy()
+  expect(screen.queryByRole('dialog', { name: 'Plate Pipeline' })).toBeNull()
+  fireEvent.click(trigger)
+  const pipeline = screen.getByRole('dialog', { name: 'Plate Pipeline' })
   expect(
-    pipeline.closest('.states-pipeline')?.previousElementSibling
-  ).toBeNull()
-  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(search)
+    screen
+      .getByRole('heading', { name: 'Plate Pipeline' })
+      .querySelector('span[aria-hidden="true"] svg')
+  ).toBeTruthy()
+  expect(pipeline.closest('main')).toBeNull()
   mounted.code = 'AL'
   view.rerender(
     <StatesLayout>
@@ -217,10 +224,32 @@ test('shared controls stay mounted when the router changes the state parameter',
   expect(screen.getByText('AL')).toBeTruthy()
   expect(screen.getByRole('navigation')).toBe(strip)
   expect(screen.getByRole('textbox')).toBe(search)
-  expect(screen.getByRole('region', { name: 'Plate Pipeline' })).toBe(pipeline)
+  expect(screen.getByRole('dialog', { name: 'Plate Pipeline' })).toBe(pipeline)
   expect(mounted.strip).toBe(1)
   expect(mounted.review).toBe(1)
   expect(mounted.search).toBe(1)
+})
+
+test('Command-B opens and closes Plate Pipeline without intercepting search shortcuts', async () => {
+  render(
+    <StatesLayout>
+      <StatePage />
+    </StatesLayout>
+  )
+  const launch = screen.getByRole('button', { name: 'Open Plate Pipeline' })
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Search' }), {
+    key: 'b',
+    metaKey: true,
+  })
+  expect(screen.queryByRole('dialog', { name: 'Plate Pipeline' })).toBeNull()
+  fireEvent.keyDown(document, { key: 'b', metaKey: true })
+  expect(
+    await screen.findByRole('dialog', { name: 'Plate Pipeline' })
+  ).toBeTruthy()
+  expect(launch.getAttribute('aria-expanded')).toBe('true')
+  fireEvent.keyDown(document, { key: 'b', metaKey: true })
+  expect(screen.queryByRole('dialog', { name: 'Plate Pipeline' })).toBeNull()
+  expect(launch.getAttribute('aria-expanded')).toBe('false')
 })
 
 const { JurisdictionNav } =

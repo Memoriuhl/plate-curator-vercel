@@ -61,6 +61,8 @@ const post = () =>
   })
 /** Build the GET request the route fixture passes to its handler. */
 const get = () => new Request('https://example.org/api/local-pipeline/runs')
+const getDetail = (id: string) =>
+  GET(new Request(`${get().url}?detail=${encodeURIComponent(id)}&detailOnly=1`))
 let deps: JobsDeps
 
 beforeEach(() => {
@@ -177,7 +179,7 @@ test('claim callback wakes the persisted lease; lost completed callback is recon
   mocks.resume.mockImplementation(async () =>
     expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
   )
-  await GET(get())
+  await getDetail(run.id)
   expect(mocks.resume).toHaveBeenLastCalledWith(token, {
     jobId: claimed.job.id,
   })
@@ -210,6 +212,53 @@ test('authentication and other-owner visibility/mutations reject without exposin
   expect(
     await claimNext({ ...deps, localScope: undefined }, 'production')
   ).toBeNull()
+})
+
+test('detail only reads one authorized run and its saved jobs without scanning the queue', async () => {
+  const { run } = await (await POST(post())).json()
+  const { run: other } = await (
+    await POST(
+      new Request(get().url, {
+        method: 'POST',
+        body: JSON.stringify({ ...body, requestId: 'other-run' }),
+      })
+    )
+  ).json()
+  const jobId = await dispatchQueueStage(deps, run.id, 1, 0, 'detail-hook')
+  const store = deps.store
+  const scan = vi.fn(() => {
+    throw new Error('A detail read should not scan the queue')
+  })
+  mocks.jobs.mockReturnValue({
+    ...deps,
+    store: {
+      ...store,
+      transaction: (work) =>
+        store.transaction((tx) => work({ ...tx, runs: scan, list: scan })),
+    },
+  } satisfies JobsDeps)
+
+  const response = await getDetail(run.id)
+  expect(response.status).toBe(200)
+  const result = await response.json()
+  expect(result).toMatchObject({
+    runs: [{ id: run.id }],
+    selected: { id: run.id, jobs: [{ id: jobId }], cards: [{ id: 'AK.one' }] },
+  })
+  expect(result).not.toHaveProperty('orphanJobs')
+  expect(result.runs[0]).not.toHaveProperty('cards')
+  expect(result.runs[0].attempts[0]).not.toHaveProperty('projection')
+  expect(JSON.stringify(result)).not.toContain(other.id)
+
+  mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
+  expect((await getDetail(run.id)).status).toBe(404)
+  mocks.auth.mockResolvedValue({
+    ok: true,
+    actor: { uid: 'owner', role: 'owner', name: null },
+  })
+  expect((await getDetail(run.id)).status).toBe(200)
+  expect((await getDetail('missing-run')).status).toBe(404)
+  expect(scan).not.toHaveBeenCalled()
 })
 
 test('GET records an actual exhausted Workflow failure as retryable failure when no physical stage is active', async () => {

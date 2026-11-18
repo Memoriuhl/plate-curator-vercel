@@ -174,7 +174,8 @@ export function useTagRun() {
     plates: RunPlate[],
     retry = false,
     model?: TaggingModelId,
-    stage?: PipelineStage
+    stage?: PipelineStage,
+    onAccepted?: (runId: string) => void
   ) {
     if (stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
     if (!retry) {
@@ -221,6 +222,7 @@ export function useTagRun() {
           : await ensureBatch(plates[0])
       if (version !== generation.current) return
       setBatchId(batchId)
+      let accepted = false
       for (const { plate } of initial) {
         if (version !== generation.current) break
         try {
@@ -233,6 +235,10 @@ export function useTagRun() {
             }
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
+          if (!accepted && version === generation.current) {
+            accepted = true
+            onAccepted?.(result.runId)
+          }
         } catch (error) {
           if (
             error instanceof ApiError &&

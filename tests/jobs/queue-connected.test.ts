@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
-import { enqueueRun } from '../../lib/jobs/queue'
+import { cancelRun, enqueueRun } from '../../lib/jobs/queue'
 import {
   bindQueueWorkflow,
   chooseQueueImage,
@@ -320,6 +320,7 @@ test('connected image choice → vision/reference → text → one Group restore
 
 test('a description with no supported fields stops before dispatching Story', async () => {
   const s = await setup()
+  expect(await cancelRun(s.jobs, actor, s.run.id)).toMatchObject({ ok: true })
   const url =
     'https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Alaska'
   const result = await enqueueRun(s.jobs, actor, {

@@ -515,10 +515,9 @@ test('State order and Standard reach the other Dashboard and the Batch can be su
       order: ['AK.b', 'AK.a', 'AK.v'],
     },
   })
-  const reviewLink = within(first.container).getByRole('link', {
-    name: 'Review Batch',
-  })
-  expect(reviewLink.getAttribute('href')).toBe('/review?batch=shared')
+  expect(
+    within(first.container).queryByRole('link', { name: 'Review Batch' })
+  ).toBeNull()
   const review = render(<Workspace value={session(editor)} page="review" />)
   await within(review.container).findByRole('region', {
     name: 'Before and after',
@@ -529,8 +528,16 @@ test('State order and Standard reach the other Dashboard and the Batch can be su
     })
   )
   await waitFor(() =>
-    expect(second.container.textContent).toContain('submitted')
+    expect(
+      within(second.container)
+        .getByLabelText('Selected Batch')
+        .getAttribute('data-batch-revision')
+    ).toBe('2')
   )
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'submitted',
+    revision: 2,
+  })
 })
 
 test('a stale State order submission changes neither draft nor signal', async () => {
@@ -589,9 +596,15 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
   )
   await waitFor(() =>
     expect(
-      within(second.container).getByLabelText('Selected Batch').textContent
-    ).toContain('submitted')
+      within(second.container)
+        .getByLabelText('Selected Batch')
+        .getAttribute('data-batch-revision')
+    ).toBe('2')
   )
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'submitted',
+    revision: 2,
+  })
   expect(
     within(second.container)
       .getByRole('link', { name: 'Publish' })
@@ -609,9 +622,15 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
   fireEvent.click(approve)
   await waitFor(() =>
     expect(
-      within(second.container).getByLabelText('Selected Batch').textContent
-    ).toContain('approved')
+      within(second.container)
+        .getByLabelText('Selected Batch')
+        .getAttribute('data-batch-revision')
+    ).toBe('3')
   )
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'approved',
+    revision: 3,
+  })
   expect(await deps.store.getBatch('shared')).toMatchObject({
     approval: { revision: 2, by: owner.uid },
   })
@@ -651,9 +670,6 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
           ?.getAttribute('data-batch-revision')
       ).toBe('4')
     )
-    expect(
-      within(view.container).getByLabelText('Selected Batch').textContent
-    ).toContain('open')
     expect(
       within(view.container).queryByRole('button', {
         name: 'Submit for review',
@@ -758,9 +774,10 @@ test('resubscription catches up missed commits with one coherent read and ignore
   await settle()
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
-  expect(
-    within(second.container).getByLabelText('Selected Batch').textContent
-  ).toContain('approved')
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'approved',
+    revision: 3,
+  })
   act(() => {
     emit('shared', 1)
     emit('shared', 2)
@@ -803,7 +820,10 @@ test('manual Refresh catches up while the subscription is unavailable', async ()
   )
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
-  expect(second.container.textContent).toContain('submitted')
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'submitted',
+    revision: 2,
+  })
   expect(second.container.textContent).toContain('Live updates unavailable')
 })
 
@@ -832,9 +852,10 @@ test('a burst of committed lifecycle signals fetches only the latest coherent Ba
   await settle()
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
-  expect(
-    within(second.container).getByLabelText('Selected Batch').textContent
-  ).toContain('approved')
+  expect(await deps.store.getBatch('shared')).toMatchObject({
+    state: 'approved',
+    revision: 3,
+  })
 })
 
 test('Standard plate issues offers a confirmed repair for the first Template', async () => {

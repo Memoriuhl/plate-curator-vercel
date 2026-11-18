@@ -7,6 +7,7 @@ import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
 import { enrichmentTargets, shouldReuseSavedSources } from './enrichment'
 import {
   enrichmentPrompt,
+  enrichmentPromptVersion,
   enrichmentSuggestion,
   needsEnrichmentSynthesis,
   wikiOnlyDraft,
@@ -57,7 +58,7 @@ export async function executeQueueResearch(
   const meta = {
     backend: 'eve',
     model: job.researchModel.model,
-    promptVersion: 'enrichment-v1',
+    promptVersion: enrichmentPromptVersion,
   }
   /**
    * Convert the draft into a stage suggestion and report it through the job's current

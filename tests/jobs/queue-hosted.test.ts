@@ -184,7 +184,11 @@ test('hosted dispatch shares two IO reservations, leaves GPU free, and retries k
   const ids: string[] = []
   const runs = []
   for (let index = 0; index < 3; index++) {
-    const run = await enqueueRun(s.jobs, actor, {
+    const requester =
+      index < 2
+        ? { ...actor, uid: `owner-${index}`, role: 'owner' as const }
+        : actor
+    const run = await enqueueRun(s.jobs, requester, {
       requestId: `run-${index}`,
       batchId: 'batch',
       plateIds: ['AK.one'],
@@ -204,13 +208,17 @@ test('hosted dispatch shares two IO reservations, leaves GPU free, and retries k
   expect(
     await executeHostedQueueStage(s.jobs, ids[2], async () => s.hosted)
   ).toBe('waiting')
-  const desktop = await enqueueRun(s.jobs, actor, {
-    requestId: 'desktop',
-    batchId: 'batch',
-    plateIds: ['AK.one'],
-    stages: ['tag'],
-    modelId: 'desktop-gemma4-12b',
-  })
+  const desktop = await enqueueRun(
+    s.jobs,
+    { ...actor, uid: 'owner-desktop', role: 'owner' },
+    {
+      requestId: 'desktop',
+      batchId: 'batch',
+      plateIds: ['AK.one'],
+      stages: ['tag'],
+      modelId: 'desktop-gemma4-12b',
+    }
+  )
   if (!desktop.ok) throw Error(desktop.error)
   await dispatchQueueStage(s.jobs, desktop.value.id, 1, 0, 'desktop')
   expect((await claimNext(s.jobs, 'desktop'))?.job.queueRunId).toBe(

@@ -7,6 +7,7 @@ import {
 } from '../../lib/research/enrichment'
 import {
   enrichmentPrompt,
+  enrichmentPromptVersion,
   enrichmentSuggestion,
   needsEnrichmentSynthesis,
   wikiOnlyDraft,
@@ -21,17 +22,44 @@ import { gatherWikipedia } from './sources'
 import { findWikipediaLink } from './wiki'
 import { extractJson } from '../model'
 
-/**
- * Resolve the plate's Wikipedia match and capture evidence for local or hosted
- * enrichment.
- */
+const alabamaRevenue = 'www.revenue.alabama.gov'
+
+/** Capture a sourced plate page when Alabama DOR supplied the plate image. */
+async function captureAlabamaPlatePage(
+  plate: WorkerPlate,
+  fetchPage: typeof fetchResearchPage
+) {
+  const provenance = URL.parse(plate.sourceUrl ?? '')
+  if (plate.state !== 'AL' || provenance?.hostname !== alabamaRevenue)
+    return null
+  const slug = plate.displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  if (!slug) return null
+  const url = `https://${alabamaRevenue}/license-plates/${slug}/`
+  const page = await fetchPage(url, {
+    reserve: async () => true,
+    now: Date.now,
+  })
+  const expectedTitle =
+    `${plate.displayName} - Alabama Department of Revenue`.toLowerCase()
+  return page?.url === url && page.title.toLowerCase() === expectedTitle
+    ? page
+    : null
+}
+
 export async function captureEnrichment(
   plate: WorkerPlate,
-  request: typeof fetch = fetch
+  request: typeof fetch = fetch,
+  fetchPage = fetchResearchPage
 ): Promise<{ sources: EvidenceSource[]; wikiUrl: string | null }> {
   // Reuse the Wiki adapter's subject/jurisdiction match. The gather adapter then
   // fetches that page once, plus its bounded state/subject passages.
-  const wiki = await findWikipediaLink(plate, request)
+  const [wiki, official] = await Promise.all([
+    findWikipediaLink(plate, request),
+    captureAlabamaPlatePage(plate, fetchPage),
+  ])
   const wikiUrl =
     wiki.fieldSuggestion?.kind === 'fields'
       ? (wiki.fieldSuggestion.fields.wikiUrl ?? null)
@@ -40,7 +68,13 @@ export async function captureEnrichment(
     { ...plate, wikiUrl: wikiUrl ?? plate.wikiUrl },
     request
   )
-  return { sources: sources.map((source) => evidenceSource(source)), wikiUrl }
+  return {
+    sources: [
+      ...(official ? [official] : []),
+      ...sources.map((source) => evidenceSource(source)),
+    ],
+    wikiUrl,
+  }
 }
 
 type SavedSourceLinks = Pick<
@@ -120,7 +154,7 @@ export function createEnrichmentHandler(options: {
     const meta = {
       backend: 'ollama',
       model: choice.model,
-      promptVersion: 'enrichment-v1',
+      promptVersion: enrichmentPromptVersion,
     }
     const policy = input.policy ?? 'fill-missing'
     const plate = input.plate as Partial<Plate>

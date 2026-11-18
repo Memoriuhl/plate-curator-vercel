@@ -166,7 +166,7 @@ beforeEach(() => {
   state.buttons.clear()
 })
 
-test('Owner sees the personal Batch name, persisted change time, Review and Publish', () => {
+test('Owner sees the personal Batch name, persisted change time and Publish', () => {
   const html = renderToStaticMarkup(
     <DashboardPipelineProvider>
       <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
@@ -175,12 +175,13 @@ test('Owner sees the personal Batch name, persisted change time, Review and Publ
   expect(html).toContain('Alaska updates')
   expect(html).toContain('dateTime="2026-11-17T16:15:00Z"')
   expect(html).toContain('Last changed')
-  expect(html).toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('Open / Share')
   expect(html).toContain('href="/publish?batch=batch-one"')
   expect(html).not.toContain('Submit for review')
 })
 
-test('Editor sees the Batch identity and can open Review and the pipeline menu', () => {
+test('Editor sees the Batch identity and can open the pipeline menu', () => {
   state.role = 'editor'
   const html = renderToStaticMarkup(
     <DashboardPipelineProvider>
@@ -188,7 +189,7 @@ test('Editor sees the Batch identity and can open Review and the pipeline menu',
     </DashboardPipelineProvider>
   )
   expect(html).toContain('Last changed')
-  expect(html).toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('href="/review?batch=batch-one"')
   expect(html).not.toContain('href="/publish')
   expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })

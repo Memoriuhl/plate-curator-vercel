@@ -85,7 +85,6 @@ export function PlatePipelineTimeline({
           return (
             <div key={plateId} className={styles.timelineRow}>
               <header className={styles.timelineIdentity}>
-                <strong className="caption">{plateName}</strong>
                 {image ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -112,11 +111,14 @@ export function PlatePipelineTimeline({
                     </TooltipContent>
                   </Tooltip>
                 ) : (
-                  <IoImageOutline
-                    className="mx-1 shrink-0 text-[var(--ink-3)]"
+                  <span
+                    className="grid size-7 shrink-0 place-items-center text-[var(--ink-3)]"
                     aria-hidden="true"
-                  />
+                  >
+                    <IoImageOutline />
+                  </span>
                 )}
+                <strong className="caption">{plateName}</strong>
                 {state && (
                   <Link
                     href={dashboardPlateHref(state, plateId, batchId)}

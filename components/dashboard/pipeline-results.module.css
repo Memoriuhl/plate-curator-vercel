@@ -9,6 +9,30 @@
   align-items: center;
   gap: var(--space-4);
 }
+.drawerResults {
+  display: grid;
+  gap: var(--space-3);
+}
+.drawerHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  padding: var(--space-3) 40px var(--space-2) 0;
+  background: var(--ground);
+}
+.drawerHeader > div {
+  min-width: 0;
+}
+.stateGroup {
+  display: grid;
+  gap: var(--space-2);
+}
+.otherOutcomes > .stateGroup {
+  margin-block-start: var(--space-3);
+}
 .summary {
   display: flex;
   flex-wrap: wrap;
@@ -21,6 +45,74 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   align-items: stretch;
   gap: var(--space-4);
+}
+.stateCards {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.skeleton {
+  display: grid;
+  gap: var(--space-4);
+}
+.skeletonHeading,
+.skeletonText {
+  display: grid;
+  align-content: center;
+  gap: var(--space-2);
+}
+.skeletonHeading {
+  width: min(14rem, 100%);
+}
+.skeletonHeading > span:first-child {
+  height: 1.5rem;
+  width: 80%;
+}
+.skeletonHeading > span:last-child {
+  width: 40%;
+}
+.skeletonSummary {
+  width: min(10rem, 55%);
+}
+.skeletonCard {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.skeletonImage {
+  width: min(7rem, 36%);
+  aspect-ratio: 2 / 1;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--fill);
+}
+.skeletonText {
+  flex: 1;
+  min-width: 0;
+}
+.skeletonSummary,
+.skeletonHeading > span,
+.skeletonText > span {
+  height: 0.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+}
+.skeletonText > span:first-child {
+  width: 70%;
+}
+.skeletonText > span:last-child {
+  width: 45%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    animation: skeletonPulse 1.6s ease-in-out infinite alternate;
+  }
+}
+@keyframes skeletonPulse {
+  to {
+    opacity: 0.66;
+  }
 }
 .grid > li > article {
   display: flex;

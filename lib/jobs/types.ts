@@ -130,6 +130,7 @@ export interface JobsTransaction {
   getRun(id: string): Promise<PipelineRun | null>
   setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
+  getMany?(ids: readonly string[]): Promise<TaggingJob[]>
   list(plateId?: string): Promise<TaggingJob[]>
   nextStandaloneDesktopJob(
     now: number,

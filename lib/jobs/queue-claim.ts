@@ -1,5 +1,6 @@
 import { shouldReuseSavedSources } from '../research/enrichment'
 import type { readLocalWorkerCapabilities } from './capabilities'
+import { compareQueueOrder } from './queue-order'
 import type { PipelineRun, QueueWait, ResourceClass } from './queue-types'
 import type { JobsDeps, TaggingJob } from './types'
 
@@ -37,6 +38,24 @@ function workerRequirement(job: TaggingJob, features: LocalClaimFeatures) {
     return 'saved_sources_worker'
 }
 
+export function nextRunByRequester(
+  runs: PipelineRun[],
+  scope: string | undefined
+) {
+  const next = new Map<string, PipelineRun>()
+  for (const run of runs) {
+    if (
+      run.localScope !== scope ||
+      (run.status !== 'queued' && run.status !== 'running')
+    )
+      continue
+    const previous = next.get(run.requestedBy)
+    if (!previous || compareQueueOrder(run, previous) < 0)
+      next.set(run.requestedBy, run)
+  }
+  return next
+}
+
 export function queuedStageWait(
   run: PipelineRun,
   job: TaggingJob | undefined,
@@ -44,7 +63,15 @@ export function queuedStageWait(
   worker: QueueWorker,
   now: number
 ): QueueWait | undefined {
-  if (run.status !== 'queued' || run.cancelRequestedAt !== undefined) return
+  const betweenSteps =
+    run.status === 'running' &&
+    (run.waitReason === 'worker' || run.waitReason === 'resource') &&
+    job?.state !== 'claimed'
+  if (
+    run.cancelRequestedAt !== undefined ||
+    (run.status !== 'queued' && !betweenSteps)
+  )
+    return
   if (!run.attempts.at(-1)?.workflowId) return 'starting_workflow'
   if (!job) return 'dispatching'
   if (job.state !== 'queued') return 'settling'
@@ -93,8 +120,9 @@ export function localClaimCandidate(
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter((job) => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
-  for (const job of queueResourceClaims(scoped, d.localScope))
-    occupied[job.resourceClass ?? 'gpu']++
+  const claims = queueResourceClaims(scoped, d.localScope)
+  for (const job of claims) occupied[job.resourceClass ?? 'gpu']++
+  const next = nextRunByRequester(runs, d.localScope)
   const lastByUser = new Map<string, number>()
   for (const run of runs)
     if (run.localScope === d.localScope)
@@ -117,19 +145,22 @@ export function localClaimCandidate(
           return false
         if (route === 'hosted' && !job.queueRunId) return false
         if (!job.queueRunId) return job.state === 'queued'
-        const run = runs.find(
-          (run) => run.id === job.queueRunId && run.localScope === d.localScope
-        )
+        const run = next.get(job.requestedBy)
         const attempt = run?.attempts.at(-1)
         return (
           job.state === 'queued' &&
-          run &&
+          run?.id === job.queueRunId &&
           attempt &&
-          ['queued', 'running'].includes(run.status) &&
           run.cancelRequestedAt === undefined &&
           attempt.number === job.queueAttempt &&
           attempt.cursor === job.queueStep &&
-          attempt.jobIds.includes(job.id)
+          attempt.jobIds.includes(job.id) &&
+          !claims.some(
+            (claim) =>
+              claim.requestedBy === job.requestedBy &&
+              claim.queueRunId &&
+              claim.queueRunId !== run.id
+          )
         )
       })
       .sort(

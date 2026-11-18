@@ -1,6 +1,7 @@
 import {
+  DashboardPipelineDrawer,
   DashboardPipelineProvider,
-  DashboardPipelineRail,
+  DashboardPipelineToggle,
 } from '@/components/dashboard/pipeline-runs'
 import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
 import { Suspense } from 'react'
@@ -28,16 +29,18 @@ export default function StatesLayout({
     >
       <DashboardPipelineProvider>
         <main className="app-main dashboard states-layout group/states">
-          <DashboardPipelineRail />
-          <Suspense
-            fallback={
-              <div className="dashboard-search" role="status">
-                Loading search…
-              </div>
-            }
-          >
-            <DashboardSearch />
-          </Suspense>
+          <div className="states-toolbar">
+            <Suspense
+              fallback={
+                <div className="dashboard-search" role="status">
+                  Loading search…
+                </div>
+              }
+            >
+              <DashboardSearch />
+            </Suspense>
+            <DashboardPipelineToggle />
+          </div>
           <div className="states-review">
             <Suspense
               fallback={
@@ -62,6 +65,7 @@ export default function StatesLayout({
             </div>
           </Suspense>
         </main>
+        <DashboardPipelineDrawer />
       </DashboardPipelineProvider>
     </Suspense>
   )

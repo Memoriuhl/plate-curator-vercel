@@ -11,6 +11,7 @@ import {
   enqueueRun,
   enqueueSelection,
   listRuns,
+  readPipelineRun,
   retryRun,
 } from '../lib/jobs/queue'
 import {
@@ -190,6 +191,17 @@ test('real serialized runs survive store recreation, dedupe, and enforce one GPU
       expect.objectContaining({ id: first.value.id }),
     ]),
   })
+  expect(await readPipelineRun(restored, actor, first.value.id)).toMatchObject({
+    ok: true,
+    value: {
+      id: first.value.id,
+      batchName: 'Queue emulator',
+      jobs: [{ queueRunId: first.value.id, state: 'claimed' }],
+    },
+  })
+  expect(
+    await readPipelineRun(restored, { ...actor, uid: 'other' }, first.value.id)
+  ).toEqual({ ok: false, error: 'not_found' })
   expect(await listRuns(restored, { ...actor, uid: 'other' })).toEqual({
     ok: true,
     value: [],

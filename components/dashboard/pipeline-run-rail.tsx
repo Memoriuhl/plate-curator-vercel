@@ -1,6 +1,12 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import Link from 'next/link'
 import { IoTimeOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
@@ -11,6 +17,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { compareQueueOrder } from '@/lib/jobs/queue-order'
 import type { RunStatus } from '@/lib/jobs/queue-types'
 import { formatDuration, type PipelineProgress } from '@/lib/jobs/run-progress'
 import styles from './pipeline-runs.module.css'
@@ -22,6 +29,8 @@ type RailRun = {
   enqueueSequence?: number
   dismissedAt?: number
   status: RunStatus
+  updatedAt?: number
+  progress?: { endedAt?: number }
 }
 const historyLabels = {
   completed: 'Finished',
@@ -142,28 +151,57 @@ export function PipelineRunHistory<T extends RailRun>({
   )
 }
 
-/** Keep undismissed cards in enqueue order and scroll to newly added runs. */
+export type RunDisclosure = { expanded: boolean; onToggle: () => void }
+
 export function PipelineRunRail<T extends RailRun>({
   runs,
   renderRun,
+  stacked,
+  requestedRunId,
 }: {
   runs: T[]
-  renderRun: (run: T) => ReactNode
+  stacked?: boolean
+  requestedRunId?: string
+  renderRun: (run: T, disclosure?: RunDisclosure) => ReactNode
 }) {
+  const [expansion, setExpansion] = useState<{
+    request?: string
+    open: ReadonlySet<string>
+    running: ReadonlyMap<string, number>
+  }>()
   const rail = runs
     .filter((run) => run.dismissedAt === undefined)
-    .sort(
-      (a, b) =>
-        (a.queuedAt ?? a.createdAt) - (b.queuedAt ?? b.createdAt) ||
-        (a.enqueueSequence ?? 0) - (b.enqueueSequence ?? 0) ||
-        a.id.localeCompare(b.id)
-    )
+    .sort(compareQueueOrder)
   const viewport = useRef<HTMLDivElement>(null)
   const newestId = rail.at(-1)?.id
+  const running = stacked ? rail.filter((run) => run.status === 'running') : []
+  const groups = stacked
+    ? [
+        { title: 'Running', runs: running },
+        { title: 'Queue', runs: rail.filter((run) => run.status === 'queued') },
+        {
+          title: 'Recent runs',
+          runs: rail
+            .filter(
+              (run) => run.status !== 'running' && run.status !== 'queued'
+            )
+            .sort(
+              (a, b) =>
+                (b.progress?.endedAt ?? b.updatedAt ?? b.createdAt) -
+                  (a.progress?.endedAt ?? a.updatedAt ?? a.createdAt) ||
+                compareQueueOrder(b, a)
+            ),
+        },
+      ]
+    : [{ title: undefined, runs: rail }]
   useLayoutEffect(() => {
     const element = viewport.current
-    if (element) element.scrollLeft = element.scrollWidth
-  }, [newestId])
+    if (!stacked && element) element.scrollLeft = element.scrollWidth
+  }, [newestId, stacked])
+  useLayoutEffect(() => {
+    const drawer = viewport.current?.closest('[data-pipeline-scroll]')
+    if (stacked && drawer && requestedRunId) drawer.scrollTop = 0
+  }, [requestedRunId, stacked])
   useEffect(() => {
     const element = viewport.current
     if (!element) return
@@ -178,19 +216,59 @@ export function PipelineRunRail<T extends RailRun>({
           event.target.closest('[data-pipeline-watch-steps]'))
       )
         return
+      const scroller =
+        stacked && event.target instanceof Element
+          ? event.target.closest<HTMLElement>('[data-pipeline-flow]')
+          : element
+      if (!scroller) return
       const unit =
         event.deltaMode === WheelEvent.DOM_DELTA_LINE
           ? 16
           : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? element.clientWidth
+            ? scroller.clientWidth
             : 1
-      const previous = element.scrollLeft
-      element.scrollLeft += event.deltaY * unit
-      if (element.scrollLeft !== previous) event.preventDefault()
+      const previous = scroller.scrollLeft
+      scroller.scrollLeft += event.deltaY * unit
+      if (scroller.scrollLeft !== previous) event.preventDefault()
     }
     element.addEventListener('wheel', scrollRail, { passive: false })
     return () => element.removeEventListener('wheel', scrollRail)
-  }, [])
+  }, [stacked])
+  const initialRunId =
+    requestedRunId ?? groups.find((group) => group.runs.length)?.runs[0]?.id
+  const requestedOpen =
+    !expansion || (requestedRunId && expansion.request !== requestedRunId)
+      ? initialRunId
+      : undefined
+  const runningAttempts = new Map(
+    running.map((run) => [
+      run.id,
+      run.enqueueSequence ?? run.queuedAt ?? run.createdAt,
+    ])
+  )
+  const started = [...runningAttempts].filter(
+    ([id, sequence]) => expansion?.running.get(id) !== sequence
+  )
+  if (
+    stacked &&
+    (requestedOpen ||
+      started.length ||
+      (expansion && expansion.running.size !== runningAttempts.size))
+  ) {
+    const open = new Set(expansion?.open)
+    if (requestedOpen) open.add(requestedOpen)
+    for (const [id] of started) open.add(id)
+    setExpansion({ request: requestedRunId, running: runningAttempts, open })
+  }
+
+  function toggleRun(runId: string) {
+    setExpansion((current) => {
+      if (!current) return current
+      const open = new Set(current.open)
+      if (!open.delete(runId)) open.add(runId)
+      return { ...current, open }
+    })
+  }
   const summary = (
     ['failed', 'queued', 'running', 'completed', 'cancelled'] as const
   )
@@ -208,14 +286,41 @@ export function PipelineRunRail<T extends RailRun>({
         ref={viewport}
         className={styles.rail}
         role="region"
-        aria-label="Plate Pipeline runs, scroll horizontally"
-        tabIndex={0}
+        aria-label={
+          stacked
+            ? 'Plate Pipeline runs'
+            : 'Plate Pipeline runs, scroll horizontally'
+        }
+        tabIndex={stacked ? undefined : 0}
       >
         {rail.length ? (
-          <ol className={styles.runList}>
-            {rail.map((run) => (
-              <li key={run.id}>{renderRun(run)}</li>
-            ))}
+          <ol className={styles.runList} data-stacked={stacked || undefined}>
+            {groups.flatMap(({ title, runs }) => [
+              ...(title && runs.length
+                ? [
+                    <li
+                      key={`section-${title}`}
+                      role="presentation"
+                      className={styles.runSection}
+                    >
+                      <h3>{title}</h3>
+                    </li>,
+                  ]
+                : []),
+              ...runs.map((run) => (
+                <li key={run.id}>
+                  {renderRun(
+                    run,
+                    stacked
+                      ? {
+                          expanded: expansion?.open.has(run.id) ?? false,
+                          onToggle: () => toggleRun(run.id),
+                        }
+                      : undefined
+                  )}
+                </li>
+              )),
+            ])}
           </ol>
         ) : runs.length ? (
           <p className="caption">No active runs</p>

@@ -14,6 +14,7 @@ import { IoAddCircleOutline, IoPencilOutline } from 'react-icons/io5'
 import { TooltipProvider } from '../../components/ui/tooltip'
 import type { ReactNode } from 'react'
 import {
+  pipelineRunDetailKey,
   PipelineQueueWarmup,
   usePipelineQueue,
 } from '../../components/dashboard/use-pipeline-queue'
@@ -36,7 +37,13 @@ import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 import { PlateEnhancementPreview } from '../../components/plate/plate-image-preview'
 import { PlatePipelineTimeline } from '../../components/dashboard/plate-pipeline-timeline'
 import { PipelineRunCard } from '../../components/dashboard/pipeline-run-card'
-import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
+import {
+  DashboardPipelineDrawer,
+  DashboardPipelineProvider,
+  DashboardPipelineToggle,
+  PipelineRuns,
+  useDashboardPipeline,
+} from '../../components/dashboard/pipeline-runs'
 import { queueProgress } from '../../lib/jobs/run-progress'
 import {
   plateSelection,
@@ -49,6 +56,7 @@ import { RESEARCH_MODELS } from '../../lib/research/models'
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), send: vi.fn() },
   ensure: vi.fn(),
+  pathname: '/states/AK',
   modelId: 'desktop-gemma4-12b',
   models: [] as (typeof TAGGING_MODELS)[number][],
   workspace: { mode: 'personal' } as {
@@ -68,11 +76,13 @@ vi.mock('../../lib/client/hooks', () => ({
   useEnsureBatch: () => mocks.ensure,
   useWorkspaceBatch: () => mocks.workspace,
   useSelectedBatchId: () => null,
+  useBatches: () => ({ data: [] }),
   useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }),
 }))
 
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
+  usePathname: () => mocks.pathname,
   useRouter: () => ({ prefetch: vi.fn() }),
 }))
 
@@ -165,6 +175,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   localStorage.clear()
   mocks.workspace = { mode: 'personal' }
+  mocks.pathname = '/states/AK'
   mocks.ensure.mockReset().mockResolvedValue('batch')
   plateSelection.replace([plate])
   mocks.models = [...TAGGING_MODELS]
@@ -210,6 +221,77 @@ test('reload restores saved run via one list, and an active run does not block e
   await waitFor(() =>
     expect(restored.result.current.selected?.id).toBe('saved-run')
   )
+})
+
+test('Start Run opens the drawer with the newly accepted run expanded', async () => {
+  const older = saved({ id: 'older', createdAt: 50, queuedAt: 50 })
+  const latest = saved({ id: 'latest', createdAt: 200, queuedAt: 200 })
+  let started = false
+  mocks.api.get.mockImplementation(async (path: string) =>
+    path.startsWith('/api/local-pipeline')
+      ? { runs: started ? [older, latest] : [older] }
+      : { runs: [] }
+  )
+  mocks.api.send.mockImplementation(async () => {
+    started = true
+    return { run: latest }
+  })
+  function Dashboard() {
+    const { queue } = useDashboardPipeline()
+    return (
+      <>
+        <PipelineRunControls
+          batchPlates={[plate]}
+          stateName="Alaska"
+          queue={queue}
+        />
+        <DashboardPipelineDrawer />
+      </>
+    )
+  }
+  render(
+    <DashboardPipelineProvider>
+      <Dashboard />
+    </DashboardPipelineProvider>,
+    { wrapper }
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  const form = screen.getByRole('dialog', { name: 'Run pipeline' })
+  expect(screen.queryByRole('dialog', { name: 'Plate Pipeline' })).toBeNull()
+  fireEvent.click(within(form).getByRole('checkbox', { name: 'Tag' }))
+  fireEvent.click(within(form).getByRole('button', { name: 'Start Run' }))
+  const drawer = await screen.findByRole('dialog', { name: 'Plate Pipeline' })
+  expect(
+    within(drawer).getByRole('button', { name: 'View runs: All Machines' })
+  ).toBeTruthy()
+  expect(
+    within(drawer)
+      .getAllByRole('article')
+      .map((article) => article.getAttribute('aria-label'))
+  ).toEqual(['Pipeline run older', 'Pipeline run latest'])
+  const newest = within(drawer).getByRole('button', { name: /latest/ })
+  const previous = within(drawer).getByRole('button', { name: /older/ })
+  expect(newest.getAttribute('aria-expanded')).toBe('true')
+  expect(previous.getAttribute('aria-expanded')).toBe('false')
+  expect(
+    within(drawer).queryByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeNull()
+  fireEvent.click(within(drawer).getByRole('button', { name: 'View plates' }))
+  expect(
+    within(drawer).getByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeTruthy()
+  fireEvent.click(previous)
+  expect(newest.getAttribute('aria-expanded')).toBe('true')
+  expect(previous.getAttribute('aria-expanded')).toBe('true')
+  expect(
+    within(drawer).getByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeTruthy()
+  fireEvent.click(newest)
+  expect(newest.getAttribute('aria-expanded')).toBe('false')
+  expect(previous.getAttribute('aria-expanded')).toBe('true')
+  expect(
+    within(drawer).queryByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeNull()
 })
 
 test('the warmup shares its request and cached cards with the dashboard', async () => {
@@ -261,21 +343,28 @@ test('the warmup shares its request and cached cards with the dashboard', async 
 test('returning from a run uses the newer queue snapshot loaded on the results page', async () => {
   const initial = saved()
   const updated = saved({ status: 'completed' })
+  const unrelated = saved({ id: 'unrelated', status: 'running' })
   let summaryRequests = 0
   mocks.api.get.mockImplementation((path: string) => {
-    if (path.endsWith('detail=saved-run'))
+    if (path === pipelineRunDetailKey(updated.id))
       return Promise.resolve({
         runs: [updated],
         selected: updated,
         observedAt: 200,
       })
     return ++summaryRequests === 1
-      ? Promise.resolve({ runs: [initial], observedAt: 100 })
+      ? Promise.resolve({ runs: [initial, unrelated], observedAt: 100 })
       : new Promise(() => {})
   })
   function QueueSnapshot({ detail }: { detail?: string }) {
     const queue = usePipelineQueue(undefined, undefined, detail)
-    return <div>{queue.runs[0]?.status ?? 'empty'}</div>
+    return (
+      <div>
+        {queue.runs.map((run) => (
+          <span key={run.id}>{run.status}</span>
+        ))}
+      </div>
+    )
   }
   const page = render(
     <>
@@ -299,6 +388,7 @@ test('returning from a run uses the newer queue snapshot loaded on the results p
     </>
   )
   expect(screen.getByText('completed')).toBeTruthy()
+  expect(screen.getByText('running')).toBeTruthy()
 })
 
 test('uncertain A then B then remount preserves A request ID', async () => {
@@ -568,6 +658,270 @@ test('plate steps are always visible for every displayed run', () => {
     />
   )
   expect(timelines()).toHaveLength(1)
+})
+
+test('the drawer shows pipeline types and keeps open runs across polling and new starts', () => {
+  const running = saved({
+    id: 'active',
+    batchName: 'Alaska pipeline',
+    status: 'running',
+    plateIds: ['AK.one', 'AK.two', 'AK.three'],
+    stages: ['enhance-image', 'research'],
+  })
+  running.progress = {
+    workerIds: [],
+    steps: [
+      {
+        index: 0,
+        plateId: 'AK.one',
+        plateName: 'One',
+        stage: 'enhance-image',
+        status: 'completed',
+      },
+      {
+        index: 1,
+        plateId: 'AK.one',
+        plateName: 'One',
+        stage: 'research',
+        status: 'running',
+        phaseIndex: 1,
+      },
+      {
+        index: 2,
+        plateId: 'AK.two',
+        plateName: 'Two',
+        stage: 'research',
+        status: 'failed',
+        reason: 'no_sources',
+      },
+      {
+        index: 3,
+        plateId: 'AK.three',
+        plateName: 'Three',
+        stage: 'research',
+        status: 'completed',
+      },
+    ],
+  }
+  const finished = saved({
+    id: 'finished',
+    createdAt: 50,
+    queuedAt: 50,
+    status: 'completed',
+  })
+  const queued = saved({ id: 'queued', createdAt: 200, queuedAt: 200 })
+  const queue = {
+    runs: [finished, running],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  const view = render(<PipelineQueuePanel queue={queue} stacked />)
+  const active = screen.getByRole('button', {
+    name: /Enhance image \+ Research \/ enrich.*Alaska pipeline.*3 plates.*Running/,
+  })
+  const stageSummary = () =>
+    within(
+      within(active.closest('article')!).getByRole('list', {
+        name: 'Run stages',
+      })
+    )
+  expect(active.getAttribute('aria-expanded')).toBe('true')
+  expect(stageSummary().getByText('1 done · 1 running · 1 failed')).toBeTruthy()
+  expect(stageSummary().getByText('Draft description & story')).toBeTruthy()
+  expect(screen.getByText('No usable source page was found.')).toBeTruthy()
+  expect(
+    screen.getByRole('link', { name: 'View Enhance image results' })
+  ).toBeTruthy()
+
+  const older = screen.getByRole('button', {
+    name: /Tag.*Run finished.*1 plate.*Finished/,
+  })
+  fireEvent.click(older)
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{ ...queue, runs: [finished, running, queued] }}
+      stacked
+    />
+  )
+  const newest = screen.getByRole('button', {
+    name: /Tag.*Run queued.*1 plate.*Queued/,
+  })
+  expect(older.getAttribute('aria-expanded')).toBe('true')
+  expect(active.getAttribute('aria-expanded')).toBe('true')
+  expect(newest.getAttribute('aria-expanded')).toBe('false')
+  expect(stageSummary().getByText('Draft description & story')).toBeTruthy()
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{ ...queue, runs: [finished, running, queued] }}
+      stacked
+      requestedRunId="queued"
+    />
+  )
+  expect(active.getAttribute('aria-expanded')).toBe('true')
+  expect(older.getAttribute('aria-expanded')).toBe('true')
+  expect(newest.getAttribute('aria-expanded')).toBe('true')
+})
+
+test('the drawer groups running, queued and finished runs, and marks worker pickup as waiting', () => {
+  const active = saved({ id: 'active', status: 'running' })
+  const first = saved({
+    id: 'first',
+    createdAt: 200,
+    queuedAt: 200,
+    enqueueSequence: 2,
+    queueWait: 'worker_claim',
+  })
+  const second = saved({
+    id: 'second',
+    createdAt: 201,
+    queuedAt: 201,
+    enqueueSequence: 3,
+    queueWait: 'prior_run',
+  })
+  const settled = saved({
+    id: 'settled',
+    status: 'completed',
+    createdAt: 50,
+    queuedAt: 50,
+  })
+  const queue = {
+    runs: [second, settled, active, first],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  render(<PipelineQueuePanel queue={queue} stacked requestedRunId="first" />)
+  const rail = within(
+    screen.getByRole('region', { name: 'Plate Pipeline runs' })
+  )
+  expect(
+    rail.getAllByRole('heading').map((heading) => heading.textContent)
+  ).toEqual(['Running', 'Queue', 'Recent runs'])
+  expect(
+    rail
+      .getAllByRole('article')
+      .map((article) => article.getAttribute('aria-label'))
+  ).toEqual([
+    'Pipeline run active',
+    'Pipeline run first',
+    'Pipeline run second',
+    'Pipeline run settled',
+  ])
+  const waiting = within(
+    rail.getByRole('article', { name: 'Pipeline run first' })
+  )
+  expect(
+    waiting.getByRole('button', { name: /Run first.*Waiting/ })
+  ).toBeTruthy()
+  expect(
+    waiting
+      .getByRole('list', { name: 'Run stages' })
+      .querySelector('[data-status="pickup"]')
+  ).toBeTruthy()
+  expect(
+    waiting.queryByText('Waiting for the local worker to pick up this step')
+  ).toBeNull()
+  expect(rail.getByRole('button', { name: /Run second.*Queued/ })).toBeTruthy()
+})
+
+test('running cards open by default and only reopen for a new start', () => {
+  const first = saved({ id: 'first', status: 'running' })
+  const next = saved({ id: 'next', enqueueSequence: 2 })
+  const queue = {
+    runs: [first, next],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  const view = render(<PipelineQueuePanel queue={queue} stacked />)
+  const button = (id: string) =>
+    within(
+      screen.getByRole('article', { name: `Pipeline run ${id}` })
+    ).getByRole('button', { name: new RegExp(`Run ${id}`) })
+  const expanded = (id: string) => button(id).getAttribute('aria-expanded')
+  expect(expanded(first.id)).toBe('true')
+  expect(expanded(next.id)).toBe('false')
+
+  fireEvent.click(button(first.id))
+  const started = { ...next, status: 'running' as const }
+  view.rerender(
+    <PipelineQueuePanel queue={{ ...queue, runs: [first, started] }} stacked />
+  )
+  expect(expanded(first.id)).toBe('false')
+  expect(expanded(next.id)).toBe('true')
+
+  fireEvent.click(button(next.id))
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{ ...queue, runs: [first, { ...started, updatedAt: 400 }] }}
+      stacked
+    />
+  )
+  expect(expanded(next.id)).toBe('false')
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{
+        ...queue,
+        runs: [
+          { ...first, status: 'completed' },
+          { ...started, enqueueSequence: 3, updatedAt: 500 },
+        ],
+      }}
+      stacked
+    />
+  )
+  expect(expanded(next.id)).toBe('true')
+})
+
+test('the drawer opens plate steps when a queued run starts and respects manual disclosure', () => {
+  const run = saved()
+  const queue = {
+    runs: [run],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  const view = render(<PipelineQueuePanel queue={queue} stacked />)
+  const setStatus = (status: QueueRunView['status']) =>
+    view.rerender(
+      <PipelineQueuePanel
+        queue={{ ...queue, runs: [{ ...run, status }] }}
+        stacked
+      />
+    )
+  const timeline = () =>
+    screen.queryByRole('region', { name: 'Pipeline steps by plate' })
+
+  expect(timeline()).toBeNull()
+  setStatus('running')
+  expect(timeline()).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Hide plates' }))
+  setStatus('running')
+  expect(timeline()).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'View plates' }))
+  setStatus('completed')
+  expect(timeline()).toBeTruthy()
 })
 
 test('the vertical wheel scrolls the rail except over a watch timeline or at a rail edge', () => {
@@ -1358,8 +1712,10 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   expect(screen.getByText('Method · Embeddings')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Method' })).toBeNull()
   expect(screen.getByText(/Use colour signal ·/)).toBeTruthy()
-  const warning = screen.getByRole('button', { name: 'Group run warning' })
-  fireEvent.pointerMove(warning, { pointerType: 'mouse' })
+  fireEvent.pointerMove(
+    screen.getByRole('button', { name: 'Group run warning' }),
+    { pointerType: 'mouse' }
+  )
   expect((await screen.findByRole('tooltip')).textContent).toMatch(
     /large, expensive operation/
   )
@@ -1629,11 +1985,36 @@ test('mixed Research results load dashboard plate cards and inspect one plate wi
       imageUrl: 'https://example.org/two.webp',
     },
   ]
-  mocks.api.get.mockResolvedValue({ runs: [run], selected: run })
-  render(<PipelineRunResultsPage runId={run.id} />, { wrapper })
+  let finish!: (data: { runs: QueueRunView[]; selected: QueueRunView }) => void
+  mocks.pathname = `/pipeline/runs/${run.id}`
+  mocks.api.get.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+  )
+  render(
+    <>
+      <PipelineQueueWarmup />
+      <PipelineRunResultsPage runId={run.id} />
+    </>,
+    { wrapper }
+  )
+  expect(
+    screen
+      .getByRole('status', { name: 'Loading run results' })
+      .querySelectorAll('li')
+  ).toHaveLength(4)
+  expect(mocks.api.get).toHaveBeenCalledExactlyOnceWith(
+    '/api/local-pipeline/runs?detail=saved-run&detailOnly=1'
+  )
+  await act(async () => finish({ runs: [run], selected: run }))
   expect(
     await screen.findByText('2 plates · 1 passed · 1 skipped')
   ).toBeTruthy()
+  expect(
+    screen.queryByRole('status', { name: 'Loading run results' })
+  ).toBeNull()
   const grid = screen.getByRole('list', { name: 'Plates in this run' })
   expect(grid.children).toHaveLength(2)
   expect(screen.getByRole('img', { name: 'Two plate' })).toBeTruthy()
@@ -1646,6 +2027,101 @@ test('mixed Research results load dashboard plate cards and inspect one plate wi
   fireEvent.keyDown(dialog, { key: 'Escape' })
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(document.activeElement).toBe(changes)
+})
+
+test('the stage eye opens changed plate cards by state inside the drawer and Back restores the run', async () => {
+  const two = { ...plate, id: 'CA.two', state: 'CA', displayName: 'Two' }
+  const unchanged = {
+    ...plate,
+    id: 'CA.three',
+    state: 'CA',
+    displayName: 'Three',
+  }
+  const cards = [two, unchanged, plate]
+  const run = saved({
+    status: 'completed',
+    plateIds: cards.map((card) => card.id),
+    cards,
+  })
+  run.progress = {
+    workerIds: [],
+    steps: cards.map((card, index) => ({
+      index,
+      plateId: card.id,
+      plateName: card.displayName,
+      stage: 'tag',
+      status: 'completed',
+    })),
+  }
+  run.jobs = cards.map((card) => ({
+    id: `${card.id}-tag`,
+    batchId: run.batchId,
+    plateId: card.id,
+    requestedBy: run.requestedBy,
+    env: run.env,
+    inputHash: 'hash',
+    state: 'completed',
+    createdAt: 100,
+    result: {
+      suggestions: card === unchanged ? [] : ['blue'],
+      backend: 'local',
+      model: 'test',
+      promptVersion: 'v1',
+      durationMs: 1,
+    },
+  }))
+  let finish!: (data: { runs: QueueRunView[]; selected: QueueRunView }) => void
+  mocks.api.get.mockImplementation(async (path: string) =>
+    path === pipelineRunDetailKey(run.id)
+      ? new Promise((resolve) => {
+          finish = resolve
+        })
+      : { runs: [run] }
+  )
+  render(
+    <DashboardPipelineProvider>
+      <DashboardPipelineToggle />
+      <DashboardPipelineDrawer />
+    </DashboardPipelineProvider>,
+    { wrapper }
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Open Plate Pipeline' }))
+  const drawer = within(
+    await screen.findByRole('dialog', { name: 'Plate Pipeline' })
+  )
+  const eye = await drawer.findByRole('button', { name: 'View Tag results' })
+  const url = window.location.href
+  const runList = drawer.getByRole('region', { name: 'Plate Pipeline runs' })
+  const scroller = runList.closest<HTMLElement>('[data-pipeline-scroll]')!
+  scroller.scrollTop = 180
+  fireEvent.click(eye)
+
+  expect(
+    await drawer.findByRole('heading', { name: 'Tag results' })
+  ).toBeTruthy()
+  expect(
+    drawer
+      .getByRole('status', { name: 'Loading run results' })
+      .querySelectorAll('li')
+  ).toHaveLength(4)
+  await act(async () => finish({ runs: [run], selected: run }))
+  const alaska = await drawer.findByRole('list', { name: 'Alaska' })
+  expect(
+    drawer.queryByRole('status', { name: 'Loading run results' })
+  ).toBeNull()
+  const california = drawer.getByRole('list', { name: 'California' })
+  expect(within(alaska).getByRole('heading', { name: 'One' })).toBeTruthy()
+  expect(within(california).getByRole('heading', { name: 'Two' })).toBeTruthy()
+  expect(california.children).toHaveLength(1)
+  expect(
+    drawer.queryByRole('region', { name: 'Plate Pipeline runs' })
+  ).toBeNull()
+  expect(window.location.href).toBe(url)
+
+  fireEvent.click(drawer.getByRole('button', { name: 'Back to runs' }))
+  expect(drawer.getByRole('button', { name: 'View Tag results' })).toBe(eye)
+  expect(document.activeElement).toBe(eye)
+  expect(scroller.scrollTop).toBe(180)
 })
 
 test.each([
@@ -1687,7 +2163,7 @@ test.each([
   }
 )
 
-test('History sits with the title and device stays static while the other device has no runs', async () => {
+test('History stays with the title and All Machines remains selected when only one machine has runs', async () => {
   mocks.api.get.mockImplementation(async (path: string) =>
     path.startsWith('/api/local-pipeline') ? { runs: [saved()] } : { runs: [] }
   )
@@ -1701,90 +2177,119 @@ test('History sits with the title and device stays static while the other device
   expect(
     within(heading.parentElement!).getByRole('button', { name: 'History' })
   ).toBeTruthy()
-  expect(within(header).getByText('Local PC')).toBeTruthy()
-  expect(within(header).queryByRole('button', { name: /View runs/ })).toBeNull()
   const rail = screen.getByRole('region', {
     name: 'Plate Pipeline runs, scroll horizontally',
   })
   expect(within(rail).queryByRole('button', { name: 'History' })).toBeNull()
+  fireEvent.keyDown(
+    within(header).getByRole('button', { name: 'View runs: All Machines' }),
+    { key: 'Enter' }
+  )
+  expect(
+    (
+      await screen.findByRole('menuitemradio', { name: 'All Machines' })
+    ).getAttribute('aria-checked')
+  ).toBe('true')
+  expect(
+    screen
+      .getByRole('menuitemradio', { name: 'Vercel Gateway' })
+      .hasAttribute('data-disabled')
+  ).toBe(true)
 })
 
-test('execution dropdown switches local and gateway views without mutating or restarting runs', async () => {
-  const local = saved()
-  local.progress = {
-    ...queueProgress(local),
-    workerIds: ['Studio PC', 'Laptop'],
+test('All Machines shows full runs once and filters by their recorded devices', async () => {
+  const plateIds = ['AK.one', 'AK.two', 'AK.three', 'AK.four', 'AK.five']
+  const local = saved({
+    batchName: 'Alabama pipeline',
+    plateIds,
+    stages: ['research', 'tag'],
+    tagModelId: 'desktop-gemma4-12b',
+    researchModel: {
+      id: 'eve-gemini-2-5-flash-lite',
+      executor: 'eve',
+      model: 'google/gemini-2.5-flash-lite',
+    },
+  })
+  const desktop = saved({ id: 'enhance', stages: ['enhance-image'] })
+  const gateway = {
+    id: 'gateway-run',
+    batchId: 'batch',
+    requestedBy: 'editor',
+    plateIds: ['AK.one'],
+    modelId: 'gateway-gemma4-26b',
+    createdAt: 100,
+    status: 'completed',
+    progress: {
+      workerIds: [],
+      endedAt: 800,
+      steps: [
+        {
+          index: 0,
+          plateId: 'AK.one',
+          plateName: 'One',
+          stage: 'tag',
+          status: 'completed',
+          durationMs: 700,
+        },
+      ],
+      workflowUrl: null,
+    },
+    results: [],
   }
   mocks.api.get.mockImplementation(async (path: string) =>
     path.startsWith('/api/local-pipeline')
-      ? { runs: [local], observedAt: 1000 }
-      : {
-          runs: [
-            {
-              id: 'gateway-run',
-              batchId: 'batch',
-              requestedBy: 'editor',
-              plateIds: ['AK.one'],
-              modelId: 'gateway-gemma4-26b',
-              createdAt: 100,
-              status: 'completed',
-              progress: {
-                workerIds: [],
-                endedAt: 800,
-                steps: [
-                  {
-                    index: 0,
-                    plateId: 'AK.one',
-                    plateName: 'One',
-                    stage: 'tag',
-                    status: 'completed',
-                    durationMs: 700,
-                  },
-                ],
-                workflowUrl: null,
-              },
-              results: [],
-            },
-          ],
-          observedAt: 10_000,
-        }
+      ? { runs: [local, desktop], observedAt: 1000 }
+      : { runs: [gateway, { ...gateway, id: local.id }], observedAt: 10_000 }
   )
   /**
    * Connect the real queue hook to the panel so the test can observe resumed run
    * details.
    */
   function Runs() {
-    return <PipelineRuns queue={usePipelineQueue()} />
+    return <PipelineRuns queue={usePipelineQueue()} stacked />
   }
   render(<Runs />, { wrapper })
-  await waitFor(() =>
-    expect(
-      screen.getByRole('article', { name: 'Pipeline run saved-run' })
-    ).toBeTruthy()
-  )
-  fireEvent.keyDown(
-    await screen.findByRole('button', { name: /View runs: Local PC/ }),
-    { key: 'Enter' }
-  )
-  await waitFor(() =>
-    expect(screen.getByRole('menuitemradio', { name: 'Local PC' })).toBeTruthy()
-  )
-  expect(screen.queryByText('Studio PC')).toBeNull()
-  fireEvent.click(screen.getByRole('menuitemradio', { name: /Vercel Gateway/ }))
-  await waitFor(() =>
-    expect(
-      screen.getByRole('article', { name: 'Pipeline run gateway-run' })
-    ).toBeTruthy()
-  )
+  const combined = await screen.findByRole('article', {
+    name: 'Pipeline run saved-run',
+  })
   expect(
-    screen.queryByRole('article', { name: 'Pipeline run saved-run' })
-  ).toBeNull()
-  expect(
-    screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })
+    within(combined).getByRole('button', {
+      name: /Alabama pipeline.*5 plates.*Vercel Gateway.*Gemini 2.5 Flash Lite.*Local PC.*Gemma 4 12B/,
+    })
   ).toBeTruthy()
   expect(
-    screen.getByRole('list', { name: 'One pipeline steps' }).textContent
-  ).toContain('Tag Complete')
+    within(
+      await screen.findByRole('article', { name: 'Pipeline run gateway-run' })
+    ).getByRole('button', { name: /Vercel Gateway.*Gemma 4 26B/ })
+  ).toBeTruthy()
+  expect(
+    screen.getAllByRole('article', { name: 'Pipeline run saved-run' })
+  ).toHaveLength(1)
+
+  async function select(from: string, to: string) {
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: `View runs: ${from}` }),
+      { key: 'Enter' }
+    )
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: to }))
+  }
+  await select('All Machines', 'Local PC')
+  expect(
+    screen.queryByRole('article', { name: 'Pipeline run gateway-run' })
+  ).toBeNull()
+  expect(
+    screen.getByRole('article', { name: 'Pipeline run enhance' })
+  ).toBeTruthy()
+  await select('Local PC', 'Vercel Gateway')
+  expect(
+    screen.getByRole('article', { name: 'Pipeline run saved-run' })
+  ).toBeTruthy()
+  expect(
+    screen.getByRole('article', { name: 'Pipeline run gateway-run' })
+  ).toBeTruthy()
+  expect(
+    screen.queryByRole('article', { name: 'Pipeline run enhance' })
+  ).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'History' }))
   expect(screen.getByRole('link', { name: 'Run eway-run' })).toBeTruthy()
   expect(mocks.api.send).not.toHaveBeenCalled()
@@ -2278,8 +2783,8 @@ test('worker phases advance the active box for just that plate', () => {
   const first = screen.getByRole('list', { name: 'One pipeline steps' })
   const header = first.previousElementSibling!
   expect(header.tagName).toBe('HEADER')
-  expect(header.firstElementChild?.textContent).toBe('One')
-  expect(header.children[1]).toBe(preview)
+  expect(header.firstElementChild).toBe(preview)
+  expect(header.children[1]?.textContent).toBe('One')
   expect(header.lastElementChild).toBe(
     screen.getByRole('link', { name: 'Go to One on the dashboard' })
   )

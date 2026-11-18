@@ -13,6 +13,7 @@ import { PlateChangeIcons } from './plate-change-icons'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   IoChevronBack,
+  IoChevronDown,
   IoChevronForward,
   IoFunnelOutline,
   IoPersonOutline,
@@ -587,20 +588,26 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           </>
         )}
         {!batchId && batches.length > 0 && (
-          <nav
-            aria-label="Batches"
-            className="mb-2 border-b border-[var(--hairline)] pb-2"
-          >
-            {batches.map((batch) => (
-              <Link
-                className="block rounded-xl p-2 text-sm underline"
-                href={reviewHref(undefined, undefined, batch.id)}
-                key={batch.id}
-              >
-                {batch.name}
-              </Link>
-            ))}
-          </nav>
+          <details className="group/batches mb-2 border-b border-[var(--hairline)] pb-2">
+            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl p-2 text-xs font-extrabold [&::-webkit-details-marker]:hidden">
+              Batches
+              <IoChevronDown
+                aria-hidden="true"
+                className="size-4 group-open/batches:rotate-180"
+              />
+            </summary>
+            <nav aria-label="Batches">
+              {batches.map((batch) => (
+                <Link
+                  className="block rounded-xl p-2 text-sm underline"
+                  href={reviewHref(undefined, undefined, batch.id)}
+                  key={batch.id}
+                >
+                  {batch.name}
+                </Link>
+              ))}
+            </nav>
+          </details>
         )}
         <nav aria-label="Review states" className="grid gap-1">
           <StateVisibilityControl
