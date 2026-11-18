@@ -4,7 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { useSession } from '@/lib/client/session'
 import type { ResearchModel } from '@/lib/research/models'
-import { ModelSelect } from './model-select'
+import { InlineSelect } from '@/components/ui/inline-select'
 
 const storageKey = 'research-model:v1'
 const catalogUrl = '/api/research/models'
@@ -32,8 +32,7 @@ export function ResearchModelPicker({ choice }: { choice: ReturnType<typeof useR
     {choice.error ? <p role="alert" className="caption">Could not load research models. <button type="button" className="underline" onClick={() => void choice.reload().catch(() => undefined)}>Retry</button></p>
       : choice.isLoading ? <p role="status" className="caption">Loading research models…</p>
       : !choice.model ? <p role="status" className="caption">No research models are available.</p>
-      : <ModelSelect aria-label="Research model" value={choice.model.id} onChange={event => choice.choose(event.target.value)}>
-        {choice.models.map(model => <option key={model.id} value={model.id}>{researchModelLabel(model)}</option>)}
-      </ModelSelect>}
+      : <InlineSelect label="Research model" value={choice.model.id} onChange={choice.choose}
+          options={choice.models.map(model => ({ value: model.id, label: researchModelLabel(model) }))} />}
   </div>
 }

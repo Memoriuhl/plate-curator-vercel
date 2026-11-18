@@ -59,7 +59,7 @@ const stages = [
 ]
 
 export function RunMenu(props: ComponentProps<typeof LegacyRunMenu> & { queue?: ReturnType<typeof usePipelineQueue> }) {
-  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && props.queue) return <PipelineRunControls underTagged={props.underTagged} allPlates={props.allPlates} batchPlates={props.batchPlates} stateName={props.stateName} queue={props.queue} />
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && props.queue) return <PipelineRunControls batchPlates={props.batchPlates} stateName={props.stateName} stateCode={props.allPlates?.[0]?.state ?? props.underTagged[0]?.state} queue={props.queue} />
   return <LegacyRunMenu {...props} />
 }
 

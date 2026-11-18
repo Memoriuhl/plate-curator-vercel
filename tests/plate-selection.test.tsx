@@ -144,6 +144,30 @@ it('preserves selection when Escape is handled, in a popover, in an input, or du
   expect(plateSelection.snapshot()).toHaveLength(3)
 })
 
+it('keeps selection through Run Pipeline shortcuts and ordinary plate clicks still replace it', () => {
+  plateSelection.visible(plates)
+  plateSelection.add(plates.slice(0, 2))
+  const close = vi.fn(), promote = vi.fn()
+  function Harness() {
+    useSelectionKeyboard({ close, promote, disabled: false })
+    return <>
+      <SelectionPresence />
+      <button data-run-trigger>Run pipeline</button>
+      <div data-run-menu><p>Selected plates</p><button>More options</button></div>
+      <SelectionPlate id="c">Plate C</SelectionPlate>
+    </>
+  }
+  render(<Harness />)
+  fireEvent.click(screen.getByText('Selected plates'))
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More options' }), { key: 'Escape' })
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More options' }), { key: 'Delete' })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['a', 'b'])
+  expect(close).not.toHaveBeenCalled()
+  expect(promote).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('Plate C'))
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(['c'])
+})
+
 it('dimmed rows disable selection and are excluded from ranges', () => {
   plateSelection.visible([plates[0], plates[2]])
   render(<SelectionPlate id="b" disabled><a href="/b">Dimmed</a></SelectionPlate>)

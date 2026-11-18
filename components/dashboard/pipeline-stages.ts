@@ -48,7 +48,10 @@ export const pipelineStages: readonly StageDefinition[] = [
     disabledReason: 'Order is manual: drag families to reorder', options: [] },
 ]
 
-export const newRunStages = pipelineStages.filter(stage => !stage.legacyResearch)
+export const newRunStages = pipelineStages.filter(
+  (stage): stage is StageDefinition & { id: Exclude<StageDefinition['id'], 'order' | 'colors'> } =>
+    !stage.legacyResearch && stage.id !== 'order' && stage.id !== 'colors',
+)
 
 export type PipelineCapabilities = Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
 

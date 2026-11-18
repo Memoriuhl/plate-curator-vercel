@@ -97,12 +97,17 @@ export function SelectionPlate({ id, children, disabled = false, highlight = tru
   </div>
 }
 
+const runPipelineSelector = '[data-run-menu], [data-run-trigger]'
+function runPipelineInteraction(event: Event) {
+  return event.composedPath().some(target => target instanceof Element && target.matches(runPipelineSelector))
+}
+
 export function useSelectionKeyboard({ close, promote, disabled, dragging = false }: { close(): void; promote(): Promise<void>; disabled: boolean; dragging?: boolean }) {
   const latest = useRef({ close, promote, disabled, dragging })
   useEffect(() => { latest.current = { close, promote, disabled, dragging } })
   useEffect(() => {
     function key(event: KeyboardEvent) {
-      if (selectionInput(event.target) || selectionInput(document.activeElement) || event.defaultPrevented || latest.current.dragging) return
+      if (runPipelineInteraction(event) || document.activeElement?.closest(runPipelineSelector) || selectionInput(event.target) || selectionInput(document.activeElement) || event.defaultPrevented || latest.current.dragging) return
       if (event.key === 'Escape') { latest.current.close(); plateSelection.clear() }
       if (['Backspace', 'Delete'].includes(event.key) && plateSelection.snapshot().length) {
         event.preventDefault()
@@ -118,7 +123,7 @@ export function useSelectionKeyboard({ close, promote, disabled, dragging = fals
 export function SelectionPresence() {
   useEffect(() => {
     function dismiss(event: globalThis.MouseEvent) {
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
+      if (runPipelineInteraction(event) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
       const target = event.target
       if (target instanceof Element && target.closest('a, button, input, textarea, select, label, nav, [role="button"], [role="tab"], [role="option"], [data-selection-controls], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], #plate-breakdown-preview')) return
       plateSelection.clear()

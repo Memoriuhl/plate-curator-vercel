@@ -14,6 +14,9 @@ import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 import { PipelineRunCard } from '../../components/dashboard/pipeline-run-card'
 import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
 import { queueProgress } from '../../lib/jobs/run-progress'
+import { plateSelection, SelectionPresence } from '../../components/dashboard/plate-selection'
+import { plateCards } from '../../fixtures/plate-cards'
+import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 import { RESEARCH_MODELS } from '../../lib/research/models'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
@@ -21,7 +24,6 @@ const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: 
   models: [] as (typeof TAGGING_MODELS)[number][], workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
 vi.mock('../../lib/client/hooks', () => ({ useTaggingModels: () => ({ data: { models: mocks.models, default: mocks.modelId } }), useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
-vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
   return { id: 'saved-run', requestId: 'request', fingerprint: 'input', batchId: 'batch', requestedBy: 'editor', env: 'preview:local-pipeline-test', localScope: 'test',
@@ -30,19 +32,24 @@ function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
     attempts: [{ number: 1, requestId: 'request', createdAt: 100, status: 'queued', cursor: 0, jobIds: [], completedJobIds: [], choices: {},
       steps: [{ index: 0, plateId: 'AK.one', stage: 'tag', resourceClass: 'gpu' }] }], ...overrides }
 }
-const plate = { id: 'AK.one', state: 'AK', displayName: 'One', revision: 'hash', tags: [] }
+const plate: PlateCardData = {
+  ...plateCards[0],
+  id: 'AK.one', state: 'AK', displayName: 'One', revision: 'hash', tags: [], imageUrl: null,
+  checks: { ...plateCards[0].checks, description: { value: null, status: 'missing' } },
+}
 const wrapper = ({ children }: { children: ReactNode }) => <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>{children}</SWRConfig>
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); localStorage.clear(); mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
+  plateSelection.replace([plate])
   mocks.models = [...TAGGING_MODELS]
   mocks.modelId = 'desktop-gemma4-12b'
   mocks.api.get.mockReset().mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
 })
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); plateSelection.clear(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 test('reload restores saved run via one list, and an active run does not block enqueue', async () => {
   const first = renderHook(usePipelineQueue, { wrapper })
@@ -100,78 +107,97 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   fireEvent.click(button); expect(controls.recover).toHaveBeenCalledWith('saved-run', 'job', 'claim')
 })
 
-test('Run Pipeline starts with no stages on every open and requires an explicit stage', () => {
+test('the form uses selected plates only and starts with no stages on every open', () => {
   const enqueue = vi.fn()
-  render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  const selected = [plate, { ...plate, id: 'AK.two' }]
+  plateSelection.replace(selected)
+  render(<><SelectionPresence /><PipelineRunControls batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} /><p>Dashboard background</p></>)
   const trigger = screen.getByRole('button', { name: 'Run pipeline' })
   const tag = () => screen.getByRole<HTMLInputElement>('checkbox', { name: 'Tag' })
-  const start = () => screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' })
-  const queue = () => screen.getByRole<HTMLButtonElement>('button', { name: 'Queue run' })
+  const start = () => screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' })
   fireEvent.click(trigger)
+  const count = screen.getByText('Selected plates')
+  expect(count.querySelector('strong')?.textContent).toBe('2')
+  expect(screen.getByText('Up to 200 plates per run')).toBeTruthy()
+  expect(screen.queryByText(/Run on|Plate limit|Preview only|New draft|Choose stages|Validated results/)).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Colors' })).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Order' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Queue Run' })).toBeNull()
   expect(tag().checked).toBe(false)
   expect(start().disabled).toBe(true)
-  expect(queue().disabled).toBe(true)
-  fireEvent.click(tag())
+  fireEvent.click(count)
+  fireEvent.click(screen.getByText('Tag'))
+  expect(tag().checked).toBe(true)
   expect(start().disabled).toBe(false)
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(plateSelection.snapshot()).toEqual(selected)
+  fireEvent.click(trigger)
   fireEvent.click(trigger)
   expect(tag().checked).toBe(false)
   expect(start().disabled).toBe(true)
+  expect(plateSelection.snapshot()).toEqual(selected)
   expect(enqueue).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('Dashboard background'))
+  expect(plateSelection.snapshot()).toEqual([])
 })
 
-test('local controls combine desktop stages and permit Queue while Start is busy', async () => {
+test.each(['queued', 'running'] as const)('only Queue Run appears when existing work is %s', async status => {
   const enqueue = vi.fn().mockResolvedValue(saved())
-  render(<PipelineRunControls underTagged={[plate]} batchPlates={[]} allPlates={[plate]} stateName="Alaska" queue={{ runs: [saved({ status: 'running' })], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [saved({ status })], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Only under-tagged plates' }))
-  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
-  expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
-  fireEvent.click(screen.getByLabelText(/Preview only/))
-  fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: true } }, true, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Tag' }))
+  const only = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Only under-tagged plates' })
+  expect(only.disabled).toBe(false)
+  fireEvent.click(only)
+  const tag = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Tag' })
+  expect(tag.checked).toBe(false)
+  fireEvent.click(tag)
+  expect(screen.queryByRole('button', { name: 'Start Run' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Queue Run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: true } }, false, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
+  expect(plateSelection.snapshot()).toEqual([plate])
 })
 
-test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
+test('Tag settings accept a gateway model before Tag is selected', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
-  render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  render(<PipelineRunControls batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Tag' }))
+  const picker = screen.getByRole('button', { name: 'Tagging model' })
+  fireEvent.keyDown(picker, { key: 'Enter' })
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Gemma 4 26B.*0\.0003/ }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
-  const picker = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Tagging model' })
-  expect(picker).toBeInstanceOf(HTMLSelectElement)
-  fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
-  fireEvent.change(picker, { target: { value: 'gateway-gemma4-26b' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag'], 'gateway-gemma4-26b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
 })
 
 test('the combined Research control enqueues its selected hosted model and policy once', async () => {
   const plates = [plate, { ...plate, id: 'AK.two' }]
+  plateSelection.replace(plates)
   mocks.api.get.mockImplementation(async path => path === '/api/research/models'
     ? { models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id } : { runs: [] })
   function Controls() {
     const queue = usePipelineQueue()
-    return <PipelineRunControls underTagged={plates} batchPlates={plates} stateName="Alaska" queue={queue} />
+    return <PipelineRunControls batchPlates={plates} stateName="Alaska" queue={queue} />
   }
   render(<Controls />, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
   for (const name of ['Wiki link', 'Describe', 'Story']) expect(screen.queryByRole('checkbox', { name })).toBeNull()
-  const policy = screen.getByRole('combobox', { name: 'Research edits' }) as HTMLSelectElement
-  expect(policy.value).toBe('fill-missing')
-  const picker = await screen.findByRole<HTMLSelectElement>('combobox', { name: 'Research model' })
-  expect(picker).toBeInstanceOf(HTMLSelectElement)
-  expect(picker.selectedOptions[0].textContent).toContain('On-device worker (Ollama)')
+  expect(screen.queryByRole('button', { name: 'Research edits' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
+  const policy = screen.getByRole('button', { name: 'Research edits' })
+  expect(policy.textContent).toBe('Fill missing')
+  const picker = await screen.findByRole('button', { name: 'Research model' })
+  expect(picker.textContent).toContain('On-device worker (Ollama)')
   fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
-  expect(screen.getByRole('dialog', { name: 'Run pipeline' }).contains(picker)).toBe(true)
-  fireEvent.change(picker, { target: { value: RESEARCH_MODELS[2].id } })
-  expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
-  expect(screen.getByText(/Research will use Hosted research \(Eve\).*Gemini/)).toBeTruthy()
-  fireEvent.change(policy, { target: { value: 'replace' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  const hosted = screen.getByRole('menuitemradio', { name: /Hosted research/ })
+  expect(screen.getByRole('dialog', { name: 'Run pipeline' }).contains(hosted)).toBe(true)
+  fireEvent.click(hosted)
+  expect(picker.textContent).toContain('Hosted research (Eve)')
+  fireEvent.keyDown(policy, { key: 'Enter' })
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Replace existing' }))
+  expect(plateSelection.snapshot()).toEqual(plates)
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
   await waitFor(() => expect(mocks.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/local-pipeline/runs/selection', {
     requestId: expect.any(String), batchName: 'Alaska pipeline', plateIds: ['AK.one', 'AK.two'], stages: ['research'],
     options: { research: { policy: 'replace' } }, previewOnly: false, researchModelId: RESEARCH_MODELS[2].id,
@@ -205,17 +231,18 @@ test('research model discovery distinguishes loading, failure, empty, and deskto
   mocks.api.get.mockImplementationOnce(() => new Promise((_, reject) => { failDiscovery = reject }))
     .mockResolvedValueOnce({ models: [], default: RESEARCH_MODELS[2].id })
   const enqueue = vi.fn().mockResolvedValue(saved())
-  const controls = <PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />
+  const controls = <PipelineRunControls batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />
   const initial = render(controls, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
   expect(screen.getByRole('status').textContent).toBe('Loading research models…')
-  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Start Run' }) as HTMLButtonElement).disabled).toBe(true)
   failDiscovery(new Error('Offline'))
   await screen.findByRole('alert')
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await screen.findByText('No research models are available.')
-  expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Start Run' }) as HTMLButtonElement).disabled).toBe(true)
   expect(enqueue).not.toHaveBeenCalled()
   initial.unmount()
 
@@ -223,44 +250,47 @@ test('research model discovery distinguishes loading, failure, empty, and deskto
   render(controls, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
-  const picker = await screen.findByRole<HTMLSelectElement>('combobox', { name: 'Research model' })
-  expect(picker.options).toHaveLength(2)
-  expect(screen.queryByRole('option', { name: /Hosted research/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
+  const picker = await screen.findByRole('button', { name: 'Research model' })
+  fireEvent.keyDown(picker, { key: 'Enter' })
+  expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
+  expect(screen.queryByRole('menuitemradio', { name: /Hosted research/ })).toBeNull()
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
   expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['research'], undefined, { research: { policy: 'fill-missing' } }, false, undefined, RESEARCH_MODELS[0].id, 'Alaska pipeline'))
 })
 
 test('Fill missing explains why a complete Batch selection has no research to run', async () => {
-  const complete = { ...plate, description: 'Existing description', wikiUrl: 'https://example.org/wiki', firstIssuedYear: 1976,
+  const complete: PlateCardData = { ...plate, checks: { ...plate.checks, description: { value: 'Existing description', status: 'good' } }, wikiUrl: 'https://example.org/wiki', firstIssuedYear: 1976,
     funFacts: [{ text: 'Existing fact', sourceUrl: 'https://example.org/fact' }],
     readMore: [{ site: 'Museum', title: 'Existing source', url: 'https://example.org/history' }] }
+  plateSelection.replace([complete])
   const enqueue = vi.fn()
   mocks.api.get.mockResolvedValue({ models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id })
-  render(<PipelineRunControls underTagged={[plate]} batchPlates={[complete]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />, { wrapper })
+  render(<PipelineRunControls batchPlates={[complete]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Plates in your batch 1' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
-  expect(screen.getByText(/The selected plates already have research fields/)).toBeTruthy()
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' }).disabled).toBe(true)
-  fireEvent.change(screen.getByRole('combobox', { name: 'Research edits' }), { target: { value: 'replace' } })
-  await screen.findByRole('combobox', { name: 'Research model' })
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' }).disabled).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
+  expect(screen.getByText(/Research fields are filled/)).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' }).disabled).toBe(true)
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), { key: 'Enter' })
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Replace existing' }))
+  await screen.findByRole('button', { name: 'Research model' })
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' }).disabled).toBe(false)
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: false, visionTiebreak: false, maskReason: 'Mask unavailable' }), reportedAt: 100, pollIntervalMs: 1000 }
-  render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
+  render(<PipelineRunControls batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Group' }))
   expect(screen.getByText('Method · Embeddings')).toBeTruthy()
-  expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
-  const colour = screen.getByLabelText(/Use colour signal/) as HTMLInputElement
-  expect(colour.checked).toBe(false)
-  expect(colour.disabled).toBe(true)
-  expect((screen.getByLabelText(/Preview only/) as HTMLInputElement).disabled).toBe(false)
-  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  expect(screen.queryByRole('button', { name: 'Method' })).toBeNull()
+  expect(screen.getByText(/Use colour signal ·/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['group'], undefined, {
     group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
   }, false, undefined, undefined, 'Alaska pipeline'))
@@ -270,32 +300,33 @@ test('Group explains an unavailable method and cannot queue after the worker los
   const enqueue = vi.fn()
   const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: true, visionTiebreak: true }), reportedAt: 100, pollIntervalMs: 1000 }
   const queue = { runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }
-  const view = (capabilities: typeof queue.capabilities) => <PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ ...queue, capabilities }} />
+  const view = (capabilities: typeof queue.capabilities) => <PipelineRunControls batchPlates={[plate]} stateName="Alaska" queue={{ ...queue, capabilities }} />
   const result = render(view(capabilities))
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
 
   result.rerender(view({ ...capabilities, embeddings: { available: false, reason: 'Embedding model offline' } }))
-  expect(screen.getByText('Method · Embedding model offline')).toBeTruthy()
+  expect(screen.getByText('Embedding model offline')).toBeTruthy()
   expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
-  const group = screen.getByRole<HTMLInputElement>('checkbox', { name: /Group: Embedding model offline/ })
+  const group = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Group' })
   expect(group.checked).toBe(true)
-  const start = screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' })
+  const start = screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' })
   expect(start.disabled).toBe(true)
   fireEvent.click(start)
   expect(enqueue).not.toHaveBeenCalled()
   fireEvent.click(group)
-  expect(group.disabled).toBe(true)
+  expect(group.disabled).toBe(false)
   expect(start.disabled).toBe(true)
 })
 
 test('a method control with multiple available choices exposes a selector', () => {
   const choices = [{ value: 'fixture-one', label: 'Fixture one' }, { value: 'fixture-two', label: 'Fixture two' }]
   const onChange = vi.fn()
-  render(<PipelineOptionSelect label="Method" choices={choices} value={choices[0].value} onChange={onChange} disabled={false} />)
-  const method = screen.getByRole('combobox', { name: 'Method' })
-  expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['Fixture one', 'Fixture two'])
-  fireEvent.change(method, { target: { value: choices[1].value } })
+  render(<PipelineOptionSelect label="Method" choices={choices} value={choices[0].value} onChange={onChange} />)
+  const method = screen.getByRole('button', { name: 'Method' })
+  fireEvent.keyDown(method, { key: 'Enter' })
+  expect(screen.getAllByRole('menuitemradio').map(option => option.textContent)).toEqual(['Fixture one', 'Fixture two'])
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fixture two' }))
   expect(onChange).toHaveBeenCalledWith(choices[1].value)
 })
 
@@ -393,7 +424,7 @@ test('incremental History links to saved changes and preserves visibility of a c
 test('saved research shows the job result even after the queue projection matches the draft', () => {
   const sourceUrl = 'https://example.org/plate-history'
   const fields = { description: 'Description from the issuing authority.', funFacts: [{ text: 'The plate debuted in 1976.', sourceUrl, sourceTitle: 'Issuing authority' }] }
-  const draft = { ...plate, slug: 'one', image: '', ...fields }
+  const draft = { id: plate.id, state: plate.state, displayName: plate.displayName, tags: plate.tags, slug: 'one', image: '', ...fields }
   const run = saved({ stages: ['research'], status: 'completed', incrementalDrafts: true, previewOnly: false, draftPlateIds: [plate.id] })
   run.attempts[0].projection = { baselineVersion: 1, plates: {
     [plate.id]: { batchInput: draft, executionPlate: draft, batchInputHash: 'saved', executionHash: 'saved', sourceJobIds: ['research-job'] },
@@ -411,19 +442,23 @@ test('saved research shows the job result even after the queue projection matche
   expect(screen.getByRole('link', { name: 'Review run changes' }).getAttribute('href')).toBe('/review?batch=batch&run=saved-run')
 })
 
-test('full-state runs keep the whole selection and explain the per-state Group limit before enqueue', async () => {
+test('the form enforces 200 selected plates and keeps the Group limit', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
-  const plates = Array.from({ length: 990 }, (_, index) => ({ ...plate, id: `MD.${index}`, state: 'MD' }))
+  const plates = Array.from({ length: 201 }, (_, index) => ({ ...plate, id: `MD.${index}`, state: 'MD' }))
+  plateSelection.replace(plates)
   const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: false, visionTiebreak: false }), reportedAt: 100, pollIntervalMs: 1000 }
-  render(<PipelineRunControls underTagged={[]} batchPlates={[]} allPlates={plates} stateName="Maryland" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
+  render(<PipelineRunControls batchPlates={[]} stateName="Maryland" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('button', { name: 'All plates in Maryland 990' }))
-  expect(screen.getByText('New draft · Maryland pipeline')).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
+  const start = screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' })
+  expect(start.disabled).toBe(true)
+  expect(screen.getByRole('alert').textContent).toBe('Up to 200 plates per run')
+  const allowed = plates.slice(0, 200)
+  act(() => plateSelection.replace(allowed))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
   expect(screen.getByRole('alert').textContent).toContain('Group needs up to 25 plates from one state')
-  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(start.disabled).toBe(true)
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue.mock.calls[0]?.[0]).toEqual(plates))
+  fireEvent.click(start)
+  await waitFor(() => expect(enqueue.mock.calls[0]?.[0]).toEqual(allowed))
 })
