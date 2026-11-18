@@ -1,7 +1,8 @@
 'use client'
 
-import type { ReactNode } from 'react'
-import { IoCheckmark, IoClose, IoRemove } from 'react-icons/io5'
+import { useId, useState, type ReactNode } from 'react'
+import { IoCheckmark, IoChevronDown, IoClose, IoRemove } from 'react-icons/io5'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -65,6 +66,9 @@ export function PipelineRunCard({
   runAction?: ReactNode
   waitLabel?: string
 }) {
+  const [stepsOpen, setStepsOpen] = useState(false)
+  const stepsId = useId()
+  const hasPlateSteps = progress.steps.some((step) => step.stage !== 'group')
   const settled = progress.steps.filter((step) =>
     ['completed', 'skipped', 'failed', 'cancelled'].includes(step.status)
   ).length
@@ -268,19 +272,41 @@ export function PipelineRunCard({
           aria-label={`Run ${reference} progress`}
         />
       ) : null}
-      {local && progress.steps.length > 0 && (
-        <PlatePipelineTimeline
-          steps={progress.steps}
-          batchId={run.batchId}
-          images={progress.plateImages}
-        />
+      {hasPlateSteps && (
+        <div id={stepsId} hidden={!stepsOpen} className={styles.plateSteps}>
+          {stepsOpen && (
+            <PlatePipelineTimeline
+              steps={progress.steps}
+              batchId={run.batchId}
+              images={progress.plateImages}
+            />
+          )}
+        </div>
       )}
       {waitLabel && (
         <p className="caption" role="status">
           {waitLabel}
         </p>
       )}
-      {children ? <footer className={styles.actions}>{children}</footer> : null}
+      {(children || hasPlateSteps) && (
+        <footer className={styles.actions}>
+          {children}
+          {hasPlateSteps && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className={styles.stepsToggle}
+              aria-controls={stepsId}
+              aria-expanded={stepsOpen}
+              aria-label={stepsOpen ? 'Hide plate steps' : 'Show plate steps'}
+              onClick={() => setStepsOpen((open) => !open)}
+            >
+              <IoChevronDown aria-hidden="true" />
+            </Button>
+          )}
+        </footer>
+      )}
     </article>
   )
 }

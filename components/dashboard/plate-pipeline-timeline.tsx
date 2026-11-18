@@ -32,7 +32,7 @@ const statusLabels = {
 const statusStyle = {
   queued: 'border-[var(--hairline)] text-[var(--ink-2)]',
   waiting: 'border-[var(--warning)] text-[var(--warning)]',
-  running: 'border-primary bg-[var(--fill)] text-[var(--ink)]',
+  running: 'border-[var(--warning)] bg-[var(--fill)] text-[var(--ink)]',
   completed: 'border-[var(--hairline)] bg-[var(--fill)] text-[var(--ink)]',
   failed: 'border-[var(--danger)] bg-[var(--danger-tint)] text-[var(--danger)]',
   cancelled: 'border-[var(--hairline)] text-[var(--ink-2)]',
@@ -186,12 +186,12 @@ export function PlatePipelineTimeline({
                           {status === 'running' ? (
                             <span
                               aria-hidden="true"
-                              className="size-2 rounded-full bg-primary motion-safe:animate-pulse"
+                              className="size-3 shrink-0 rounded-full border border-[var(--warning)] border-r-transparent motion-safe:animate-spin"
                             />
                           ) : status === 'completed' ? (
                             <IoCheckmark
                               aria-hidden="true"
-                              className="size-3"
+                              className="size-3 text-[var(--success)]"
                             />
                           ) : status === 'failed' ? (
                             <IoClose aria-hidden="true" className="size-3" />

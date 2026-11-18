@@ -6,6 +6,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SWRConfig } from 'swr'
@@ -456,6 +457,131 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   expect(button.disabled).toBe(false)
   fireEvent.click(button)
   expect(controls.recover).toHaveBeenCalledWith('saved-run', 'job', 'claim')
+})
+
+test('the run rail keeps completed cards in order and follows a new run to the right', () => {
+  const older = saved({
+    id: 'older',
+    status: 'completed',
+    createdAt: 100,
+    queuedAt: 100,
+  })
+  const active = saved({
+    id: 'active',
+    status: 'running',
+    createdAt: 200,
+    queuedAt: 200,
+  })
+  const newest = saved({
+    id: 'newest',
+    status: 'queued',
+    createdAt: 300,
+    queuedAt: 300,
+  })
+  const queue = {
+    runs: [active, older],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  const view = render(<PipelineQueuePanel queue={queue} />)
+  const rail = screen.getByRole('region', {
+    name: 'Plate Pipeline runs, scroll horizontally',
+  })
+  const order = () =>
+    within(rail)
+      .getAllByRole('article')
+      .map((card) => card.getAttribute('aria-label'))
+  expect(order()).toEqual(['Pipeline run older', 'Pipeline run active'])
+
+  Object.defineProperty(rail, 'scrollWidth', { value: 1500 })
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{
+        ...queue,
+        runs: [newest, { ...active, status: 'completed' }, older],
+      }}
+    />
+  )
+  expect(order()).toEqual([
+    'Pipeline run older',
+    'Pipeline run active',
+    'Pipeline run newest',
+  ])
+  expect(rail.scrollLeft).toBe(1500)
+
+  rail.scrollLeft = 25
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{
+        ...queue,
+        runs: [
+          { ...newest, status: 'running' },
+          { ...active, status: 'completed' },
+          { ...older, dismissedAt: 400 },
+        ],
+      }}
+    />
+  )
+  expect(order()).toEqual(['Pipeline run active', 'Pipeline run newest'])
+  expect(rail.scrollLeft).toBe(25)
+})
+
+test('each card toggles its own live plate steps and starts collapsed', () => {
+  const queued = saved({ id: 'queued' })
+  const running = saved({ id: 'running', status: 'running' })
+  const queue = {
+    runs: [queued, running],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  const view = render(<PipelineQueuePanel queue={queue} />)
+  const active = within(
+    screen.getByRole('article', { name: 'Pipeline run running' })
+  )
+  const other = within(
+    screen.getByRole('article', { name: 'Pipeline run queued' })
+  )
+  const chevron = active.getByRole('button', { name: 'Show plate steps' })
+  const panel = () =>
+    document.getElementById(chevron.getAttribute('aria-controls') ?? '')
+  expect(chevron.getAttribute('aria-expanded')).toBe('false')
+  expect(panel()?.hidden).toBe(true)
+  expect(
+    active.queryByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeNull()
+  fireEvent.click(chevron)
+  expect(
+    active.getByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeTruthy()
+  expect(
+    other.queryByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeNull()
+  expect(chevron.getAttribute('aria-expanded')).toBe('true')
+  expect(panel()?.hidden).toBe(false)
+  view.rerender(
+    <PipelineQueuePanel
+      queue={{ ...queue, runs: [{ ...running, status: 'completed' }, queued] }}
+    />
+  )
+  expect(
+    active.getByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeTruthy()
+  fireEvent.click(active.getByRole('button', { name: 'Hide plate steps' }))
+  expect(
+    active.queryByRole('region', { name: 'Pipeline steps by plate' })
+  ).toBeNull()
 })
 
 test('the form preserves selected stages while selecting plates and resets after a confirmed run', async () => {
@@ -1369,7 +1495,7 @@ test('execution dropdown switches local and gateway views without mutating or re
               results: [],
             },
           ],
-          observedAt: 1000,
+          observedAt: 10_000,
         }
   )
   /**
@@ -1405,6 +1531,12 @@ test('execution dropdown switches local and gateway views without mutating or re
   expect(
     screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })
   ).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Show plate steps' }))
+  expect(
+    screen.getByRole('list', { name: 'One pipeline steps' }).textContent
+  ).toContain('Tag Complete')
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  expect(screen.getByRole('link', { name: 'Run eway-run' })).toBeTruthy()
   expect(mocks.api.send).not.toHaveBeenCalled()
 })
 

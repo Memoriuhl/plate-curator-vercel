@@ -157,7 +157,7 @@ export function PipelineRuns({
           ) : null}
           <PipelineRunRail
             runs={gatewayRuns}
-            observedAt={gateway.data?.observedAt}
+            includeFinishedInHistory
             progress={(run) => run.progress}
             historyHref={(run) =>
               reviewHref(undefined, undefined, run.batchId, { run: run.id })

@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import { IoArrowForward } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
@@ -19,15 +19,9 @@ type RailRun = {
   id: string
   createdAt: number
   queuedAt?: number
+  enqueueSequence?: number
   dismissedAt?: number
   status: RunStatus
-}
-const railOrder = {
-  failed: 0,
-  queued: 1,
-  completed: 2,
-  running: 3,
-  cancelled: 4,
 }
 const historyLabels = {
   completed: 'Finished',
@@ -71,59 +65,47 @@ export function PipelineRailSkeleton({
   )
 }
 
-/** Show active and recently settled pipeline cards in a compact dashboard rail. */
+/** Show undismissed pipeline runs in enqueue order alongside run history. */
 export function PipelineRunRail<T extends RailRun>({
   runs,
-  observedAt,
-  keepFinished,
+  includeFinishedInHistory,
   progress,
   renderRun,
   renderHistory,
   historyHref,
 }: {
   runs: T[]
-  observedAt?: number
-  keepFinished?: boolean
+  includeFinishedInHistory?: boolean
   progress: (run: T) => PipelineProgress
   renderRun: (run: T) => ReactNode
   renderHistory: (run: T) => ReactNode
   historyHref: (run: T) => string
 }) {
-  /** Keep a finished card visible briefly so its final outcome can be seen. */
-  const recent = (run: T) => {
-    const end = progress(run).endedAt
-    return (
-      run.dismissedAt === undefined &&
-      (keepFinished ||
-        (run.status === 'completed' &&
-          end !== undefined &&
-          observedAt !== undefined &&
-          observedAt - end < 6000))
-    )
-  }
   const rail = runs
-    .filter(
-      (run) =>
-        run.dismissedAt === undefined &&
-        (['failed', 'queued', 'running'].includes(run.status) || recent(run))
-    )
+    .filter((run) => run.dismissedAt === undefined)
     .sort(
       (a, b) =>
-        railOrder[a.status] - railOrder[b.status] ||
-        (b.queuedAt ?? b.createdAt) - (a.queuedAt ?? a.createdAt) ||
+        (a.queuedAt ?? a.createdAt) - (b.queuedAt ?? b.createdAt) ||
+        (a.enqueueSequence ?? 0) - (b.enqueueSequence ?? 0) ||
         a.id.localeCompare(b.id)
     )
   const history = runs
     .filter(
       (run) =>
-        ['completed', 'failed', 'cancelled'].includes(run.status) &&
-        !recent(run)
+        (includeFinishedInHistory || run.dismissedAt !== undefined) &&
+        ['completed', 'failed', 'cancelled'].includes(run.status)
     )
     .sort(
       (a, b) =>
         (progress(b).endedAt ?? b.createdAt) -
         (progress(a).endedAt ?? a.createdAt)
     )
+  const viewport = useRef<HTMLDivElement>(null)
+  const newestId = rail.at(-1)?.id
+  useLayoutEffect(() => {
+    const element = viewport.current
+    if (element) element.scrollLeft = element.scrollWidth
+  }, [newestId])
   const summary = (
     ['failed', 'queued', 'running', 'completed', 'cancelled'] as const
   )
@@ -137,21 +119,7 @@ export function PipelineRunRail<T extends RailRun>({
       <p className="sr-only" role="status">
         {summary ? `Plate Pipeline: ${summary}` : ''}
       </p>
-      <div
-        className={styles.rail}
-        role="region"
-        aria-label="Plate Pipeline runs, scroll horizontally"
-        tabIndex={0}
-      >
-        {rail.length ? (
-          <ol className={styles.runList}>
-            {rail.map((run) => (
-              <li key={run.id}>{renderRun(run)}</li>
-            ))}
-          </ol>
-        ) : history.length ? (
-          <p className="caption mr-auto">No active runs</p>
-        ) : null}
+      <div className={styles.railBar}>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" className={styles.history}>
@@ -160,7 +128,7 @@ export function PipelineRunRail<T extends RailRun>({
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            align="end"
+            align="start"
             collisionPadding={12}
             aria-label="Run history"
             className={styles.historyPanel}
@@ -214,6 +182,23 @@ export function PipelineRunRail<T extends RailRun>({
             )}
           </PopoverContent>
         </Popover>
+        <div
+          ref={viewport}
+          className={styles.rail}
+          role="region"
+          aria-label="Plate Pipeline runs, scroll horizontally"
+          tabIndex={0}
+        >
+          {rail.length ? (
+            <ol className={styles.runList}>
+              {rail.map((run) => (
+                <li key={run.id}>{renderRun(run)}</li>
+              ))}
+            </ol>
+          ) : history.length ? (
+            <p className="caption mr-auto">No active runs</p>
+          ) : null}
+        </div>
       </div>
     </TooltipProvider>
   )

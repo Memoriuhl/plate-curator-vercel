@@ -52,11 +52,18 @@
   width: 16px;
   height: 16px;
 }
+.railBar {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-inline-start: var(--space-1);
+}
 .rail {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   min-width: 0;
-  gap: var(--space-2);
   overflow-x: auto;
   scrollbar-width: thin;
   padding: var(--space-1);
@@ -143,6 +150,7 @@
 }
 .history {
   flex: 0 0 auto;
+  margin-top: var(--space-1);
 }
 .historyPanel[data-slot],
 .platePopover[data-slot] {
@@ -427,6 +435,21 @@ a.reference {
   margin-top: auto;
   padding-top: var(--space-3);
 }
+.plateSteps {
+  margin-top: var(--space-3);
+}
+.stepsToggle {
+  width: 32px;
+  height: 32px;
+  margin-inline-start: auto;
+  align-self: flex-end;
+}
+.stepsToggle:hover {
+  background: var(--fill);
+}
+.stepsToggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
 .stepList {
   display: flex;
   flex-direction: column;
@@ -483,6 +506,13 @@ a.reference {
   }
 }
 @media (max-width: 640px) {
+  .railBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .history {
+    align-self: flex-start;
+  }
   .header {
     column-gap: var(--space-3);
   }

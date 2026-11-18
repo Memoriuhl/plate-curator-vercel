@@ -153,8 +153,6 @@ export function PipelineQueuePanel({
       ) : (
         <PipelineRunRail
           runs={queue.runs}
-          observedAt={queue.observedAt}
-          keepFinished
           progress={(run) => run.progress ?? queueProgress(run)}
           historyHref={resultsHref}
           renderHistory={(run) => {
