@@ -17,6 +17,7 @@ export type PipelineProgress = {
   startedAt?: number
   endedAt?: number
   workflowUrl?: string | null
+  gatewayUrl?: string
 }
 
 export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProgress {

@@ -67,7 +67,7 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
       const current = await currentPlate(d, tx, input.batchId, member.plate.id)
       if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
     }
-    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV, process.env.WORKFLOW_TARGET_WORLD) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })

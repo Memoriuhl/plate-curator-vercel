@@ -6,7 +6,7 @@ import { queueResponse, reconcileQueueWorkflow, startQueueWorkflow, wakeLocalJob
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
 import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { queueProgress } from '../../../../lib/jobs/run-progress'
-import { workflowVisibilityUrl } from '../../../../lib/jobs/workflow-visibility'
+import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 
 export async function GET(request: Request) {
   const auth = await currentActor(request)
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   for (const run of result.value) {
     run.progress = queueProgress(run)
     const attempt = run.attempts.at(-1)!
-    run.progress.workflowUrl = attempt.workflowUrl === undefined ? workflowVisibilityUrl(attempt.workflowId, process.env.VERCEL_ENV) : attempt.workflowUrl
+    run.progress.workflowUrl = recordedWorkflowUrl(attempt.workflowId, attempt.workflowUrl)
   }
   const summaries = result.value.map(run => ({ ...run,
     fingerprint: undefined,

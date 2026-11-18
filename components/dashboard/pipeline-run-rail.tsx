@@ -43,9 +43,13 @@ export function PipelineRunRail<T extends RailRun>({ runs, observedAt, progress,
         <PopoverContent align="end" collisionPadding={12} aria-label="Run history" className={styles.historyPanel}>
           <PopoverTitle>Run history</PopoverTitle>
           {history.length ? <ul className={styles.historyList}>{history.map(run => {
-            const end = progress(run).endedAt
+            const detail = progress(run)
+            const end = detail.endedAt
+            const inspector = detail.workflowUrl ?? detail.gatewayUrl
             return <li key={run.id}><details><summary>
-              <Link className="font-bold underline-offset-2 hover:underline focus-visible:underline" href={historyHref(run)} prefetch={false}>Run {run.id.slice(-8)}</Link>
+              {inspector
+                ? <a className="font-bold underline underline-offset-2" href={inspector} target="_blank" rel="noopener noreferrer">Run {run.id.slice(-8)}</a>
+                : <Link className="font-bold underline-offset-2 hover:underline focus-visible:underline" href={historyHref(run)} prefetch={false}>Run {run.id.slice(-8)}</Link>}
               <span data-status={run.status}>{historyLabels[run.status]} · {formatDuration(end === undefined ? undefined : end - run.createdAt)}</span>
             </summary>{renderHistory(run)}</details></li>
           })}</ul> : <p className="caption">No finished runs yet.</p>}

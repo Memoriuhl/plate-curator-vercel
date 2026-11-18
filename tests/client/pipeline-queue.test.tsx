@@ -422,6 +422,17 @@ test('run cards describe cancelled dependencies and share the real workflow link
   }
 })
 
+test('run numbers open the exact inspector and the card omits the Batch name', () => {
+  const run = { ...saved(), batchName: 'Florida pipeline' }
+  const property = 'http://localhost:3456/run/wrun_exact'
+  render(<TooltipProvider><PipelineRunCard run={run} progress={{ ...queueProgress(run), workflowUrl: property }}
+    stages={run.stages} /></TooltipProvider>)
+  const runLink = screen.getByRole('link', { name: 'Run saved-run' })
+  expect(runLink.getAttribute('href')).toBe(property)
+  expect(runLink.getAttribute('target')).toBe('_blank')
+  expect(screen.queryByText('Florida pipeline')).toBeNull()
+})
+
 test('execution dropdown switches local and gateway views without mutating or restarting runs', async () => {
   const local = saved()
   local.progress = { ...queueProgress(local), workerIds: ['Studio PC', 'Laptop'] }

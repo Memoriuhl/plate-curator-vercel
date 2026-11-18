@@ -82,7 +82,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
           <Button size="sm" variant="ghost" aria-pressed={selected?.id === run.id} onClick={() => queue.select(run.id)}>View results</Button>
           {['queued', 'running'].includes(run.status) && run.cancelRequestedAt === undefined ? <Button size="sm" variant="ghost" disabled={!run.editable || !!queue.action} onClick={() => void queue.cancel(run.id)}>Cancel remaining stages</Button> : null}
           {run.status === 'failed' && !unresolved ? <Button size="sm" variant="outline" disabled={!run.editable || !!queue.action} onClick={() => void queue.retry(run.id)}>Retry pending stages</Button> : null}
-          <details className={styles.activity}><summary>Run activity</summary><p>{run.status} · attempt {attempt.number} · Requested {new Date(run.createdAt).toLocaleString()} · {run.batchName ?? 'Batch'}</p>{attempt.error ? <p>{attempt.error.replaceAll('_', ' ')}</p> : null}</details>
+          <details className={styles.activity}><summary>Run activity</summary><p>{run.status} · attempt {attempt.number} · Requested {new Date(run.createdAt).toLocaleString()}</p>{attempt.error ? <p>{attempt.error.replaceAll('_', ' ')}</p> : null}</details>
         </PipelineRunCard>
       }} />
     {selected ? <div className="grid gap-[var(--stack-gap)]">

@@ -55,7 +55,7 @@ export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number,
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status) || attempt.workflowId && attempt.workflowId !== workflowId) return false
     attempt.workflowId = workflowId
-    attempt.workflowUrl = workflowVisibilityUrl(workflowId, process.env.VERCEL_ENV)
+    attempt.workflowUrl = workflowVisibilityUrl(workflowId, process.env.VERCEL_ENV, process.env.WORKFLOW_TARGET_WORLD)
     run.updatedAt = d.now(); tx.setRun(run)
     return true
   })
@@ -88,6 +88,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
       env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
+      ...(attempt.workflowId ? { workflowId: attempt.workflowId, workflowUrl: attempt.workflowUrl } : {}),
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
       completionHook, ...(hosted ? { route: 'hosted' as const } : {}), ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(modelId && pipelineNeedsModel([step], run.options) ? { modelId } : {}),
       ...(step.stage === 'research' ? { researchModel: run.researchModel, researchPolicy: run.options.research?.policy ?? 'fill-missing' } : {}),

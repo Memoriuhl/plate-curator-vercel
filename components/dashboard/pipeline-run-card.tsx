@@ -14,7 +14,7 @@ const statusLabels = { completed: 'Complete', running: 'Running', queued: 'Waiti
 const reasons: Record<string, string> = { no_sources: 'No usable source page was found.', no_saved_sources: 'No usable saved source was available.', no_supported_fields: 'The source did not support a suggestion.', missing_wiki_link: 'The required Wiki link was not produced.', missing_description: 'The required description was not produced.', upstream_failed: 'An earlier step failed. This step did not run.', run_cancelled: 'The remaining work was cancelled.', unavailable: 'The worker cannot run this stage.' }
 
 export function PipelineRunCard({ run, progress, stages, observedAt, requester, children, local, plates, device, onWatch }: {
-  run: { id: string; requestedBy: string; plateIds: string[]; status: RunStatus; createdAt: number; batchName?: string }
+  run: { id: string; requestedBy: string; plateIds: string[]; status: RunStatus; createdAt: number }
   progress: PipelineProgress; stages: readonly LocalRunStage[]; observedAt?: number; requester?: string; children?: ReactNode
   local?: boolean; plates?: RunPlateDetail[]; device?: string; onWatch?: () => void
 }) {
@@ -24,11 +24,14 @@ export function PipelineRunCard({ run, progress, stages, observedAt, requester, 
   const name = requester || run.requestedBy
   const elapsed = (progress.endedAt ?? observedAt) === undefined ? undefined : (progress.endedAt ?? observedAt!) - run.createdAt
   const reference = run.id.length > 12 ? run.id.slice(-8) : run.id
+  const inspector = progress.workflowUrl ?? progress.gatewayUrl
   return <article className={styles.run} data-run-status={run.status} aria-label={`Pipeline run ${reference}`}>
     <header className={styles.runHeader}>
       <span>Started by</span><span className={styles.avatar} aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span><span className={styles.requester} title={name}>{name}</span>
-      <span className={styles.reference} title={run.id}>Run {reference}</span>
-      <span className={styles.batch}>{run.batchName}</span><span className={styles.elapsed}>Elapsed <b>{formatDuration(elapsed)}</b></span>
+      {inspector
+        ? <a className={styles.reference} href={inspector} target="_blank" rel="noopener noreferrer" title={run.id}>Run {reference}</a>
+        : <span className={styles.reference} title={run.id}>Run {reference}</span>}
+      <span className={styles.elapsed}>Elapsed <b>{formatDuration(elapsed)}</b></span>
     </header>
     <div className={styles.flow}>
       <PipelinePlateStack runId={run.id} plateIds={run.plateIds} steps={progress.steps} plates={plates} local={local} onWatch={onWatch} watchUrl={progress.workflowUrl} />

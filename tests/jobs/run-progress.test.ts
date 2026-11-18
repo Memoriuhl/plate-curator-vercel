@@ -44,4 +44,5 @@ test('workflow links target the official run-specific Visibility UI with the cor
   expect(workflowVisibilityUrl('a/b?c', 'preview')).toContain('a%2Fb%3Fc')
   expect(workflowVisibilityUrl(undefined, 'preview')).toBeNull()
   expect(workflowVisibilityUrl('local-run', 'development')).toBeNull()
+  expect(workflowVisibilityUrl('wrun_abc', 'preview', 'local')).toBe('http://localhost:3456/run/wrun_abc')
 })

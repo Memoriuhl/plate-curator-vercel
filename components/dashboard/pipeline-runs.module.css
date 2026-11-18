@@ -32,8 +32,8 @@
 .avatar { display: grid; place-items: center; border-radius: 50%; background: var(--player-you); color: var(--on-color); width: 22px; height: 22px; font-size: 11px; font-weight: 800; flex-shrink: 0; }
 .requester { color: var(--ink); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reference { font-family: var(--font-mono); margin-left: var(--space-1); }
-.batch { margin-left: auto; overflow-wrap: anywhere; }
-.elapsed { white-space: nowrap; font-family: var(--font-mono); }
+a.reference { text-decoration: underline; text-underline-offset: 2px; }
+.elapsed { margin-left: auto; white-space: nowrap; font-family: var(--font-mono); }
 .elapsed b { font-weight: 500; color: var(--ink); }
 .flow { display: flex; align-items: center; min-width: max-content; padding-block: var(--space-2); }
 .plates { flex-shrink: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 58px; min-height: 56px; border: 1px solid var(--hairline); border-radius: var(--radius-sm); background: var(--elevated); box-shadow: -3px 3px 0 var(--hairline); color: var(--ink); }
@@ -78,8 +78,7 @@
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 @media (max-width: 640px) {
   .header { column-gap: var(--space-3); }
-  .batch { display: none; }
-  .elapsed { margin-left: auto; }
+  .elapsed { margin-left: auto; margin-left: auto; }
   .requester { max-width: 100px; }
   .actions { justify-content: flex-start; }
 }
