@@ -184,21 +184,20 @@ test('personal Batch discovered after lift cannot inherit its newer revision', a
 })
 
 test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the server revision', async action => {
-  const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', templateRole: action === 'merge' ? 'template' : 'variant' }))
+  const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', isStandard: false, templateRole: action === 'merge' ? 'template' : 'variant' }))
   const parent = { ...card, id: 'AK.parent', isStandard: true, templateRole: 'template' as const }
   const families = action === 'merge'
     ? [{ template: parent, variants: [] }, { template: plate, variants: [] }]
     : [{ template: parent, variants: [plate] }]
-  session.api.send.mockResolvedValue({ batch, plate: proposed })
-  const reorder = vi.fn().mockResolvedValue({ ok: true })
+  session.api.send.mockResolvedValue(action === 'merge' ? { moved: [plate.id], alreadyInFamily: 0, standard: 0, deleted: 0 } : { batch, plate: proposed })
   const { result } = renderHook(() => {
     const ordering = useReorderState()
     return { ...usePlateDrag({
     families, canEdit: true, show: 'all', query: '', edits: useEditPlate(),
-    ordering: action === 'promote' ? ordering : { reorder, pending: false }, closePreview: vi.fn(), reload: vi.fn(),
+    ordering, closePreview: vi.fn(), reload: vi.fn(),
     targets: () => [{ target: action === 'merge' ? { kind: 'merge', familyId: parent.id } : { kind: 'family-slot', index: 1 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }],
   }), origin: ordering.capture() } }, harness())
-  if (action === 'promote') await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))
+  await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))
   const handle = document.createElement('button')
   document.body.append(handle)
   try {
@@ -210,9 +209,9 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
       Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
       act(() => { window.dispatchEvent(event) })
     }
-    await waitFor(() => expect(result.current.announcement).toBe('Dropped'))
-    if (action === 'merge') expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.outside', {
-      baseRevision: 'server-revision', fields: { templateRole: 'variant', variantOfPlateId: parent.id, templateFamily: parent.id },
+    await waitFor(() => expect(result.current.announcement).toBe(action === 'merge' ? '1 plate moved' : 'Dropped'))
+    if (action === 'merge') expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/draft/family-merge', {
+      batchRevision: 1, members: [{ id: plate.id, revision: 'server-revision' }], destination: { id: parent.id, revision: parent.revision },
     })
     else expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PUT', '/api/batches/draft/state-order/AK', {
       batchRevision: 1, order: [parent.id, plate.id], promotion: { plateId: plate.id, templateFamily: 'ak_outside' },

@@ -122,6 +122,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const canEdit = !publishedOnly && (workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner')
   const drag = usePlateDrag({
     bulkEdits,
+    catalogVersion,
     families: baselineFamilies, canEdit: canEdit && !issue && !standardConfirmation.pending, show, query, ordering,
     edits: { ...edits, edit: async (plate, fields, reviewed) => {
       const result = await edits.edit(plate, fields, reviewed)

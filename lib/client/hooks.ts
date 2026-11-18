@@ -13,11 +13,13 @@ import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate, StoryFields } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
+import type { FamilyMerge } from '../review/family-merge'
+import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
-import { ApiError, type ApiClient } from './api'
+import { ApiError, apiErrorReasons, type ApiClient } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 
@@ -474,7 +476,35 @@ export function useReorderState() {
     } finally { setPendingCount(count => count - 1) }
   }
 
-  return { reorder, capture, move, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0 }
+  async function merge(input: FamilyMerge, origin: MoveOrigin): Promise<
+    { ok: true; value: FamilyMergeResult } | { ok: false; message: string }
+  > {
+    setPendingCount(count => count + 1)
+    try {
+      if (workspace.mode === 'selected' && (workspace.status !== 'ready' || origin.batchId !== workspace.id)) {
+        return { ok: false, message: 'The selected Batch is unavailable for editing.' }
+      }
+      if (origin.batchId && origin.revision === null) return { ok: false, message: 'Wait for the Batch to load, then drag again.' }
+      const id = origin.batchId ?? await ensureBatch({ id: input.members[0].id, state: input.destination.id.split('.')[0] })
+      const key = `/api/batches/${id}`
+      const value = await api.send<FamilyMergeResult>('POST', `${key}/family-merge`, { ...input, batchRevision: origin.revision ?? 0 })
+      return { ok: true, value }
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      const [reason] = apiErrorReasons(error)
+      const message = reason ?? (
+        error.code === 'superseded_revision' ? 'The Batch changed. Drag again using the latest selection.' :
+        error.code === 'pipeline_busy' ? PIPELINE_BUSY_MESSAGE :
+        error.status === 403 ? 'Only the Batch creator or an Owner can move plates.' :
+        'This family move could not be saved.'
+      )
+      return { ok: false, message }
+    } finally {
+      setPendingCount(count => count - 1)
+    }
+  }
+
+  return { reorder, capture, move, merge, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0 }
 }
 
 export function useTaggingModels() {

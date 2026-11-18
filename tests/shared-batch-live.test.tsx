@@ -13,6 +13,7 @@ import { useBatch, useEditPlate, useReorderState } from '../lib/client/hooks'
 import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
+import { mergeFamily, type FamilyMerge } from '../lib/review/family-merge'
 import { canEdit, proposeEdit } from '../lib/review/batch'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
@@ -100,6 +101,12 @@ function session(actor: Actor, id: string | null = 'shared') {
           tagRevision = result.value.plates.find(p => p.proposed.id === 'AK.v')!.revision
           return { jobId: 'tag-job', runId: 'tag-workflow' }
         }
+        if (method === 'POST' && path.endsWith('/family-merge')) {
+          await hold
+          const result = await mergeFamily(deps, actor, { batchId: path.split('/')[3], ...body as FamilyMerge & { batchRevision: number } })
+          if (!result.ok) throw new ApiError(result.error === 'forbidden' ? 403 : 409, result.error, result)
+          return result.value
+        }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         await hold
         const [, , , batchId, , plateId] = path.split('/')
@@ -172,7 +179,7 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   expect(second.container.textContent).toContain('rev 1')
   for (const view of [first, second]) expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-id')).toBe('shared')
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 1 })
-  expect(requests.filter(r => r.path !== '/api/live-access')).toEqual([expect.objectContaining({ method: 'PATCH', path: '/api/batches/shared/plates/AK.v' })])
+  expect(requests.filter(r => r.path !== '/api/live-access')).toEqual([expect.objectContaining({ method: 'POST', path: '/api/batches/shared/family-merge' })])
   fireEvent.click(within(second.container).getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(within(document.body).getByRole('button', { name: 'Start run' }))
   const accept = await within(second.container).findByRole('button', { name: 'Accept naval for Variant' }, { timeout: 5000 })
@@ -183,7 +190,7 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 2 })
   expect((await deps.store.getEdit('shared', 'AK.v'))?.fields).toMatchObject({ templateFamily: 'navy', tags: ['naval'] })
   expect(requests.filter(r => r.path !== '/api/live-access').map(r => [r.method, r.path])).toEqual([
-    ['PATCH', '/api/batches/shared/plates/AK.v'],
+    ['POST', '/api/batches/shared/family-merge'],
     ['POST', '/api/batches/shared/plates/AK.v/tagging'],
     ['PATCH', '/api/batches/shared/plates/AK.v'],
   ])
@@ -221,9 +228,9 @@ test('remote revision waits for drag settlement and preserves the lifted Plate p
   await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
   expect(within(within(view.container).getByRole('article', { name: 'Army family' })).getByText('Variant')).toBeTruthy()
   pointer(handle, 'pointermove', 400); pointer(handle, 'pointerup', 400)
-  await waitFor(() => expect(view.container.textContent).toContain('Someone changed this while you were editing.'))
+  await waitFor(() => expect(view.container.textContent).toContain('The Batch changed. Drag again using the latest selection.'))
   expect(within(within(view.container).getByRole('article', { name: 'Navy family' })).getByText('Variant')).toBeTruthy()
-  expect(requests.find(r => r.method === 'PATCH')?.body).toMatchObject({ baseRevision: plateRevision(plates[1]) })
+  expect(requests.find(r => r.path.endsWith('/family-merge'))?.body).toMatchObject({ batchRevision: 0, members: [{ id: 'AK.v', revision: plateRevision(plates[1]) }] })
 })
 
 test('initial catch-up coalesces bursts, ignores old signals and disposes on switch and sign-out', async () => {

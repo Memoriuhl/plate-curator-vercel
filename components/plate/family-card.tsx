@@ -101,7 +101,7 @@ export function FamilyCard({
   }, [pointerDragging, draggedId])
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
-  const invalidMerge = merge && (!drag?.canMerge || drag.active?.item.plate.id === template.id || variants.some(plate => plate.id === drag?.active?.item.plate.id))
+  const invalidMerge = merge && !drag?.canMergeInto({ template, variants })
   const placeholder = drag?.reflow?.placeholder
   const gapHeight = drag?.active?.geometry.height ?? 0
   if (number === 1 && template.imageUrl?.startsWith('https:'))
