@@ -267,19 +267,22 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
 test('an Owner approving a stale Review sees the updated revision without approving it', async () => {
   await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } })
   await submitBatch(deps, editor, 'shared', 1)
-  const review = render(<Workspace value={session(owner)} page="review" />)
-  const approve = await within(review.container).findByRole('button', { name: 'Approve revision 2' })
+  // Start offline so an initial live snapshot cannot queue a catch-up read.
   connected = false
+  const review = render(<Workspace value={session(owner)} page="review" />)
+  const view = within(review.container)
+  await view.findByRole('button', { name: 'Approve revision 2' })
   await act(async () => {
     await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision({ ...plates[1], tags: ['first'] }), fields: { tags: ['revised'] } })
     await submitBatch(deps, editor, 'shared', 3)
   })
-  fireEvent.click(approve)
-  await within(review.container).findByText('This batch changed while you were reviewing. Look again at revision 4.')
+  expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'submitted', revision: 4 })
+  fireEvent.click(view.getByRole('button', { name: 'Approve revision 2' }))
   expect(requests.filter(request => request.path.endsWith('/approve'))).toEqual([
     { actor: owner.uid, method: 'POST', path: '/api/batches/shared/approve', body: { revision: 2 } },
   ])
-  expect(await within(review.container).findByRole('button', { name: 'Approve revision 4' })).toBeDefined()
+  await view.findByText('This batch changed while you were reviewing. Look again at revision 4.')
+  expect(await view.findByRole('button', { name: 'Approve revision 4' })).toBeDefined()
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'submitted', revision: 4, approval: null })
 })
 
