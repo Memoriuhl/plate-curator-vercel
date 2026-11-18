@@ -10,10 +10,26 @@ import {
 } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/components/utils'
 import {
   defaultPipelineOptions,
@@ -50,6 +66,8 @@ import {
 
 const selectedPlateLimit = 200
 const flowStepsPerRow = 4
+const groupRunWarning =
+  'Group is a large, expensive operation. Applying its results can reorganize how plates are grouped and displayed across this state.'
 const groupFeatures = [
   'colorSignal',
   'backgroundMask',
@@ -86,11 +104,13 @@ export function PipelineRunControls({
   const desktopChoice = useTaggingModelChoice('pipeline-desktop-model:v1')
   const researchChoice = useResearchModelChoice()
   const [open, setOpen] = useState(false)
+  const [confirmGroup, setConfirmGroup] = useState(false)
   const timings = useRunTimings(open)
   const [stages, setStages] = useState<LocalRunStage[]>([])
   const [expanded, setExpanded] = useState<LocalRunStage[]>([])
   const [options, setOptions] = useState<PipelineOptions>({})
   const trigger = useRef<HTMLButtonElement>(null)
+  const startButton = useRef<HTMLButtonElement>(null)
   const optionsId = useId()
 
   const desktop =
@@ -262,7 +282,13 @@ export function PipelineRunControls({
 
   return (
     <div className="grid gap-2">
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen)
+          if (!nextOpen) setConfirmGroup(false)
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             ref={trigger}
@@ -433,6 +459,25 @@ export function PipelineRunControls({
                         </span>
                       )}
                     </label>
+                    {id === 'group' ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label="Group run warning"
+                              className="grid w-8 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--warning-ink)] focus-visible:outline-2 focus-visible:outline-primary"
+                            >
+                              <IoWarningOutline
+                                aria-hidden="true"
+                                className="size-4"
+                              />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{groupRunWarning}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : null}
                     <button
                       type="button"
                       aria-label={`More options for ${stage.label}`}
@@ -567,10 +612,15 @@ export function PipelineRunControls({
               </ul>
             ) : null}
             <Button
+              ref={startButton}
               className="justify-self-end pt-0 [&_svg]:mt-0"
               disabled={blocked}
               aria-describedby={runBlockers.length ? reasonsId : undefined}
-              onClick={() => void enqueue()}
+              aria-haspopup={groupSelected ? 'dialog' : undefined}
+              onClick={() => {
+                if (groupSelected) setConfirmGroup(true)
+                else void enqueue()
+              }}
             >
               {active ? (
                 <IoListOutline aria-hidden="true" />
@@ -579,6 +629,32 @@ export function PipelineRunControls({
               )}
               {posting ? 'Saving run…' : active ? 'Queue Run' : 'Start Run'}
             </Button>
+            <AlertDialog open={confirmGroup} onOpenChange={setConfirmGroup}>
+              <AlertDialogContent
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault()
+                  startButton.current?.focus()
+                }}
+              >
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Are you sure you want to run Group?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {groupRunWarning}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={blocked || !groupSelected}
+                    onClick={() => void enqueue()}
+                  >
+                    {active ? 'Yes, queue run' : 'Yes, start run'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </footer>
         </PopoverContent>
       </Popover>

@@ -1040,7 +1040,23 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   expect(screen.getByText('Method · Embeddings')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Method' })).toBeNull()
   expect(screen.getByText(/Use colour signal ·/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
+  const warning = screen.getByRole('button', { name: 'Group run warning' })
+  fireEvent.pointerMove(warning, { pointerType: 'mouse' })
+  expect((await screen.findByRole('tooltip')).textContent).toMatch(
+    /large, expensive operation/
+  )
+  const start = screen.getByRole('button', { name: 'Start Run' })
+  fireEvent.click(start)
+  expect(screen.getByRole('alertdialog').textContent).toMatch(
+    /can reorganize how plates are grouped and displayed across this state/
+  )
+  expect(enqueue).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(enqueue).not.toHaveBeenCalled()
+  await waitFor(() => expect(document.activeElement).toBe(start))
+  fireEvent.click(start)
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, start run' }))
   await waitFor(() =>
     expect(enqueue).toHaveBeenCalledWith(
       [plate],
@@ -1060,6 +1076,7 @@ test('worker capabilities enable Group and normalize unsupported default colour 
       'Alaska pipeline'
     )
   )
+  expect(enqueue).toHaveBeenCalledTimes(1)
 })
 
 test('Group explains an unavailable method and cannot queue after the worker loses it', () => {

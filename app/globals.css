@@ -539,7 +539,7 @@ body {
     row-gap: var(--stack-gap);
     align-items: start;
   }
-  .states-layout > .states-review {
+  .states-layout > .states-pipeline {
     grid-column: 2;
     grid-row: 1;
   }
@@ -547,7 +547,7 @@ body {
     grid-column: 2;
     grid-row: 2;
   }
-  .states-layout > .states-pipeline {
+  .states-layout > .states-review {
     grid-column: 2;
     grid-row: 3;
   }

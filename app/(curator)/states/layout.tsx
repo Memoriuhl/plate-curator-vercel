@@ -28,6 +28,16 @@ export default function StatesLayout({
     >
       <DashboardPipelineProvider>
         <main className="app-main dashboard states-layout group/states">
+          <DashboardPipelineRail />
+          <Suspense
+            fallback={
+              <div className="dashboard-search" role="status">
+                Loading search…
+              </div>
+            }
+          >
+            <DashboardSearch />
+          </Suspense>
           <div className="states-review">
             <Suspense
               fallback={
@@ -46,16 +56,6 @@ export default function StatesLayout({
           <Suspense fallback={<DashboardSkeleton kind="jurisdictions" />}>
             <JurisdictionStrip />
           </Suspense>
-          <Suspense
-            fallback={
-              <div className="dashboard-search" role="status">
-                Loading search…
-              </div>
-            }
-          >
-            <DashboardSearch />
-          </Suspense>
-          <DashboardPipelineRail />
           <Suspense fallback={<DashboardSkeleton kind="state" />}>
             <div className="states-content transition-opacity group-has-[[data-navigation-pending]]/states:opacity-70">
               {children}
