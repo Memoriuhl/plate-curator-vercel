@@ -370,6 +370,27 @@ test('incremental History links to saved changes and preserves visibility of a c
   expect(screen.getByRole('link', { name: 'Review run changes' }).getAttribute('href')).toBe('/review?batch=pipeline-draft&run=run-chunk')
 })
 
+test('saved research shows the job result even after the queue projection matches the draft', () => {
+  const sourceUrl = 'https://example.org/plate-history'
+  const fields = { description: 'Description from the issuing authority.', funFacts: [{ text: 'The plate debuted in 1976.', sourceUrl, sourceTitle: 'Issuing authority' }] }
+  const draft = { ...plate, slug: 'one', image: '', ...fields }
+  const run = saved({ stages: ['research'], status: 'completed', incrementalDrafts: true, previewOnly: false, draftPlateIds: [plate.id] })
+  run.attempts[0].projection = { baselineVersion: 1, plates: {
+    [plate.id]: { batchInput: draft, executionPlate: draft, batchInputHash: 'saved', executionHash: 'saved', sourceJobIds: ['research-job'] },
+  } }
+  run.jobs = [{ id: 'research-job', batchId: run.batchId, plateId: plate.id, requestedBy: run.requestedBy, env: run.env,
+    inputHash: 'initial', state: 'completed', createdAt: 100, stage: 'research',
+    result: { suggestions: [], fieldSuggestion: { kind: 'fields', stage: 'research', fields, sources: [sourceUrl] }, backend: 'eve', model: 'fixture', promptVersion: 'v1', durationMs: 50 },
+  }]
+  render(<PipelineQueuePanel queue={{ runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(),
+    action: null, message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }} />)
+  fireEvent.click(screen.getByText('Research result for One'))
+  expect(screen.getByText(fields.description)).toBeTruthy()
+  expect(screen.getByText(fields.funFacts[0].text)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Issuing authority' }).getAttribute('href')).toBe(sourceUrl)
+  expect(screen.getByRole('link', { name: 'Review run changes' }).getAttribute('href')).toBe('/review?batch=batch&run=saved-run')
+})
+
 test('full-state runs keep the whole selection and explain the per-state Group limit before enqueue', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   const plates = Array.from({ length: 990 }, (_, index) => ({ ...plate, id: `MD.${index}`, state: 'MD' }))

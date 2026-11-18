@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Button } from '@/components/ui/button'
 import { editableFieldKeys } from '@/lib/review/fields'
+import { enrichmentFields } from '@/lib/research/enrichment'
 import type { TaggingJob } from '@/lib/jobs/types'
 import type { QueueRunSummary, QueueRunView } from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
@@ -102,6 +103,22 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
           selectedCandidateId={attempt?.choices[job.id]}
           {...(suggestion.kind === 'image' ? { onSelectImage: async (candidateId: string) => { if (!await queue.chooseImage(selected.id, job.id, candidateId)) throw Error('Image choice was not saved') } } : {})} />}</div>
       })}
+      {selected.incrementalDrafts ? selected.jobs.map(job => {
+        const suggestion = job.result?.fieldSuggestion
+        if (job.state !== 'completed' || suggestion?.kind !== 'fields' || suggestion.stage !== 'research') return null
+        const fields = enrichmentFields.filter(field => Object.hasOwn(suggestion.fields, field))
+        if (!fields.length) return null
+        const plateName = plateNames[job.plateId] ?? job.inputPlate?.displayName ?? job.plateId
+        return <details key={job.id} className="rounded-[var(--radius-md)] bg-[var(--fill)] p-3">
+          <summary className="cursor-pointer">Research result for {plateName}</summary>
+          <dl className="mt-[var(--stack-gap)] grid gap-[var(--stack-gap)]">
+            {fields.map(field => <div key={field} className="grid gap-2">
+              <dt className="label">{pipelineFieldLabel(field)}</dt>
+              <dd><PipelineFieldValue field={field} value={suggestion.fields[field]} /></dd>
+            </div>)}
+          </dl>
+        </details>
+      }) : null}
       {entries.map(entry => {
         const fields = editableFieldKeys().filter(key => JSON.stringify(entry.batchInput[key]) !== JSON.stringify(entry.executionPlate[key]))
         return fields.length ? <details key={entry.batchInput.id} className="rounded-[var(--radius-md)] bg-[var(--fill)] p-3"><summary className="cursor-pointer">{entry.batchInput.displayName} · {fields.length} changed fields</summary>

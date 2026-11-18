@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { enqueueRun, retryRun, cancelRun } from '../../lib/jobs/queue'
+import { enqueueRun, enqueueSelection, listRuns, retryRun, cancelRun } from '../../lib/jobs/queue'
 import { dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
@@ -84,6 +84,28 @@ test.each(['desktop', 'eve'] as const)('%s bulk Fill missing skips populated pla
   expect(two?.fields).not.toHaveProperty('funFacts')
   expect(await s.review.getEdit('batch', 'AK.complete')).toBeNull()
   expect(await applyQueueBundle(s.jobs, review, actor, run.id)).toMatchObject({ value: { revision: 1 } })
+})
+
+test('a Run Pipeline selection saves one hosted result with its description and sourced facts to the Batch', async () => {
+  const s = setup()
+  const plateId = s.plates[0].id
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'selection', batchId: 'batch', plateIds: [plateId], stages: ['research'],
+    researchModelId: 'eve-gemini-2-5-flash-lite', options: { research: { policy: 'replace' } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  expect(run.attempts[0].steps).toEqual([{ index: 0, plateId, stage: 'research', resourceClass: 'io' }])
+  const id = (await dispatchQueueStage(s.jobs, run.id, 1, 0, 'selection-hook'))!
+  expect(await executeHostedQueueStage(s.jobs, id, async () => { throw Error('No Tag jobs expected') }, s.hosted)).toBe('settled')
+  await observeQueueStage(s.jobs, run.id, 1, 0)
+  await observeQueueStage(s.jobs, run.id, 1, 0)
+  expect(s.deliver).toHaveBeenCalledOnce()
+  const fields = { description: draft.description, funFacts: [{ text: draft.funFacts[0].text, sourceUrl: source.url }] }
+  expect(await listRuns(s.jobs, actor)).toMatchObject({ value: [{ id: run.id, status: 'completed', draftPlateIds: [plateId], jobs: [
+    { id, researchModel: { id: 'eve-gemini-2-5-flash-lite' }, result: { fieldSuggestion: { stage: 'research', fields } } },
+  ] }] })
+  expect(await s.review.readBatch('batch')).toMatchObject({ batch: { revision: 1 }, edits: [{ plateId, fields }] })
 })
 
 test.each(['fill-missing', 'replace'] as EnrichmentPolicy[])('%s server projection refuses empty replacements and protects populated fields from worker overreach', async policy => {
