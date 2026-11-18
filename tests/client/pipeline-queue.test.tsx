@@ -345,6 +345,7 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
     previewOnly: false,
   })
   completed.attempts[0].endedAt = 200
+  completed.attempts[0].cursor = 1
   const controls = {
     runs: [
       saved({ queueWait: 'saved_sources_worker' }),
@@ -379,14 +380,15 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   expect(
     screen.getByRole('article', { name: 'Pipeline run completed' })
   ).toBeTruthy()
+  const completedCard = within(
+    screen.getByRole('article', { name: 'Pipeline run completed' })
+  )
   expect(
-    screen
-      .getAllByRole('link', { name: 'View results' })
-      .some(
-        (link) =>
-          link.getAttribute('href') === '/pipeline/runs/completed?batch=batch'
-      )
-  ).toBe(true)
+    completedCard
+      .getByRole('link', { name: 'View Tag results' })
+      .getAttribute('href')
+  ).toBe('/pipeline/runs/completed?batch=batch&stage=tag')
+  expect(screen.queryByRole('link', { name: /^View results$/i })).toBeNull()
   const remove = screen
     .getByRole('article', { name: 'Pipeline run failed' })
     .querySelector('button[aria-label="Remove run card"]')!
@@ -553,7 +555,7 @@ test('each card toggles its own live plate steps and starts collapsed', () => {
   const other = within(
     screen.getByRole('article', { name: 'Pipeline run queued' })
   )
-  const chevron = active.getByRole('button', { name: 'Show plate steps' })
+  const chevron = active.getByRole('button', { name: 'Watch steps' })
   const panel = () =>
     document.getElementById(chevron.getAttribute('aria-controls') ?? '')
   expect(chevron.getAttribute('aria-expanded')).toBe('false')
@@ -578,10 +580,73 @@ test('each card toggles its own live plate steps and starts collapsed', () => {
   expect(
     active.getByRole('region', { name: 'Pipeline steps by plate' })
   ).toBeTruthy()
-  fireEvent.click(active.getByRole('button', { name: 'Hide plate steps' }))
+  fireEvent.click(active.getByRole('button', { name: 'Hide steps' }))
   expect(
     active.queryByRole('region', { name: 'Pipeline steps by plate' })
   ).toBeNull()
+})
+
+test('run activity opens in the header and each stage exposes its own available outcome', async () => {
+  const run = saved({ status: 'running', stages: ['enhance-image', 'tag'] })
+  run.progress = {
+    workerIds: [],
+    startedAt: 200,
+    steps: [
+      {
+        index: 0,
+        plateId: plate.id,
+        plateName: 'One',
+        stage: 'enhance-image',
+        status: 'completed',
+        durationMs: 6000,
+      },
+      {
+        index: 1,
+        plateId: plate.id,
+        plateName: 'One',
+        stage: 'tag',
+        status: 'running',
+      },
+    ],
+  }
+  const queue = {
+    runs: [run],
+    observedAt: 9200,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  render(<PipelineQueuePanel queue={queue} />)
+  const card = screen.getByRole('article', { name: 'Pipeline run saved-run' })
+  const activity = within(card.querySelector('header')!).getByRole('button', {
+    name: 'Run activity',
+  })
+  expect(within(card).queryByText(/Elapsed|Requested|00:06/)).toBeNull()
+  fireEvent.focus(activity)
+  expect((await screen.findByRole('tooltip')).textContent).toMatch(
+    /Requested.*Elapsed 00:09/
+  )
+  fireEvent.blur(activity)
+  const result = within(card).getByRole('link', {
+    name: 'View Enhance image results',
+  })
+  expect(result.getAttribute('href')).toBe(
+    '/pipeline/runs/saved-run?batch=batch&stage=enhance-image'
+  )
+  expect(
+    within(card).queryByRole('link', { name: 'View Tag results' })
+  ).toBeNull()
+  expect(
+    within(card.querySelector('footer')!).getByRole('button', {
+      name: 'Watch steps',
+    })
+  ).toBeTruthy()
+  expect(within(card.querySelector('footer')!).queryByRole('link')).toBeNull()
 })
 
 test('the form preserves selected stages while selecting plates and resets after a confirmed run', async () => {
@@ -1349,16 +1414,13 @@ test('run cards describe cancelled dependencies and share the real workflow link
       />
     </TooltipProvider>
   )
+  expect(screen.getByRole('button', { name: /Wiki link: Failed/ })).toBeTruthy()
   expect(
-    screen.getByRole('button', { name: /Wiki link: Failed · 00:33/ })
+    screen.getByRole('button', { name: /Describe: Cancelled/ })
   ).toBeTruthy()
-  expect(
-    screen.getByRole('button', { name: /Describe: Cancelled · not run/ })
-  ).toBeTruthy()
-  expect(
-    screen.getByRole('button', { name: /Story: Cancelled · not run/ })
-  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Story: Cancelled/ })).toBeTruthy()
   expect(screen.queryByRole('progressbar')).toBeNull()
+  expect(screen.queryByText(/Elapsed|00:33/)).toBeNull()
   act(() => screen.getByRole('button', { name: /Describe: Cancelled/ }).focus())
   expect((await screen.findByRole('tooltip')).textContent).toContain(
     'An earlier step failed. This step did not run.'
@@ -1458,6 +1520,28 @@ test('run numbers open the exact inspector and the card omits the Batch name', (
   expect(screen.queryByText('Florida pipeline')).toBeNull()
 })
 
+test('History sits with the title and device stays static while the other device has no runs', async () => {
+  mocks.api.get.mockImplementation(async (path: string) =>
+    path.startsWith('/api/local-pipeline') ? { runs: [saved()] } : { runs: [] }
+  )
+  function Runs() {
+    return <PipelineRuns queue={usePipelineQueue()} />
+  }
+  render(<Runs />, { wrapper })
+  await screen.findByRole('article', { name: 'Pipeline run saved-run' })
+  const heading = screen.getByRole('heading', { name: 'Plate Pipeline' })
+  const header = heading.closest('header')!
+  expect(
+    within(heading.parentElement!).getByRole('button', { name: 'History' })
+  ).toBeTruthy()
+  expect(within(header).getByText('Local PC')).toBeTruthy()
+  expect(within(header).queryByRole('button', { name: /View runs/ })).toBeNull()
+  const rail = screen.getByRole('region', {
+    name: 'Plate Pipeline runs, scroll horizontally',
+  })
+  expect(within(rail).queryByRole('button', { name: 'History' })).toBeNull()
+})
+
 test('execution dropdown switches local and gateway views without mutating or restarting runs', async () => {
   const local = saved()
   local.progress = {
@@ -1512,7 +1596,7 @@ test('execution dropdown switches local and gateway views without mutating or re
     ).toBeTruthy()
   )
   fireEvent.keyDown(
-    screen.getByRole('button', { name: /View runs: Local PC/ }),
+    await screen.findByRole('button', { name: /View runs: Local PC/ }),
     { key: 'Enter' }
   )
   await waitFor(() =>
@@ -1531,7 +1615,7 @@ test('execution dropdown switches local and gateway views without mutating or re
   expect(
     screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })
   ).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Show plate steps' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Watch steps' }))
   expect(
     screen.getByRole('list', { name: 'One pipeline steps' }).textContent
   ).toContain('Tag Complete')
@@ -1868,6 +1952,79 @@ test('enhancement-only results offer a preview and download from the completed j
   expect(mocks.api.get).toHaveBeenCalledExactlyOnceWith(
     '/api/local-pipeline/jobs/enhanced-one/enhanced-image'
   )
+})
+
+test('a stage result shows the selected stage and keeps a link back to all results', async () => {
+  const run = saved({
+    status: 'completed',
+    stages: ['enhance-image', 'tag'],
+    plateIds: [plate.id, 'AK.two'],
+  })
+  run.progress = {
+    workerIds: [],
+    steps: [
+      {
+        index: 0,
+        plateId: plate.id,
+        plateName: 'One',
+        stage: 'enhance-image',
+        status: 'completed',
+      },
+      {
+        index: 1,
+        plateId: 'AK.two',
+        plateName: 'Two',
+        stage: 'tag',
+        status: 'completed',
+      },
+    ],
+  }
+  run.jobs = [
+    {
+      id: 'enhanced-one',
+      batchId: 'batch',
+      plateId: plate.id,
+      requestedBy: 'editor',
+      env: run.env,
+      inputHash: 'hash',
+      state: 'completed',
+      stage: 'enhance-image',
+      createdAt: 100,
+      result: {
+        suggestions: [],
+        fieldSuggestion: {
+          kind: 'enhanced-image',
+          stage: 'enhance-image',
+          width: 640,
+          height: 320,
+          originalWidth: 320,
+          originalHeight: 160,
+          sha256: 'a'.repeat(64),
+        },
+        backend: 'local',
+        model: 'sharp',
+        promptVersion: 'enhance-image-v1',
+        durationMs: 4,
+      },
+    },
+  ]
+  mocks.api.get.mockResolvedValue({ runs: [run], selected: run })
+  render(<PipelineRunResultsPage runId={run.id} stage="enhance-image" />, {
+    wrapper,
+  })
+  expect(
+    await screen.findByRole('heading', { name: 'Enhance image results' })
+  ).toBeTruthy()
+  expect(
+    screen.getByRole('link', { name: 'All run results' }).getAttribute('href')
+  ).toBe('/pipeline/runs/saved-run?batch=batch')
+  expect(
+    screen.getByRole('list', { name: 'Plates in this run' }).children
+  ).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'View changes for One' }))
+  expect(
+    screen.getByRole('button', { name: 'Preview enhanced image' })
+  ).toBeTruthy()
 })
 
 test('the dashboard hover opens the latest final frame and can preview a previous operation', async () => {
