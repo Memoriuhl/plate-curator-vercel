@@ -663,6 +663,23 @@ body {
   }
 }
 
+@container family-card (width < 280px) {
+  #families [data-plate-row] { gap: 8px; }
+  #families .variant-row { padding: 8px; }
+  #families [data-plate-image] {
+    --family-image-width: 96px;
+    --family-image-height: 48px;
+  }
+  #families .family-plate-details {
+    min-width: 0;
+    padding-right: 0;
+  }
+  #families [data-plate-row]:has([data-batch-marker]) .family-plate-heading {
+    padding-inline-end: 24px;
+  }
+  #families .family-plate-details [data-check-strip] { flex-wrap: wrap; }
+}
+
 .family-card [data-batch-marker] > * { width: 20px; height: 20px; }
 
 .variant-row {
