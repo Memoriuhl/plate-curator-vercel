@@ -65,7 +65,11 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     if (!parsed) return { ok: false, error: 'invalid_state' }
     changes.set(before.id, parsed)
   }
-  if (run.stages.includes('group') && !attempt.steps.some(step => step.stage === 'group' && step.status === 'cancelled' && step.reason === 'group_member_failed')) {
+  const groupBlocked = attempt.steps.some(step => step.stage === 'group' && (
+    step.reason === 'group_member_failed' && (step.status === 'cancelled' || step.status === 'skipped') ||
+    step.reason === 'group_member_skipped' && step.status === 'skipped'
+  ))
+  if (run.stages.includes('group') && !groupBlocked) {
     const selected = [...current.values()]
     if (!selected.length || new Set(selected.map(plate => plate.state)).size !== 1) return { ok: false, error: 'invalid_state' }
     const state = selected[0].state

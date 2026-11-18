@@ -132,8 +132,8 @@ test('a missing source skips that plate and shared grouping while other plate re
   expect(await dispatchQueueStage(restored, id, 1, 4, 'skipped-group')).toBeNull()
   expect(await claimNext(restored, 'worker')).toBeNull()
   expect(await listRuns(restored, actor)).toMatchObject({ value: [{ status: 'completed', attempts: [{ outcome: 'partial', steps: [
-    { status: 'failed' }, { status: 'cancelled' }, { status: 'completed' }, { status: 'completed' },
-    { stage: 'group', status: 'cancelled', reason: 'group_member_failed' },
+    { status: 'failed' }, { stage: 'describe', status: 'skipped', reason: 'upstream_failed' }, { status: 'completed' }, { status: 'completed' },
+    { stage: 'group', status: 'skipped', reason: 'group_member_failed' },
   ] }] }] })
   expect(await applyQueueBundle(restored, review, actor, id)).toMatchObject({ value: { revision: 1 } })
   expect(await review.store.listEdits('batch')).toMatchObject([{ plateId: plates[1].id, fields: { wikiUrl: url, description: 'Plate two description' } }])
