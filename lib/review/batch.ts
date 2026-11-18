@@ -4,9 +4,40 @@ export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
 import { editableKeys, limits } from './fields'
 import { sameEditableValue } from './story'
-import { retainedPipelineChanges } from './pipeline-changes'
+import { hasPipelineHistory, pipelineImageFields, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
+
+const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId']
+const groupRevertReason = 'Reverting this field would leave a Template family or Variant link inconsistent. Edit the related grouping together.'
+export const imageRevertReason = 'The image or its source changed after this run. Review the current image and source together before making another change.'
+
+async function regroupRemainsValid(d: ReviewDeps, batch: ReviewBatch, current: Plate, target: Plate) {
+  const [baseline, edits] = await Promise.all([
+    d.stateBaseline(batch.baselineVersion, target.state, 'snapshot'),
+    d.store.listEdits(batch.id),
+  ])
+  const byId = new Map(edits.map(edit => [edit.plateId, edit.fields]))
+  const state = new Map(baseline.map(plate => [plate.id, { ...plate, ...byId.get(plate.id) }]))
+  state.set(target.id, target)
+  const affectedFamilies = new Set([current.templateFamily, target.templateFamily].filter(Boolean))
+  const counts = new Map<string, { plates: number; templates: number }>()
+  for (const member of state.values()) {
+    if (member.deleted) continue
+    if (member.templateFamily && affectedFamilies.has(member.templateFamily)) {
+      const count = counts.get(member.templateFamily) ?? { plates: 0, templates: 0 }
+      count.plates += 1
+      if (member.templateRole === 'template') count.templates += 1
+      counts.set(member.templateFamily, count)
+    }
+    if (member.variantOfPlateId && (member.id === target.id || member.variantOfPlateId === target.id)) {
+      const parent = state.get(member.variantOfPlateId)
+      if (!parent || parent.deleted || parent.templateRole !== 'template' || parent.id === member.id || parent.templateFamily !== member.templateFamily || member.templateRole !== 'variant')
+        return false
+    }
+  }
+  return [...counts.values()].every(({ plates, templates }) => !plates || templates === 1)
+}
 
 type FieldRevert = { field: keyof EditableFields; jobId: string }
 
@@ -41,21 +72,29 @@ async function updatePlate(
     const existing = await d.store.getEdit(i.batchId, i.plateId)
     const current = { ...baseline, ...existing?.fields }
     let requested: EditableFields
+    let revertedFields: (keyof EditableFields)[] = []
     if (i.revert) {
       const { field, jobId } = i.revert
-      const change = existing?.pipelineChanges?.[field]
-      if (!change || change.jobId !== jobId || !sameEditableValue(field, change.value, current[field]))
-        return { ok: false, error: 'superseded_revision' }
-      requested = { [field]: Object.hasOwn(change, 'previous') ? change.previous : baseline[field] }
+      revertedFields = field === 'imageUrl' || field === 'sourceUrl' ? [...pipelineImageFields] : [field]
+      const previous: [keyof EditableFields, unknown][] = []
+      for (const key of revertedFields) {
+        const change = existing?.pipelineChanges?.[key]
+        if (!change || change.jobId !== jobId || !sameEditableValue(key, change.value, current[key]))
+          return { ok: false, error: 'superseded_revision', ...(revertedFields.length > 1 ? { reasons: [imageRevertReason] } : {}) }
+        previous.push([key, Object.hasOwn(change, 'previous') ? change.previous : baseline[key]])
+      }
+      requested = Object.fromEntries(previous)
     } else {
       if (plateRevision(current) !== i.baseRevision) return { ok: false, error: 'stale_plate', current }
       requested = i.fields
     }
     const changes = Object.fromEntries(editableKeys
-      .filter(key => (i.revert?.field === key || requested[key] !== undefined) && !sameEditableValue(key, current[key], requested[key]))
+      .filter(key => (revertedFields.includes(key) || requested[key] !== undefined) && !sameEditableValue(key, current[key], requested[key]))
       .map(key => [key, requested[key]]))
     const plate = { ...current, ...changes }
-    if (i.revert && plate[i.revert.field] === undefined) delete plate[i.revert.field]
+    for (const field of revertedFields) if (plate[field] === undefined) delete plate[field]
+    if (i.revert && groupingFields.some(field => Object.hasOwn(changes, field)) && !await regroupRemainsValid(d, batch, current, plate))
+      return { ok: false, error: 'invalid_state', reasons: [groupRevertReason] }
     if (current.isStandard && (
       Object.hasOwn(changes, 'isStandard') && !plate.isStandard ||
       Object.hasOwn(changes, 'templateRole') && plate.templateRole !== 'template'
@@ -91,9 +130,21 @@ async function updatePlate(
       .filter(key => !sameEditableValue(key, baseline[key], plate[key]))
       .map(key => [key, plate[key]]))
     const nextBatch: ReviewBatch = { ...batch, plateIds, state: 'open', revision: batch.revision + 1, approval: null }
+    const attribution = retainedPipelineChanges(existing, plate)
+    for (const field of revertedFields) {
+      const change = existing?.pipelineChanges?.[field]
+      const prior = change?.prior?.at(-1)
+      if (prior && sameEditableValue(field, prior.value, plate[field])) {
+        const remainder = change?.prior?.slice(0, -1)
+        attribution.pipelineChanges ??= {}
+        attribution.pipelineChanges[field] = { ...prior, ...(remainder?.length ? { prior: remainder } : {}) }
+      } else if (attribution.pipelineChanges) {
+        delete attribution.pipelineChanges[field]
+      }
+    }
     const edit = {
       plateId: i.plateId, baseRevision: plateRevision(baseline), fields,
-      ...retainedPipelineChanges(existing, fields, plate),
+      ...attribution,
       authorId: a.uid, updatedAt: d.now(), resultRevision: plateRevision(plate),
     }
     let combined: Awaited<ReturnType<typeof standardEdits>> | undefined
@@ -114,13 +165,21 @@ async function updatePlate(
       }
       combined = await standardEdits(d, a, batch, baselinePlates, order, new Map([[plate.id, changes]]), i.standard)
       if (!combined.ok) return combined
+      if (i.revert && hasPipelineHistory(edit)) {
+        const selected = combined.value.edits.find(candidate => candidate.plateId === i.plateId)
+        if (selected) Object.assign(selected, attribution)
+        else {
+          combined.value.deleteEditsFor = combined.value.deleteEditsFor.filter(id => id !== i.plateId)
+          combined.value.edits.push(edit)
+        }
+      }
       nextBatch.plateIds = combined.value.plateIds
       nextBatch.stateOrders = { ...batch.stateOrders, [plate.state]: order }
       nextBatch.baselineOrders = { ...batch.baselineOrders, [plate.state]: batch.baselineOrders?.[plate.state] ?? baselinePlates.map(member => member.id) }
     }
     const result = await d.store.commit(i.batchId, batch.revision, {
       batch: nextBatch, by: a,
-      ...(combined?.ok ? combined.value : Object.keys(fields).length === 0 ? { deleteEditFor: i.plateId } : { edit }),
+      ...(combined?.ok ? combined.value : Object.keys(fields).length || hasPipelineHistory(edit) ? { edit } : { deleteEditFor: i.plateId }),
     })
     if (result === 'ok') {
       if (batch.state !== 'open') await d.supersedeRun?.(batch)
@@ -203,7 +262,7 @@ export async function reorderState(
     const baseline = plates.find(plate => plate.id === plateId)!
     const plate = { ...baseline, ...editsById.get(plateId)?.fields, ...fields }
     const delta = Object.fromEntries(editableKeys.filter(key => !sameEditableValue(key, baseline[key], plate[key])).map(key => [key, plate[key]]))
-    return { plateId, fields: delta, ...retainedPipelineChanges(editsById.get(plateId), delta, plate), baseRevision: plateRevision(baseline), resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: d.now() }
+    return { plateId, fields: delta, ...retainedPipelineChanges(editsById.get(plateId), plate), baseRevision: plateRevision(baseline), resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: d.now() }
   })
   const combined = preserveLegacy
     ? { ok: true as const, value: { plateIds, edits, deleteEditsFor: [] } }

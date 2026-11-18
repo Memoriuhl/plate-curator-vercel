@@ -69,6 +69,7 @@ export interface JobsTransaction {
   list(): Promise<TaggingJob[]>
   review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number; edit?: ProposedEdit } | null>
   commitDraft: ReviewStore['commit']
+  pipelineRequesterRole?(uid: string): Promise<Role | null>
   create(job: TaggingJob): void
   set(job: TaggingJob): void
 }
@@ -81,6 +82,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; pipelineRequesterRole?(uid: string): Promise<Role | null>; now(): number; id(): string; leaseMs: number; localScope?: string }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; configuredOwnerUids?: readonly string[]; now(): number; id(): string; leaseMs: number; localScope?: string }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

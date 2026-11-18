@@ -9,7 +9,7 @@ export function createMemoryStore(seed: (Omit<ReviewBatch, 'createdByName' | 'st
   const checkpoints = new Map<string, Map<string, ReviewCheckpoint>>()
   const changes = new Map<string, DraftChange[]>()
 
-  const recentChanges = (batch: ReviewBatch, since: number) => currentDraftChanges(batch, [...edits.get(batch.id)?.keys() ?? []], (changes.get(batch.id) ?? []).filter(change => change.revision > since))
+  const recentChanges = (batch: ReviewBatch, since: number) => currentDraftChanges(batch, [...edits.get(batch.id)?.values() ?? []].filter(edit => Object.keys(edit.fields).length > 0).map(edit => edit.plateId), (changes.get(batch.id) ?? []).filter(change => change.revision > since))
 
   return {
     async recentPlateIds(batchId, since) {

@@ -15,7 +15,7 @@ import { sameEditableValue } from '../review/story'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
-import { ApiError } from './api'
+import { ApiError, type ApiClient } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 
@@ -59,9 +59,32 @@ export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
     : undefined)
 }
 
+async function fetchBatchDetail(api: ApiClient, key: string): Promise<BatchDetail> {
+  type Page = BatchDetail & { nextPage?: string }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const first = await api.get<Page>(key)
+    const { batch, nextPage } = first
+    if (!nextPage) return first
+    const plates = [...first.plates]
+    let cursor: string | undefined = nextPage
+    try {
+      while (cursor) {
+        const page: Page = await api.get<Page>(`${key}?page=${encodeURIComponent(cursor)}`)
+        if (page.batch.revision !== batch.revision) throw new ApiError(409, 'superseded_revision', {})
+        plates.push(...page.plates)
+        cursor = page.nextPage
+      }
+      return { batch, plates }
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== 'superseded_revision' || attempt === 2) throw error
+    }
+  }
+  throw new ApiError(409, 'superseded_revision', {})
+}
+
 export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, api.get, opts?.reuse
+  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, key => fetchBatchDetail(api, key), opts?.reuse
     ? { revalidateIfStale: false }
     : undefined)
 }
@@ -166,6 +189,7 @@ export function useReviewActions() {
           [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
           ...PUBLISH_STOP_MESSAGES,
           [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
+          empty_batch: 'This Batch has no changes to publish.',
           standard_change_unconfirmed: 'Resolve the Standard plate changes before publishing.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed. Confirm the current revision.',
@@ -318,11 +342,11 @@ export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) 
       const id = reviewed?.batchId ?? (workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate))
       batchId = id
       const key = `/api/batches/${id}`
-      const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
+      const detail = cache.get(key)?.data as BatchDetail | undefined ?? await fetchBatchDetail(api, key)
       const baseRevision = reviewed?.baseRevision ?? (workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision)
       if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${key}/plates/${plate.id}`, { baseRevision, fields, ...((standard ?? reviewed?.standard) ? { standard: standard ?? reviewed?.standard } : {}) })
-      const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
+      const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(`${batchesKey()}?`)))
       const entry = saved?.plates.find(entry => entry.proposed.id === plate.id)
       const unchanged = entry && Object.keys(fields).every(key => JSON.stringify(entry.proposed[key]) === JSON.stringify(result.plate[key]))
@@ -371,7 +395,7 @@ export function useReorderState() {
       if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
       const id = workspace.mode === 'selected' ? workspace.id : await ensureBatch({ id: order[0], state })
       const key = `/api/batches/${id}`
-      const detail = cache.get(key)?.data as BatchDetail | undefined ?? await api.get<BatchDetail>(key)
+      const detail = cache.get(key)?.data as BatchDetail | undefined ?? await fetchBatchDetail(api, key)
       await mutate(key, async () => {
         const batch = await api.send<ReviewBatch>('PUT', `${key}/state-order/${encodeURIComponent(state)}`, { batchRevision: detail.batch.revision, order, ...(standard ? { standard } : {}) })
         return { ...detail, batch }
@@ -380,7 +404,7 @@ export function useReorderState() {
         rollbackOnError: true,
         revalidate: false,
       })
-      const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
+      const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(`${batchesKey()}?`)))
       return { ok: true, revisions: Object.fromEntries(saved?.plates.map(entry => [entry.proposed.id, entry.revision]) ?? []) }
     } catch (error) {
@@ -422,13 +446,13 @@ export function useReorderState() {
       const id = origin.batchId ?? await ensureBatch({ id: firstPromotion.plateId, state })
       key = '/api/batches/' + id
       await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, ...(Array.isArray(promotion) ? { promotions } : { promotion }), ...(standard ? { standard } : {}) })
-      const saved = await mutate<BatchDetail>(key, api.get<BatchDetail>(key), { revalidate: false })
+      const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))
       const entry = saved?.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
       return { ok: true, revisions: Object.fromEntries(saved?.plates.map(entry => [entry.proposed.id, entry.revision]) ?? []), proposed: entry?.proposed, revision: entry?.proposed.templateRole === 'template' && entry.proposed.templateFamily === firstPromotion.templateFamily && entry.proposed.variantOfPlateId === null ? entry.revision : undefined, batchId: id }
     } catch (error) {
       if (key) {
-        const saved = await api.get<BatchDetail>(key)
+        const saved = await fetchBatchDetail(api, key)
         await mutate(key, saved, { revalidate: false })
         const entry = saved.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
         const plate = entry?.proposed

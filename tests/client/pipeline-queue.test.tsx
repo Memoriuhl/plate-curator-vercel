@@ -279,3 +279,19 @@ test('incremental History links to saved changes and preserves visibility of a c
   expect(screen.getByRole('link', { name: 'Run un-chunk' }).getAttribute('href')).toBe('/review?batch=pipeline-draft&run=run-chunk')
   expect(screen.getByRole('link', { name: 'Review run changes' }).getAttribute('href')).toBe('/review?batch=pipeline-draft&run=run-chunk')
 })
+
+test('full-state runs keep the whole selection and explain the per-state Group limit before enqueue', async () => {
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  const plates = Array.from({ length: 990 }, (_, index) => ({ ...plate, id: `MD.${index}`, state: 'MD' }))
+  const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: false, visionTiebreak: false }), reportedAt: 100, pollIntervalMs: 1000 }
+  render(<PipelineRunControls underTagged={[]} batchPlates={[]} allPlates={plates} stateName="Maryland" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('button', { name: 'All plates in Maryland 990' }))
+  expect(screen.getByText('New draft · Maryland pipeline')).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+  expect(screen.getByRole('alert').textContent).toContain('Group needs up to 25 plates from one state')
+  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  await waitFor(() => expect(enqueue.mock.calls[0]?.[0]).toEqual(plates))
+})

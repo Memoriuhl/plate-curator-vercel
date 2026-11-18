@@ -6,11 +6,13 @@ import { dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engi
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { GET, POST } from '../../app/api/local-pipeline/runs/route'
+import { POST as createSelection } from '../../app/api/local-pipeline/runs/selection/route'
 import { POST as cancel } from '../../app/api/local-pipeline/runs/[id]/cancel/route'
 import { POST as claim } from '../../app/api/worker/claim/route'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn(), workflow: vi.fn() }))
-vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}) }))
+vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}), catalog: () => ({ readSnapshot: async () => ({ version: 1 }) }) }))
+vi.mock('../../lib/server/catalog-head', () => ({ catalogChanged: vi.fn() }))
 vi.mock('workflow/api', () => ({ start: mocks.start, resumeHook: mocks.resume, getRun: mocks.workflow }))
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 const body = { requestId: 'request', batchId: 'batch', plateIds: ['AK.one'], stages: ['tag'] }
@@ -33,7 +35,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 test('authenticated enqueue starts installed Workflow once with an attempt token; reload restores stable run ID and summaries omit snapshots', async () => {
-  expect((await POST(post())).status).toBe(202)
+  const added = await POST(post())
+  expect(added.status).toBe(202)
+  expect(await added.json()).toMatchObject({ run: { incrementalDrafts: true } })
   expect((await POST(post())).status).toBe(202)
   expect(mocks.start).toHaveBeenCalledTimes(1)
   expect(mocks.start.mock.calls[0][2].experimental_hook.token).toMatch(/^local-pipeline-start:route-test:/)
@@ -91,5 +95,18 @@ test('GET records an actual exhausted Workflow failure as retryable failure when
   mocks.workflow.mockReturnValue({ status: Promise.resolve('failed') })
   const restored = await (await GET(get())).json()
   expect(restored.runs[0]).toMatchObject({ status: 'failed', attempts: [{ error: 'workflow_failed' }] })
+  expect(mocks.start).toHaveBeenCalledTimes(1)
+})
+
+test('a named selection creates and starts one new draft instead of using the existing Batch', async () => {
+  const request = () => new Request('https://example.org/api/local-pipeline/runs/selection', { method: 'POST',
+    body: JSON.stringify({ requestId: body.requestId, plateIds: body.plateIds, stages: body.stages, batchName: 'New Alaska draft' }) })
+  const initial = await createSelection(request())
+  expect(initial.status).toBe(202)
+  const value = await initial.json()
+  expect(value.batchId).not.toBe('batch')
+  expect(value).toMatchObject({ run: { incrementalDrafts: true, batchId: value.batchId }, runIds: [value.run.id] })
+  expect(await deps.store.transaction(tx => tx.batch(value.batchId))).toMatchObject({ name: 'New Alaska draft', plateIds: body.plateIds })
+  expect(await (await createSelection(request())).json()).toMatchObject({ batchId: value.batchId, runIds: value.runIds })
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })

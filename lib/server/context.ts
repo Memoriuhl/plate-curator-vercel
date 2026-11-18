@@ -140,12 +140,7 @@ export function jobsDeps(): JobsDeps {
     baseline: reviewDeps().baseline,
     baselineAtVersion: reviewDeps().baselineAtVersion,
     stateBaseline: reviewDeps().stateBaseline,
-    async pipelineRequesterRole(uid) {
-      if (parseOwnerUids(process.env.OWNER_UIDS).includes(uid)) return 'owner'
-      const fixture = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }) === 'fixture'
-      const member = await (fixture ? fixtureMembers : membersStore()).getByUid(uid)
-      return member?.uid === uid && member.status === 'active' ? member.role : null
-    },
+    configuredOwnerUids: parseOwnerUids(process.env.OWNER_UIDS),
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     leaseMs: 5 * 60_000,

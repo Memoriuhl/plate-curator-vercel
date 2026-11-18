@@ -1,5 +1,6 @@
 import { canQueueDuringPublish } from '../publish/pipeline-gate'
 import type { Firestore } from '@google-cloud/firestore'
+import { firestoreMemberByUid } from '../members/firestore-store'
 import type { EditableFields, ProposedEdit } from '../review/types'
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { PipelineRun } from './queue-types'
@@ -74,6 +75,10 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           const snapshot = await transaction.get(ref.collection('edits').doc(plateId))
           const edit = snapshot.data() as ProposedEdit | undefined
           return { baselineVersion: batch.get('baselineVersion') as number, fields: edit?.fields ?? {}, edit }
+        },
+        async pipelineRequesterRole(uid) {
+          const member = await firestoreMemberByUid(db, uid, transaction)
+          return member?.uid === uid && member.status === 'active' ? member.role : null
         },
         commitDraft: firestoreReviewStore(db, reviewEnv, transaction).commit,
         create(job) { transaction.create(jobs.doc(job.id), job) },

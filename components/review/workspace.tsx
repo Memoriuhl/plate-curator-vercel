@@ -27,6 +27,7 @@ import { cn } from '@/components/utils'
 import { changeSummary, DiffTable } from './diff'
 import { RunStatus } from './run-status'
 import { useBatchRevisionSignal } from '@/lib/client/live-signal'
+import { hasPipelineHistory } from '@/lib/review/pipeline-changes'
 import { reviewHref } from '@/lib/review/href'
 import { localPipelineReason } from '@/lib/local-pipeline'
 import { useBatchRun } from '@/lib/client/hooks'
@@ -193,7 +194,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const plateId = params.get('plate')
   const scope = batchId ? filters.scope ?? (plateId ? null : code) : code
   const recent = useRecentReviewPlates(batchId, since ?? undefined, selectedRevision)
-  const reviewedRevision = !filters.run && !scope && (since === null || recent.data) ? selectedRevision : undefined
+  const reviewedRevision = !filters.run && !scope && since === null ? selectedRevision : undefined
   useReviewCheckpoint(batchId, reviewedRevision, me.data?.role === 'owner')
   const recentPlates = recent.data ? new Set(recent.data.plateIds) : null
   const [details, setDetails] = useState<Record<string, BatchDetail>>({})
@@ -221,14 +222,13 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     ...details,
     ...(selected.data ? { [selected.data.batch.id]: selected.data } : {}),
   }
-  const entries: Entry[] = (batchId ? batches.filter(batch => batch.id === batchId) : batches).flatMap(batch => {
+  const batchEntries: Entry[] = (batchId ? batches.filter(batch => batch.id === batchId) : batches).flatMap(batch => {
     const detail = currentDetails[batch.id]
-    return (detail?.plates ?? [])
-      .filter(plate => changeSummary(plate.baseline, plate.proposed, plate.order) !== 'No changes')
-      .map(plate => ({ ...plate, batch: detail.batch }))
+    return (detail?.plates ?? []).map(plate => ({ ...plate, batch: detail.batch }))
   })
+  const entries = batchEntries.filter(plate => changeSummary(plate.baseline, plate.proposed, plate.order) !== 'No changes')
   const pending = entries.filter(({ batch }) => ['submitted', 'conflict'].includes(batch.state))
-  const visible = batchId ? entries.filter(entry => {
+  const visible = batchId ? (filters.run ? batchEntries : entries).filter(entry => {
     const inRun = !filters.run || entry.edit?.pipelineRunIds?.includes(filters.run) ||
       Object.values(entry.edit?.pipelineChanges ?? {}).some(change => change.runId === filters.run)
     return inRun && (since === null || recentPlates?.has(entry.baseline.id) === true)
@@ -241,8 +241,11 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     [proposed.displayName, proposed.id, proposed.state, ...proposed.tags].some(value => value.toLowerCase().includes(term)))
   const pageScope = JSON.stringify([batchId, filters.run, filters.since, scope, search])
   const pageEnd = pagination.scope === pageScope ? pagination.count : reviewPageSize
+  const candidateEntries = batchId && !filters.run && since === null
+    ? batchEntries.filter(entry => entry.edit && hasPipelineHistory(entry.edit))
+    : []
   const entry = plateId
-    ? visible.find(entry => entry.baseline.id === plateId && (!code || entry.baseline.state === code))
+    ? [...visible, ...candidateEntries].find(entry => entry.baseline.id === plateId && (!code || entry.baseline.state === code))
     : listed[0]
   useEffect(() => {
     if (first && !batchId && !params.has('view') && !code)
@@ -267,12 +270,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     setRevertFeedback(null)
     try {
       await actions.revertPipelineField(entry.batch.id, plateId, field, jobId)
-      setRevertFeedback({ plateId, message: 'Pipeline field reverted.', error: false })
+      setRevertFeedback({ plateId, message: field === 'imageUrl' || field === 'sourceUrl' ? 'Pipeline image and source reverted.' : 'Pipeline field reverted.', error: false })
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : null
-      setRevertFeedback({ plateId, message: code === 'superseded_revision' || code === 'stale_plate'
+      setRevertFeedback({ plateId, message: apiErrorReasons(error).join(' ') || (code === 'superseded_revision' || code === 'stale_plate'
         ? 'This field changed while you were reviewing. Check its latest value.'
-        : reviewError(error, entry.batch.revision), error: true })
+        : reviewError(error, entry.batch.revision)), error: true })
     } finally {
       setReverting(false)
     }

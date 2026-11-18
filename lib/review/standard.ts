@@ -1,7 +1,7 @@
 import { orderedStatePlates } from '../catalog/order'
 import type { Plate } from '../catalog/types'
 import { editableKeys, limits } from './fields'
-import { retainedPipelineChanges } from './pipeline-changes'
+import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ProposedEdit, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
@@ -31,10 +31,11 @@ export async function standardEdits(
     else if (current.isStandard) current.isStandard = false
     if (JSON.stringify(current) === JSON.stringify(before[index]) && !changes.has(current.id)) continue
     const delta: EditableFields = Object.fromEntries(editableKeys.filter(key => JSON.stringify(current[key]) !== JSON.stringify(base[key])).map(key => [key, current[key]]))
-    if (!Object.keys(delta).length) deleteEditsFor.push(base.id)
+    const attribution = retainedPipelineChanges(byId.get(base.id), current)
+    if (!Object.keys(delta).length && !hasPipelineHistory(attribution)) deleteEditsFor.push(base.id)
     else {
       plateIds.add(base.id)
-      edits.push({ plateId: base.id, baseRevision: plateRevision(base), fields: delta, ...retainedPipelineChanges(byId.get(base.id), delta, current), authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(current) })
+      edits.push({ plateId: base.id, baseRevision: plateRevision(base), fields: delta, ...attribution, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(current) })
     }
   }
   if (plateIds.size > limits.plates) return { ok: false, error: 'invalid_state' }

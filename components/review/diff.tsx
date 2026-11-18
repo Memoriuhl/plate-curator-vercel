@@ -104,7 +104,7 @@ const fieldsByRow: Record<string, (keyof EditableFields)[]> = {
   'Read more': ['readMore'],
   'Background color': ['colorDetail'],
   'Broad color': ['lineageColor'],
-  Links: ['sourceUrl', 'wikiUrl'],
+  Links: ['wikiUrl'],
 }
 
 export function DiffTable({
@@ -244,13 +244,22 @@ export function DiffTable({
                   )}
                   {side === 'after' && fieldsByRow[String(label)]?.map(field => {
                     const change = pipelineChanges?.[field]
-                    if (!change || !sameEditableValue(field, change.value, after[field]) || sameEditableValue(field, before[field], after[field])) return null
+                    if (!change || !sameEditableValue(field, change.value, after[field])) return null
+                    const source = pipelineChanges?.sourceUrl
+                    const imagePair = field === 'imageUrl'
+                    const canRevertImage = Boolean(source?.jobId === change.jobId && sameEditableValue('sourceUrl', source?.value, after.sourceUrl))
+                    const netChange = !sameEditableValue(field, before[field], after[field])
+                      || imagePair && !sameEditableValue('sourceUrl', before.sourceUrl, after.sourceUrl)
+                    const canRestorePrior = Object.hasOwn(change, 'previous') && !sameEditableValue(field, change.previous, after[field])
+                      || imagePair && source && Object.hasOwn(source, 'previous') && !sameEditableValue('sourceUrl', source.previous, after.sourceUrl)
+                    if (!netChange && !canRestorePrior) return null
                     return (
                       <div className="mt-2 flex flex-wrap items-center gap-2" key={field}>
                         {change.byName && <span className="caption">Pipeline · {change.byName}</span>}
-                        {onRevert && <Button variant="outline" size="sm" disabled={reverting} title={Object.hasOwn(change, 'previous') ? 'Restore the earlier draft value' : 'Restore the published value'} onClick={() => onRevert(field, change.jobId)}>
-                          Revert {pipelineFieldLabel(field).toLowerCase()}
+                        {onRevert && (!imagePair || canRevertImage) && <Button variant="outline" size="sm" disabled={reverting} title={Object.hasOwn(change, 'previous') ? 'Restore the earlier draft value' : 'Restore the published value'} onClick={() => onRevert(field, change.jobId)}>
+                          Revert {imagePair ? 'image and source' : pipelineFieldLabel(field).toLowerCase()}
                         </Button>}
+                        {onRevert && imagePair && !canRevertImage && <span className="caption">The image and its source must be reverted together.</span>}
                       </div>
                     )
                   })}

@@ -15,7 +15,7 @@ export interface PublishControl {
   read(): Promise<PublishControlState | null>
   check(command: PublishCommand, now: string): Promise<PublishStop | null>
 }
-export type PublishError = PublishStop | typeof PIPELINE_BUSY | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
+export type PublishError = PublishStop | typeof PIPELINE_BUSY | 'empty_batch' | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
   abandonment?: Abandonment
   object?: SnapshotObject

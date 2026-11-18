@@ -1,13 +1,13 @@
 import { abandonClaim, abandonmentCommands, abandonmentError, abandonmentPlan, abandonedReceiptId } from './abandon'
 import { nextPublishVersion, occupiesTarget, validTarget } from './allocation'
 import { publishRequesterStop, sameRequester } from './authority'
-import { batchApprovedFor, claimSupersedes, draftCanBeConfirmed, isSuperseded, receiptId } from './command'
+import { batchApprovedFor, claimSupersedes, draftCanBeConfirmed, hasDraftChanges, isSuperseded, receiptId } from './command'
 import { CLAIM_TTL_MS, claimRunKey, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from './eligibility'
 import { liveEnvKey, signalPath } from '../review/live-signal'
 import { firestoreReviewStore, writePublishMetadata } from '../review/firestore-store'
 import { uploadError } from './upload'
 import { sameObject } from './object'
-import type { ReviewBatch } from '../review/types'
+import type { EditableFields, ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import { hasActivePipeline } from './pipeline-gate'
 import { isPublishStop, PIPELINE_BUSY, PUBLISH_STOPS, type PublishStop } from './stop'
@@ -158,7 +158,11 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       ownStop: isPublishStop(ownStop.get('reason')) ? ownStop.get('reason') : null,
       runStatus: status, now, claimTtlMs: options.claimTtlMs, replay,
     }
-    const eligibility = (!replay && command.confirmedDraftRevision !== undefined && !confirmed) ? { canRetry: false, reason: 'superseded_revision' as const } : changed ? { canRetry: false, reason: 'locked' as const } : retryEligibility(input)
+    const edits = confirmed ? await transaction.get(batch.ref.collection('edits').select('fields')) : null
+    const emptyDraft = edits && !hasDraftChanges(currentBatch!, edits.docs.map(edit => (edit.get('fields') ?? {}) as EditableFields))
+    const eligibility = (!replay && command.confirmedDraftRevision !== undefined && !confirmed) ? { canRetry: false, reason: 'superseded_revision' as const } : changed ? { canRetry: false, reason: 'locked' as const }
+      : emptyDraft ? { canRetry: false, reason: 'empty_batch' as const }
+      : retryEligibility(input)
     if (writeRecovered && !changed && 'recoveredRunId' in resolved && resolved.recoveredRunId && status !== 'not_found' && !terminalRun(status) && claimDoc && claim) {
       if (claimDoc.exists) transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
       else transaction.create(claimDoc.ref, { ...claim, env })

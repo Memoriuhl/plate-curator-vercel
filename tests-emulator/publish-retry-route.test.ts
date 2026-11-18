@@ -250,6 +250,7 @@ test('confirmation blocks a run queued from another workstation on another Batch
 test('Owner can confirm the current draft revision without a separate approval', async () => {
   await db.doc('reviewBatches/batch').set({ ...batch, env, state: 'open', revision: 2, approval: null })
   const deps = mocks.deps()
+  await db.doc('reviewBatches/batch/edits/one').set({ plateId: 'one', fields: { tags: ['changed'] } })
   expect(await (await POST(request('draft-confirm'), ctx)).json()).toEqual({ status: 'publishing', runId: 'fresh-run' })
   const accepted = (await deps.records.command('draft-confirm'))!.command
   expect(await publishBatch(deps, owner, accepted)).toMatchObject({ ok: true, value: { toVersion: 2 } })
@@ -326,4 +327,39 @@ test('one Owner confirmation publishes the full 1,000-Plate draft in one Snapsho
   expect((await deps.pointer.read()).version).toBe(2)
   expect((await deps.snapshots.read(2)).plates).toEqual(plates.map(plate => ({ ...plate, tags: ['after'] })))
   expect(await deps.store.getBatch(batch.id)).toMatchObject({ state: 'published', revision: draft.revision + 2 })
+})
+
+
+test('draft pipeline audit metadata is insufficient to publish a new Snapshot', async () => {
+  await db.doc('reviewBatches/batch').set({ ...batch, env, state: 'open', approval: null })
+  await db.doc('reviewBatches/batch/edits/one').set({ plateId: 'one', fields: {}, pipelineRunIds: ['completed-run'] })
+  expect(await (await GET(request('opening'), ctx)).json()).toMatchObject({ canConfirmDraft: false, retryReason: 'empty_batch' })
+  const result = await POST(request('audit-only'), ctx)
+  expect(result.status).toBe(409)
+  expect(await result.json()).toMatchObject({ error: 'empty_batch' })
+  expect(mocks.start).not.toHaveBeenCalled()
+  expect((await mocks.deps().pointer.read()).version).toBe(1)
+})
+
+test('the publish gate follows Batch environment across legacy worker namespaces and Batch query pages', async () => {
+  const catalogBatches = Array.from({ length: 31 }, (_, index) => db.doc(`reviewBatches/scoped-${String(index).padStart(2, '0')}`))
+  const other = db.doc('reviewBatches/other-preview')
+  const job = db.doc('jobs/legacy-other-scope')
+  const otherJob = db.doc('jobs/other-preview')
+  const requestPublish = request('scope-confirmation')
+  try {
+    const writes = db.batch()
+    for (const batchRef of catalogBatches) writes.set(batchRef, { env })
+    writes.set(other, { env: 'preview:unrelated' })
+    writes.set(job, { batchId: catalogBatches.at(-1)!.id, env: 'preview:worker-device', state: 'claimed' })
+    writes.set(otherJob, { batchId: other.id, env, state: 'queued' })
+    await writes.commit()
+    expect(await (await POST(requestPublish, ctx)).json()).toEqual({ error: 'pipeline_busy' })
+    await job.update({ state: 'completed' })
+    expect((await POST(request('scope-confirmation'), ctx)).status).toBe(202)
+  } finally {
+    const writes = db.batch()
+    for (const ref of [...catalogBatches, other, job, otherJob]) writes.delete(ref)
+    await writes.commit()
+  }
 })

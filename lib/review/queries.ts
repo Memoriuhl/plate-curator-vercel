@@ -5,6 +5,7 @@ import type { Actor, BatchState, Outcome, ProposedEdit, ReviewBatch, ReviewDeps 
 
 type BatchDetail = {
   batch: ReviewBatch
+  nextOffset?: number
   plates: { baseline: Plate; proposed: Plate; edit: ProposedEdit | null; revision: string; order?: { before: number; after: number; total: number } }[]
 }
 
@@ -28,10 +29,11 @@ export async function listBatches(d: ReviewDeps, filter: { states?: BatchState[]
   return (await d.store.list(filter)).filter(batch => filter.createdBy === undefined || batch.createdBy === filter.createdBy).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
-export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outcome<BatchDetail>> {
+export async function batchDetail(d: ReviewDeps, batchId: string, page?: { offset: number; size: number; revision?: number }): Promise<Outcome<BatchDetail>> {
   const snapshot = await d.store.readBatch(batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
   const { batch } = snapshot
+  if (page?.revision !== undefined && page.revision !== batch.revision) return { ok: false, error: 'superseded_revision' }
   const edits = new Map(snapshot.edits.map(edit => [edit.plateId, edit]))
   const plates: BatchDetail['plates'] = []
   const orders = new Map<string, { before: number; after: number; total: number }>()
@@ -43,7 +45,9 @@ export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outco
       ids.add(plateId)
     }
   }
-  for (const plateId of ids) {
+  const offset = page?.offset ?? 0
+  const end = page ? offset + page.size : ids.size
+  for (const plateId of [...ids].slice(offset, end)) {
     const order = orders.get(plateId)
     const baseline = await d.baselineAtVersion(batch.baselineVersion, plateId)
     if (!baseline) return { ok: false, error: 'not_found' }
@@ -53,5 +57,5 @@ export async function batchDetail(d: ReviewDeps, batchId: string): Promise<Outco
       ...(order ? { order: { before: order.before, after: order.after, total: order.total } } : {}),
     })
   }
-  return { ok: true, value: { batch, plates } }
+  return { ok: true, value: { batch, plates, ...(end < ids.size ? { nextOffset: end } : {}) } }
 }

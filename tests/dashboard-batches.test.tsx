@@ -97,7 +97,7 @@ beforeEach(() => {
         proposed: {
           id: 'AK.standard_gold',
           state: 'AK',
-          tags: [],
+          tags: ['gold'],
           slug: 'standard_gold',
           displayName: 'Standard',
           image: '',
@@ -106,7 +106,7 @@ beforeEach(() => {
         edit: {
           plateId: 'AK.standard_gold',
           baseRevision: 'r0',
-          fields: {},
+          fields: { tags: ['gold'] },
           authorId: 'Jonathan',
           updatedAt: '2026-11-16',
           resultRevision: 'r1',
@@ -139,8 +139,10 @@ test('editors see disabled Publish and can open the pipeline menu', () => {
   expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })
 
-test('owner Publish is disabled and empty batches cannot submit', () => {
-  state.detail!.plates[0].edit = null
+test.each([false, true])('Owner cannot publish or submit an empty Batch with pipeline history %s', hasPipelineHistory => {
+  const plate = state.detail!.plates[0]
+  plate.proposed = plate.baseline
+  plate.edit = hasPipelineHistory ? { ...plate.edit!, fields: {}, pipelineRunIds: ['historical-run'] } : null
   renderToStaticMarkup(
     <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
   )

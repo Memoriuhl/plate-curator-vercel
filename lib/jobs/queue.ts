@@ -126,7 +126,8 @@ async function enqueueRuns(d: JobsDeps, actor: Actor, input: EnqueueInput, selec
     const batch = storedBatch ?? newBatch!
     const error = queuePermission(batch, actor)
     if (error) return { ok: false, error }
-    if (existing.length) return existing.every(run => run.fingerprint === requestFingerprint && Boolean(run.selectionId) === selected)
+    if (existing.length) return existing.every(run => run.fingerprint === requestFingerprint && Boolean(run.selectionId) === selected ||
+      selected && !draft && !run.selectionId && run.fingerprint === fingerprint)
       ? { ok: true, value: existing.sort((a, b) => (a.selectionIndex ?? 0) - (b.selectionIndex ?? 0)) }
       : { ok: false, error: 'request_mismatch' }
     if (await tx.canQueue?.() === false) return { ok: false, error: 'publish_in_progress' }

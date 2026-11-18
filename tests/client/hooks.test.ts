@@ -749,3 +749,18 @@ test('Set as Standard forwards its explicit acknowledgement', async () => {
   await act(async () => { expect((await result.current.edit(card, { isStandard: true }, undefined, standard)).ok).toBe(true) })
   expect(session.api.send).toHaveBeenCalledWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'draft-revision', fields: { isStandard: true }, standard })
 })
+
+test('Batch consumers load bounded pages without mixing two revisions', async () => {
+  const key = '/api/batches/draft'
+  const first = detail()
+  const second = { ...first, batch: { ...batch, revision: 2 } }
+  session.api.get
+    .mockResolvedValueOnce({ ...first, nextPage: '1.1' })
+    .mockRejectedValueOnce(new ApiError(409, 'superseded_revision', {}))
+    .mockResolvedValueOnce({ ...second, nextPage: '2.1' })
+    .mockResolvedValueOnce({ ...second, plates: [{ ...second.plates[0], baseline: { ...baseline, id: 'AK.two' }, proposed: { ...proposed, id: 'AK.two' } }] })
+  const view = renderHook(() => useBatch('draft'), harness())
+  await waitFor(() => expect(view.result.current.data?.plates.map(plate => plate.baseline.id)).toEqual(['AK.one', 'AK.two']))
+  expect(view.result.current.data?.batch.revision).toBe(2)
+  expect(session.api.get.mock.calls.map(([path]) => path)).toEqual([key, key + '?page=1.1', key, key + '?page=2.1'])
+})

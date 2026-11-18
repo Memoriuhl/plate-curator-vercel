@@ -364,3 +364,59 @@ test('a reset to the published value uses the saved field identity and cannot er
   expect(await revertPipelineField(deps, owner, { ...revert, field: 'description' })).toMatchObject({ ok: false, error: 'superseded_revision' })
   expect(await revertPipelineField(deps, owner, { ...revert, field: 'tags' })).toMatchObject({ ok: true, value: { plate: { tags: baseline.tags, description: 'Editor description' } } })
 })
+
+test('refuses a partial grouping revert that would strand the saved members', async () => {
+  const first = { ...snapshot.plates[0], state: 'CA', templateFamily: 'former', templateRole: 'template' as const }
+  const second = { ...snapshot.plates[1], state: 'CA', templateFamily: 'former', templateRole: 'variant' as const, variantOfPlateId: first.id }
+  const deps = { ...fixture().deps, store, baselineAtVersion: async (_version: number, id: string) => [first, second].find(plate => plate.id === id) ?? null, stateBaseline: async () => [first, second] }
+  const change = { runId: 'run', jobId: 'group-job', by: 'editor', byName: 'Editor', at: edit.updatedAt, value: 'current', previous: 'former' }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edits: [first, second].map(plate => ({
+    ...edit, plateId: plate.id, fields: { templateFamily: 'current' }, resultRevision: plateRevision({ ...plate, templateFamily: 'current' }),
+    pipelineChanges: { templateFamily: change }, pipelineRunIds: ['run'],
+  })) })).toBe('ok')
+  expect(await revertPipelineField(deps, owner, { batchId: batch.id, plateId: first.id, field: 'templateFamily', jobId: change.jobId })).toMatchObject({ ok: false, error: 'invalid_state', reasons: [expect.stringMatching(/family/i)] })
+  expect(await batchDetail(deps, batch.id)).toMatchObject({ ok: true, value: { batch: { revision: 5 }, plates: [{ proposed: { templateFamily: 'current' } }, { proposed: { templateFamily: 'current' } }] } })
+})
+
+test('reverts a pipeline image and its provenance together', async () => {
+  const baseline = snapshot.plates[0]
+  const deps = { ...fixture().deps, store }
+  const imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/new.jpg'
+  const sourceUrl = 'https://commons.wikimedia.org/wiki/File:new.jpg'
+  const change = { runId: 'run', jobId: 'image-job', by: 'editor', byName: 'Editor', at: edit.updatedAt }
+  const applied: ProposedEdit = { ...edit, fields: { imageUrl, sourceUrl, tags: ['edited'] }, pipelineRunIds: ['run'],
+    pipelineChanges: { imageUrl: { ...change, value: imageUrl }, sourceUrl: { ...change, value: sourceUrl } } }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edit: applied })).toBe('ok')
+  expect(await revertPipelineField(deps, owner, { batchId: batch.id, plateId: baseline.id, field: 'imageUrl', jobId: change.jobId })).toMatchObject({ ok: true, value: { plate: { tags: ['edited'] } } })
+  const reloaded = await store.getEdit(batch.id, baseline.id)
+  expect(reloaded?.fields).toEqual({ tags: ['edited'] })
+})
+
+test('reverting the newest run restores prior pipeline identity even when the draft equals the published value', async () => {
+  const baseline = snapshot.plates[0]
+  const deps = { ...fixture().deps, store }
+  const first = { runId: 'run-a', jobId: 'job-a', by: 'editor', byName: 'Editor', at: edit.updatedAt, value: ['first draft'], previous: baseline.tags }
+  const second = { ...first, runId: 'run-b', jobId: 'job-b', value: baseline.tags, previous: first.value, prior: [first] }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edit: {
+    ...edit, fields: {}, pipelineRunIds: [first.runId, second.runId], pipelineChanges: { tags: second },
+  } })).toBe('ok')
+  const target = { batchId: batch.id, plateId: baseline.id, field: 'tags' } as const
+  expect(await revertPipelineField(deps, owner, { ...target, jobId: second.jobId })).toMatchObject({ ok: true, value: { plate: { tags: first.value } } })
+  expect(await revertPipelineField(deps, owner, { ...target, jobId: second.jobId })).toMatchObject({ ok: false, error: 'superseded_revision' })
+  expect(await store.getEdit(batch.id, baseline.id)).toMatchObject({ pipelineChanges: { tags: { jobId: first.jobId } } })
+  expect(await revertPipelineField(deps, owner, { ...target, jobId: first.jobId })).toMatchObject({ ok: true, value: { plate: { tags: baseline.tags } } })
+})
+
+test('reverting the image cannot overwrite a newer provenance edit', async () => {
+  const baseline = snapshot.plates[0]
+  const deps = { ...fixture().deps, store }
+  const imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/new.jpg'
+  const sourceUrl = 'https://commons.wikimedia.org/wiki/File:new.jpg'
+  const change = { runId: 'run', jobId: 'image-job', by: 'editor', byName: 'Editor', at: edit.updatedAt }
+  const applied: ProposedEdit = { ...edit, fields: { imageUrl, sourceUrl }, pipelineRunIds: ['run'],
+    pipelineChanges: { imageUrl: { ...change, value: imageUrl }, sourceUrl: { ...change, value: sourceUrl } } }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edit: applied })).toBe('ok')
+  expect(await proposeEdit(deps, owner, { batchId: batch.id, plateId: baseline.id, baseRevision: plateRevision({ ...baseline, imageUrl, sourceUrl }), fields: { sourceUrl: 'https://example.com/newer' } })).toMatchObject({ ok: true })
+  expect(await revertPipelineField(deps, owner, { batchId: batch.id, plateId: baseline.id, field: 'imageUrl', jobId: change.jobId })).toMatchObject({ ok: false, error: 'superseded_revision' })
+  expect((await store.getEdit(batch.id, baseline.id))?.fields).toEqual({ imageUrl, sourceUrl: 'https://example.com/newer' })
+})

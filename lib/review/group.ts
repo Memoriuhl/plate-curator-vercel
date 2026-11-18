@@ -6,7 +6,7 @@ import { completeGroupScope, validGroupContext } from './group-context'
 export { completeGroupScope, validGroupContext } from './group-context'
 import { canEdit } from './access'
 import { editableKeys, limits } from './fields'
-import { retainedPipelineChanges } from './pipeline-changes'
+import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
 import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from './types'
@@ -72,8 +72,9 @@ export async function acceptGroup(d: ReviewDeps, jobs: JobsDeps, actor: Actor, i
     const current = selected.find(plate => plate.id === proposal.plateId)!
     const plate: Plate = { ...current, ...proposal.fields }
     const fields = Object.fromEntries(editableKeys.filter(key => !sameEditableValue(key, baseline[key], plate[key])).map(key => [key, plate[key]]))
-    if (!Object.keys(fields).length) deleteEditsFor.push(plate.id)
-    else nextEdits.push({ plateId: plate.id, baseRevision: plateRevision(baseline), fields, ...retainedPipelineChanges(edits.find(edit => edit.plateId === plate.id), fields, plate), authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(plate) })
+    const attribution = retainedPipelineChanges(edits.find(edit => edit.plateId === plate.id), plate)
+    if (!Object.keys(fields).length && !hasPipelineHistory(attribution)) deleteEditsFor.push(plate.id)
+    else nextEdits.push({ plateId: plate.id, baseRevision: plateRevision(baseline), fields, ...attribution, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(plate) })
   }
   const next: ReviewBatch = { ...batch, plateIds, revision: batch.revision + 1, approval: null }
   const committed = await d.store.commit(batch.id, batch.revision, { batch: next, by: actor, edits: nextEdits, deleteEditsFor })

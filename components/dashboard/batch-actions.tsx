@@ -65,7 +65,7 @@ export function BatchActions({
         hasStory: Array.isArray(funFacts) && funFacts.length > 0,
       })) ?? []
   const edits =
-    detail.data?.plates.filter((plate) => plate.edit !== null || plate.order !== undefined).length ?? 0
+    detail.data?.plates.filter((plate) => plate.order !== undefined || plate.edit && Object.keys(plate.edit.fields).length > 0).length ?? 0
   const pipelineBusy = queue.runs.some(run => run.batchId === batch?.id && run.incrementalDrafts && ['queued', 'running'].includes(run.status))
   return (
     <>

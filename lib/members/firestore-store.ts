@@ -1,6 +1,12 @@
-import type { Firestore } from '@google-cloud/firestore'
+import type { Firestore, Transaction } from '@google-cloud/firestore'
 import { activationResult, nextAuthorityEpoch, isActiveOwner, isLiveMember, memberTombstone, restoredMember, normalizeEmail, pendingMember } from './member'
 import type { GuardedMemberResult, Member, MemberResult, MembersStore } from './types'
+
+export async function firestoreMemberByUid(db: Firestore, uid: string, transaction?: Transaction): Promise<Member | null> {
+  const query = db.collection('members').where('uid', '==', uid).limit(1)
+  const snapshot = transaction ? await transaction.get(query) : await query.get()
+  return snapshot.docs.map(doc => doc.data() as Member).find(isLiveMember) ?? null
+}
 
 export function firestoreMembersStore(db: Firestore, now: () => string = () => new Date().toISOString()): MembersStore {
   const members = db.collection('members')
@@ -37,10 +43,7 @@ export function firestoreMembersStore(db: Firestore, now: () => string = () => n
   }
   return {
     async getByEmail(email) { const member = (await ref(email).get()).data() as Member | undefined; return isLiveMember(member) ? member : null },
-    async getByUid(uid) {
-      const snapshot = await members.where('uid', '==', uid).limit(1).get()
-      return snapshot.docs.map(doc => doc.data() as Member).find(isLiveMember) ?? null
-    },
+    getByUid: uid => firestoreMemberByUid(db, uid),
     async getByInviteHash(tokenHash) {
       const snapshot = await members.where('invite.tokenHash', '==', tokenHash).limit(1).get()
       return snapshot.docs.map(doc => doc.data() as Member).find(isLiveMember) ?? null

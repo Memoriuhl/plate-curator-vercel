@@ -14,6 +14,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   const states = [
     ...new Set(detail.data?.plates.map((plate) => plate.baseline.state) ?? []),
   ].join(', ')
+  const draftChanges = detail.data?.plates.some(plate => plate.order || plate.edit && Object.keys(plate.edit.fields).length > 0)
   return (
     <div className="review-chip">
       <Avatar size="sm" player="friend">
@@ -42,7 +43,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
             Review
           </Link>
         </Button>
-        <PublishButton batchId={batch.id} owner={owner} draft={batch.state === 'submitted'} approved={batch.state === 'approved'} size="sm" />
+        <PublishButton batchId={batch.id} owner={owner} draft={batch.state === 'submitted' && !!draftChanges} approved={batch.state === 'approved'} size="sm" />
       </div>
     </div>
   )

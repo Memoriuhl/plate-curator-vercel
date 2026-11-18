@@ -9,6 +9,7 @@ import { defaultPipelineOptions, snapshotPipelineOptions, type PipelineOptions }
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { useSelectedPlates } from './plate-selection'
 import { pipelineSelectionLimit } from '@/lib/jobs/pipeline-selection'
+import { groupSelectionLimit } from '@/lib/review/group-context'
 import { pipelineStages, stageAvailability } from './pipeline-stages'
 import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
 import type { RunPlate } from './use-tag-run'
@@ -50,6 +51,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const active = queue.runs.some(run => ['queued', 'running'].includes(run.status))
   const unavailableStage = stages.map(id => pipelineStages.find(stage => stage.id === id)!).find(stage => stageAvailability(stage, true, queue.capabilities))
   const groupOutsideBatch = stages.includes('group') && !!destination && planned.some(plate => !batchPlates.some(member => member.id === plate.id))
+  const invalidGroupSize = stages.includes('group') && (planned.length > groupSelectionLimit || selectedStates.size > 1)
   const resolvedOptions = snapshotPipelineOptions(stages, options)
   if (resolvedOptions.group) for (const key of ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const) {
     if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
@@ -58,7 +60,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), resolvedOptions)
   const needsTagModel = steps.some(step => step.stage === 'tag')
   const needsResearchModel = steps.some(step => step.stage === 'research')
-  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || needsResearchModel && !researchChoice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
+  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || needsResearchModel && !researchChoice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch || invalidGroupSize
   async function enqueue() {
     if (blocked) return
     if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined, needsResearchModel ? researchChoice.modelId : undefined, newBatchName)) setOpen(false)
@@ -118,7 +120,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
           <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Validated results save to the draft as they arrive.'}</p>
           {active ? <p className="caption">A run is already active. You can queue these plates and stages; each resource slot is shared fairly between requesters.</p> : null}
           {queue.message ? <p role="alert">{queue.message}</p> : null}
-          {groupOutsideBatch ? <p role="alert">Every Group member must already be in this Batch. Choose a complete family scope from plates in your Batch.</p> : null}
+          {invalidGroupSize ? <p role="alert">Group needs up to {groupSelectionLimit} plates from one state. Deselect Group to run the other stages across this selection.</p>
+            : groupOutsideBatch ? <p role="alert">Every Group member must already be in this Batch. Choose a complete family scope from plates in your Batch.</p> : null}
           <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
             <Button disabled={blocked || active} onClick={() => void enqueue()}><IoPlay aria-hidden="true" />{posting ? 'Saving run…' : 'Start run'}</Button>
             <Button variant="outline" disabled={blocked} onClick={() => void enqueue()}>{posting ? 'Saving run…' : 'Queue run'}</Button>

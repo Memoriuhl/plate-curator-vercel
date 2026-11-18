@@ -107,3 +107,32 @@ test('direct PATCH cannot set story fields while local editing is disabled', asy
     expect((await context.reviewDeps().store.getBatch('batch'))!.revision).toBe(4)
   } finally { vi.unstubAllEnvs() }
 })
+
+test('the Batch endpoint pages a large response and binds continuations to one revision', async () => {
+  const plateIds = Array.from({ length: 1000 }, (_, index) => 'AK.' + index)
+  const draft = { ...batch, plateIds }
+  const deps = context.reviewDeps()
+  deps.store = createMemoryStore([draft])
+  const details = 'source notes '.repeat(1800)
+  deps.baselineAtVersion = async (_version: number, id: string) => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], details })
+  const get = (page?: string) => GET(new Request('https://example.com/api/batches/batch' + (page ? '?page=' + page : '')), { params: Promise.resolve({ id: 'batch' }) })
+  const first = await get()
+  const body = await first.text()
+  expect(Buffer.byteLength(body)).toBeLessThanOrEqual(2_010_000)
+  const firstPage = JSON.parse(body)
+  expect(firstPage.plates.length).toBeLessThan(100)
+  expect(firstPage.plates[0].baseline.id).toBe('AK.0')
+  const loaded = firstPage.plates.map((plate: { baseline: { id: string } }) => plate.baseline.id)
+  let cursor = firstPage.nextPage as string | undefined
+  while (cursor) {
+    const page = await (await get(cursor)).text()
+    expect(Buffer.byteLength(page)).toBeLessThanOrEqual(2_010_000)
+    const continuation = JSON.parse(page)
+    expect(continuation.batch.revision).toBe(draft.revision)
+    loaded.push(...continuation.plates.map((plate: { baseline: { id: string } }) => plate.baseline.id))
+    cursor = continuation.nextPage
+  }
+  expect(loaded).toEqual(plateIds)
+  expect(await deps.store.commit(draft.id, draft.revision, { batch: { ...draft, revision: draft.revision + 1 } })).toBe('ok')
+  expect((await get(firstPage.nextPage)).status).toBe(409)
+})

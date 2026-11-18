@@ -1,5 +1,16 @@
 # Publish controls and recovery (#129, #128, #127, #126, #119)
 
+## Plate Pipeline gate
+
+Publish checks the target catalog environment for queued or running workflow
+records and standalone jobs. Legacy worker records can use a device namespace
+that differs from their Batch's environment. The gate reads Batch IDs by catalog
+environment, then uses those IDs to query jobs and runs in groups of 30. The
+lookup reads status metadata from that catalog's history and uses existing
+single-field indexes. It needs no migration or index rollout. Admission reads
+the shared Publish lease inside the queue transaction, and the pointer
+transaction repeats the scoped gate before advancing the Catalog.
+
 ## Pause and Resume
 
 Active Owners use the Catalog publishing control in Publish to Pause or Resume.

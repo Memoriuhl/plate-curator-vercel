@@ -19,9 +19,9 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
   const recentChanges = async (transaction: Transaction, batch: DocumentSnapshot, since: number) => {
     const [changes, edits] = await Promise.all([
       transaction.get(batch.ref.collection('draftChanges').where('revision', '>', since)),
-      transaction.get(batch.ref.collection('edits').select()),
+      transaction.get(batch.ref.collection('edits').select('fields')),
     ])
-    return currentDraftChanges(batch.data() as ReviewBatch, edits.docs.map(edit => edit.id), changes.docs.map(doc => doc.data() as DraftChange))
+    return currentDraftChanges(batch.data() as ReviewBatch, edits.docs.filter(edit => Object.keys(edit.get('fields') ?? {}).length > 0).map(edit => edit.id), changes.docs.map(doc => doc.data() as DraftChange))
   }
 
   return {

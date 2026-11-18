@@ -85,7 +85,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
         keepFrozen = false
         return { ok: false, error: 'invalid_snapshot', reasons: ['Baseline snapshot has an invalid version or plates'] }
       }
-      const edits = await d.store.listEdits(command.batchId)
+      const edits = (await d.store.listEdits(command.batchId)).filter(edit => Object.keys(edit.fields).length > 0)
       const fields = new Map(edits.map(edit => [edit.plateId, edit.fields]))
       const orders = new Map(Object.entries(batch.stateOrders).map(([state, order]) => [state, new Map(order.map((id, index) => [id, index]))]))
       const toVersion = record?.toVersion ?? await d.records.nextVersion(lease.token, d.now())

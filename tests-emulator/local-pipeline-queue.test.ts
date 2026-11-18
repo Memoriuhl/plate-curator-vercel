@@ -2,13 +2,14 @@ import { Firestore } from '@google-cloud/firestore'
 import { lookup } from 'node:dns/promises'
 import { createHash } from 'node:crypto'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { firestoreMembersStore } from '../lib/members/firestore-store'
 import { firestoreJobsStore } from '../lib/jobs/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { localJobsEnvironment } from '../lib/jobs/local-scope'
 import { cancelRun, enqueueRun, enqueueSelection, listRuns, retryRun } from '../lib/jobs/queue'
 import { bindQueueWorkflow, chooseQueueImage, confirmStoppedWorker, dispatchQueueStage, observeQueueStage, recordQueueWorkflowFailure } from '../lib/jobs/queue-engine'
 import { claimNext, reportResult } from '../lib/jobs/jobs'
-import { proposeEdit } from '../lib/review/batch'
+import { proposeEdit, revertPipelineField } from '../lib/review/batch'
 import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
@@ -20,8 +21,10 @@ const loopback = await lookup('localhost', { all: true })
 if (!endpoint.port || endpoint.hostname !== 'localhost' && !loopback.some(value => value.address === endpoint.hostname.replace(/^\[|\]$/g, ''))) throw Error('Queue emulator tests require a localhost emulator')
 const db = new Firestore({ projectId: 'demo-local-pipeline-queue' })
 const actor = { uid: 'queue-editor', role: 'editor' as const, name: 'Queue Editor' }
-const plates = ['one', 'two'].map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
-const collections = ['jobs', 'localPipelineRuns', 'reviewBatches']
+const plates = ['one', 'two'].map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [], description: null }))
+const collections = ['jobs', 'localPipelineRuns', 'reviewBatches', 'members']
+const editorEmail = 'queue-editor@example.org'
+const members = firestoreMembersStore(db)
 let time = 100, sequence = 0
 let jobs: JobsDeps, review: ReviewDeps
 
@@ -29,6 +32,8 @@ async function clear() { for (const name of collections) await db.recursiveDelet
 beforeEach(async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); time = 100; sequence = 0
   await clear()
+  await members.upsertSeed({ email: editorEmail, uid: actor.uid, role: actor.role, signIn: 'password', status: 'active',
+    invite: null, invitedBy: null, createdAt: '2026-11-17' })
   const store = firestoreReviewStore(db, 'development')
   await store.create({ id: 'batch', name: 'Queue emulator', createdBy: actor.uid, createdByName: null, createdAt: '', revision: 0, state: 'open',
     baselineVersion: 1, plateIds: plates.map(plate => plate.id), stateOrders: {}, approval: null })
@@ -238,10 +243,60 @@ test('Preview only and a requester whose draft authority was removed each leave 
     expect(await reportResult(jobs, 'worker', claim.job.id, claim.claimId, {
       backend: 'fixture', model: 'test', promptVersion: 'v1', durationMs: 1, suggestions: ['proposed'],
     })).toMatchObject({ ok: true })
-    await observeQueueStage(previewOnly ? jobs : { ...jobs, pipelineRequesterRole: async () => null }, run.id, 1, 0)
+    if (!previewOnly) expect(await members.remove(editorEmail)).toBe('ok')
+    await observeQueueStage(jobs, run.id, 1, 0)
     const listed = await listRuns(jobs, actor)
     if (!listed.ok) throw Error(listed.error)
     expect(listed.value.find(value => value.id === run.id)).toMatchObject({ status: previewOnly ? 'completed' : 'failed' })
     expect(await review.store.readBatch('batch')).toMatchObject({ batch: { revision: 0 }, edits: [] })
   }
+}, 20_000)
+
+test('returning a plate to its baseline keeps prior pipeline attribution without a net draft change', async () => {
+  const saved: { runId: string; jobId: string }[] = []
+  for (const description of ['Pipeline A', null]) {
+    const result = await enqueueSelection(jobs, actor, { requestId: `attribution-${saved.length}`, batchId: 'batch', plateIds: [plates[0].id], stages: ['describe'] })
+    if (!result.ok) throw Error(result.error)
+    const [run] = result.value
+    await dispatchQueueStage(jobs, run.id, 1, 0, 'attribution-hook')
+    const claim = (await claimNext(jobs, 'worker'))!
+    const jobId = claim.job.id
+    expect(await reportResult(jobs, 'worker', jobId, claim.claimId, {
+      backend: 'fixture', model: 'test', promptVersion: 'v1', durationMs: 1,
+      fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description }, sources: ['https://example.org/source'] },
+    })).toMatchObject({ ok: true })
+    await observeQueueStage(jobs, run.id, 1, 0)
+    saved.push({ runId: run.id, jobId })
+  }
+  const [first, last] = saved
+  expect(await review.store.getEdit('batch', plates[0].id)).toMatchObject({
+    fields: {},
+    pipelineRunIds: [first.runId, last.runId],
+    pipelineChanges: { description: { ...last, value: null, previous: 'Pipeline A', prior: [{ ...first, value: 'Pipeline A' }] } },
+  })
+  expect(await review.store.recentPlateIds?.('batch', 0)).toEqual([])
+  expect(await revertPipelineField(review, actor, { batchId: 'batch', plateId: plates[0].id, field: 'description', jobId: last.jobId }))
+    .toMatchObject({ value: { plate: { description: 'Pipeline A' } } })
+  expect(await review.store.getEdit('batch', plates[0].id)).toMatchObject({
+    fields: { description: 'Pipeline A' }, pipelineChanges: { description: { ...first, value: 'Pipeline A' } },
+  })
+  expect(await revertPipelineField(review, actor, { batchId: 'batch', plateId: plates[0].id, field: 'description', jobId: first.jobId }))
+    .toMatchObject({ value: { plate: { description: null } } })
+}, 20_000)
+
+test('a configured Owner can still save a draft without a member record', async () => {
+  const owner = { ...actor, role: 'owner' as const, uid: 'configured-owner' }
+  const deps = { ...jobs, configuredOwnerUids: [owner.uid] }
+  const result = await enqueueSelection(deps, owner, { requestId: 'configured-owner', batchId: 'batch', plateIds: [plates[0].id], stages: ['tag'] })
+  if (!result.ok) throw Error(result.error)
+  const [run] = result.value
+  await dispatchQueueStage(deps, run.id, 1, 0, 'configured-owner-hook')
+  const claim = (await claimNext(deps, 'worker'))!
+  expect(await reportResult(deps, 'worker', claim.job.id, claim.claimId, {
+    backend: 'fixture', model: 'test', promptVersion: 'v1', durationMs: 1, suggestions: ['configured owner result'],
+  })).toMatchObject({ ok: true })
+  await observeQueueStage(deps, run.id, 1, 0)
+  expect(await review.store.getEdit('batch', plates[0].id)).toMatchObject({
+    fields: { tags: ['configured owner result'] }, pipelineChanges: { tags: { by: owner.uid } },
+  })
 }, 20_000)

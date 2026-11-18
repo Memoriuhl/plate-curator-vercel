@@ -175,6 +175,7 @@ function BatchSelection({
       </header>
       <RunStatus batchId={id} />
       {pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
+      {baseline.data?.retryReason === 'empty_batch' && <p role="status">This Batch has no changes to publish.</p>}
       {batch.state !== 'published' && !draftCanBeConfirmed(batch) && !canRetry && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
       {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
       {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">

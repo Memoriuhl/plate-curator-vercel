@@ -1,5 +1,5 @@
 import { runPlateDetail } from '../../../../lib/jobs/run-plates'
-import { enqueueRun, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
+import { enqueueSelection, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
 import { queueResponse, reconcileQueueWorkflow, startQueueWorkflow, wakeLocalJob } from '../../../../lib/server/local-queue'
@@ -49,9 +49,9 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response
   const input = parseEnqueue(await readJson(request))
   if (!input) return badRequest()
-  const result = await enqueueRun(jobsDeps(), auth.actor, input)
-  if (result.ok) {
-    try { await startQueueWorkflow(result.value) } catch { return json({ error: 'start_failed', runId: result.value.id }, 503) }
-  }
-  return queueResponse(result, 202)
+  const result = await enqueueSelection(jobsDeps(), auth.actor, input)
+  if (!result.ok) return queueResponse(result)
+  const run = result.value[0]
+  try { await startQueueWorkflow(run) } catch { return json({ error: 'start_failed', runId: run.id }, 503) }
+  return queueResponse({ ok: true, value: run }, 202)
 }
