@@ -15,9 +15,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { dashboardPlateHref } from '@/lib/review/href'
-import { cn } from '@/components/utils'
 import type { StepProgress } from '@/lib/jobs/run-progress'
 import { pipelineStages, pipelineStepReason } from './pipeline-stages'
+import styles from './pipeline-runs.module.css'
 
 const statusLabels = {
   queued: 'Waiting',
@@ -27,16 +27,6 @@ const statusLabels = {
   failed: 'Failed',
   cancelled: 'Cancelled',
   skipped: 'Skipped',
-}
-
-const statusStyle = {
-  queued: 'border-[var(--hairline)] text-[var(--ink-2)]',
-  waiting: 'border-[var(--warning)] text-[var(--warning)]',
-  running: 'border-[var(--warning)] bg-[var(--fill)] text-[var(--ink)]',
-  completed: 'border-[var(--hairline)] bg-[var(--fill)] text-[var(--ink)]',
-  failed: 'border-[var(--danger)] bg-[var(--danger-tint)] text-[var(--danger)]',
-  cancelled: 'border-[var(--hairline)] text-[var(--ink-2)]',
-  skipped: 'border-[var(--hairline)] text-[var(--ink-2)]',
 }
 
 function phaseStatus(
@@ -79,7 +69,9 @@ export function PlatePipelineTimeline({
   return (
     <section
       aria-label="Pipeline steps by plate"
-      className="grid max-h-64 gap-2 overflow-y-auto"
+      data-pipeline-watch-steps
+      tabIndex={0}
+      className={styles.watchTimeline}
     >
       <TooltipProvider delayDuration={250}>
         {[...rows].map(([plateId, plateSteps]) => {
@@ -88,10 +80,7 @@ export function PlatePipelineTimeline({
             plateState ?? (plateId.includes('.') ? plateId.split('.')[0] : null)
           const image = images?.[plateId]
           return (
-            <div
-              key={plateId}
-              className="grid gap-1.5 rounded-md border border-[var(--hairline)] px-2 py-1.5"
-            >
+            <div key={plateId} className={styles.timelineRow}>
               <div className="flex min-w-0 items-center gap-1.5">
                 {image ? (
                   <Tooltip>
@@ -142,7 +131,7 @@ export function PlatePipelineTimeline({
               </div>
               <ol
                 aria-label={`${plateSteps[0].plateName} pipeline steps`}
-                className="flex flex-wrap items-center gap-1.5"
+                className="flex w-max items-center gap-1.5"
               >
                 {plateSteps.flatMap((step, stageIndex) => {
                   const stage = pipelineStages.find(
@@ -169,10 +158,7 @@ export function PlatePipelineTimeline({
                           />
                         ) : null}
                         <span
-                          className={cn(
-                            'caption inline-flex items-center gap-1 rounded-md border px-1.5 py-1 transition-colors motion-reduce:transition-none',
-                            statusStyle[status]
-                          )}
+                          className={styles.phase}
                           data-status={status}
                           aria-current={
                             status === 'running' ? 'step' : undefined

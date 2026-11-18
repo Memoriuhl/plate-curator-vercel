@@ -1,10 +1,9 @@
 'use client'
 
-import { useId, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import {
   IoCheckmark,
-  IoChevronDown,
   IoClose,
   IoEyeOutline,
   IoInformationCircleOutline,
@@ -55,6 +54,7 @@ export function PipelineRunCard({
   attempt,
   runAction,
   waitLabel,
+  stepsOpen,
 }: {
   run: {
     id: string
@@ -77,9 +77,8 @@ export function PipelineRunCard({
   waitLabel?: string
   stageResultsHref?: (stage: LocalRunStage) => string
   attempt?: { number: number; error?: string }
+  stepsOpen?: boolean
 }) {
-  const [stepsOpen, setStepsOpen] = useState(false)
-  const stepsId = useId()
   const hasPlateSteps = progress.steps.some((step) => step.stage !== 'group')
   const settled = progress.steps.filter((step) =>
     ['completed', 'skipped', 'failed', 'cancelled'].includes(step.status)
@@ -108,41 +107,79 @@ export function PipelineRunCard({
       aria-label={`Pipeline run ${reference}`}
     >
       <header className={styles.runHeader}>
-        {inspector ? (
+        <div className={styles.runIdentity}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <a
-                className={styles.reference}
-                href={inspector}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                className={styles.avatar}
+                aria-label={`Started by ${name}`}
               >
-                Run {reference}
-              </a>
+                <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+              </button>
             </TooltipTrigger>
             <TooltipContent collisionPadding={12}>
-              {inspectorLabel}
+              Started by {name}
             </TooltipContent>
           </Tooltip>
-        ) : (
-          <span className={styles.reference} title={run.id}>
-            Run {reference}
-          </span>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={styles.avatar}
-              aria-label={`Started by ${name}`}
+          {inspector ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  className={styles.reference}
+                  href={inspector}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Run {reference}
+                </a>
+              </TooltipTrigger>
+              <TooltipContent collisionPadding={12}>
+                {inspectorLabel}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className={styles.reference} title={run.id}>
+              Run {reference}
+            </span>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label="Run activity"
+              >
+                <IoInformationCircleOutline aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              collisionPadding={12}
+              className={styles.stageTooltip}
             >
-              <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent collisionPadding={12}>
-            Started by {name}
-          </TooltipContent>
-        </Tooltip>
+              <strong>Run activity</strong>
+              <span>
+                {runStatus}
+                {attempt && ` · Attempt ${attempt.number}`}
+              </span>
+              <span>Requested {new Date(run.createdAt).toLocaleString()}</span>
+              {progress.endedAt !== undefined && (
+                <span>
+                  Finished {new Date(progress.endedAt).toLocaleString()}
+                </span>
+              )}
+              {clock !== undefined && (
+                <span>Elapsed {formatDuration(clock - run.createdAt)}</span>
+              )}
+              {summary && <span>{summary}</span>}
+              {attempt?.error && (
+                <span>{pipelineStepReason(attempt.error)}</span>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </div>
         {runAction && <div className={styles.runTools}>{runAction}</div>}
       </header>
       <div className={styles.flow}>
@@ -292,58 +329,6 @@ export function PipelineRunCard({
             </div>
           )
         })}
-        <div className={styles.flowTools} role="group" aria-label="Run details">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                aria-label="Run activity"
-              >
-                <IoInformationCircleOutline aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              collisionPadding={12}
-              className={styles.stageTooltip}
-            >
-              <strong>Run activity</strong>
-              <span>
-                {runStatus}
-                {attempt && ` · Attempt ${attempt.number}`}
-              </span>
-              <span>Requested {new Date(run.createdAt).toLocaleString()}</span>
-              {progress.endedAt !== undefined && (
-                <span>
-                  Finished {new Date(progress.endedAt).toLocaleString()}
-                </span>
-              )}
-              {clock !== undefined && (
-                <span>Elapsed {formatDuration(clock - run.createdAt)}</span>
-              )}
-              {summary && <span>{summary}</span>}
-              {attempt?.error && (
-                <span>{pipelineStepReason(attempt.error)}</span>
-              )}
-            </TooltipContent>
-          </Tooltip>
-          {hasPlateSteps && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={styles.stepsToggle}
-              aria-controls={stepsId}
-              aria-expanded={stepsOpen}
-              onClick={() => setStepsOpen((open) => !open)}
-            >
-              {stepsOpen ? 'Hide steps' : 'Watch steps'}
-              <IoChevronDown aria-hidden="true" />
-            </Button>
-          )}
-        </div>
       </div>
       {!stopped && progress.steps.length ? (
         <progress
@@ -353,15 +338,13 @@ export function PipelineRunCard({
           aria-label={`Run ${reference} progress`}
         />
       ) : null}
-      {hasPlateSteps && (
-        <div id={stepsId} hidden={!stepsOpen} className={styles.plateSteps}>
-          {stepsOpen && (
-            <PlatePipelineTimeline
-              steps={progress.steps}
-              batchId={run.batchId}
-              images={progress.plateImages}
-            />
-          )}
+      {stepsOpen && hasPlateSteps && (
+        <div className={styles.plateSteps}>
+          <PlatePipelineTimeline
+            steps={progress.steps}
+            batchId={run.batchId}
+            images={progress.plateImages}
+          />
         </div>
       )}
       {waitLabel && (

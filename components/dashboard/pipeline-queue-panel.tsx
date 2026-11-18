@@ -208,9 +208,9 @@ export function PipelineQueuePanel({
       ) : (
         <PipelineRunRail
           runs={queue.runs}
-          renderRun={(run) => {
+          progress={(run) => run.progress ?? queueProgress(run)}
+          renderRun={(run, progress, stepsOpen) => {
             const attempt = run.attempts.at(-1)!
-            const progress = run.progress ?? queueProgress(run)
             const status =
               run.cancelRequestedAt !== undefined ||
               run.waitReason === 'recovery' ||
@@ -279,6 +279,7 @@ export function PipelineQueuePanel({
                 run={run}
                 stages={run.stages}
                 progress={progress}
+                stepsOpen={stepsOpen}
                 observedAt={queue.observedAt}
                 requester={
                   requester?.(run.requestedBy) ??

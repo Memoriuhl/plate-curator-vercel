@@ -534,7 +534,7 @@ test('the run rail keeps completed cards in order and follows a new run to the r
   expect(rail.scrollLeft).toBe(25)
 })
 
-test('each card toggles its own live plate steps and starts collapsed', () => {
+test('one rail control reveals and collapses every visible run timeline', () => {
   const queued = saved({ id: 'queued' })
   const running = saved({ id: 'running', status: 'running' })
   const queue = {
@@ -549,44 +549,82 @@ test('each card toggles its own live plate steps and starts collapsed', () => {
     retry: vi.fn(),
   }
   const view = render(<PipelineQueuePanel queue={queue} />)
-  const active = within(
-    screen.getByRole('article', { name: 'Pipeline run running' })
-  )
-  const other = within(
-    screen.getByRole('article', { name: 'Pipeline run queued' })
-  )
-  const chevron = active.getByRole('button', { name: 'Watch steps' })
-  const panel = () =>
-    document.getElementById(chevron.getAttribute('aria-controls') ?? '')
-  expect(chevron.getAttribute('aria-expanded')).toBe('false')
-  expect(panel()?.hidden).toBe(true)
+  const rail = screen.getByRole('region', {
+    name: 'Plate Pipeline runs, scroll horizontally',
+  })
+  const toggle = screen.getByRole('button', { name: 'Watch steps' })
+  const timelines = () =>
+    within(rail).queryAllByRole('region', { name: 'Pipeline steps by plate' })
+  expect(rail.contains(toggle)).toBe(false)
   expect(
-    active.queryByRole('region', { name: 'Pipeline steps by plate' })
-  ).toBeNull()
-  fireEvent.click(chevron)
-  expect(
-    active.getByRole('region', { name: 'Pipeline steps by plate' })
-  ).toBeTruthy()
-  expect(
-    other.queryByRole('region', { name: 'Pipeline steps by plate' })
-  ).toBeNull()
-  expect(chevron.getAttribute('aria-expanded')).toBe('true')
-  expect(panel()?.hidden).toBe(false)
+    document.getElementById(toggle.getAttribute('aria-controls') ?? '')
+  ).toBe(rail)
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(timelines()).toHaveLength(0)
+  fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(timelines()).toHaveLength(2)
   view.rerender(
     <PipelineQueuePanel
       queue={{ ...queue, runs: [{ ...running, status: 'completed' }, queued] }}
     />
   )
-  expect(
-    active.getByRole('region', { name: 'Pipeline steps by plate' })
-  ).toBeTruthy()
-  fireEvent.click(active.getByRole('button', { name: 'Hide steps' }))
-  expect(
-    active.queryByRole('region', { name: 'Pipeline steps by plate' })
-  ).toBeNull()
+  expect(timelines()).toHaveLength(2)
+  fireEvent.click(toggle)
+  expect(timelines()).toHaveLength(0)
 })
 
-test('the requester is in the header and run details sit beside the stages', async () => {
+test('the vertical wheel scrolls the rail except over a watch timeline or at a rail edge', () => {
+  const queue = {
+    runs: [saved()],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  render(<PipelineQueuePanel queue={queue} />)
+  const rail = screen.getByRole('region', {
+    name: 'Plate Pipeline runs, scroll horizontally',
+  })
+  const stage = within(rail).getByRole('button', { name: /Tag: Waiting/ })
+  let scrollLeft = 100
+  Object.defineProperty(rail, 'scrollLeft', {
+    get: () => scrollLeft,
+    set: (value) => {
+      scrollLeft = Math.max(0, Math.min(200, value))
+    },
+  })
+  const wheel = (target: Element, options: WheelEventInit) => {
+    const event = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ...options,
+    })
+    fireEvent(target, event)
+    return event.defaultPrevented
+  }
+  expect(
+    wheel(stage, { deltaY: 2, deltaMode: WheelEvent.DOM_DELTA_LINE })
+  ).toBe(true)
+  expect(scrollLeft).toBe(132)
+  expect(wheel(stage, { deltaX: 60, deltaY: 20 })).toBe(false)
+  expect(wheel(stage, { deltaY: 60, ctrlKey: true })).toBe(false)
+  expect(scrollLeft).toBe(132)
+  fireEvent.click(screen.getByRole('button', { name: 'Watch steps' }))
+  const watch = within(rail).getByRole('list', {
+    name: 'AK.one pipeline steps',
+  })
+  expect(wheel(watch, { deltaY: 60 })).toBe(false)
+  expect(scrollLeft).toBe(132)
+  rail.scrollLeft = 200
+  expect(wheel(stage, { deltaY: 60 })).toBe(false)
+})
+
+test('the requester, workflow, and activity appear in that order in the card header', async () => {
   const run = saved({
     status: 'running',
     requestedByName: 'Morgan',
@@ -595,6 +633,7 @@ test('the requester is in the header and run details sit beside the stages', asy
   run.progress = {
     workerIds: [],
     startedAt: 200,
+    workflowUrl: 'http://localhost:3456/run/wrun_exact',
     steps: [
       {
         index: 0,
@@ -638,10 +677,10 @@ test('the requester is in the header and run details sit beside the stages', asy
     'Started by Morgan'
   )
   fireEvent.blur(avatar)
-  const controls = within(
-    within(card).getByRole('group', { name: 'Run details' })
-  )
-  const activity = controls.getByRole('button', { name: 'Run activity' })
+  const reference = header.getByRole('link', { name: 'Run saved-run' })
+  const activity = header.getByRole('button', { name: 'Run activity' })
+  expect(avatar.nextElementSibling).toBe(reference)
+  expect(reference.nextElementSibling).toBe(activity)
   expect(within(card).queryByText(/Elapsed|Requested|00:06/)).toBeNull()
   fireEvent.focus(activity)
   expect((await screen.findByRole('tooltip')).textContent).toMatch(
@@ -658,7 +697,7 @@ test('the requester is in the header and run details sit beside the stages', asy
   expect(
     within(card).queryByRole('link', { name: 'View Tag results' })
   ).toBeNull()
-  expect(controls.getByRole('button', { name: 'Watch steps' })).toBeTruthy()
+  expect(within(card).queryByRole('button', { name: 'Watch steps' })).toBeNull()
   expect(within(card.querySelector('footer')!).queryByRole('button')).toBeNull()
   expect(within(card.querySelector('footer')!).queryByRole('link')).toBeNull()
 })

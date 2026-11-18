@@ -1,8 +1,15 @@
 'use client'
 
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import Link from 'next/link'
-import { IoTimeOutline } from 'react-icons/io5'
+import { IoChevronDown, IoTimeOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -145,10 +152,16 @@ export function PipelineRunHistory<T extends RailRun>({
 /** Keep undismissed cards in enqueue order and scroll to newly added runs. */
 export function PipelineRunRail<T extends RailRun>({
   runs,
+  progress,
   renderRun,
 }: {
   runs: T[]
-  renderRun: (run: T) => ReactNode
+  progress: (run: T) => PipelineProgress
+  renderRun: (
+    run: T,
+    progress: PipelineProgress,
+    stepsOpen: boolean
+  ) => ReactNode
 }) {
   const rail = runs
     .filter((run) => run.dismissedAt === undefined)
@@ -158,17 +171,50 @@ export function PipelineRunRail<T extends RailRun>({
         (a.enqueueSequence ?? 0) - (b.enqueueSequence ?? 0) ||
         a.id.localeCompare(b.id)
     )
+    .map((run) => ({ run, progress: progress(run) }))
+  const canWatch = rail.some((item) =>
+    item.progress.steps.some((step) => step.stage !== 'group')
+  )
+  const [stepsOpen, setStepsOpen] = useState(false)
+  const railId = useId()
   const viewport = useRef<HTMLDivElement>(null)
-  const newestId = rail.at(-1)?.id
+  const newestId = rail.at(-1)?.run.id
   useLayoutEffect(() => {
     const element = viewport.current
     if (element) element.scrollLeft = element.scrollWidth
   }, [newestId])
+  useEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const scrollRail = (event: WheelEvent) => {
+      if (
+        !event.cancelable ||
+        event.defaultPrevented ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        Math.abs(event.deltaX) >= Math.abs(event.deltaY) ||
+        (event.target instanceof Element &&
+          event.target.closest('[data-pipeline-watch-steps]'))
+      )
+        return
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? element.clientWidth
+            : 1
+      const previous = element.scrollLeft
+      element.scrollLeft += event.deltaY * unit
+      if (element.scrollLeft !== previous) event.preventDefault()
+    }
+    element.addEventListener('wheel', scrollRail, { passive: false })
+    return () => element.removeEventListener('wheel', scrollRail)
+  }, [])
   const summary = (
     ['failed', 'queued', 'running', 'completed', 'cancelled'] as const
   )
     .flatMap((status) => {
-      const count = rail.filter((run) => run.status === status).length
+      const count = rail.filter(({ run }) => run.status === status).length
       return count ? [`${count} ${historyLabels[status].toLowerCase()}`] : []
     })
     .join(', ')
@@ -177,22 +223,39 @@ export function PipelineRunRail<T extends RailRun>({
       <p className="sr-only" role="status">
         {summary ? `Plate Pipeline: ${summary}` : ''}
       </p>
-      <div
-        ref={viewport}
-        className={styles.rail}
-        role="region"
-        aria-label="Plate Pipeline runs, scroll horizontally"
-        tabIndex={0}
-      >
-        {rail.length ? (
-          <ol className={styles.runList}>
-            {rail.map((run) => (
-              <li key={run.id}>{renderRun(run)}</li>
-            ))}
-          </ol>
-        ) : runs.length ? (
-          <p className="caption">No active runs</p>
-        ) : null}
+      <div className={styles.railArea}>
+        {canWatch && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className={styles.railWatch}
+            aria-controls={railId}
+            aria-expanded={stepsOpen}
+            onClick={() => setStepsOpen((open) => !open)}
+          >
+            Watch steps
+            <IoChevronDown aria-hidden="true" />
+          </Button>
+        )}
+        <div
+          ref={viewport}
+          id={railId}
+          className={styles.rail}
+          role="region"
+          aria-label="Plate Pipeline runs, scroll horizontally"
+          tabIndex={0}
+        >
+          {rail.length ? (
+            <ol className={styles.runList}>
+              {rail.map(({ run, progress }) => (
+                <li key={run.id}>{renderRun(run, progress, stepsOpen)}</li>
+              ))}
+            </ol>
+          ) : runs.length ? (
+            <p className="caption">No active runs</p>
+          ) : null}
+        </div>
       </div>
     </TooltipProvider>
   )

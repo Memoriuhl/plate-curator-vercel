@@ -214,10 +214,12 @@ export function PipelineRuns({
               ) : null}
               <PipelineRunRail
                 runs={gatewayRuns}
-                renderRun={(run) => (
+                progress={(run) => run.progress}
+                renderRun={(run, progress, stepsOpen) => (
                   <PipelineRunCard
                     run={run}
-                    progress={run.progress}
+                    progress={progress}
+                    stepsOpen={stepsOpen}
                     stages={run.stages ?? ['tag']}
                     observedAt={gateway.data?.observedAt}
                     requester={requester(run.requestedBy)}

@@ -72,14 +72,33 @@
   width: 16px;
   height: 16px;
 }
+.railArea {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
 .rail {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  align-self: stretch;
   align-items: center;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
   padding: var(--space-1);
+}
+.railWatch[data-slot] {
+  padding-inline: var(--space-2);
+  font-size: 12px;
+  background: var(--card);
+}
+.railWatch[data-slot]:is(:hover, [aria-expanded='true']) {
+  background: var(--fill);
+}
+.railWatch[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 .railSkeleton {
   display: flex;
@@ -142,12 +161,8 @@
   min-width: 240px;
   max-width: none;
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.64);
+  background: var(--card);
   padding: var(--space-3);
-}
-:global(.dark) .run,
-:global([data-theme='dark']) .run {
-  background: rgb(255 255 255 / 0.06);
 }
 .history:hover {
   background: var(--fill);
@@ -218,6 +233,8 @@
 }
 .device:focus-visible,
 .rail:focus-visible,
+.railWatch:focus-visible,
+.watchTimeline:focus-visible,
 .avatar:focus-visible,
 .reference:focus-visible,
 .plates:focus-visible,
@@ -227,14 +244,19 @@
   outline-offset: 2px;
 }
 .runHeader {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
   min-height: 32px;
   color: var(--ink-2);
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: var(--space-1);
+}
+.runIdentity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .avatar {
   display: grid;
@@ -248,7 +270,6 @@
   font-weight: 800;
 }
 .reference {
-  justify-self: start;
   font-family: var(--font-mono);
   white-space: nowrap;
 }
@@ -259,26 +280,17 @@ a.reference {
 .runTools {
   display: flex;
   align-items: center;
-  justify-self: end;
 }
 .runTools > button:hover,
-.flowTools > button:hover {
+.runIdentity > button[data-slot]:hover {
   background: var(--fill);
 }
 .flow {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   min-width: max-content;
   padding-block: var(--space-2);
-}
-.flowTools {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: var(--space-1);
-  margin-inline-start: var(--space-3);
-  padding-inline-start: var(--space-2);
-  border-inline-start: 1px solid var(--hairline);
 }
 .plates {
   flex-shrink: 0;
@@ -288,10 +300,8 @@ a.reference {
   align-items: center;
   width: 58px;
   min-height: 56px;
-  border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
-  background: var(--elevated);
-  box-shadow: -3px 3px 0 var(--hairline);
+  background: var(--fill);
   color: var(--ink);
 }
 .plates strong {
@@ -306,7 +316,7 @@ a.reference {
 .stageWrap {
   display: flex;
   align-items: center;
-  flex: 1;
+  flex: 0 0 auto;
 }
 .connector {
   width: 14px;
@@ -324,13 +334,13 @@ a.reference {
   min-width: 104px;
   min-height: 56px;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
-  background: var(--card);
+  background: var(--fill);
   color: var(--ink);
+  white-space: nowrap;
 }
 .stage:hover {
-  background: var(--elevated);
+  filter: brightness(1.07);
 }
 .stageResultIcon {
   width: 16px;
@@ -348,7 +358,8 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
   text-align: left;
 }
 .stageCopy strong {
-  font-size: 12px;
+  font-size: 15px;
+  line-height: 20px;
   font-weight: 800;
 }
 .stageCopy > span {
@@ -371,14 +382,11 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
 .stage[data-status='completed'] .mark {
   color: var(--success);
 }
-.stage[data-status='failed'] {
-  border-color: var(--danger);
-}
 .stage[data-status='failed'] .mark {
   color: var(--danger);
 }
 .stage[data-status='running'] {
-  border-color: var(--warning);
+  background: var(--warning-tint);
 }
 .stage[data-status='running'] .mark {
   color: var(--warning);
@@ -436,16 +444,43 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
   contain: inline-size;
   margin-top: var(--space-3);
 }
-.stepsToggle[data-slot] {
-  min-width: 8rem;
-  border: 1px solid var(--hairline);
-  background: var(--card);
+.watchTimeline {
+  display: grid;
+  max-height: 16rem;
+  gap: var(--space-2);
+  overflow: auto;
 }
-.stepsToggle[data-slot]:is(:hover, [aria-expanded='true']) {
+.timelineRow {
+  display: grid;
+  min-width: max-content;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+  padding: var(--space-2);
+}
+.phase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
   background: var(--fill);
+  color: var(--ink-2);
+  padding: var(--space-1) 6px;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
 }
-.stepsToggle[aria-expanded='true'] svg {
-  transform: rotate(180deg);
+.phase[data-status='completed'] {
+  color: var(--ink);
+}
+.phase[data-status='running'],
+.phase[data-status='waiting'] {
+  background: var(--warning-tint);
+  color: var(--warning-ink);
+}
+.phase[data-status='failed'] {
+  background: var(--danger-tint);
+  color: var(--danger);
 }
 .stepList {
   display: flex;
@@ -491,10 +526,10 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
   .header {
     column-gap: var(--space-3);
   }
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(:root:not(.light):not([data-theme='light'])) .run {
-    background: rgb(255 255 255 / 0.06);
+  .railArea {
+    flex-direction: column;
+  }
+  .railWatch {
+    align-self: flex-end;
   }
 }
