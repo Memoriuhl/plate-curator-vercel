@@ -121,12 +121,12 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
       </Button></PopoverTrigger>
       <PopoverContent align="end" collisionPadding={8} data-run-menu="" aria-label="Run pipeline"
         onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100vw-16px)] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0">
-        <header className="grid gap-1">
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100dvw-16px)] gap-4 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl max-[420px]:w-full max-[420px]:max-w-full">
+        <header className="grid shrink-0 gap-1">
           <p className="font-normal">Selected plates <strong className="font-extrabold tabular-nums">{selected.length.toLocaleString()}</strong></p>
           <p className="caption text-[var(--ink-2)]" role={overLimit ? 'alert' : undefined}>Up to {selectedPlateLimit} plates per run</p>
         </header>
-        <div className="grid gap-2" role="group" aria-label="Pipeline stages">
+        <div className="grid min-h-0 grid-cols-1 content-start gap-2 overflow-y-auto overscroll-contain" role="group" aria-label="Pipeline stages">
           {newRunStages.map(stage => {
             const { id } = stage
             const issue = stageIssues.get(id)
@@ -137,7 +137,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
             const values = { ...defaultPipelineOptions[optionStage], ...options[optionStage] } as Record<string, string | boolean>
             return <div key={id} className={cn('rounded-[var(--radius-md)] border bg-[var(--fill)]', checked ? 'border-primary' : 'border-transparent')}>
               <div className="flex items-stretch">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 pl-3">
+                <label className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 pl-3 max-[600px]:grid-cols-[auto_minmax(0,1fr)] max-[600px]:[&>.id]:col-start-2">
                   <input type="checkbox" checked={checked} aria-label={stage.label} aria-describedby={issue ? `${panelId}-issue` : undefined} className="accent-[var(--primary)]"
                     onChange={event => {
                       const next = event.target.checked
@@ -205,7 +205,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
             </div>
           })}
         </div>
-        <footer className="sticky bottom-0 grid gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
+        <footer className="grid shrink-0 gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
           {!blocked && steps.length > 0 && <p className="caption tabular-nums">{formatEstimate(totalMs)} processing time</p>}
           {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
           {runBlockers.length ? <ul id={reasonsId} aria-live="polite" className="caption grid gap-1 text-[var(--danger)]">
