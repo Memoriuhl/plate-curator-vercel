@@ -1,12 +1,11 @@
 import { currentProjectionMatches, finishRun, localQueueEnabled, queuePermission, queueRecordFits, queueGroupContext } from './queue'
 import { plateRevision } from '../review/revision'
-import { projectJob, type ProjectedPlate } from './queue-projection'
+import { projectJob } from './queue-projection'
 import type { Actor } from '../review/types'
 import { canEdit } from '../review/access'
 import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
-import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
-import { storyUrl } from '../review/fields'
+import { pipelineNeedsModel } from './pipeline-plan'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
 
@@ -22,18 +21,6 @@ function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now:
   run.updatedAt = now
   run.waitReason = 'worker'
   run.status = 'queued'
-}
-
-function missingResearchInput(attempt: RunAttempt, step: RunStep, plate: ProjectedPlate): string | undefined {
-  if (step.stage !== 'describe' && step.stage !== 'story') return
-  const preceding = (stage: 'wiki-link' | 'describe') => attempt.steps.find(candidate =>
-    candidate.index < step.index && candidate.plateId === step.plateId && candidate.stage === stage)
-  const wiki = preceding('wiki-link')
-  if (wiki && (!storyUrl(plate.executionPlate.wikiUrl) || !plate.sourceJobIds.includes(attempt.completedJobIds[wiki.index]))) return 'missing_wiki_link'
-  if (step.stage === 'story') {
-    const describe = preceding('describe')
-    if (describe && (!plate.executionPlate.description?.trim() || !plate.sourceJobIds.includes(attempt.completedJobIds[describe.index]))) return 'missing_description'
-  }
 }
 
 export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number, workflowId: string): Promise<boolean> {
@@ -58,17 +45,16 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     const jobId = `${id}-${number}-${index}`
     if (await tx.get(jobId)) return jobId
     const batch = await tx.batch(run.batchId)
-    const projected = attempt.projection?.plates[step.plateId]
     let error: string | undefined
     if (!batch || batch.state !== 'open') error = 'batch_read_only'
-    else if (!projected || !await currentProjectionMatches(d, tx, run, batch)) error = 'stale_input'
-    else error = missingResearchInput(attempt, step, projected)
+    else if (!await currentProjectionMatches(d, tx, run, batch)) error = 'stale_input'
     const groupContext = step.stage === 'group' && batch ? await queueGroupContext(d, tx, batch, Object.values(attempt.projection!.plates).map(entry => entry.batchInput)) : null
     if (step.stage === 'group' && !groupContext) error = 'invalid_group_scope'
-    if (run.cancelRequestedAt !== undefined || error || !projected) {
+    if (run.cancelRequestedAt !== undefined || error) {
       finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), error)
       tx.setRun(run); return null
     }
+    const projected = attempt.projection!.plates[step.plateId]
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
       env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
@@ -109,8 +95,14 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
     if (run.cancelRequestedAt !== undefined) finishRun(run, 'cancelled', d.now())
     else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
     else if (job.result?.stageError) {
-      if (job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields') attempt.outcome = 'no_result'
-      finishRun(run, 'failed', d.now(), job.result.stageError)
+      const noResult = job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields'
+      if (noResult && (job.stage === 'wiki-link' || job.stage === 'describe' || job.stage === 'story')) {
+        attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+        advanceStage(run, attempt, job.id, d.now())
+      } else {
+        if (noResult) attempt.outcome = 'no_result'
+        finishRun(run, 'failed', d.now(), job.result.stageError)
+      }
     } else {
       const raw = job.result?.fieldSuggestion
       const candidateId = attempt.choices[job.id]

@@ -4,7 +4,7 @@ import type { LocalRunStage, ResourceClass } from './queue-types'
 
 export const canonicalStages: readonly LocalRunStage[] = ['find-image', 'wiki-link', 'colors', 'describe', 'story', 'tag', 'group']
 export const stageDependencies: Record<LocalRunStage, readonly LocalRunStage[]> = {
-  'find-image': [], 'wiki-link': [], colors: ['find-image'], describe: ['wiki-link'], story: ['wiki-link', 'describe'], tag: ['find-image', 'colors'], group: ['colors', 'tag'],
+  'find-image': [], 'wiki-link': [], colors: ['find-image'], describe: ['wiki-link'], story: ['wiki-link'], tag: ['find-image', 'colors'], group: ['colors', 'tag'],
 }
 export type RunStep = { index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass }
 

@@ -108,7 +108,7 @@ test('connected image choice → vision/reference → text → one Group restore
   expect(read).toHaveBeenCalledTimes(2)
 })
 
-test('a description with no supported fields stops before dispatching Story', async () => {
+test('a description with no supported fields leaves the valid Wiki result and still runs Story', async () => {
   const s = await setup()
   const url = 'https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Alaska'
   const result = await enqueueRun(s.jobs, actor, { requestId: 'research', batchId: 'batch', plateIds: ['AK.one'], stages: ['wiki-link', 'describe', 'story'] })
@@ -118,22 +118,22 @@ test('a description with no supported fields stops before dispatching Story', as
   const reports: ReportInput[] = [
     { ...meta, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] } },
     { ...meta, stageError: 'no_supported_fields' },
+    { ...meta, fieldSuggestion: { kind: 'fields', stage: 'story', fields: { funFacts: [{ text: 'A sourced fact', sourceUrl: url }] }, sources: [url] } },
   ]
   for (const [index, report] of reports.entries()) {
     const jobId = await dispatchQueueStage(s.jobs, id, 1, index, `research-hook-${index}`)
     expect(jobId).not.toBeNull()
     const claim = (await claimNext(s.jobs, 'worker'))!
     expect(claim.job.id).toBe(jobId)
-    if (index === 1) expect(claim.job.inputPlate?.wikiUrl).toBe(url)
+    if (index === 2) expect(claim.job.inputPlate?.wikiUrl).toBe(url)
     expect(await reportResult(s.jobs, 'worker', claim.job.id, claim.claimId, report)).toMatchObject({ ok: true })
-    expect(await observeQueueStage(s.jobs, id, 1, index)).toEqual({ phase: index === 0 ? 'next' : 'done' })
+    expect(await observeQueueStage(s.jobs, id, 1, index)).toEqual({ phase: index < 2 ? 'next' : 'done' })
   }
-  expect(await dispatchQueueStage(s.jobs, id, 1, 2, 'story-hook')).toBeNull()
-  expect(await claimNext(s.jobs, 'worker')).toBeNull()
   expect(await s.review.store.listEdits('batch')).toEqual([])
   const saved = (await s.jobs.store.transaction(tx => tx.runs())).find(run => run.id === id)
-  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 1, outcome: 'no_result', error: 'no_supported_fields' }] })
-  expect(saved?.attempts[0].projection?.plates['AK.one'].executionPlate.wikiUrl).toBe(url)
+  expect(saved).toMatchObject({ status: 'completed', attempts: [{ cursor: 3, outcome: 'partial', noResultCount: 1 }] })
+  expect(await applyQueueBundle(s.jobs, s.review, actor, id)).toMatchObject({ ok: true, value: { revision: 1 } })
+  expect((await s.review.store.getEdit('batch', 'AK.one'))?.fields).toEqual({ wikiUrl: url, funFacts: [{ text: 'A sourced fact', sourceUrl: url }] })
 })
 
 test('Preview connected results refuse Apply before network or writes; normal image checksum mismatch writes nothing', async () => {
