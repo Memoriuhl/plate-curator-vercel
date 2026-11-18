@@ -105,7 +105,9 @@ export function PipelineQueuePanel({
           <>
             <p className="caption">
               {run.batchName ?? 'Batch'} ·{' '}
-              {requester?.(run.requestedBy) ?? run.requestedBy}
+              {requester?.(run.requestedBy) ??
+                run.requestedByName ??
+                run.requestedBy}
             </p>
             {summary && <p className="caption">{summary}</p>}
             <PopoverPrimitive.Close asChild>
@@ -209,6 +211,16 @@ export function PipelineQueuePanel({
           renderRun={(run) => {
             const attempt = run.attempts.at(-1)!
             const progress = run.progress ?? queueProgress(run)
+            const status =
+              run.cancelRequestedAt !== undefined ||
+              run.waitReason === 'recovery' ||
+              run.waitReason === 'image_choice'
+                ? label(run)
+                : run.previewOnly
+                  ? 'Preview only'
+                  : !run.editable
+                    ? 'This Batch is read-only.'
+                    : undefined
             const href = resultsHref(run)
             const unresolved = run.jobs.some((job) => job.state === 'claimed')
             const canRetry =
@@ -268,7 +280,11 @@ export function PipelineQueuePanel({
                 stages={run.stages}
                 progress={progress}
                 observedAt={queue.observedAt}
-                requester={requester?.(run.requestedBy)}
+                requester={
+                  requester?.(run.requestedBy) ??
+                  run.requestedByName ??
+                  undefined
+                }
                 local
                 attempt={attempt}
                 runAction={
@@ -306,17 +322,11 @@ export function PipelineQueuePanel({
                   `${href}&stage=${encodeURIComponent(stage)}`
                 }
               >
-                <span className="caption" role="status">
-                  {run.cancelRequestedAt !== undefined ||
-                  run.waitReason === 'recovery' ||
-                  run.waitReason === 'image_choice'
-                    ? label(run)
-                    : run.previewOnly
-                      ? 'Preview only'
-                      : !run.editable
-                        ? 'This Batch is read-only.'
-                        : ''}
-                </span>
+                {status && (
+                  <span className="caption" role="status">
+                    {status}
+                  </span>
+                )}
                 {run.waitReason === 'recovery' && (
                   <Link
                     className="caption underline"

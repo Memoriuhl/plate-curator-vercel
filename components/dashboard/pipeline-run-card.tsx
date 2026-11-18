@@ -96,6 +96,11 @@ export function PipelineRunCard({
   const runStatus = partial ? 'Finished with issues' : statusLabels[run.status]
   const reference = run.id.length > 12 ? run.id.slice(-8) : run.id
   const inspector = progress.workflowUrl ?? progress.gatewayUrl
+  const inspectorLabel = progress.workflowUrl
+    ? progress.workflowUrl.startsWith('https://vercel.com/')
+      ? 'Show Vercel workflow run'
+      : 'Show workflow run'
+    : 'Show Vercel AI Gateway logs'
   return (
     <article
       className={styles.run}
@@ -103,67 +108,42 @@ export function PipelineRunCard({
       aria-label={`Pipeline run ${reference}`}
     >
       <header className={styles.runHeader}>
-        <span>Started by</span>
-        <span className={styles.avatar} aria-hidden="true">
-          {name.slice(0, 1).toUpperCase()}
-        </span>
-        <span className={styles.requester} title={name}>
-          {name}
-        </span>
         {inspector ? (
-          <a
-            className={styles.reference}
-            href={inspector}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={run.id}
-          >
-            Run {reference}
-          </a>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                className={styles.reference}
+                href={inspector}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Run {reference}
+              </a>
+            </TooltipTrigger>
+            <TooltipContent collisionPadding={12}>
+              {inspectorLabel}
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <span className={styles.reference} title={run.id}>
             Run {reference}
           </span>
         )}
-        <div className={styles.runTools}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                aria-label="Run activity"
-              >
-                <IoInformationCircleOutline aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              collisionPadding={12}
-              className={styles.stageTooltip}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={styles.avatar}
+              aria-label={`Started by ${name}`}
             >
-              <strong>Run activity</strong>
-              <span>
-                {runStatus}
-                {attempt && ` · Attempt ${attempt.number}`}
-              </span>
-              <span>Requested {new Date(run.createdAt).toLocaleString()}</span>
-              {progress.endedAt !== undefined && (
-                <span>
-                  Finished {new Date(progress.endedAt).toLocaleString()}
-                </span>
-              )}
-              {clock !== undefined && (
-                <span>Elapsed {formatDuration(clock - run.createdAt)}</span>
-              )}
-              {summary && <span>{summary}</span>}
-              {attempt?.error && (
-                <span>{pipelineStepReason(attempt.error)}</span>
-              )}
-            </TooltipContent>
-          </Tooltip>
-          {runAction}
-        </div>
+              <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent collisionPadding={12}>
+            Started by {name}
+          </TooltipContent>
+        </Tooltip>
+        {runAction && <div className={styles.runTools}>{runAction}</div>}
       </header>
       <div className={styles.flow}>
         <PipelinePlateStack
@@ -253,7 +233,9 @@ export function PipelineRunCard({
               </span>
               <span className={styles.stageCopy}>
                 <strong>{label}</strong>
-                <span>{statusLabels[status]}</span>
+                {status !== 'completed' && status !== 'failed' && (
+                  <span>{statusLabels[status]}</span>
+                )}
               </span>
             </>
           )
@@ -310,6 +292,58 @@ export function PipelineRunCard({
             </div>
           )
         })}
+        <div className={styles.flowTools} role="group" aria-label="Run details">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label="Run activity"
+              >
+                <IoInformationCircleOutline aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              collisionPadding={12}
+              className={styles.stageTooltip}
+            >
+              <strong>Run activity</strong>
+              <span>
+                {runStatus}
+                {attempt && ` · Attempt ${attempt.number}`}
+              </span>
+              <span>Requested {new Date(run.createdAt).toLocaleString()}</span>
+              {progress.endedAt !== undefined && (
+                <span>
+                  Finished {new Date(progress.endedAt).toLocaleString()}
+                </span>
+              )}
+              {clock !== undefined && (
+                <span>Elapsed {formatDuration(clock - run.createdAt)}</span>
+              )}
+              {summary && <span>{summary}</span>}
+              {attempt?.error && (
+                <span>{pipelineStepReason(attempt.error)}</span>
+              )}
+            </TooltipContent>
+          </Tooltip>
+          {hasPlateSteps && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={styles.stepsToggle}
+              aria-controls={stepsId}
+              aria-expanded={stepsOpen}
+              onClick={() => setStepsOpen((open) => !open)}
+            >
+              {stepsOpen ? 'Hide steps' : 'Watch steps'}
+              <IoChevronDown aria-hidden="true" />
+            </Button>
+          )}
+        </div>
       </div>
       {!stopped && progress.steps.length ? (
         <progress
@@ -335,25 +369,7 @@ export function PipelineRunCard({
           {waitLabel}
         </p>
       )}
-      {(children || hasPlateSteps) && (
-        <footer className={styles.actions}>
-          {children}
-          {hasPlateSteps && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={styles.stepsToggle}
-              aria-controls={stepsId}
-              aria-expanded={stepsOpen}
-              onClick={() => setStepsOpen((open) => !open)}
-            >
-              {stepsOpen ? 'Hide steps' : 'Watch steps'}
-              <IoChevronDown aria-hidden="true" />
-            </Button>
-          )}
-        </footer>
-      )}
+      {children && <footer className={styles.actions}>{children}</footer>}
     </article>
   )
 }

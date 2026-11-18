@@ -218,6 +218,8 @@
 }
 .device:focus-visible,
 .rail:focus-visible,
+.avatar:focus-visible,
+.reference:focus-visible,
 .plates:focus-visible,
 .stage:focus-visible,
 .historyList summary:focus-visible {
@@ -225,13 +227,14 @@
   outline-offset: 2px;
 }
 .runHeader {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  min-height: 32px;
   color: var(--ink-2);
   font-size: 11px;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
 }
 .avatar {
   display: grid;
@@ -239,22 +242,15 @@
   border-radius: 50%;
   background: var(--player-you);
   color: var(--on-color);
-  width: 22px;
-  height: 22px;
-  font-size: 11px;
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
   font-weight: 800;
-  flex-shrink: 0;
-}
-.requester {
-  color: var(--ink);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .reference {
+  justify-self: start;
   font-family: var(--font-mono);
-  margin-left: var(--space-1);
+  white-space: nowrap;
 }
 a.reference {
   text-decoration: underline;
@@ -263,9 +259,10 @@ a.reference {
 .runTools {
   display: flex;
   align-items: center;
-  margin-inline-start: auto;
+  justify-self: end;
 }
-.runTools > button:hover {
+.runTools > button:hover,
+.flowTools > button:hover {
   background: var(--fill);
 }
 .flow {
@@ -273,6 +270,15 @@ a.reference {
   align-items: center;
   min-width: max-content;
   padding-block: var(--space-2);
+}
+.flowTools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: var(--space-3);
+  padding-inline-start: var(--space-2);
+  border-inline-start: 1px solid var(--hairline);
 }
 .plates {
   flex-shrink: 0;
@@ -362,15 +368,13 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
   width: 20px;
   height: 20px;
 }
-.stage[data-status='completed'] .mark,
-.stage[data-status='completed'] .stageCopy > span {
+.stage[data-status='completed'] .mark {
   color: var(--success);
 }
 .stage[data-status='failed'] {
   border-color: var(--danger);
 }
-.stage[data-status='failed'] .mark,
-.stage[data-status='failed'] .stageCopy > span {
+.stage[data-status='failed'] .mark {
   color: var(--danger);
 }
 .stage[data-status='running'] {
@@ -425,14 +429,19 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
   margin-top: auto;
   padding-top: var(--space-3);
 }
+.actions:empty {
+  display: none;
+}
 .plateSteps {
+  contain: inline-size;
   margin-top: var(--space-3);
 }
-.stepsToggle {
-  margin-inline-start: auto;
-  align-self: flex-end;
+.stepsToggle[data-slot] {
+  min-width: 8rem;
+  border: 1px solid var(--hairline);
+  background: var(--card);
 }
-.stepsToggle:hover {
+.stepsToggle[data-slot]:is(:hover, [aria-expanded='true']) {
   background: var(--fill);
 }
 .stepsToggle[aria-expanded='true'] svg {
@@ -481,9 +490,6 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
 @media (max-width: 640px) {
   .header {
     column-gap: var(--space-3);
-  }
-  .requester {
-    max-width: 100px;
   }
 }
 

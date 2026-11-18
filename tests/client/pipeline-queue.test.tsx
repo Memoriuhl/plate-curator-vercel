@@ -586,8 +586,12 @@ test('each card toggles its own live plate steps and starts collapsed', () => {
   ).toBeNull()
 })
 
-test('run activity opens in the header and each stage exposes its own available outcome', async () => {
-  const run = saved({ status: 'running', stages: ['enhance-image', 'tag'] })
+test('the requester is in the header and run details sit beside the stages', async () => {
+  const run = saved({
+    status: 'running',
+    requestedByName: 'Morgan',
+    stages: ['enhance-image', 'tag'],
+  })
   run.progress = {
     workerIds: [],
     startedAt: 200,
@@ -623,9 +627,21 @@ test('run activity opens in the header and each stage exposes its own available 
   }
   render(<PipelineQueuePanel queue={queue} />)
   const card = screen.getByRole('article', { name: 'Pipeline run saved-run' })
-  const activity = within(card.querySelector('header')!).getByRole('button', {
-    name: 'Run activity',
-  })
+  const header = within(card.querySelector('header')!)
+  const avatar = header.getByRole('button', { name: 'Started by Morgan' })
+  expect(header.queryByText(/Started by|Morgan/)).toBeNull()
+  expect(
+    header.getByRole('button', { name: 'Cancel remaining stages' })
+  ).toBeTruthy()
+  fireEvent.focus(avatar)
+  expect((await screen.findByRole('tooltip')).textContent).toBe(
+    'Started by Morgan'
+  )
+  fireEvent.blur(avatar)
+  const controls = within(
+    within(card).getByRole('group', { name: 'Run details' })
+  )
+  const activity = controls.getByRole('button', { name: 'Run activity' })
   expect(within(card).queryByText(/Elapsed|Requested|00:06/)).toBeNull()
   fireEvent.focus(activity)
   expect((await screen.findByRole('tooltip')).textContent).toMatch(
@@ -638,14 +654,12 @@ test('run activity opens in the header and each stage exposes its own available 
   expect(result.getAttribute('href')).toBe(
     '/pipeline/runs/saved-run?batch=batch&stage=enhance-image'
   )
+  expect(result.textContent).toBe('Enhance image')
   expect(
     within(card).queryByRole('link', { name: 'View Tag results' })
   ).toBeNull()
-  expect(
-    within(card.querySelector('footer')!).getByRole('button', {
-      name: 'Watch steps',
-    })
-  ).toBeTruthy()
+  expect(controls.getByRole('button', { name: 'Watch steps' })).toBeTruthy()
+  expect(within(card.querySelector('footer')!).queryByRole('button')).toBeNull()
   expect(within(card.querySelector('footer')!).queryByRole('link')).toBeNull()
 })
 
@@ -1414,7 +1428,9 @@ test('run cards describe cancelled dependencies and share the real workflow link
       />
     </TooltipProvider>
   )
-  expect(screen.getByRole('button', { name: /Wiki link: Failed/ })).toBeTruthy()
+  expect(
+    screen.getByRole('button', { name: /Wiki link: Failed/ }).textContent
+  ).toBe('Wiki link')
   expect(
     screen.getByRole('button', { name: /Describe: Cancelled/ })
   ).toBeTruthy()
@@ -1502,23 +1518,44 @@ test('mixed Research results load dashboard plate cards and inspect one plate wi
   expect(document.activeElement).toBe(changes)
 })
 
-test('run numbers open the exact inspector and the card omits the Batch name', () => {
-  const run = { ...saved(), batchName: 'Florida pipeline' }
-  const property = 'http://localhost:3456/run/wrun_exact'
-  render(
-    <TooltipProvider>
-      <PipelineRunCard
-        run={run}
-        progress={{ ...queueProgress(run), workflowUrl: property }}
-        stages={run.stages}
-      />
-    </TooltipProvider>
-  )
-  const runLink = screen.getByRole('link', { name: 'Run saved-run' })
-  expect(runLink.getAttribute('href')).toBe(property)
-  expect(runLink.getAttribute('target')).toBe('_blank')
-  expect(screen.queryByText('Florida pipeline')).toBeNull()
-})
+test.each([
+  {
+    progress: { workflowUrl: 'http://localhost:3456/run/wrun_exact' },
+    label: 'Show workflow run',
+  },
+  {
+    progress: {
+      workflowUrl: 'https://vercel.com/team/project/workflows/runs/wrun_exact',
+    },
+    label: 'Show Vercel workflow run',
+  },
+  {
+    progress: { gatewayUrl: 'https://vercel.com/team/~/ai-gateway/logs' },
+    label: 'Show Vercel AI Gateway logs',
+  },
+])(
+  'the run number opens the inspector labeled $label',
+  async ({ progress, label }) => {
+    const run = { ...saved(), batchName: 'Florida pipeline' }
+    render(
+      <TooltipProvider>
+        <PipelineRunCard
+          run={run}
+          progress={{ ...queueProgress(run), ...progress }}
+          stages={run.stages}
+        />
+      </TooltipProvider>
+    )
+    const runLink = screen.getByRole('link', { name: 'Run saved-run' })
+    expect(runLink.getAttribute('href')).toBe(
+      progress.workflowUrl ?? progress.gatewayUrl
+    )
+    expect(runLink.getAttribute('target')).toBe('_blank')
+    expect(screen.queryByText('Florida pipeline')).toBeNull()
+    fireEvent.focus(runLink)
+    expect((await screen.findByRole('tooltip')).textContent).toBe(label)
+  }
+)
 
 test('History sits with the title and device stays static while the other device has no runs', async () => {
   mocks.api.get.mockImplementation(async (path: string) =>
