@@ -1341,66 +1341,79 @@ test('Tag settings accept a gateway model before Tag is selected', async () => {
   )
 })
 
-test('the combined Research control enqueues its selected hosted model and policy once', async () => {
-  const plates = [plate, { ...plate, id: 'AK.two' }]
-  plateSelection.replace(plates)
-  mocks.api.get.mockImplementation(async (path) =>
-    path === '/api/research/models'
-      ? { models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id }
-      : { runs: [] }
-  )
-  function Controls() {
-    const queue = usePipelineQueue()
-    return (
-      <PipelineRunControls
-        batchPlates={plates}
-        stateName="Alaska"
-        queue={queue}
-      />
+test.each([
+  ['Gemini 2.5 Flash Lite', 'eve-gemini-2-5-flash-lite'],
+  ['Gemma 4 26B', 'eve-gemma4-26b'],
+])(
+  'the combined Research control enqueues hosted %s and its policy once',
+  async (label, modelId) => {
+    const plates = [plate, { ...plate, id: 'AK.two' }]
+    plateSelection.replace(plates)
+    mocks.api.get.mockImplementation(async (path) =>
+      path === '/api/research/models'
+        ? { models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id }
+        : { runs: [] }
+    )
+    function Controls() {
+      const queue = usePipelineQueue()
+      return (
+        <PipelineRunControls
+          batchPlates={plates}
+          stateName="Alaska"
+          queue={queue}
+        />
+      )
+    }
+    render(<Controls />, { wrapper })
+    fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+    for (const name of ['Wiki link', 'Describe', 'Story'])
+      expect(screen.queryByRole('checkbox', { name })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Research edits' })).toBeNull()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'More options for Research / enrich' })
+    )
+    const policy = screen.getByRole('button', { name: 'Research edits' })
+    expect(policy.textContent).toBe('Fill missing')
+    const picker = await screen.findByRole('button', { name: 'Research model' })
+    expect(picker.textContent).toContain('On-device worker (Ollama)')
+    fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
+    const hosted = screen.getByRole('menuitemradio', {
+      name: `Hosted research (Eve) · ${label}`,
+    })
+    expect(
+      screen.getByRole('menuitemradio', {
+        name: 'On-device worker (Ollama) · Gemma 4 26B',
+      })
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('dialog', { name: 'Run pipeline' }).contains(hosted)
+    ).toBe(true)
+    fireEvent.click(hosted)
+    expect(picker.textContent).toContain(`Hosted research (Eve) · ${label}`)
+    fireEvent.keyDown(policy, { key: 'Enter' })
+    fireEvent.click(
+      screen.getByRole('menuitemradio', { name: 'Replace existing' })
+    )
+    expect(plateSelection.snapshot()).toEqual(plates)
+    fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
+    await waitFor(() =>
+      expect(mocks.api.send).toHaveBeenCalledExactlyOnceWith(
+        'POST',
+        '/api/local-pipeline/runs/selection',
+        {
+          requestId: expect.any(String),
+          batchName: 'Alaska pipeline',
+          plateIds: ['AK.one', 'AK.two'],
+          stages: ['research'],
+          options: { research: { policy: 'replace' } },
+          previewOnly: false,
+          researchModelId: modelId,
+        }
+      )
     )
   }
-  render(<Controls />, { wrapper })
-  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
-  for (const name of ['Wiki link', 'Describe', 'Story'])
-    expect(screen.queryByRole('checkbox', { name })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Research edits' })).toBeNull()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'More options for Research / enrich' })
-  )
-  const policy = screen.getByRole('button', { name: 'Research edits' })
-  expect(policy.textContent).toBe('Fill missing')
-  const picker = await screen.findByRole('button', { name: 'Research model' })
-  expect(picker.textContent).toContain('On-device worker (Ollama)')
-  fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
-  const hosted = screen.getByRole('menuitemradio', { name: /Hosted research/ })
-  expect(
-    screen.getByRole('dialog', { name: 'Run pipeline' }).contains(hosted)
-  ).toBe(true)
-  fireEvent.click(hosted)
-  expect(picker.textContent).toContain('Hosted research (Eve)')
-  fireEvent.keyDown(policy, { key: 'Enter' })
-  fireEvent.click(
-    screen.getByRole('menuitemradio', { name: 'Replace existing' })
-  )
-  expect(plateSelection.snapshot()).toEqual(plates)
-  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
-  await waitFor(() =>
-    expect(mocks.api.send).toHaveBeenCalledExactlyOnceWith(
-      'POST',
-      '/api/local-pipeline/runs/selection',
-      {
-        requestId: expect.any(String),
-        batchName: 'Alaska pipeline',
-        plateIds: ['AK.one', 'AK.two'],
-        stages: ['research'],
-        options: { research: { policy: 'replace' } },
-        previewOnly: false,
-        researchModelId: RESEARCH_MODELS[2].id,
-      }
-    )
-  )
-})
+)
 
 test('saved-source research is visible in the diagram and reaches the queued options', async () => {
   mocks.api.get.mockResolvedValue({
@@ -1426,7 +1439,9 @@ test('saved-source research is visible in the diagram and reaches the queued opt
   fireEvent.click(
     screen.getByRole('button', { name: 'More options for Research / enrich' })
   )
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Reuse saved sources' }))
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: 'Use saved sources only' })
+  )
   expect(screen.getByText('Use saved sources')).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), {
     key: 'Enter',
@@ -2800,6 +2815,19 @@ test('worker phases advance the active box for just that plate', () => {
     'Validate result'
   )
   expect(first.querySelectorAll('[data-status="completed"]')).toHaveLength(2)
+  rerender(
+    <PlatePipelineTimeline
+      steps={[
+        { ...steps[0], status: 'completed', skippedPhases: [0] },
+        steps[1],
+      ]}
+    />
+  )
+  expect(first.querySelector('[data-status="skipped"]')?.textContent).toContain(
+    'Find sources Skipped'
+  )
+  expect(first.querySelectorAll('[data-status="completed"]')).toHaveLength(2)
+  expect(second.querySelector('[data-status="skipped"]')).toBeNull()
 })
 
 test('the pipeline estimate follows the chosen model and sums only planned plates', async () => {
@@ -2836,7 +2864,7 @@ test('the pipeline estimate follows the chosen model and sums only planned plate
   mocks.modelId = 'gateway-gemma4-26b'
   view.rerender(controls())
   expect(screen.getByText('EST 00:08 / plate')).toBeTruthy()
-  expect(screen.getByText('EST 00:16 processing time')).toBeTruthy()
+  expect(screen.getByText('EST 00:08 processing time')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'More options for Tag' }))
   fireEvent.click(
     screen.getByRole('checkbox', { name: /Only under-tagged plates/ })

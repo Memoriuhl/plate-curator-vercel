@@ -158,15 +158,28 @@ async function fetchBatchDetail(
   throw new ApiError(409, 'superseded_revision', {})
 }
 
+function preferCurrentBatch(
+  current: BatchDetail | undefined,
+  fetched: BatchDetail
+): BatchDetail {
+  return current && current.batch.revision > fetched.batch.revision
+    ? current
+    : fetched
+}
+
 /**
  * Cache the assembled batch by ID. Editing views can reuse it on mount because
  * mutations and live revision signals refresh the shared entry.
  */
 export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
+  const { cache } = useSWRConfig()
   return useSWR<BatchDetail>(
     user && id ? batchApiPath(id) : null,
-    (key) => fetchBatchDetail(api, key),
+    async (key) => {
+      const fetched = await fetchBatchDetail(api, key)
+      return preferCurrentBatch(cache.get(key)?.data, fetched)
+    },
     opts?.reuse ? { revalidateIfStale: false } : undefined
   )
 }
@@ -586,6 +599,7 @@ export function useWorkspaceBatch() {
  * plates.
  */
 export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
+  const { user, api } = useSession()
   const { data: batches } = useBatches(['open'], { mine: true })
   const workspace = useWorkspaceBatch()
   const personal = useBatch(
@@ -596,26 +610,107 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   )
   const detail =
     workspace.mode === 'selected' ? workspace.detail : personal.data
+  const jurisdictions = useMemo(
+    () => [...new Set(plates.map((plate) => plate.state))].sort().join(','),
+    [plates]
+  )
+  const { data } = useSWR<{ drafts: BatchDetail[] }>(
+    user && jurisdictions ? `/api/batches?dashboard=${jurisdictions}` : null,
+    api.get,
+    {
+      revalidateIfStale: false,
+    }
+  )
+
   // Reuse projected cards and checks until the catalog plates or batch details change.
   return useMemo(() => {
     const entries = new Map(
       detail?.plates.map((entry) => [entry.proposed.id, entry])
     )
-    const positions = new Map(
-      Object.entries(detail?.batch.stateOrders ?? {}).map(([state, order]) => [
-        state,
-        new Map(order.map((id, index) => [id, index])),
-      ])
+    const drafts = new Map(
+      data?.drafts?.map((draft) => [draft.batch.id, draft])
+    )
+    if (
+      detail &&
+      (drafts.get(detail.batch.id)?.batch.revision ?? -1) <=
+        detail.batch.revision
+    )
+      drafts.set(detail.batch.id, detail)
+    const orders = new Map<
+      string,
+      { at: string; dated: boolean; positions: Map<string, number> }
+    >()
+    const changes = new Map<
+      string,
+      {
+        batchId: string
+        entry: BatchDetail['plates'][number] & { edit: ProposedEdit }
+      }[]
+    >()
+    for (const draft of drafts.values()) {
+      const { batch } = draft
+      for (const [state, order] of Object.entries(batch.stateOrders)) {
+        const savedAt = batch.stateOrderChangedAt?.[state]
+        const at = savedAt ?? batch.lastChangedAt ?? batch.createdAt
+        const dated = savedAt !== undefined
+        const current = orders.get(state)
+        if (!current || (current.dated === dated ? current.at <= at : dated)) {
+          orders.set(state, {
+            at,
+            dated,
+            positions: new Map(order.map((id, index) => [id, index])),
+          })
+        }
+      }
+      for (const entry of draft.plates) {
+        if (!entry.edit || !Object.keys(entry.edit.fields).length) continue
+        const plateChanges = changes.get(entry.proposed.id) ?? []
+        plateChanges.push({
+          batchId: batch.id,
+          entry: { ...entry, edit: entry.edit },
+        })
+        changes.set(entry.proposed.id, plateChanges)
+      }
+    }
+    const activePositions = new Map(
+      Object.entries(detail?.batch.stateOrders ?? {}).flatMap(([, order]) =>
+        order.map((id, index) => [id, index] as const)
+      )
     )
     return plates.map((card) => {
       const entry = entries.get(card.id)
-      const position = positions.get(card.state)?.get(card.id) ?? -1
-      const ordered = position >= 0 ? { ...card, sortOrder: position } : card
-      const reordered = position >= 0 && position !== card.sortOrder
-      if (!entry) return { ...ordered, changedInBatch: reordered }
-      const { proposed } = entry
-      const imageUrl = entry.edit?.fields.imageUrl ?? card.imageUrl
+      const positions = orders.get(card.state)?.positions
+      const sortOrder = positions
+        ? (positions.get(card.id) ?? positions.size + card.sortOrder)
+        : card.sortOrder
+      const ordered = { ...card, sortOrder }
+      const reordered =
+        activePositions.has(card.id) &&
+        activePositions.get(card.id) !== card.sortOrder
+      const plateChanges =
+        changes
+          .get(card.id)
+          ?.sort((left, right) =>
+            left.entry.edit.updatedAt.localeCompare(right.entry.edit.updatedAt)
+          ) ?? []
+      const latest = plateChanges.at(-1)
+      const base = entry?.proposed ?? latest?.entry.baseline
+      const changedInBatch = !!entry?.edit || reordered
+      if (!base) return { ...ordered, changedInBatch }
+      const fields = Object.assign(
+        {},
+        ...plateChanges.map(({ entry }) => entry.edit.fields)
+      ) as EditableFields
+      const proposed: Plate = { ...base, ...fields }
+      const imageUrl = fields.imageUrl ?? card.imageUrl
       const checks = plateChecks(proposed, imageUrl)
+      const pipeline = plateChanges.findLast(({ entry }) =>
+        Object.entries(entry.edit.pipelineChanges ?? {}).some(
+          ([field, change]) =>
+            sameEditableValue(field, change.value, proposed[field]) &&
+            !sameEditableValue(field, entry.baseline[field], proposed[field])
+        )
+      )
       return {
         ...ordered,
         imageUrl,
@@ -625,7 +720,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
         templateRole: familyRole(proposed),
         variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false,
-        revision: entry.revision,
+        revision: entry?.revision ?? card.revision,
         checks,
         funFacts: proposed.funFacts ?? [],
         readMore: proposed.readMore ?? [],
@@ -633,19 +728,19 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
         ...('firstIssuedYear' in card
           ? { firstIssuedYear: proposed.firstIssuedYear ?? null }
           : {}),
-        complete: isComplete(checks),
-        changedInBatch: entry.edit !== null || reordered,
-        ...(detail &&
-        Object.entries(entry.edit?.pipelineChanges ?? {}).some(
-          ([field, change]) =>
-            sameEditableValue(field, change.value, proposed[field]) &&
-            !sameEditableValue(field, entry.baseline[field], proposed[field])
-        )
-          ? { pipelineBatchId: detail.batch.id }
+        ...('sourceUrl' in card
+          ? { sourceUrl: proposed.sourceUrl ?? null }
           : {}),
+        ...('colorDetail' in fields ? { colorDetail: fields.colorDetail } : {}),
+        ...('lineageColor' in fields
+          ? { lineageColor: fields.lineageColor }
+          : {}),
+        complete: isComplete(checks),
+        changedInBatch,
+        ...(pipeline ? { pipelineBatchId: pipeline.batchId } : {}),
       }
     })
-  }, [plates, detail])
+  }, [plates, detail, data])
 }
 
 export type EditResult<T = Plate | void> =
@@ -912,8 +1007,7 @@ export function useReorderState() {
       saved = await fetchBatchDetail(api, key)
     const cached = await mutate<BatchDetail>(
       key,
-      (detail) =>
-        detail && detail.batch.revision > saved.batch.revision ? detail : saved,
+      (detail) => preferCurrentBatch(detail, saved),
       { revalidate: false }
     )
     return cached ?? saved
@@ -942,7 +1036,7 @@ export function useReorderState() {
         (cache.get(key)?.data as BatchDetail | undefined) ??
         (await fetchBatchDetail(api, key))
       // Show the proposed order in SWR immediately and restore the entry if the save fails.
-      await mutate(
+      const confirmed = await mutate<BatchDetail>(
         key,
         async () => {
           const batch = await api.send<ReviewBatch>(
@@ -968,9 +1062,7 @@ export function useReorderState() {
           revalidate: false,
         }
       )
-      const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), {
-        revalidate: false,
-      })
+      const saved = await refreshMovedBatch(key, confirmed?.batch.revision)
       await mutate(
         (key) =>
           typeof key === 'string' &&
@@ -979,8 +1071,7 @@ export function useReorderState() {
       return {
         ok: true,
         revisions: Object.fromEntries(
-          saved?.plates.map((entry) => [entry.proposed.id, entry.revision]) ??
-            []
+          saved.plates.map((entry) => [entry.proposed.id, entry.revision])
         ),
       }
     } catch (error) {
@@ -1245,11 +1336,44 @@ export function useReorderState() {
     }
   }
 
+  function orderBaseline(
+    state: string,
+    cards: readonly Pick<
+      PlateCardData,
+      'id' | 'displayName' | 'sortOrder' | 'isStandard' | 'deleted'
+    >[]
+  ) {
+    const stateCards = cards.filter((card) => card.id.startsWith(state + '.'))
+    if (!stateCards.length) return
+    const proposedById = new Map(
+      displayed?.plates.map((entry) => [entry.proposed.id, entry.proposed])
+    )
+    const first =
+      displayed?.batch.stateOrders[state]?.[0] ??
+      stateCards.sort(
+        (a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
+      )[0].id
+    return {
+      first,
+      plates: stateCards.map((card) => {
+        const proposed = proposedById.get(card.id)
+        return {
+          id: card.id,
+          displayName: card.displayName,
+          state,
+          isStandard: proposed ? proposed.isStandard : card.isStandard,
+          deleted: proposed ? proposed.deleted : card.deleted,
+        }
+      }),
+    }
+  }
+
   return {
     reorder,
     capture,
     move,
     merge,
+    orderBaseline,
     stateOrders: displayed?.batch.stateOrders,
     batch: displayed?.batch,
     pending: pendingCount > 0,

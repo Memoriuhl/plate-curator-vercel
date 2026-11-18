@@ -37,6 +37,7 @@ export type StageResult = {
   model: string
   promptVersion: string
   usage?: Record<string, number>
+  skippedPhases?: number[]
 }
 
 export interface WorkerDeps {
@@ -56,7 +57,7 @@ export interface WorkerDeps {
     options?: ImageGroupOptions &
       Partial<ImageEnhancementOptions> &
       EnrichmentOptions
-    onPhase?: (index: number) => Promise<void>
+    onPhase?: (index: number, skippedPhases?: number[]) => Promise<void>
   }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
@@ -162,6 +163,7 @@ async function executeClaim(
   let stageError: StageError | undefined
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
+  let skippedPhases: number[] | undefined
   if (claim.stage) {
     if (!deps.suggestFields) {
       deps.log('No handler is configured for this pipeline stage')
@@ -169,14 +171,18 @@ async function executeClaim(
     }
     const onPhase =
       claim.local && claim.queueRunId
-        ? async (index: number) => {
+        ? async (index: number, skippedPhases?: number[]) => {
             try {
               await deps.fetch(
                 `${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/progress`,
                 {
                   method: 'POST',
                   headers: { ...headers, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ claimId: claim.claimId, index }),
+                  body: JSON.stringify({
+                    claimId: claim.claimId,
+                    index,
+                    ...(skippedPhases?.length ? { skippedPhases } : {}),
+                  }),
                   signal: AbortSignal.timeout(1200),
                 }
               )
@@ -202,6 +208,7 @@ async function executeClaim(
     model = result.model
     promptVersion = result.promptVersion
     usage = result.usage
+    skippedPhases = result.skippedPhases
   } else {
     let imageB64: string
     try {
@@ -233,6 +240,7 @@ async function executeClaim(
     promptVersion,
     durationMs: Math.max(0, deps.now() - start),
     ...(usage ? { usage } : {}),
+    ...(skippedPhases?.length ? { skippedPhases } : {}),
   })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break

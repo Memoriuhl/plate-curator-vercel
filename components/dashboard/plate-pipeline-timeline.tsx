@@ -34,6 +34,7 @@ function phaseStatus(
   index: number,
   length: number
 ): StepProgress['status'] {
+  if (step.skippedPhases?.includes(index)) return 'skipped'
   if (
     step.status === 'completed' ||
     step.status === 'skipped' ||
@@ -149,6 +150,7 @@ export function PlatePipelineTimeline({
                       status === 'failed' || step.status === 'skipped'
                         ? step.reason
                         : undefined
+                    const skipped = step.skippedPhases?.includes(index)
                     return (
                       <li key={`${step.index}-${index}`}>
                         <span
@@ -160,7 +162,11 @@ export function PlatePipelineTimeline({
                           title={
                             reason
                               ? pipelineStepReason(reason)
-                              : statusLabels[status]
+                              : skipped
+                                ? index === 0
+                                  ? 'Used a saved source'
+                                  : 'Only the reference link was missing'
+                                : statusLabels[status]
                           }
                         >
                           {status === 'running' ? (

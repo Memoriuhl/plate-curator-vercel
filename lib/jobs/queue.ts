@@ -30,6 +30,7 @@ import { completeGroupScope } from '../review/group-context'
 import type { Plate } from '../catalog/types'
 import { resolveResearchModel } from '../research/models'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
+import { parallelGatewayTagPlan, parallelTagIndices } from './queue-parallel'
 import {
   nextRunByRequester,
   queuedStageWait,
@@ -341,6 +342,13 @@ function buildRun(
         completedJobIds: [],
         steps,
         choices: {},
+        ...(parallelGatewayTagPlan(
+          parsed.stages,
+          tagChoice?.ok ? tagChoice.model.id : undefined,
+          steps.length
+        )
+          ? { parallelTag: true as const }
+          : {}),
         projection: snapshotProjection(batch.baselineVersion, plates),
       },
     ],
@@ -689,34 +697,41 @@ export async function cancelRun(
     const error = queuePermission(await tx.batch(run.batchId), actor)
     if (error) return { ok: false, error }
     const attempt = run.attempts.at(-1)!
-    const current = attempt.jobIds.length
-      ? await tx.get(attempt.jobIds.at(-1)!)
-      : null
     if (run.status === 'cancelled' || run.cancelRequestedAt !== undefined)
       return { ok: true, value: run }
     if (!['queued', 'running'].includes(run.status))
       return { ok: false, error: 'invalid_state' }
+    const ids = attempt.parallelTag
+      ? parallelTagIndices(attempt).map(
+          (index) => `${id}-${attempt.number}-${index}`
+        )
+      : attempt.jobIds.slice(-1)
+    const jobs = (await Promise.all(ids.map((jobId) => tx.get(jobId)))).filter(
+      (job) => job !== null
+    )
     const now = d.now()
     run.cancelRequestedAt = now
     run.updatedAt = now
-    if (
-      current?.state === 'claimed' ||
-      (run.incrementalDrafts &&
-        current?.state === 'completed' &&
-        current.queueStep === attempt.cursor)
-    ) {
-      run.status = 'running'
-      attempt.status = 'running'
-    } else {
-      if (current?.state === 'queued')
+    for (const job of jobs)
+      if (job.state === 'queued')
         tx.set({
-          ...current,
+          ...job,
           state: 'cancelled',
           endedAt: now,
           failure: 'cancelled_before_claim',
         })
-      finishRun(run, 'cancelled', now)
-    }
+    const settling = jobs.some(
+      (job) =>
+        job.state === 'claimed' ||
+        (run.incrementalDrafts &&
+          job.state === 'completed' &&
+          job.queueAttempt === attempt.number &&
+          (job.queueStep ?? -1) >= attempt.cursor)
+    )
+    if (settling) {
+      run.status = 'running'
+      attempt.status = 'running'
+    } else finishRun(run, 'cancelled', now)
     tx.setRun(run)
     return { ok: true, value: run }
   })
@@ -830,6 +845,7 @@ export async function retryRun(
       completedJobIds: [...previous.completedJobIds],
       status: 'queued',
       cursor,
+      ...(previous.parallelTag ? { parallelTag: true } : {}),
       ...(previous.noResultCount
         ? { noResultCount: previous.noResultCount }
         : {}),

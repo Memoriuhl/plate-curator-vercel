@@ -41,6 +41,10 @@ import {
   planPipeline,
   pipelineNeedsModel,
 } from '@/lib/jobs/pipeline-plan'
+import {
+  gatewayTagConcurrency,
+  parallelGatewayTagPlan,
+} from '@/lib/jobs/queue-parallel'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
@@ -190,10 +194,14 @@ export function PipelineRunControls({
       estimateStageMs(id, timings, timingModels, resolvedOptions),
     ])
   )
-  const totalMs = steps.reduce(
-    (total, step) => total + estimates.get(step.stage)!,
-    0
+  const parallelTag = parallelGatewayTagPlan(
+    stages,
+    tagChoice.modelId,
+    steps.length
   )
+  const totalMs = parallelTag
+    ? Math.ceil(steps.length / gatewayTagConcurrency) * estimates.get('tag')!
+    : steps.reduce((total, step) => total + estimates.get(step.stage)!, 0)
   const needsModel = pipelineNeedsModel(
     steps.filter((step) => step.stage !== 'tag'),
     resolvedOptions

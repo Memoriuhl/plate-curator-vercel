@@ -10,6 +10,7 @@ export type StepProgress = {
   stage: LocalRunStage
   status: RunStatus | 'waiting' | 'skipped'
   phaseIndex?: number
+  skippedPhases?: number[]
   durationMs?: number
   reason?: string
   workerId?: string
@@ -82,6 +83,9 @@ export function queueProgress(
         : undefined)
     const plate =
       projection?.plates[step.plateId]?.batchInput ?? job?.inputPlate
+    const skippedPhases = job?.result
+      ? job.result.skippedPhases
+      : job?.skippedPhases
     return {
       index: step.index,
       plateId: step.plateId,
@@ -92,6 +96,7 @@ export function queueProgress(
       ...(job?.phaseIndex !== undefined ? { phaseIndex: job.phaseIndex } : {}),
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(job?.workerId ? { workerId: job.workerId } : {}),
+      ...(skippedPhases?.length ? { skippedPhases } : {}),
       ...((step.reason ?? job?.result?.stageError ?? job?.failure)
         ? { reason: step.reason ?? job?.result?.stageError ?? job?.failure }
         : {}),

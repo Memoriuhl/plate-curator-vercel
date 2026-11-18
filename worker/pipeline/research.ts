@@ -17,20 +17,27 @@ import { fetchResearchPage } from '../../lib/research/fetch-page'
 import { evidenceSource } from '../../lib/research/evidence'
 import type { EvidenceSource } from '../../lib/research/types'
 import { researchModel } from '../../lib/research/models'
+import { storyUrl } from '../../lib/review/fields'
 import type { StageResult, WorkerPlate } from '../run'
 import { gatherWikipedia } from './sources'
 import { findWikipediaLink } from './wiki'
 import { extractJson } from '../model'
+import { captureAlaskaPlateSources } from './alaska-sources'
 
 const alabamaRevenue = 'www.revenue.alabama.gov'
 
 /** Capture a sourced plate page when Alabama DOR supplied the plate image. */
 async function captureAlabamaPlatePage(
-  plate: WorkerPlate,
-  fetchPage: typeof fetchResearchPage
+  plate: Partial<Pick<WorkerPlate, 'displayName' | 'state' | 'sourceUrl'>>,
+  fetchPage: typeof fetchResearchPage,
+  saved?: ReadonlyMap<string, EvidenceSource>
 ) {
   const provenance = URL.parse(plate.sourceUrl ?? '')
-  if (plate.state !== 'AL' || provenance?.hostname !== alabamaRevenue)
+  if (
+    plate.state !== 'AL' ||
+    !plate.displayName ||
+    provenance?.hostname !== alabamaRevenue
+  )
     return null
   const slug = plate.displayName
     .toLowerCase()
@@ -38,10 +45,9 @@ async function captureAlabamaPlatePage(
     .replace(/^-|-$/g, '')
   if (!slug) return null
   const url = `https://${alabamaRevenue}/license-plates/${slug}/`
-  const page = await fetchPage(url, {
-    reserve: async () => true,
-    now: Date.now,
-  })
+  const page =
+    saved?.get(url) ??
+    (await fetchPage(url, { reserve: async () => true, now: Date.now }))
   const expectedTitle =
     `${plate.displayName} - Alabama Department of Revenue`.toLowerCase()
   return page?.url === url && page.title.toLowerCase() === expectedTitle
@@ -80,11 +86,13 @@ export async function captureEnrichment(
 type SavedSourceLinks = Pick<
   WorkerPlate,
   'wikiUrl' | 'sourceUrl' | 'readMore' | 'funFacts'
->
+> &
+  Partial<Pick<WorkerPlate, 'displayName' | 'state'>>
 
 export async function captureSavedEnrichment(
   plate: SavedSourceLinks,
-  fetchPage = fetchResearchPage
+  fetchPage = fetchResearchPage,
+  requireReference = false
 ): Promise<{ sources: EvidenceSource[]; wikiUrl: string | null }> {
   const urls = [
     plate.wikiUrl,
@@ -107,6 +115,8 @@ export async function captureSavedEnrichment(
       fetchPage(url, { reserve: async () => true, now: Date.now })
     )
   )
+  if (requireReference && (!storyUrl(plate.wikiUrl) || !fetched[0]))
+    return { sources: [], wikiUrl: null }
   let wikiUrl: string | null = null
   for (const source of fetched) {
     if (!source || sources.has(source.url)) continue
@@ -119,7 +129,74 @@ export async function captureSavedEnrichment(
       wikiUrl ??= source.url
     } else sources.set(source.url, source)
   }
-  return { sources: [...sources.values()], wikiUrl }
+  // Fetch the exact issuer page alongside saved links without doing a new search.
+  const official =
+    requireReference &&
+    (await captureAlabamaPlatePage(plate, fetchPage, sources))
+  if (official) sources.delete(official.url)
+  return {
+    sources: [...(official ? [official] : []), ...sources.values()],
+    wikiUrl,
+  }
+}
+
+export type PreparedEnrichment = Awaited<
+  ReturnType<typeof captureEnrichment>
+> & { sourceLookupSkipped?: true }
+
+export async function prepareEnrichment(
+  plate: WorkerPlate,
+  options: EnrichmentOptions,
+  {
+    capture = captureEnrichment,
+    captureSaved = captureSavedEnrichment,
+    fetchPage = fetchResearchPage,
+  }: {
+    capture?: typeof captureEnrichment
+    captureSaved?: typeof captureSavedEnrichment
+    fetchPage?: typeof fetchResearchPage
+  } = {}
+): Promise<PreparedEnrichment> {
+  if (shouldReuseSavedSources(options))
+    return { ...(await captureSaved(plate)), sourceLookupSkipped: true }
+  const official = needsEnrichmentSynthesis(
+    plate,
+    options.policy ?? 'fill-missing'
+  )
+    ? captureAlaskaPlateSources(plate, fetchPage)
+    : Promise.resolve([])
+  const withOfficial = async (
+    result: Awaited<ReturnType<typeof captureEnrichment>>
+  ) => {
+    const issuerSources = await official
+    const urls = new Set(issuerSources.map((source) => source.url))
+    return {
+      ...result,
+      sources: [
+        ...issuerSources,
+        ...result.sources.filter((source) => !urls.has(source.url)),
+      ],
+    }
+  }
+  if (options.policy !== 'replace' && storyUrl(plate.wikiUrl)) {
+    const saved = await captureSaved(plate, fetchPage, true)
+    if (saved.sources.length)
+      return { ...(await withOfficial(saved)), sourceLookupSkipped: true }
+    if ((await official).some((source) => source.url === plate.wikiUrl)) {
+      return {
+        sources: await official,
+        wikiUrl: null,
+        sourceLookupSkipped: true,
+      }
+    }
+  }
+  try {
+    return await withOfficial(await capture(plate))
+  } catch (error) {
+    const sources = await official
+    if (sources.length) return { sources, wikiUrl: null }
+    throw error
+  }
 }
 
 /**
@@ -133,11 +210,12 @@ export function createEnrichmentHandler(options: {
   captureSaved?: typeof captureSavedEnrichment
 }) {
   const request = options.fetch ?? fetch
+  const capture = options.capture ?? captureEnrichment
   return async (
     input: {
       plate: WorkerPlate
       model?: string
-      onPhase?: (index: number) => Promise<void>
+      onPhase?: (index: number, skippedPhases?: number[]) => Promise<void>
     } & EnrichmentOptions
   ): Promise<StageResult> => {
     const choice =
@@ -160,14 +238,25 @@ export function createEnrichmentHandler(options: {
     const plate = input.plate as Partial<Plate>
     const fields = enrichmentTargets(plate, policy)
     if (!fields.length) return { ...meta, stageError: 'no_supported_fields' }
-    const { sources, wikiUrl } = shouldReuseSavedSources(input)
-      ? await (options.captureSaved ?? captureSavedEnrichment)(input.plate)
-      : await (options.capture ?? captureEnrichment)(input.plate, request)
-    if (!sources.length) return { ...meta, stageError: 'no_sources' }
-    await input.onPhase?.(1)
+    const { sources, wikiUrl, sourceLookupSkipped } = await prepareEnrichment(
+      input.plate,
+      input,
+      {
+        capture: (plate) => capture(plate, request),
+        captureSaved: options.captureSaved,
+      }
+    )
+    const skippedPhases = sourceLookupSkipped ? [0] : []
+    if (!sources.length)
+      return {
+        ...meta,
+        stageError: 'no_sources',
+        ...(skippedPhases.length ? { skippedPhases } : {}),
+      }
     let raw: unknown = wikiOnlyDraft(sources, wikiUrl)
     const usage: Record<string, number> = {}
     if (needsEnrichmentSynthesis(plate, policy)) {
+      await input.onPhase?.(1, skippedPhases)
       const response = await request(
         `${options.url.replace(/\/+$/, '').replace(/\/v1$/, '')}/api/chat`,
         {
@@ -208,8 +297,8 @@ export function createEnrichmentHandler(options: {
           body[key] >= 0
         )
           usage[key] = body[key]
-    }
-    await input.onPhase?.(2)
+    } else skippedPhases.push(1)
+    await input.onPhase?.(2, skippedPhases)
     // Deterministic Wiki matching survives even when synthesis supplies no text.
     if (raw && typeof raw === 'object')
       raw = {
@@ -225,6 +314,7 @@ export function createEnrichmentHandler(options: {
         ? { fieldSuggestion }
         : { stageError: 'no_supported_fields' as const }),
       usage,
+      ...(skippedPhases.length ? { skippedPhases } : {}),
     }
   }
 }

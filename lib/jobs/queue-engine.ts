@@ -22,6 +22,7 @@ import { taggingModel } from '../tagging/models'
 import { verifiedImageFields } from '../review/image'
 import { saveQueueDraft } from './queue-draft'
 import { shouldReuseSavedSources } from '../research/enrichment'
+import { inQueueWindow, parallelTagIndices } from './queue-parallel'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = {
@@ -49,6 +50,14 @@ function advanceCursor(run: PipelineRun, attempt: RunAttempt, now: number) {
   )
     attempt.cursor++
   delete attempt.error
+  if (
+    attempt.parallelTag &&
+    run.cancelRequestedAt !== undefined &&
+    !attempt.jobIds.includes(`${run.id}-${attempt.number}-${attempt.cursor}`)
+  ) {
+    finishRun(run, 'cancelled', now)
+    return
+  }
   if (attempt.cursor === attempt.steps.length) {
     const failures = attempt.steps.filter((step) => step.status === 'failed')
     if (failures.length) {
@@ -232,7 +241,7 @@ export async function dispatchQueueStage(
   id: string,
   number: number,
   index: number,
-  completionHook: string
+  completionHook: string | undefined
 ): Promise<string | null> {
   if (!localQueueEnabled(d)) return null
   return d.store.transaction(async (tx) => {
@@ -242,7 +251,7 @@ export async function dispatchQueueStage(
       !run ||
       !attempt ||
       attempt.number !== number ||
-      attempt.cursor !== index ||
+      !inQueueWindow(attempt, index) ||
       !['queued', 'running'].includes(run.status)
     )
       return null
@@ -274,6 +283,7 @@ export async function dispatchQueueStage(
         : null
     if (step.stage === 'group' && !groupContext) error = 'invalid_group_scope'
     if (run.cancelRequestedAt !== undefined || error || !projected) {
+      if (attempt.parallelTag && index !== attempt.cursor) return null
       finishRun(
         run,
         run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed',
@@ -313,6 +323,7 @@ export async function dispatchQueueStage(
       queueStep: index,
       resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
+      ...(attempt.parallelTag ? { parallelTag: true } : {}),
       ...(attempt.workflowId
         ? { workflowId: attempt.workflowId, workflowUrl: attempt.workflowUrl }
         : {}),
@@ -321,7 +332,7 @@ export async function dispatchQueueStage(
       inputPlate: projected.executionPlate,
       inputHash: projected.batchInputHash,
       executionHash: projected.executionHash,
-      completionHook,
+      ...(completionHook ? { completionHook } : {}),
       ...(hosted ? { route: 'hosted' as const } : {}),
       ...(step.stage === 'tag' ? {} : { stage: step.stage }),
       ...(modelId && pipelineNeedsModel([step], run.options)
@@ -363,6 +374,29 @@ export async function dispatchQueueStage(
     tx.setRun(run)
     return jobId
   })
+}
+
+export async function dispatchGatewayTagWave(
+  d: JobsDeps,
+  id: string,
+  number: number,
+  index: number
+) {
+  const run = await d.store.transaction((tx) => scopedRun(tx, id, d.localScope))
+  const attempt = run?.attempts.at(-1)
+  if (
+    !attempt?.parallelTag ||
+    attempt.number !== number ||
+    attempt.cursor !== index
+  )
+    return []
+  const jobs: { id: string; index: number }[] = []
+  for (const step of parallelTagIndices(attempt)) {
+    const job = await dispatchQueueStage(d, id, number, step, undefined)
+    if (!job) break
+    jobs.push({ id: job, index: step })
+  }
+  return jobs
 }
 
 /**
@@ -464,10 +498,19 @@ async function settleQueueStage(
       job.result?.backend === 'missing-image' ||
       (job.result?.fieldSuggestion?.kind === 'image' &&
         !attempt.choices[job.id]))
-  )
-    finishRun(run, 'cancelled', d.now())
-  else if (job.state !== 'completed') {
-    if (
+  ) {
+    if (attempt.parallelTag) {
+      Object.assign(attempt.steps[attempt.cursor], {
+        status: 'cancelled',
+        reason: 'run_cancelled',
+        endedAt: d.now(),
+      })
+      advanceCursor(run, attempt, d.now())
+    } else finishRun(run, 'cancelled', d.now())
+  } else if (job.state !== 'completed') {
+    if (attempt.parallelTag)
+      failPlateStage(run, attempt, error ?? 'stage_failed', d.now())
+    else if (
       job.state === 'failed' &&
       job.stage !== 'group' &&
       error &&
@@ -486,7 +529,10 @@ async function settleQueueStage(
     job.result?.backend === 'missing-image'
   ) {
     const reason = job.result.stageError ?? 'missing_image'
-    if (job.stage !== 'group' && isPlateFailure(reason))
+    if (
+      attempt.parallelTag ||
+      (job.stage !== 'group' && isPlateFailure(reason))
+    )
       failPlateStage(run, attempt, reason, d.now())
     else finishRun(run, 'failed', d.now(), reason)
   } else {
@@ -569,8 +615,12 @@ async function settleQueueStage(
         error = 'payload_too_large'
       } else advanceStage(run, attempt, job.id, d.now())
     }
-    if (cancelled) finishRun(run, 'cancelled', d.now(), error)
-    else if (error) finishRun(run, 'failed', d.now(), error)
+    if (cancelled && !attempt.parallelTag)
+      finishRun(run, 'cancelled', d.now(), error)
+    else if (error) {
+      if (attempt.parallelTag) failPlateStage(run, attempt, error, d.now())
+      else finishRun(run, 'failed', d.now(), error)
+    }
   }
   return run.status === 'queued' || run.status === 'running'
     ? nextStage(attempt, job.queueStep!)
@@ -686,7 +736,9 @@ export async function recordQueueWorkflowFailure(
       !['queued', 'running'].includes(run.status)
     )
       return false
-    const currentId = attempt.jobIds.at(-1)
+    const currentId = attempt.parallelTag
+      ? `${id}-${number}-${attempt.cursor}`
+      : attempt.jobIds.at(-1)
     const current = currentId ? await tx.get(currentId) : null
     const reason =
       status === 'completed' ? 'workflow_ended_early' : `workflow_${status}`
@@ -709,6 +761,31 @@ export async function recordQueueWorkflowFailure(
           endedAt: d.now(),
           failure: reason,
         })
+      if (
+        attempt.parallelTag &&
+        current?.queueRunId === id &&
+        current.queueAttempt === number &&
+        current.queueStep === attempt.cursor &&
+        current.localScope === d.localScope &&
+        current.batchId === run.batchId &&
+        current.requestedBy === run.requestedBy &&
+        current.plateId === attempt.steps[attempt.cursor]?.plateId
+      ) {
+        const settled =
+          current.state === 'queued'
+            ? { ...current, state: 'failed' as const, failure: reason }
+            : current
+        await settleQueueStage(
+          d,
+          tx,
+          run,
+          attempt,
+          settled,
+          (candidate) => (imageVerification ??= verifiedImageFields(candidate))
+        )
+        tx.setRun(run)
+        return true
+      }
       if (
         run.incrementalDrafts &&
         !run.previewOnly &&

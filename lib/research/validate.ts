@@ -74,7 +74,9 @@ export function validateResearchResult(
     }
   const data = parsed.data
   /** Resolve a cited source from the evidence collected for this result. */
-  const lookup = (id: string) => sources.find((source) => source.id === id)
+  const lookup = (reference: string) =>
+    sources.find((source) => source.id === reference) ??
+    sources.find((source) => source.url === reference)
   const descriptionSources = data.descriptionSources.flatMap(
     (id) => lookup(id) ?? []
   )
@@ -95,7 +97,9 @@ export function validateResearchResult(
       rejected.push({ field: 'description', reason: 'unsupported_claim' })
     else {
       draft.description = data.description.trim()
-      draft.descriptionSources = [...new Set(data.descriptionSources)]
+      draft.descriptionSources = [
+        ...new Set(descriptionSources.map((source) => source.id)),
+      ]
     }
   }
   const seen = new Set<string>(
@@ -113,16 +117,17 @@ export function validateResearchResult(
     else if (!supported(fact.text, [source]))
       rejected.push({ field: 'funFacts', reason: 'unsupported_claim' })
     else {
-      draft.funFacts.push({ text: fact.text.trim(), sourceId: fact.sourceId })
+      draft.funFacts.push({ text: fact.text.trim(), sourceId: source.id })
       seen.add(key)
     }
   }
   draft.readMore = [
     ...new Set(
-      data.readMore.filter((id) => {
-        if (lookup(id)) return true
+      data.readMore.flatMap((reference) => {
+        const source = lookup(reference)
+        if (source) return [source.id]
         rejected.push({ field: 'readMore', reason: 'source_not_fetched' })
-        return false
+        return []
       })
     ),
   ]
@@ -148,7 +153,7 @@ export function validateResearchResult(
             /\b(issued|introduced|released|debuted|offered)\b/i.test(sentence)
         )
     )
-      draft.firstIssuedYear = { year, sourceId }
+      draft.firstIssuedYear = { year, sourceId: source.id }
     else rejected.push({ field: 'shape', reason: 'issue_year_not_supported' })
   }
   return { draft, rejected }

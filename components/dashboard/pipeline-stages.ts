@@ -88,7 +88,7 @@ export const pipelineStages: readonly StageDefinition[] = [
       },
       {
         id: 'reuseSavedSources',
-        label: 'Reuse saved sources',
+        label: 'Use saved sources only',
         kind: 'boolean',
         default: false,
       },

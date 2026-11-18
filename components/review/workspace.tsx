@@ -398,20 +398,27 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       })
     : entries
   const state = states.find((state) => state.code === code)
-  const inState = scope
-    ? visible.filter((entry) => entry.baseline.state === scope)
-    : visible
+  const byPlate = Map.groupBy(visible, (entry) => entry.baseline.id)
+  const changedAt = (entry: Entry) =>
+    entry.edit?.updatedAt ?? entry.batch.lastChangedAt ?? entry.batch.createdAt
+  for (const group of byPlate.values())
+    group.sort((a, b) => changedAt(b).localeCompare(changedAt(a)))
+  const inState = [...byPlate.values()].filter(
+    ([item]) => !scope || item.baseline.state === scope
+  )
   const term = search.trim().toLowerCase()
   const listed = inState.filter(
-    ({ proposed, batch }) =>
+    (group) =>
       !term ||
-      [
-        proposed.displayName,
-        proposed.id,
-        proposed.state,
-        batch.name,
-        ...proposed.tags,
-      ].some((value) => value.toLowerCase().includes(term))
+      group.some(({ proposed, batch }) =>
+        [
+          proposed.displayName,
+          proposed.id,
+          proposed.state,
+          batch.name,
+          ...proposed.tags,
+        ].some((value) => value.toLowerCase().includes(term))
+      )
   )
   const pageScope = JSON.stringify([
     batchId,
@@ -429,16 +436,21 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           (entry) => entry.edit && hasPipelineHistory(entry.edit)
         )
       : []
-  const entry = plateId
-    ? [...visible, ...candidateEntries].find(
-        (entry) =>
-          entry.baseline.id === plateId &&
-          (!focusBatch || batchId || entry.batch.id === focusBatch) &&
-          (!code || entry.baseline.state === code)
-      )
-    : listed[0]
+  const selectedEntries = plateId
+    ? (
+        byPlate.get(plateId) ??
+        candidateEntries.filter((entry) => entry.baseline.id === plateId)
+      ).filter((entry) => !code || entry.baseline.state === code)
+    : (listed[0] ?? [])
+  const entry =
+    (!batchId && focusBatch
+      ? selectedEntries.find((item) => item.batch.id === focusBatch)
+      : undefined) ?? selectedEntries[0]
+  const comparisons = entry
+    ? [entry, ...selectedEntries.filter((item) => item !== entry)]
+    : []
   const stateCounts = new Map<string, number>()
-  for (const { baseline } of visible)
+  for (const [{ baseline }] of byPlate.values())
     stateCounts.set(baseline.state, (stateCounts.get(baseline.state) ?? 0) + 1)
   const orderedStates = [...states].sort(
     (a, b) => Number(stateCounts.has(b.code)) - Number(stateCounts.has(a.code))
@@ -467,13 +479,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
    * Retrieve the image for a related plate from the review workspace's preloaded index.
    */
   const plateImage = (id: string) => images.get(id)
-  const canDiscard =
-    !!entry &&
+  const canDiscard = (entry: Entry) =>
     !!me.data &&
     canEdit(entry.batch, me.data) &&
     editableStates.includes(entry.batch.state)
-  async function discard(target: DraftChangeTarget) {
-    if (!entry || !canDiscard) return
+  async function discard(entry: Entry, target: DraftChangeTarget) {
+    if (!canDiscard(entry)) return
     const plateId = entry.baseline.id
     setReverting(true)
     setRevertFeedback(null)
@@ -508,8 +519,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
    * Revert a selected pipeline field and display the operation's result in the review
    * panel.
    */
-  async function revert(field: keyof EditableFields, jobId: string) {
-    if (!entry) return
+  async function revert(
+    entry: Entry,
+    field: keyof EditableFields,
+    jobId: string
+  ) {
+    if (!canDiscard(entry)) return
     const plateId = entry.baseline.id
     setReverting(true)
     setRevertFeedback(null)
@@ -624,7 +639,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               scope: null,
             })}
           >
-            All changes <span>{visible.length}</span>
+            All changes <span>{byPlate.size}</span>
           </Link>
           {!shownStates.length && !loading && (
             <p className="px-2 py-2 text-xs text-muted-foreground">
@@ -679,13 +694,13 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               : (state?.name ?? 'Plates')}
           </h2>
           <span className="text-xs text-muted-foreground">
-            {batchId ? visible.length : listed.length} changed{' '}
-            {(batchId ? visible.length : listed.length) === 1
+            {batchId ? byPlate.size : listed.length} changed{' '}
+            {(batchId ? byPlate.size : listed.length) === 1
               ? 'Plate'
               : 'Plates'}
           </span>
         </div>
-        {(batchId || visible.length > 0) && (
+        {(batchId || byPlate.size > 0) && (
           <div className="grid gap-2 pb-3 text-sm">
             {batchId && (filters.run || since !== null) && (
               <div className="flex flex-wrap justify-between gap-2 text-xs">
@@ -745,19 +760,25 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           </div>
         )}
         <div className="max-h-[75dvh] min-h-0 flex-1 overflow-y-auto md:max-h-full">
-          {listed.slice(0, pageEnd).map((item) => {
+          {listed.slice(0, pageEnd).map((group) => {
+            const item = group[0]
             const plate = item.proposed
             const imageUrl =
               item.afterImageUrl ?? item.beforeImageUrl ?? plateImage(plate.id)
-            const selected =
-              entry?.baseline.id === plate.id &&
-              entry.batch.id === item.batch.id
-            const key = `${plate.id}-${item.batch.id}`
+            const selected = entry?.baseline.id === plate.id
+            const key = plate.id
+            const summary = [
+              ...new Set(
+                group.map((change) =>
+                  changeSummary(change.baseline, change.proposed, change.order)
+                )
+              ),
+            ].join(' · ')
             const row = (
               <Link
                 key={key}
                 aria-label={`${plate.displayName} · ${item.baseline.state}`}
-                title={changeSummary(item.baseline, item.proposed, item.order)}
+                title={summary}
                 aria-current={selected ? 'true' : undefined}
                 prefetch={false}
                 href={
@@ -766,9 +787,14 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                         ...filters,
                         scope,
                       })
-                    : reviewHref(code ?? undefined, plate.id, undefined, {
-                        focusBatch: item.batch.id,
-                      })
+                    : reviewHref(
+                        code ?? undefined,
+                        plate.id,
+                        undefined,
+                        group.length === 1
+                          ? { focusBatch: item.batch.id }
+                          : undefined
+                      )
                 }
                 className={cn(
                   'flex min-h-14 items-center gap-2 rounded-xl p-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary',
@@ -803,7 +829,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                         {item.baseline.state}
                       </span>
                     )}
-                    <PlateChangeIcons entry={item} />
+                    <PlateChangeIcons entries={group} />
                   </span>
                 </span>
                 {!batchId && (
@@ -954,79 +980,96 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                 <h2 className="text-lg font-extrabold">
                   {entry.proposed.displayName}
                 </h2>
-                <PlateChangeIcons entry={entry} />
+                <PlateChangeIcons entries={comparisons} />
               </div>
-              <div className="text-xs text-muted-foreground">
-                <strong className="block">{entry.batch.name}</strong>
-                <BatchLastChanged batch={entry.batch} />
-              </div>
-              {canDiscard &&
-                (entry.order ||
-                  Object.keys(entry.edit?.fields ?? {}).length > 0) && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={reverting}
-                        className="text-[var(--danger)]"
-                      >
-                        Remove all changes
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Remove all changes for {entry.proposed.displayName}?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This clears this plate’s draft edits in{' '}
-                          {entry.batch.name} and restores its catalog position
-                          if it was moved.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          variant="outline"
-                          className="text-[var(--danger)]"
-                          onClick={() => void discard('all')}
-                        >
-                          Remove all changes
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
             </header>
-            <DiffTable
-              compact
-              before={entry.baseline}
-              beforeImageUrl={
-                entry.beforeImageUrl ?? plateImage(entry.baseline.id)
-              }
-              afterImageUrl={entry.afterImageUrl}
-              after={entry.proposed}
-              version={entry.batch.baselineVersion}
-              revision={entry.batch.revision}
-              positions={entry.order}
-              order={
-                state?.code === entry.baseline.state
-                  ? state.plates.map((plate) => plate.id)
-                  : []
-              }
-              pipelineChanges={entry.edit?.pipelineChanges}
-              reverting={reverting}
-              onRevert={canDiscard ? revert : undefined}
-              onDiscard={
-                canDiscard ? (target) => void discard(target) : undefined
-              }
-            />
-            <RunStatus compact batchId={entry.batch.id} />
-            <ReviewFooter
-              key={entry.batch.id}
-              detail={currentDetails[entry.batch.id]!}
-            />
+            {comparisons.map((item) => {
+              const editable = canDiscard(item)
+              return (
+                <section
+                  key={`${item.baseline.id}-${item.batch.id}`}
+                  aria-label={`Changes in ${item.batch.name}`}
+                  className="grid gap-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-muted-foreground">
+                      <h3 className="font-bold">{item.batch.name}</h3>
+                      <BatchLastChanged batch={item.batch} />
+                    </div>
+                    {editable &&
+                      (item.order ||
+                        Object.keys(item.edit?.fields ?? {}).length > 0) && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={reverting}
+                              className="text-[var(--danger)]"
+                            >
+                              Remove all changes
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Remove all changes for{' '}
+                                {item.proposed.displayName}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This clears this plate’s draft edits in{' '}
+                                {item.batch.name} and restores its catalog
+                                position if it was moved.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="outline"
+                                className="text-[var(--danger)]"
+                                onClick={() => void discard(item, 'all')}
+                              >
+                                Remove all changes
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                  </div>
+                  <DiffTable
+                    compact
+                    before={item.baseline}
+                    beforeImageUrl={
+                      item.beforeImageUrl ?? plateImage(item.baseline.id)
+                    }
+                    afterImageUrl={item.afterImageUrl}
+                    after={item.proposed}
+                    version={item.batch.baselineVersion}
+                    revision={item.batch.revision}
+                    positions={item.order}
+                    order={
+                      state?.code === item.baseline.state
+                        ? state.plates.map((plate) => plate.id)
+                        : []
+                    }
+                    pipelineChanges={item.edit?.pipelineChanges}
+                    reverting={reverting}
+                    onRevert={
+                      editable
+                        ? (field, jobId) => void revert(item, field, jobId)
+                        : undefined
+                    }
+                    onDiscard={
+                      editable
+                        ? (target) => void discard(item, target)
+                        : undefined
+                    }
+                  />
+                  <RunStatus compact batchId={item.batch.id} />
+                  <ReviewFooter detail={currentDetails[item.batch.id]!} />
+                </section>
+              )
+            })}
           </>
         ) : (batchId ? selected.error : review.error || mine.error) ? (
           <p role="alert">Could not load review batches. Please refresh.</p>

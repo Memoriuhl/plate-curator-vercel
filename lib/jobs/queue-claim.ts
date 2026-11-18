@@ -1,5 +1,6 @@
 import { shouldReuseSavedSources } from '../research/enrichment'
 import type { readLocalWorkerCapabilities } from './capabilities'
+import { gatewayTagConcurrency, inQueueWindow } from './queue-parallel'
 import { compareQueueOrder } from './queue-order'
 import type { PipelineRun, QueueWait, ResourceClass } from './queue-types'
 import type { JobsDeps, TaggingJob } from './types'
@@ -75,9 +76,10 @@ export function queuedStageWait(
   if (!run.attempts.at(-1)?.workflowId) return 'starting_workflow'
   if (!job) return 'dispatching'
   if (job.state !== 'queued') return 'settling'
+  if (job.parallelTag) return 'hosted'
   const resource = job.resourceClass ?? 'gpu'
   const occupied = claims.filter(
-    (claim) => (claim.resourceClass ?? 'gpu') === resource
+    (claim) => !claim.parallelTag && (claim.resourceClass ?? 'gpu') === resource
   )
   if (occupied.length >= queueLimits[resource]) {
     const recovery = occupied.filter(
@@ -115,13 +117,18 @@ export function localClaimCandidate(
   jobs: TaggingJob[],
   runs: PipelineRun[],
   route: 'local' | 'hosted' = 'local',
-  features: LocalClaimFeatures = {}
+  features: LocalClaimFeatures = {},
+  hostedJobId?: string
 ) {
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter((job) => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
   const claims = queueResourceClaims(scoped, d.localScope)
-  for (const job of claims) occupied[job.resourceClass ?? 'gpu']++
+  for (const job of claims)
+    if (!job.parallelTag) occupied[job.resourceClass ?? 'gpu']++
+  const hostedTagClaims = claims.filter(
+    (job) => job.route === 'hosted' && !job.stage
+  ).length
   const next = nextRunByRequester(runs, d.localScope)
   const lastByUser = new Map<string, number>()
   for (const run of runs)
@@ -133,44 +140,63 @@ export function localClaimCandidate(
           run.lastDispatchedAt ?? 0
         )
       )
+  const candidates = scoped
+    .filter((job) => {
+      if (
+        workerRequirement(job, features) ||
+        (job.route === 'hosted') !== (route === 'hosted')
+      )
+        return false
+      if (
+        !job.parallelTag &&
+        occupied[job.resourceClass ?? 'gpu'] >=
+          queueLimits[job.resourceClass ?? 'gpu']
+      )
+        return false
+      if (
+        job.route === 'hosted' &&
+        !job.stage &&
+        hostedTagClaims >= gatewayTagConcurrency
+      )
+        return false
+      if (route === 'hosted' && !job.queueRunId) return false
+      if (!job.queueRunId) return job.state === 'queued'
+      const run = next.get(job.requestedBy)
+      const attempt = run?.attempts.at(-1)
+      return (
+        job.state === 'queued' &&
+        run?.id === job.queueRunId &&
+        attempt &&
+        run.cancelRequestedAt === undefined &&
+        attempt.number === job.queueAttempt &&
+        inQueueWindow(attempt, job.queueStep) &&
+        attempt.jobIds.includes(job.id) &&
+        !claims.some(
+          (claim) =>
+            claim.requestedBy === job.requestedBy &&
+            claim.queueRunId &&
+            claim.queueRunId !== run.id
+        )
+      )
+    })
+    .sort(
+      (a, b) =>
+        (lastByUser.get(a.requestedBy) ?? 0) -
+          (lastByUser.get(b.requestedBy) ?? 0) ||
+        a.createdAt - b.createdAt ||
+        (a.queueOrder ?? 0) - (b.queueOrder ?? 0) ||
+        a.id.localeCompare(b.id)
+    )
+  const first = candidates[0]
   return (
-    scoped
-      .filter((job) => {
-        if (workerRequirement(job, features)) return false
-        if (
-          (job.route === 'hosted') !== (route === 'hosted') ||
-          occupied[job.resourceClass ?? 'gpu'] >=
-            queueLimits[job.resourceClass ?? 'gpu']
-        )
-          return false
-        if (route === 'hosted' && !job.queueRunId) return false
-        if (!job.queueRunId) return job.state === 'queued'
-        const run = next.get(job.requestedBy)
-        const attempt = run?.attempts.at(-1)
-        return (
-          job.state === 'queued' &&
-          run?.id === job.queueRunId &&
-          attempt &&
-          run.cancelRequestedAt === undefined &&
-          attempt.number === job.queueAttempt &&
-          attempt.cursor === job.queueStep &&
-          attempt.jobIds.includes(job.id) &&
-          !claims.some(
-            (claim) =>
-              claim.requestedBy === job.requestedBy &&
-              claim.queueRunId &&
-              claim.queueRunId !== run.id
-          )
-        )
-      })
-      .sort(
-        (a, b) =>
-          (lastByUser.get(a.requestedBy) ?? 0) -
-            (lastByUser.get(b.requestedBy) ?? 0) ||
-          a.createdAt - b.createdAt ||
-          (a.queueOrder ?? 0) - (b.queueOrder ?? 0) ||
-          a.id.localeCompare(b.id)
-      )[0] ?? null
+    candidates.find(
+      (job) =>
+        job.id === hostedJobId &&
+        job.parallelTag &&
+        job.queueRunId === first?.queueRunId
+    ) ??
+    first ??
+    null
   )
 }
 

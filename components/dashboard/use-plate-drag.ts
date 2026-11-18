@@ -54,6 +54,14 @@ type Options = {
         'capture' | 'move' | 'merge' | 'stateOrders'
       >
     >
+  orderBaseline?(state: string):
+    | {
+        first: string
+        plates: Parameters<
+          ReturnType<typeof useStandardConfirmation>['confirm']
+        >[0]
+      }
+    | undefined
   targets(): TargetRect[]
   holdOverlay?(held: boolean): void
   closePreview(): void
@@ -263,6 +271,19 @@ export function usePlateDrag(options: Options) {
         .flatMap((state) => groupFamilies(plateSelection.statePlates(state))),
     ]
   }
+  function confirmOrder(
+    state: string,
+    previousFirst: string | undefined,
+    first: string,
+    plates: readonly PlateCardData[]
+  ) {
+    const baseline = latest.current.orderBaseline?.(state)
+    if (baseline && baseline.first !== first)
+      return standardConfirmation.confirm(baseline.plates, first)
+    if (previousFirst !== first)
+      return standardConfirmation.confirm(plates, first)
+  }
+
   /**
    * Promote or move selected plates while coordinating standard confirmation and
    * optimistic layout.
@@ -329,10 +350,13 @@ export function usePlateDrag(options: Options) {
       const statePlates = initialFamilies
         .filter((family) => family.template.state === state)
         .flatMap((family) => [family.template, ...family.variants])
-      const standard =
-        previousOrders.get(state)?.[0] === order[0]
-          ? undefined
-          : await standardConfirmation.confirm(statePlates, order[0])
+      const confirmation = confirmOrder(
+        state,
+        previousOrders.get(state)?.[0],
+        order[0],
+        statePlates
+      )
+      const standard = confirmation ? await confirmation : undefined
       if (standard === false) {
         latest.current.holdOverlay?.(false)
         announce('Cancelled')
@@ -693,10 +717,13 @@ export function usePlateDrag(options: Options) {
       family.template,
       ...family.variants,
     ])
-    const changesStandard = familyOrder(families)[0] !== order[0]
-    const standard = changesStandard
-      ? await standardConfirmation.confirm(statePlates, order[0])
-      : undefined
+    const confirmation = confirmOrder(
+      item.plate.state,
+      familyOrder(families)[0],
+      order[0],
+      statePlates
+    )
+    const standard = confirmation ? await confirmation : undefined
     if (standard === false) {
       latest.current.holdOverlay?.(false)
       announce('Cancelled')

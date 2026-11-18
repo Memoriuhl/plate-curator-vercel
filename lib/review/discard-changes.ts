@@ -207,12 +207,17 @@ export async function discardPlateChanges(
   }
   if (order && order !== oldOrder) {
     next.stateOrders = { ...batch.stateOrders }
+    next.stateOrderChangedAt = { ...batch.stateOrderChangedAt }
     if (
       order.length === baselineOrder.length &&
       order.every((id, index) => id === baselineOrder[index])
-    )
+    ) {
       delete next.stateOrders[state]
-    else next.stateOrders[state] = order
+      delete next.stateOrderChangedAt[state]
+    } else {
+      next.stateOrders[state] = order
+      next.stateOrderChangedAt[state] = changedAt
+    }
   }
   const result = await d.store.commit(batch.id, batch.revision, {
     batch: next,

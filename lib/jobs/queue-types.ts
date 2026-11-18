@@ -36,6 +36,7 @@ export type RunAttempt = {
   workflowId?: string
   workflowUrl?: string | null
   cursor: number
+  parallelTag?: true
   completedJobIds: string[]
   steps: RunStep[]
   choices: Record<string, string>

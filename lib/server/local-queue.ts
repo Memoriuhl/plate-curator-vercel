@@ -1,6 +1,9 @@
 import { getRun, resumeHook, start } from 'workflow/api'
 import { HookConflictError } from 'workflow/errors'
-import { localPipelineRun } from '../../workflows/local-pipeline'
+import {
+  localPipelineRun,
+  parallelGatewayTagRun,
+} from '../../workflows/local-pipeline'
 import {
   bindQueueWorkflow,
   recordQueueWorkflowFailure,
@@ -38,7 +41,7 @@ export async function startQueueWorkflow(run: PipelineRun) {
   let workflowId: string
   try {
     const workflow = await start(
-      localPipelineRun,
+      attempt.parallelTag ? parallelGatewayTagRun : localPipelineRun,
       [run.id, attempt.number, attempt.cursor, attempt.steps.length],
       {
         experimental_hook: {

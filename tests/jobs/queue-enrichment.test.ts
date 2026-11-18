@@ -24,11 +24,15 @@ import {
   captureEnrichment,
   captureSavedEnrichment,
   createEnrichmentHandler,
+  prepareEnrichment,
 } from '../../worker/pipeline/research'
+import { fetchResearchPage } from '../../lib/research/fetch-page'
+import { enrichmentSuggestion } from '../../lib/research/enrichment-result'
 import { executeQueueResearch } from '../../lib/research/queue-hosted'
 import { createResearchMemoryState } from '../../lib/research/state'
 import { evidenceSource } from '../../lib/research/evidence'
 import { plateChecks } from '../../lib/catalog/plate-checks'
+import { queueProgress } from '../../lib/jobs/run-progress'
 import type { Plate } from '../../lib/catalog/types'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { EnrichmentPolicy } from '../../lib/research/enrichment'
@@ -195,12 +199,14 @@ function setup(
   }
 }
 
-test.each(['desktop', 'eve'] as const)(
-  '%s bulk Fill missing skips populated plates and fields, stores model/policy and applies one coherent draft',
-  async (executor) => {
+test.each([
+  ['desktop', 'desktop-gemma4-26b', 'gemma4:26b'],
+  ['eve', 'eve-gemini-2-5-flash-lite', 'google/gemini-2.5-flash-lite'],
+  ['eve', 'eve-gemma4-26b', 'google/gemma-4-26b-a4b-it'],
+] as const)(
+  '%s model %s skips populated fields, stores model/policy and applies one coherent draft',
+  async (executor, modelId, model) => {
     const s = setup()
-    const modelId =
-      executor === 'eve' ? 'eve-gemini-2-5-flash-lite' : 'desktop-gemma4-26b'
     const created = await enqueueRun(s.jobs, actor, {
       requestId: 'bulk',
       batchId: 'batch',
@@ -211,11 +217,7 @@ test.each(['desktop', 'eve'] as const)(
     expect(created).toMatchObject({
       ok: true,
       value: {
-        researchModel: {
-          id: modelId,
-          model:
-            executor === 'eve' ? 'google/gemini-2.5-flash-lite' : 'gemma4:26b',
-        },
+        researchModel: { id: modelId, executor, model },
         options: { research: { policy: 'fill-missing' } },
       },
     })
@@ -274,9 +276,11 @@ test.each(['desktop', 'eve'] as const)(
           })
         ).toMatchObject({ ok: true })
       }
+      expect(await getJob(s.jobs, id)).toMatchObject({ result: { model } })
       await observeQueueStage(s.jobs, run.id, 1, index)
     }
-    expect(s.capture).toHaveBeenCalledTimes(2)
+    expect(s.capture).toHaveBeenCalledTimes(1)
+    expect(s.captureSaved).toHaveBeenCalledTimes(1)
     expect(executor === 'eve' ? s.deliver : s.request).toHaveBeenCalledTimes(2)
     expect(await s.review.listEdits('batch')).toEqual([])
     const review = {
@@ -308,6 +312,106 @@ test.each(['desktop', 'eve'] as const)(
   }
 )
 
+test.each(['desktop', 'eve'] as const)(
+  '%s persists the lookup skip for just the plate with a usable saved reference',
+  async (executor) => {
+    const s = setup()
+    s.plates[1].readMore = []
+    const queued = await enqueueSelection(s.jobs, actor, {
+      requestId: 'mixed-references',
+      batchId: 'batch',
+      plateIds: ['AK.one', 'AK.two'],
+      stages: ['research'],
+      researchModelId:
+        executor === 'desktop'
+          ? 'desktop-gemma4-26b'
+          : 'eve-gemini-2-5-flash-lite',
+    })
+    if (!queued.ok) throw Error(queued.error)
+    const [run] = queued.value
+    for (const index of [0, 1]) {
+      const id = (await dispatchQueueStage(
+        s.jobs,
+        run.id,
+        1,
+        index,
+        `reference-${index}`
+      ))!
+      if (executor === 'eve')
+        await executeHostedQueueStage(
+          s.jobs,
+          id,
+          async () => {
+            throw Error('unexpected Tag')
+          },
+          s.hosted
+        )
+      else {
+        const claim = (await claimNext(s.jobs, 'desktop'))!
+        const result = await s.handler({
+          plate: claim.job.inputPlate!,
+          ...claim.job.stageOptions,
+          model: claim.job.researchModel!.model,
+        })
+        expect(
+          await reportResult(s.jobs, 'desktop', id, claim.claimId, {
+            ...result,
+            durationMs: 1,
+          })
+        ).toMatchObject({ ok: true })
+      }
+      await observeQueueStage(s.jobs, run.id, 1, index)
+    }
+    expect(s.captureSaved).toHaveBeenCalledTimes(1)
+    expect(s.capture).toHaveBeenCalledTimes(1)
+    const savedRun = await listRuns(s.jobs, actor)
+    if (!savedRun.ok) throw Error(savedRun.error)
+    expect(
+      queueProgress(savedRun.value[0]).steps.map((step) => [
+        step.plateId,
+        step.status,
+        step.skippedPhases,
+      ])
+    ).toEqual([
+      ['AK.one', 'completed', [0]],
+      ['AK.two', 'completed', undefined],
+    ])
+  }
+)
+
+test('Fill missing searches when the saved reference cannot be fetched, while Replace existing searches directly', async () => {
+  const s = setup()
+  s.captureSaved.mockResolvedValue({ sources: [], wikiUrl: null })
+  const result = await s.handler({ plate: s.plates[0], policy: 'fill-missing' })
+  expect(s.captureSaved).toHaveBeenCalledTimes(1)
+  expect(s.capture).toHaveBeenCalledTimes(1)
+  expect(result).toMatchObject({
+    fieldSuggestion: {
+      kind: 'fields',
+      fields: { funFacts: expect.any(Array) },
+    },
+  })
+  expect(result).not.toHaveProperty('skippedPhases')
+
+  await s.handler({ plate: s.plates[0], policy: 'replace' })
+  expect(s.captureSaved).toHaveBeenCalledTimes(1)
+  expect(s.capture).toHaveBeenCalledTimes(2)
+})
+
+test('Fill missing records a drafting skip and sends no inference when only the reference is missing', async () => {
+  const s = setup()
+  const result = await s.handler({
+    plate: { ...s.plates[2], wikiUrl: null },
+    policy: 'fill-missing',
+  })
+  expect(s.capture).toHaveBeenCalledOnce()
+  expect(s.request).not.toHaveBeenCalled()
+  expect(result).toMatchObject({
+    skippedPhases: [1],
+    fieldSuggestion: { fields: { wikiUrl: source.url } },
+  })
+})
+
 test('saved-source capture only fetches saved links, deduplicates them and classifies fetched Wiki evidence', async () => {
   const museum = {
     ...source,
@@ -333,6 +437,100 @@ test('saved-source capture only fetches saved links, deduplicates them and class
     museum.url,
   ])
   expect(result).toEqual({ sources: [source, museum], wikiUrl: source.url })
+})
+
+test('Alaska Fill missing validates a fact from the exact DMV card even when the reference directory loses it', async () => {
+  const directory = 'https://dmv.alaska.gov/vehicle-services/license-plates/'
+  const details =
+    'https://dmv.alaska.gov/vehicle-services/mobile-amateur-radio-operators/'
+  const pages = new Map([
+    [
+      directory,
+      '<title>Alaska DMV plates</title><main><h2>Personalized License Plates</h2><section><div><div>Grizzly Bear</div><img src="bear.png"><div>Initial: $0</div></div><div><div>Caribou</div><img src="caribou.png"><div>Initial: $30<br>Renewal: $0</div></div><div><div>Amateur Radio</div><div>(Call Sign)</div><img src="radio.png"><div>For FCC license holders. <a href="/vehicle-services/mobile-amateur-radio-operators/">Details</a></div></div></section></main>',
+    ],
+    [
+      details,
+      '<title>Alaska DMV Amateur Radio Plates</title><main><p>To receive an Alaska amateur radio license plate, the operator must provide proof that the vehicle carries a transceiver and receiver appropriate to the license class.</p><p>The Amateur Radio Call Sign plate displays the official FCC call sign, and the applicant must hold a valid FCC radio license to qualify for the registration.</p></main>',
+    ],
+  ])
+  const fetchPage: typeof fetchResearchPage = (url, options) =>
+    fetchResearchPage(url, {
+      ...options,
+      resolve: async () => ['93.184.216.34'],
+      fetch: async (request) =>
+        new Response(pages.get(String(request)), {
+          status: pages.has(String(request)) ? 200 : 404,
+          headers: { 'content-type': 'text/html' },
+        }),
+    })
+  const captureSaved = async (
+    plate: Parameters<typeof captureSavedEnrichment>[0],
+    _: typeof fetchPage | undefined,
+    requireReference?: boolean
+  ) => captureSavedEnrichment(plate, fetchPage, requireReference)
+  const capture = async () => ({ sources: [], wikiUrl: null })
+  const caribou: Plate = {
+    id: 'AK.caribou',
+    slug: 'caribou',
+    state: 'AK',
+    displayName: 'Caribou',
+    image: '',
+    tags: [],
+    description: 'Saved plate description',
+    wikiUrl: directory,
+  }
+  const caribouResult = await prepareEnrichment(
+    caribou,
+    { policy: 'fill-missing' },
+    { capture, captureSaved, fetchPage }
+  )
+  expect(caribouResult.sources).toHaveLength(1)
+  expect(caribouResult.sources[0]).toMatchObject({
+    url: directory,
+    text: expect.stringContaining('Caribou'),
+  })
+  expect(caribouResult.sources[0].text).not.toContain('Grizzly Bear')
+  const radio = {
+    ...caribou,
+    id: 'AK.amateur_radio_call_sign',
+    displayName: 'Amateur Radio (Call Sign)',
+    wikiUrl: 'https://en.wikipedia.org/wiki/Amateur_radio_call_signs',
+    sourceUrl:
+      'https://doa.alaska.gov/dmv/plates/Images/Standard/blue-n-gold.png',
+  }
+  const radioResult = await prepareEnrichment(
+    radio,
+    { policy: 'fill-missing' },
+    { capture, captureSaved, fetchPage }
+  )
+  const official = radioResult.sources.find((source) => source.url === details)
+  expect(official).toBeDefined()
+  const suggestion = enrichmentSuggestion(
+    {
+      description: null,
+      descriptionSources: [],
+      readMore: [],
+      wikiSource: null,
+      funFacts: [
+        {
+          text: 'The Amateur Radio Call Sign plate displays the official FCC call sign.',
+          sourceId: official?.id,
+        },
+      ],
+    },
+    radioResult.sources,
+    radio,
+    'fill-missing'
+  )
+  expect(suggestion?.kind === 'fields' && suggestion.fields).toEqual({
+    funFacts: [
+      {
+        text: 'The Amateur Radio Call Sign plate displays the official FCC call sign.',
+        sourceUrl: details,
+        sourceTitle: 'Alaska DMV Amateur Radio Plates',
+      },
+    ],
+  })
 })
 
 test('Alabama enrichment can draft a cited fact from the plate’s official page when Wikipedia is generic', async () => {
@@ -690,6 +888,7 @@ test.each(['desktop', 'eve'] as const)(
   async (executor) => {
     const s = setup()
     s.capture.mockResolvedValue({ sources: [], wikiUrl: null })
+    s.captureSaved.mockResolvedValue({ sources: [], wikiUrl: null })
     const created = await enqueueRun(s.jobs, actor, {
       requestId: 'no-source',
       batchId: 'batch',
@@ -766,17 +965,18 @@ test('research model allowlist rejects arbitrary/expensive models and retries re
         researchModelId: modelId,
       })
     ).toMatchObject({ ok: false })
+  const hosted = {
+    ...input,
+    stages: [...input.stages],
+    researchModelId: 'eve-gemma4-26b',
+  }
   expect(
-    await enqueueRun(
-      s.jobs,
-      { ...actor, role: 'editor' },
-      {
-        ...input,
-        stages: [...input.stages],
-        researchModelId: 'eve-gemini-2-5-flash-lite',
-      }
-    )
+    await enqueueRun(s.jobs, { ...actor, role: 'editor' }, hosted)
   ).toMatchObject({ error: 'invalid_state' })
+  vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'false')
+  expect(await enqueueRun(s.jobs, actor, hosted)).toMatchObject({
+    error: 'invalid_state',
+  })
   const created = await enqueueRun(s.jobs, actor, {
     ...input,
     stages: [...input.stages],
@@ -805,6 +1005,7 @@ test('cancelling an Eve session retains its IO reservation until physical settle
     executeQueueResearch(s.jobs, job, {
       state: s.state,
       capture: s.capture,
+      captureSaved: s.captureSaved,
       activeOwner: async () => true,
       deliver: pendingDelivery,
     })
