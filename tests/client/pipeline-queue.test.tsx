@@ -7,12 +7,14 @@ import { usePipelineQueue } from '../../components/dashboard/use-pipeline-queue'
 import { PipelineQueuePanel } from '../../components/dashboard/pipeline-queue-panel'
 import type { QueueRunView } from '../../lib/jobs/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
+import { RunMenu } from '../../components/dashboard/run-menu'
 import { TAGGING_MODELS } from '../../lib/tagging/models'
 import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboard/pipeline-field-value'
 import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 import { PipelineRunCard } from '../../components/dashboard/pipeline-run-card'
 import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
 import { queueProgress } from '../../lib/jobs/run-progress'
+import { runTimingKey } from '../../lib/jobs/run-timings'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   modelId: 'desktop-gemma4-12b',
@@ -121,6 +123,38 @@ test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run
   fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
+})
+
+test('run estimates use the model and device, and add up only the planned work', async () => {
+  mocks.api.get.mockResolvedValue({
+    [runTimingKey('tag', 'desktop', 'gemma4:12b')]: 40_000,
+    [runTimingKey('tag', 'gateway', 'google/gemma-4-26b-a4b-it')]: 8000,
+    [runTimingKey('colors', 'desktop', 'gemma4:12b')]: 4000,
+  })
+  const plates = [plate, { ...plate, id: 'AK.two', tags: ['blue', 'red', 'white'], hasStory: true }]
+  const queue = { runs: [], action: null, message: '', disabledReason: undefined, enqueue: vi.fn() }
+  const controls = () => <PipelineRunControls underTagged={plates} batchPlates={plates} stateName="Alaska" queue={queue} />
+  const view = render(controls(), { wrapper })
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(await screen.findByText('EST 00:40 / plate')).toBeTruthy()
+  expect(screen.getByText('EST 01:20 processing time')).toBeTruthy()
+
+  mocks.modelId = 'gateway-gemma4-26b'
+  view.rerender(controls())
+  expect(screen.getByText('EST 00:08 / plate')).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
+  fireEvent.click(screen.getByLabelText('Only under-tagged plates'))
+  expect(screen.getByText('EST 00:16 processing time')).toBeTruthy()
+})
+
+test('the single-stage run menu uses the selected Gateway model history', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
+  mocks.modelId = 'gateway-gemma4-26b'
+  mocks.api.get.mockResolvedValue({ [runTimingKey('tag', 'gateway', 'google/gemma-4-26b-a4b-it')]: 13_000 })
+  render(<RunMenu underTagged={[plate]} batchPlates={[]} stateName="Alaska" disabled={false} start={vi.fn()} />, { wrapper })
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  expect(await screen.findByText('EST 00:13 / plate')).toBeTruthy()
+  expect(screen.getByText(/EST 00:13 processing time/)).toBeTruthy()
 })
 
 test('bulk Research offers Fill missing by default, explicit Replace existing and a separate model', async () => {
