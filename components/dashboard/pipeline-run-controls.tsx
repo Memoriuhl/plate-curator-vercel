@@ -87,7 +87,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
       </Button></PopoverTrigger>
       <PopoverContent align="end" collisionPadding={8} data-run-menu="" aria-label="Run pipeline"
         onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[480px] max-w-[calc(100vw-16px)] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0">
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100vw-16px)] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0">
         <header className="grid gap-1">
           <p className="font-normal">Selected plates <strong className="font-extrabold tabular-nums">{selected.length.toLocaleString()}</strong></p>
           <p className="caption text-[var(--ink-2)]" role={overLimit ? 'alert' : undefined}>Up to {selectedPlateLimit} plates per run</p>
@@ -116,13 +116,13 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                     </strong>
                     <span className="caption block">{stage.description}</span>
                     {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
-                      className="caption mt-2 grid items-start gap-x-2 gap-y-1 text-[var(--ink-2)]"
-                      style={{ gridTemplateColumns: `repeat(${Math.min(stage.flow.length, flowStepsPerRow)}, minmax(0, max-content))` }}>
+                      className="caption mt-2 grid items-start gap-x-3 gap-y-1 overflow-x-auto text-[var(--ink-2)]"
+                      style={{ gridTemplateColumns: `repeat(${Math.min(stage.flow.length, flowStepsPerRow)}, max-content)` }}>
                       {stage.flow.map(({ label, icon: StepIcon }, index) => (
                         <span key={label} role="listitem" className="flex min-w-0 items-start gap-1">
                           {index % flowStepsPerRow !== 0 ? <IoArrowForwardOutline aria-hidden="true" className="mt-0.5 size-3 shrink-0" /> : null}
                           <StepIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                          <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
+                          <span className="whitespace-nowrap">{label}</span>
                         </span>
                       ))}
                     </span> : null}
