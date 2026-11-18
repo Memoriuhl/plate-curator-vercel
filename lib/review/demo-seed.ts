@@ -23,9 +23,10 @@ export async function seedDemo(d: ReviewDeps, input: { projectId: string; env: s
   const target = plates.find(plate => plate.templateRole === 'template' && plate.templateFamily)
   const moved = plates.find(plate => plate.templateRole === 'variant' && plate.templateFamily !== target?.templateFamily)
   if (!target || !moved || plates.length < 3) throw new Error('AK requires a Template and a Plate from another family')
+  const now = d.now()
   let batch: ReviewBatch = {
     id, name: 'Demo: Alaska field edits and grouping', createdBy: input.editor.uid, createdByName: input.editor.name,
-    createdAt: d.now(), state: 'open', revision: existing ? existing.revision + 1 : 0,
+    createdAt: now, lastChangedAt: now, state: 'open', revision: existing ? existing.revision + 1 : 0,
     baselineVersion: input.version, stateOrders: {}, plateIds: [], approval: null,
   }
   if (existing) {

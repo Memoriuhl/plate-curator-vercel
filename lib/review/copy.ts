@@ -55,7 +55,7 @@ export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: st
     return { plateId: edit.plateId, fields: structuredClone(edit.fields), baseRevision: plateRevision(baseline), resultRevision: plateRevision({ ...baseline, ...edit.fields }), authorId: actor.uid, updatedAt: now }
   })
   const result = await d.store.copy({ ...input, batch: {
-    id, name: `${source.batch.name} (fresh review)`, createdBy: actor.uid, createdByName: actor.name, createdAt: now,
+    id, name: `${source.batch.name} (fresh review)`, createdBy: actor.uid, createdByName: actor.name, createdAt: now, lastChangedAt: now,
     state: 'open', revision: 0, baselineVersion: input.targetVersion, approval: null,
     source: { batchId: input.sourceId, revision: input.sourceRevision },
     plateIds: [...source.batch.plateIds], stateOrders: structuredClone(source.batch.stateOrders), baselineOrders,

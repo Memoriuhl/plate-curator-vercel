@@ -11,6 +11,7 @@ export type ReviewBatch = {
   createdByName: string | null
   createdBy: string
   createdAt: string
+  lastChangedAt?: string
   state: BatchState
   revision: number
   baselineVersion: number

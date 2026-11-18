@@ -110,7 +110,7 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
       pipelineChanges, pipelineRunIds: [...new Set([...(previous.pipelineRunIds ?? []), run.id])] })
   }
   if (plateIds.size > limits.plates) return { ok: false, error: 'invalid_state' }
-  const next: ReviewBatch = { ...batch, revision: batch.revision + 1, approval: null, plateIds: [...plateIds],
+  const next: ReviewBatch = { ...batch, lastChangedAt: at, revision: batch.revision + 1, approval: null, plateIds: [...plateIds],
     pipelineApplications: { ...batch.pipelineApplications, [token]: { by: actor.uid, at } } }
   const result = await review.store.commit(batch.id, batch.revision, { batch: next, edits: nextEdits })
   if (result !== 'ok') {
