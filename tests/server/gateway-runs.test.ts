@@ -5,11 +5,13 @@ import { listGatewayRuns } from '../../lib/jobs/gateway-runs'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import { GET } from '../../app/api/jobs/runs/route'
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn() }))
+const mocks = vi.hoisted(() => ({ connection: vi.fn(), auth: vi.fn(), jobs: vi.fn() }))
+vi.mock('next/server', () => ({ connection: mocks.connection }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs }))
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 let deps: JobsDeps
 beforeEach(async () => {
+  mocks.connection.mockReset().mockResolvedValue(undefined)
   deps = { store: createMemoryJobsStore(createMemoryStore([]), 'development'), baseline: async () => null, now: () => 400, id: () => 'id', leaseMs: 1000 }
   mocks.auth.mockReset().mockResolvedValue({ ok: true, actor })
   mocks.jobs.mockReset().mockReturnValue(deps)
@@ -31,6 +33,12 @@ test('only authorized hosted jobs in this scope are returned, grouped by actual 
   expect(JSON.stringify(runs)).not.toContain('private-hook')
   expect(await listGatewayRuns(deps, { ...actor, role: 'owner' })).toHaveLength(2)
 })
+test('history waits for a live request before reading Firebase configuration', async () => {
+  mocks.connection.mockRejectedValueOnce(new Error('Prerender has no request'))
+  await expect(GET(new Request('https://example.org/api/jobs/runs'))).rejects.toThrow('Prerender has no request')
+  expect(mocks.auth).not.toHaveBeenCalled()
+})
+
 test('history endpoint rejects unauthenticated access before reading storage', async () => {
   mocks.auth.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
   expect((await GET(new Request('https://example.org/api/jobs/runs'))).status).toBe(401)
