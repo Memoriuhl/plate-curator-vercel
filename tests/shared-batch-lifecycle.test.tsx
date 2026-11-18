@@ -64,7 +64,7 @@ const source: LiveSignalSource = {
     const set = listeners.get(id) ?? new Set()
     listeners.set(id, set)
     set.add(next)
-    next(signals.get(id) ?? null)
+    if (connected) next(signals.get(id) ?? null)
     return () => { set.delete(next) }
   },
 }
@@ -276,6 +276,9 @@ test('an Owner approving a stale Review sees the updated revision without approv
   })
   fireEvent.click(approve)
   await within(review.container).findByText('This batch changed while you were reviewing. Look again at revision 4.')
+  expect(requests.filter(request => request.path.endsWith('/approve'))).toEqual([
+    { actor: owner.uid, method: 'POST', path: '/api/batches/shared/approve', body: { revision: 2 } },
+  ])
   expect(await within(review.container).findByRole('button', { name: 'Approve revision 4' })).toBeDefined()
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'submitted', revision: 4, approval: null })
 })
@@ -291,6 +294,7 @@ test('resubscription catches up missed commits with one coherent read and ignore
   const key = owner.uid + '/api/batches/shared'
   const before = reads.get(key)!
   expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0')
+  connected = true
   await act(async () => { failures.get('shared')!({ code: 'permission-denied' }) })
   await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('3'))
   await settle()
