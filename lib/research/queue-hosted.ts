@@ -24,10 +24,10 @@ export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps
   const plate = job.inputPlate
   const policy = job.researchPolicy ?? 'fill-missing'
   const fields = enrichmentTargets(plate, policy)
-  const meta = { backend: 'eve', model: job.researchModel.model, promptVersion: 'enrichment-v1', durationMs: Math.max(0, jobs.now() - job.createdAt) }
+  const meta = { backend: 'eve', model: job.researchModel.model, promptVersion: 'enrichment-v1' }
   async function report(draft: unknown, sources: EvidenceSource[], usage: Record<string, number>) {
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)
-    const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, { ...meta, usage,
+    const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, { ...meta, usage, durationMs: Math.max(0, jobs.now() - (job.startedAt ?? job.createdAt)),
       ...(fieldSuggestion ? { fieldSuggestion } : { stageError: sources.length ? 'no_supported_fields' : 'no_sources' }) })
     if (!result.ok) throw Error(`Research report refused: ${result.error}`)
     return 'settled' as const

@@ -20,21 +20,20 @@ import { PipelineRunControls } from './pipeline-run-controls'
 import { onlyUnderTaggedLabel } from './pipeline-stages'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import type { ComponentProps } from 'react'
+import { estimateStageMs, formatEstimate, useRunTimings } from './pipeline-estimates'
 
 const stages = [
   [
     'Find image',
     'Search for a clean plate photo',
-    '0:20',
     'Only plates missing an image',
   ],
-  ['Wiki link', 'Match a Wikipedia or DMV page', '0:15'],
-  ['Colors', 'Background and text colours', '0:05'],
-  ['Describe', 'Write the description from the source', '1:30'],
+  ['Wiki link', 'Match a Wikipedia or DMV page'],
+  ['Colors', 'Background and text colours'],
+  ['Describe', 'Write the description from the source'],
   [
     'Story',
     'First issued, fun facts and read-more links',
-    '2:10',
     'Model · local',
     'Escalate when unsure',
     'Redo plates that already have a story',
@@ -43,20 +42,18 @@ const stages = [
   [
     'Tag',
     'Suggest tags with the selected model',
-    '0:40',
     onlyUnderTaggedLabel,
     'Escalate ambiguous plates',
   ],
   [
     'Group',
     'Propose template families',
-    '1:00',
     'Use colour signal',
     'Background mask',
     'Vision tiebreak',
     'Method · embeddings',
   ],
-  ['Order', 'No automatic step yet', '—'],
+  ['Order', 'No automatic step yet'],
 ]
 
 export function RunMenu(props: ComponentProps<typeof LegacyRunMenu> & { queue?: ReturnType<typeof usePipelineQueue> }) {
@@ -86,6 +83,7 @@ function LegacyRunMenu({
   const selectedPlates = useSelectedPlates()
   const choice = useTaggingModelChoice()
   const [open, setOpen] = useState(false)
+  const timings = useRunTimings(open)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
@@ -105,7 +103,7 @@ function LegacyRunMenu({
   const plates: readonly RunPlate[] = scope === 'selected' ? selectedPlates : scope === 'batch' ? batchPlates : local && scope === 'all' ? allPlates : underTagged
   const planned = useMemo(() => planTagRun(activeStage === 'Story' && !redoStory ? plates.filter(plate => !(plate.hasStory ?? plate.checks?.funFacts.status === 'good')) : plates, local && activeStage === 'Tag' && onlyUnderTagged, local ? Number(limit) : 25), [plates, local, onlyUnderTagged, limit, activeStage, redoStory])
   const count = planned.length
-  const selectedModel = activeChoice.data?.models.find(model => model.id === activeChoice.modelId)
+  const stageMs = estimateStageMs(pipelineStage ?? 'tag', timings, { tag: choice.modelId, desktop: textChoice.modelId })
   const enabled = (name: string) => name === 'Tag' || local && LOCAL_STAGE_DEFINITIONS.some(stage => stage.label === name)
   return (
     <>
@@ -183,7 +181,7 @@ function LegacyRunMenu({
         <section aria-label="Stages and their options" className="grid gap-1">
           <h2 className="label mb-1">Stages and their options</h2>
           {local ? <p className="caption">Choose one stage for this local run.</p> : null}
-          {stages.map(([name, description, duration, ...options]) => (
+          {stages.map(([name, description, ...options]) => (
             <fieldset
               key={name}
               disabled={!enabled(name)}
@@ -208,7 +206,7 @@ function LegacyRunMenu({
                 {!enabled(name) ? (
                   <span className="caption">{local ? localStageReasons[name] : 'Coming soon'}</span>
                 ) : null}
-                <span className="id">{duration}</span>
+                {name === activeStage ? <span className="id">{formatEstimate(stageMs)} / plate</span> : null}
               </div>
               {name === activeStage && activeStage !== 'Wiki link' ? <TaggingModelPicker choice={activeChoice} error={modelError} /> : null}
               {options.filter(option => !local || !option.startsWith('Limit') && option !== 'Model · local').map((option) => (
@@ -238,7 +236,7 @@ function LegacyRunMenu({
             Preview only · {local ? 'Needs a result-only run without Batch writes' : 'Coming soon'}
           </label>
           <p className="caption">
-            {count} plates · {activeStage} · about {Math.ceil((count * (selectedModel?.measured.p50Seconds ?? 40)) / 60)} min ·
+            {count} plates · {activeStage} · {count ? `${formatEstimate(count * stageMs)} processing time · ` : ''}
             Suggestions land here for you to accept.
           </p>
           <div className="flex items-center justify-end gap-2">

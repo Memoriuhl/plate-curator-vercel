@@ -21,7 +21,8 @@ export async function claimHostedQueueJob(d: JobsDeps, id: string) {
     // Workflow retries retain the same reservation; never hand it to a desktop worker.
     if (job.state === 'claimed' && job.workerId === 'hosted' && job.leaseExpiresAt! > d.now()) return { job, claimId: job.claimId! }
     if (localClaimCandidate(d, jobs, runs, 'hosted')?.id !== id) return null
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId: 'hosted', claimId: d.id(), leaseExpiresAt: d.now() + queueStageTimeoutMs }
+    const now = d.now()
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: now, workerId: 'hosted', claimId: d.id(), leaseExpiresAt: now + queueStageTimeoutMs }
     const run = runs.find(run => run.id === job.queueRunId)!
     run.lastDispatchedAt = Math.max(d.now(), ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.waitReason = 'inference'; run.updatedAt = d.now()
     tx.set(claimed); tx.setRun(run)

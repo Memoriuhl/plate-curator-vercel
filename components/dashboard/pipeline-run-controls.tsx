@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/components/utils'
 import { defaultPipelineOptions, snapshotPipelineOptions, type PipelineOptions } from '@/lib/jobs/pipeline-options'
-import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
+import { canonicalStages, planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
@@ -18,6 +18,7 @@ import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picke
 import { ResearchModelPicker, useResearchModelChoice } from './research-model-picker'
 import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
+import { estimateStageMs, formatEstimate, useRunTimings } from './pipeline-estimates'
 
 const selectedPlateLimit = 200
 const flowStepsPerRow = 4
@@ -34,6 +35,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const desktopChoice = useTaggingModelChoice('pipeline-desktop-model:v1')
   const researchChoice = useResearchModelChoice()
   const [open, setOpen] = useState(false)
+  const timings = useRunTimings(open)
   const [stages, setStages] = useState<LocalRunStage[]>([])
   const [expanded, setExpanded] = useState<LocalRunStage[]>([])
   const [options, setOptions] = useState<PipelineOptions>({})
@@ -64,6 +66,9 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
     id, tags, imageUrl, description: checks?.description?.value, wikiUrl, funFacts, firstIssuedYear, readMore,
   }))
   const steps = planPipeline(runPlates, stages, resolvedOptions)
+  const timingModels = { tag: tagChoice.modelId, desktop: modelId, research: researchChoice.model?.id }
+  const estimates = new Map(canonicalStages.map(id => [id, estimateStageMs(id, timings, timingModels, resolvedOptions)]))
+  const totalMs = steps.reduce((total, step) => total + estimates.get(step.stage)!, 0)
   const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), resolvedOptions)
   const needsTagModel = steps.some(step => step.stage === 'tag')
   const needsResearchModel = steps.some(step => step.stage === 'research')
@@ -135,7 +140,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                     {id === 'research' && checked && selected.length > 0 && !needsResearchModel
                       ? <span className="caption block">Research fields are filled. Choose Replace existing to run again.</span> : null}
                   </span>
-                  <span className="id shrink-0">{stage.duration}</span>
+                  {!stageAvailability(stage, true, queue.capabilities) && <span className="id shrink-0 whitespace-nowrap">{formatEstimate(estimates.get(id)!)}{id === 'group' ? ' / group' : ' / plate'}</span>}
                 </label>
                 <button type="button" aria-label={`More options for ${stage.label}`} aria-expanded={showingOptions} aria-controls={panelId}
                   className="flex w-11 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-2)] hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-primary"
@@ -174,6 +179,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
         </div>
         <footer className="sticky bottom-0 grid gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
           {invalidEnhancement ? <p role="alert" className="caption">Choose at least one enhancement.</p> : null}
+          {!blocked && steps.length > 0 && <p className="caption tabular-nums">{formatEstimate(totalMs)} processing time</p>}
           {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
           {invalidGroupSize ? <p role="alert" className="caption">Group needs up to {groupSelectionLimit} plates from one state.</p>
             : groupOutsideBatch ? <p role="alert" className="caption">Every Group member must already be in this Batch.</p> : null}

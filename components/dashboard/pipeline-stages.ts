@@ -26,7 +26,6 @@ export type StageDefinition = {
   description: string
   icon: IconType
   flow?: readonly { label: string; icon: IconType }[]
-  duration: string
   jobKind: PipelineStage | 'tag' | null
   localEnabled: boolean
   legacyResearch?: true
@@ -38,31 +37,31 @@ export type PipelineSelection = { selectedStages: (PipelineStage | 'tag')[]; opt
 export const onlyUnderTaggedLabel = `Only under-tagged plates (fewer than ${minimumPlateTagCount} tags)`
 
 export const pipelineStages: readonly StageDefinition[] = [
-  { id: 'research', icon: IoSearchOutline, label: 'Research / enrich', description: 'Wikipedia link, description and sourced Story in one run', duration: '1:30', jobKind: 'research', localEnabled: true,
+  { id: 'research', icon: IoSearchOutline, label: 'Research / enrich', description: 'Wikipedia link, description and sourced Story in one run', jobKind: 'research', localEnabled: true,
     flow: [{ label: 'Find sources', icon: IoLinkOutline }, { label: 'Draft description & story', icon: IoDocumentTextOutline }],
     options: [
     { id: 'policy', label: 'Research edits', kind: 'select', default: 'fill-missing', choices: [{ value: 'fill-missing', label: 'Fill missing', icon: IoAddCircleOutline }, { value: 'replace', label: 'Replace existing', icon: IoPencilOutline }] },
     { id: 'reuseSavedSources', label: 'Reuse saved sources', kind: 'boolean', default: false },
   ] },
-  { id: 'find-image', icon: IoImagesOutline, label: 'Find image', description: 'Search for a clean plate photo', duration: '0:20', jobKind: 'find-image', localEnabled: true,
+  { id: 'find-image', icon: IoImagesOutline, label: 'Find image', description: 'Search for a clean plate photo', jobKind: 'find-image', localEnabled: true,
     flow: [{ label: 'Search Commons', icon: IoSearchOutline }, { label: 'Check images', icon: IoCheckmarkCircleOutline }, { label: 'Offer candidates', icon: IoImagesOutline }],
     options: [{ id: 'onlyMissingImage', label: 'Only plates missing an image', kind: 'boolean', default: false }] },
   { id: 'enhance-image', icon: IoSparklesOutline, label: 'Enhance image', description: 'Create a downloadable WebP from the current plate image',
-    duration: '0:05', jobKind: 'enhance-image', localEnabled: true,
+    jobKind: 'enhance-image', localEnabled: true,
     flow: [{ label: 'Apply edits', icon: IoOptionsOutline }, { label: 'Export WebP', icon: IoDownloadOutline }],
     options: [
       { id: 'upscale', label: 'Upscale', kind: 'boolean', default: defaultImageEnhancement.upscale },
       { id: 'crop', label: 'Crop margins', kind: 'boolean', default: defaultImageEnhancement.crop },
       { id: 'roundCorners', label: 'Round corners', kind: 'boolean', default: defaultImageEnhancement.roundCorners },
     ] },
-  { id: 'wiki-link', icon: IoLinkOutline, label: 'Wiki link', description: 'Match a Wikipedia or DMV page', duration: '0:15', jobKind: 'wiki-link', localEnabled: true, legacyResearch: true, options: [] },
-  { id: 'colors', icon: IoColorPaletteOutline, label: 'Colors', description: 'Background and text colours', duration: '0:05', jobKind: 'colors', localEnabled: true, options: [] },
-  { id: 'describe', icon: IoDocumentTextOutline, label: 'Describe', description: 'Write the description from the source', duration: '1:30', jobKind: 'describe', localEnabled: true, legacyResearch: true, options: [] },
-  { id: 'story', icon: IoBookOutline, label: 'Story', description: 'First issued, fun facts and read-more links', duration: '2:10', jobKind: 'story', localEnabled: true, legacyResearch: true,
+  { id: 'wiki-link', icon: IoLinkOutline, label: 'Wiki link', description: 'Match a Wikipedia or DMV page', jobKind: 'wiki-link', localEnabled: true, legacyResearch: true, options: [] },
+  { id: 'colors', icon: IoColorPaletteOutline, label: 'Colors', description: 'Background and text colours', jobKind: 'colors', localEnabled: true, options: [] },
+  { id: 'describe', icon: IoDocumentTextOutline, label: 'Describe', description: 'Write the description from the source', jobKind: 'describe', localEnabled: true, legacyResearch: true, options: [] },
+  { id: 'story', icon: IoBookOutline, label: 'Story', description: 'First issued, fun facts and read-more links', jobKind: 'story', localEnabled: true, legacyResearch: true,
     options: [{ id: 'redoExisting', label: 'Redo plates that already have a story', kind: 'boolean', default: false }] },
-  { id: 'tag', icon: IoPricetagsOutline, label: 'Tag', description: 'Suggest tags with the selected model', duration: '0:40', jobKind: 'tag', localEnabled: true,
+  { id: 'tag', icon: IoPricetagsOutline, label: 'Tag', description: 'Suggest tags with the selected model', jobKind: 'tag', localEnabled: true,
     options: [{ id: 'onlyUnderTagged', label: onlyUnderTaggedLabel, kind: 'boolean', default: false }] },
-  { id: 'group', icon: IoGridOutline, label: 'Group', description: 'Propose template families', duration: '1:00', jobKind: 'group', localEnabled: true,
+  { id: 'group', icon: IoGridOutline, label: 'Group', description: 'Propose template families', jobKind: 'group', localEnabled: true,
     flow: [{ label: 'Embed images', icon: IoScanOutline }, { label: 'Compare', icon: IoGitMergeOutline }, { label: 'Propose families', icon: IoGridOutline }],
     options: [
       { id: 'method', label: 'Method', kind: 'select', default: 'embeddings', choices: [
@@ -72,7 +71,7 @@ export const pipelineStages: readonly StageDefinition[] = [
       { id: 'backgroundMask', label: 'Background mask', kind: 'boolean', default: false },
       { id: 'visionTiebreak', label: 'Vision tiebreak', kind: 'boolean', default: false },
     ] },
-  { id: 'order', icon: IoListOutline, label: 'Order', description: 'No automatic step yet', duration: '—', jobKind: null, localEnabled: false,
+  { id: 'order', icon: IoListOutline, label: 'Order', description: 'No automatic step yet', jobKind: null, localEnabled: false,
     disabledReason: 'Order is manual: drag families to reorder', options: [] },
 ]
 
