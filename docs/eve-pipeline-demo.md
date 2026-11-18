@@ -56,16 +56,16 @@ research needs no Serper/Brave credentials or nested search calls.
 Budget is an actual readiness gate. The documented prior authorization is USD 2
 total, with a USD 0.50 Preview allocation inside that total, not an ongoing/new
 allowance. Verify that the existing allowance covers this run and read the current campaign
-and Gateway accounting. Each physical synthesis reserves USD 0.20
-before calling; fewer than USD 0.20 of available headroom refuses the attempt.
+and Gateway accounting. A queued synthesis with captured evidence reserves USD 0.02
+before calling. Standalone research retains its USD 0.20 model reservation.
+An attempt is refused when its reservation would exceed the campaign headroom.
 Do not reset the limit to the USD 2 default or create a fresh funded campaign.
 `researchState` budgets are namespaced by environment as well as campaign id:
 reusing `RESEARCH_BUDGET_ID` on a new Preview ref does **not** reuse the old ledger.
 Reconcile any dedicated allocation within the existing total before enabling it.
 One plate is restricted to one physical synthesis call, with context/output caps;
 unknown cost retains conservative reservation accounting.
-The USD 0.20 is an application reservation, not a verified provider-enforced
-Gateway spending ceiling. No provider-side ceiling or current balance was
+These are application reservations. A Gateway spending ceiling is configured separately. No provider-side ceiling or current balance was
 verified in the fixture rehearsal. Existing Gateway ceiling/balance, remaining
 campaign allowance and any dedicated allocation remain explicit live preflight
 checks. No new key, funding or cap change is part of this recipe.

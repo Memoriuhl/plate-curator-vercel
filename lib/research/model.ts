@@ -58,6 +58,7 @@ export function guardedResearchModel(
           maxOutputTokens: Math.min(params.maxOutputTokens ?? 1000, 1000),
           ...(submit
             ? {
+                reasoning: 'none' as const,
                 tools: [submit],
                 toolChoice: { type: 'tool' as const, toolName: submit.name },
               }

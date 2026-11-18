@@ -134,7 +134,12 @@ export async function researchTurn(
         campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117',
         limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'),
         deadline,
-        ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}),
+        // Captured synthesis is text-only, with one call, a 60 kB input bound
+        // and at most 1,000 output tokens. Two cents covers both allowed models
+        // at current Gateway rates with margin over the request bounds.
+        ...(binding?.pipelineJobId
+          ? { maxCalls: 1, reservationUsd: 0.02 }
+          : {}),
       }),
     /**
      * Reserve a tool call against the session or pipeline job budget before requesting

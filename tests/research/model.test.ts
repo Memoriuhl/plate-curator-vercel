@@ -64,6 +64,7 @@ test('captured research exposes only submit_draft, forces structured completion 
   )
   await model.doGenerate({
     prompt,
+    reasoning: 'low',
     tools: [
       { type: 'function', name: 'search_web', inputSchema: { type: 'object' } },
       {
@@ -78,6 +79,7 @@ test('captured research exposes only submit_draft, forces structured completion 
       (tool) => tool.type === 'function' && tool.name
     )
   ).toEqual(['submit_draft'])
+  expect(upstream.doGenerateCalls[0].reasoning).toBe('none')
   expect(upstream.doGenerateCalls[0].toolChoice).toEqual({
     type: 'tool',
     toolName: 'submit_draft',

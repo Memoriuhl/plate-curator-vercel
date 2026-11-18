@@ -2,6 +2,8 @@ import type { ResearchStateStore } from './state'
 import { RESEARCH_LIMITS } from './limits'
 import { reserveResearchSpend, settleResearchModelSpend } from './budget'
 
+export const researchBudgetError = 'Research campaign budget exhausted'
+
 type Attempt = { id: string; costUsd?: number }
 /** Register a model attempt and reserve spend before the provider call starts. */
 export async function createResearchModelAttempt(
@@ -12,6 +14,7 @@ export async function createResearchModelAttempt(
     limitUsd: number
     deadline: number
     maxCalls?: number
+    reservationUsd?: number
   }
 ) {
   const sequence = await store.update<Record<string, number>, number | null>(
@@ -37,11 +40,11 @@ export async function createResearchModelAttempt(
       options.campaign,
       id,
       'model',
-      0.2,
+      options.reservationUsd ?? 0.2,
       options.limitUsd
     ))
   )
-    throw new Error('Research campaign budget exhausted')
+    throw new Error(researchBudgetError)
   await store.update<Attempt[], null>(`model-attempts/${runId}`, (prior) => ({
     value: [...(prior ?? []), { id }],
     result: null,

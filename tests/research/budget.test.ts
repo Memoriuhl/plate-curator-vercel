@@ -1,10 +1,13 @@
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { createResearchMemoryState } from '../../lib/research/state'
 import {
   reserveResearchSpend,
   settleResearchModelSpend,
 } from '../../lib/research/budget'
 import { createResearchModelAttempt } from '../../lib/research/model-attempt'
+import { researchTurn } from '../../lib/research/runtime'
+
+afterEach(() => vi.unstubAllEnvs())
 
 test('parallel callers share one two-dollar budget and cannot start excess requests', async () => {
   const store = createResearchMemoryState()
@@ -51,5 +54,36 @@ test('a captured-evidence run permits one physical synthesis attempt with no sil
   expect(await store.read('usage/plate')).toEqual({
     inputTokens: 800,
     outputTokens: 120,
+  })
+})
+
+test('queued plates share a twenty-cent campaign after an earlier charged call', async () => {
+  vi.stubEnv('RESEARCH_BUDGET_ID', 'campaign')
+  vi.stubEnv('RESEARCH_BUDGET_USD', '0.20')
+  const store = createResearchMemoryState()
+  await reserveResearchSpend(store, 'campaign', 'earlier', 'model', 0.2, 0.2)
+  await settleResearchModelSpend(store, 'campaign', 'earlier', 0.0006361)
+
+  const calls = await Promise.all(
+    Array.from({ length: 10 }, async (_, index) => {
+      const id = `session-${index}`
+      await store.update(`session/${id}`, () => ({
+        value: { pipelineJobId: `plate-${index}` },
+        result: null,
+      }))
+      const run = await researchTurn(
+        { session: { id, turn: { id: 'turn' } } },
+        store
+      )
+      return run.modelAttempt
+    })
+  )
+  const outcomes = await Promise.allSettled(calls.map((start) => start()))
+  expect(outcomes.filter(({ status }) => status === 'fulfilled')).toHaveLength(
+    9
+  )
+  expect(await store.read('budget/campaign')).toMatchObject({
+    limitMicros: 200000,
+    committedMicros: 180637,
   })
 })

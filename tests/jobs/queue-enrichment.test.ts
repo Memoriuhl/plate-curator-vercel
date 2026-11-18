@@ -716,64 +716,67 @@ test.each(['desktop', 'eve'] as const)(
   }
 )
 
-test('a hosted Research session that ends without a draft does not stop the next plate', async () => {
-  const s = setup()
-  s.deliver.mockImplementationOnce(async (job) => {
-    await s.state.update(`eve-outcome/${job.id}`, () => ({
-      value: { outcome: 'failed' },
-      result: null,
-    }))
-    return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
-  })
-  const created = await enqueueSelection(s.jobs, actor, {
-    requestId: 'hosted-research-failure',
-    batchId: 'batch',
-    plateIds: ['AK.one', 'AK.two'],
-    stages: ['research'],
-    researchModelId: 'eve-gemini-2-5-flash-lite',
-  })
-  if (!created.ok) throw Error(created.error)
-  const [run] = created.value
-  for (const index of [0, 1]) {
-    const id = (await dispatchQueueStage(
-      s.jobs,
-      run.id,
-      1,
-      index,
-      `hook-${index}`
-    ))!
-    expect(
-      await executeHostedQueueStage(
+test.each([
+  [undefined, 'stage_failed'],
+  ['research_budget_exhausted', 'research_budget_exhausted'],
+])(
+  'a hosted Research failure (%s) records its reason and does not stop the next plate',
+  async (error, reason) => {
+    const s = setup()
+    s.deliver.mockImplementationOnce(async (job) => {
+      await s.state.update(`eve-outcome/${job.id}`, () => ({
+        value: { outcome: 'failed', error },
+        result: null,
+      }))
+      return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
+    })
+    const created = await enqueueSelection(s.jobs, actor, {
+      requestId: 'hosted-research-failure',
+      batchId: 'batch',
+      plateIds: ['AK.one', 'AK.two'],
+      stages: ['research'],
+      researchModelId: 'eve-gemini-2-5-flash-lite',
+    })
+    if (!created.ok) throw Error(created.error)
+    const [run] = created.value
+    for (const index of [0, 1]) {
+      const id = (await dispatchQueueStage(
         s.jobs,
-        id,
-        async () => {
-          throw Error('unexpected Tag')
+        run.id,
+        1,
+        index,
+        `hook-${index}`
+      ))!
+      expect(
+        await executeHostedQueueStage(
+          s.jobs,
+          id,
+          async () => {
+            throw Error('unexpected Tag')
+          },
+          s.hosted
+        )
+      ).toBe('settled')
+      expect(await observeQueueStage(s.jobs, run.id, 1, index)).toEqual({
+        phase: index === 0 ? 'next' : 'done',
+      })
+    }
+    expect(await listRuns(s.jobs, actor)).toMatchObject({
+      value: [
+        {
+          status: 'completed',
+          draftPlateIds: ['AK.two'],
+          attempts: [
+            {
+              outcome: 'partial',
+              steps: [{ status: 'failed', reason }, { status: 'completed' }],
+            },
+          ],
         },
-        s.hosted
-      )
-    ).toBe('settled')
-    expect(await observeQueueStage(s.jobs, run.id, 1, index)).toEqual({
-      phase: index === 0 ? 'next' : 'done',
+      ],
     })
   }
-  expect(await listRuns(s.jobs, actor)).toMatchObject({
-    value: [
-      {
-        status: 'completed',
-        draftPlateIds: ['AK.two'],
-        attempts: [
-          {
-            outcome: 'partial',
-            steps: [
-              { status: 'failed', reason: 'stage_failed' },
-              { status: 'completed' },
-            ],
-          },
-        ],
-      },
-    ],
-  })
-})
+)
 
 test('a Run Pipeline selection saves one hosted result with its description and sourced facts to the Batch', async () => {
   const s = setup()
