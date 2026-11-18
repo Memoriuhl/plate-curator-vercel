@@ -1,6 +1,25 @@
 {
   "indexes": [
     {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "env", "order": "ASCENDING" },
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "env", "order": "ASCENDING" },
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" },
+        { "fieldPath": "leaseExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "researchJobs",
       "queryScope": "COLLECTION",
       "fields": [
