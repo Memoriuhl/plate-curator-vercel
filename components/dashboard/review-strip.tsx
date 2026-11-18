@@ -8,13 +8,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
 import { PublishButton } from './publish-button'
+import { BatchLastChanged } from '@/components/review/batch-last-changed'
 
 function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   const detail = useBatch(batch.id)
+  const loadedBatch = detail.data?.batch
+  const currentBatch = loadedBatch && loadedBatch.revision >= batch.revision ? loadedBatch : batch
   const states = [
     ...new Set(detail.data?.plates.map((plate) => plate.baseline.state) ?? []),
   ].join(', ')
-  const draftChanges = detail.data?.plates.some(plate => plate.order || plate.edit && Object.keys(plate.edit.fields).length > 0)
   return (
     <div className="review-chip">
       <Avatar size="sm" player="friend">
@@ -36,14 +38,14 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
       >
         {batch.state === 'approved' ? 'Approved' : 'Submitted'}
       </span>
-      <span className="review-revision">Rev {batch.revision}</span>
+      <span className="review-last-changed"><BatchLastChanged batch={currentBatch} /></span>
       <div className="review-actions">
         <Button asChild size="sm">
           <Link href={`/review?batch=${encodeURIComponent(batch.id)}`}>
             Review
           </Link>
         </Button>
-        <PublishButton batchId={batch.id} owner={owner} draft={batch.state === 'submitted' && !!draftChanges} approved={batch.state === 'approved'} size="sm" />
+        <PublishButton batchId={batch.id} owner={owner} size="sm" />
       </div>
     </div>
   )

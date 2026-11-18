@@ -291,7 +291,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.review-revision {
+.review-last-changed {
   color: var(--ink-2);
   font-size: 12px;
 }

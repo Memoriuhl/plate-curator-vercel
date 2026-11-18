@@ -13,9 +13,10 @@ import type { Plate, StoryFields } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
 import { sameEditableValue } from '../review/story'
 import { canEdit, editableStates } from '../review/access'
+import { mostRecentBatch } from '../review/batch-selection'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
-import { ApiError, type ApiClient } from './api'
+import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 
@@ -52,9 +53,9 @@ export function useInviteMember() {
   }
 }
 
-export function useBatches(states?: BatchState[], opts?: { mine?: boolean }) {
+export function useBatches(states?: BatchState[], opts?: { mine?: boolean; enabled?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<ReviewBatch[]>(user ? batchesKey(states, opts) : null, api.get, states?.length === 1 && states[0] === 'open' && opts?.mine
+  return useSWR<ReviewBatch[]>(user && opts?.enabled !== false ? batchesKey(states, opts) : null, api.get, states?.length === 1 && states[0] === 'open' && opts?.mine
     ? { revalidateIfStale: false, dedupingInterval: 30000 }
     : undefined)
 }
@@ -84,7 +85,7 @@ async function fetchBatchDetail(api: ApiClient, key: string): Promise<BatchDetai
 
 export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
-  return useSWR<BatchDetail>(user && id ? `/api/batches/${id}` : null, key => fetchBatchDetail(api, key), opts?.reuse
+  return useSWR<BatchDetail>(user && id ? batchApiPath(id) : null, key => fetchBatchDetail(api, key), opts?.reuse
     ? { revalidateIfStale: false }
     : undefined)
 }
@@ -106,7 +107,7 @@ export function useBatchRun(id: string | null) {
     window.addEventListener('batch-publish-requested', update)
     return () => window.removeEventListener('batch-publish-requested', update)
   }, [id])
-  const run = useSWR<BatchRun>(user && me.data?.role === 'owner' && id ? `/api/batches/${id}/run` : null, api.get, {
+  const run = useSWR<BatchRun>(user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null, api.get, {
     refreshInterval: data => data?.phase === 'publishing' || (data?.phase === 'waiting-for-publish' && pendingUntil > Date.now()) ? 2000 : 0,
   })
   useEffect(() => {
@@ -116,7 +117,7 @@ export function useBatchRun(id: string | null) {
     if (id && previous.id === id && previous.phase != null && previous.phase !== 'published' && phase === 'published') router.refresh()
     if (id && run.data?.phase && ['published', 'failed', 'superseded', 'timed-out'].includes(run.data.phase)) {
       publishWindows.delete(id)
-      void mutate(key => typeof key === 'string' && (key === '/api/batches' || key.startsWith('/api/batches?') || key === `/api/batches/${id}`)).catch(() => undefined)
+      void mutate(key => typeof key === 'string' && (key === '/api/batches' || key.startsWith('/api/batches?') || key === batchApiPath(id) || key === `${batchApiPath(id)}/publish`)).catch(() => undefined)
     }
   }, [id, run.data?.phase, mutate, router])
   return run
@@ -136,7 +137,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { pipelineBusy?: boolean; canConfirmDraft?: boolean; confirmation?: ReviewChanges | null; canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
+export type PublishBaselineStatus = { batchRevision: number; destination: string | null; enabledHere: boolean; approvalProblems: string[]; pipelineBusy?: boolean; canConfirmDraft?: boolean; confirmation?: ReviewChanges | null; canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
@@ -154,21 +155,21 @@ export function usePublishControl() {
 
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
-  return useSWR<PublishBaselineStatus>(user && id ? `/api/batches/${id}/publish` : null, api.get, { refreshInterval: data => data?.pipelineBusy ? 5000 : 0 })
+  return useSWR<PublishBaselineStatus>(user && id ? `${batchApiPath(id)}/publish` : null, api.get, { refreshInterval: data => data?.pipelineBusy || data?.retryReason === 'locked' ? 5000 : 0 })
 }
 
 export function useReviewActions() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
   const publishIntents = useRef(new Map<string, string>())
-  const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || key === `/api/batches/${batchId}`))
+  const refresh = (batchId?: string) => mutate((key) => typeof key === 'string' && (key.startsWith('/api/batches?') || key === '/api/batches' || (batchId !== undefined && key === batchApiPath(batchId))))
 
   return {
     async abandon(batchId: string, revision: number, commandId: string, reason: string) {
       try {
-        await api.send('POST', `/api/batches/${batchId}/abandon`, { revision, commandId, reason })
+        await api.send('POST', `${batchApiPath(batchId)}/abandon`, { revision, commandId, reason })
       } finally {
-        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
+        await Promise.all([refresh(batchId), mutate(`${batchApiPath(batchId)}/publish`)]).catch(() => undefined)
       }
     },
     async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; code?: string; confirmation?: ReviewChanges | null; reviewedVersion?: number; liveVersion?: number }> {
@@ -176,11 +177,11 @@ export function useReviewActions() {
       const commandId = publishIntents.current.get(key) ?? crypto.randomUUID()
       publishIntents.current.set(key, commandId)
       try {
-        await api.send<{ status: 'publishing' }>('POST', `/api/batches/${batchId}/publish`, { revision, commandId })
+        await api.send<{ status: 'publishing' }>('POST', `${batchApiPath(batchId)}/publish`, { revision, commandId })
         publishIntents.current.delete(key)
         publishWindows.set(batchId, Date.now() + 30000)
         window.dispatchEvent(new Event('batch-publish-requested'))
-        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
+        await Promise.all([refresh(batchId), mutate(`${batchApiPath(batchId)}/run`), mutate(`${batchApiPath(batchId)}/publish`)]).catch(() => undefined)
         return { ok: true }
       } catch (error) {
         if (error instanceof ApiError && error.status < 500) publishIntents.current.delete(key)
@@ -190,20 +191,20 @@ export function useReviewActions() {
           ...PUBLISH_STOP_MESSAGES,
           [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
           empty_batch: 'This Batch has no changes to publish.',
-          standard_change_unconfirmed: 'Resolve the Standard plate changes before publishing.',
+          standard_change_unconfirmed: apiErrorReasons(error).join(' ') || 'Resolve the Standard plate changes before publishing.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision: 'This Batch changed. Confirm the current revision.',
           [PUBLISH_ERRORS.notWaiting]: 'This run is no longer waiting for Publish. Refresh to see its status.',
           forbidden: 'Only the Owner can Publish.',
           not_found: 'This Batch could not be found.',
         }
-        await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
+        await Promise.all([refresh(batchId), mutate(`${batchApiPath(batchId)}/run`), mutate(`${batchApiPath(batchId)}/publish`)]).catch(() => undefined)
         const code = error instanceof ApiError ? error.code : undefined
         return { ok: false, ...(code === 'superseded_revision' || code === PIPELINE_BUSY ? { code } : {}), ...(error instanceof ApiError && error.body.confirmation ? { confirmation: error.body.confirmation as ReviewChanges } : {}), ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
       }
     },
     async copy(batchId: string, revision: number, targetVersion: number) {
-      const batch = await api.send<ReviewBatch & { warnings?: string[] }>('POST', `/api/batches/${batchId}/copy`, { revision, targetVersion })
+      const batch = await api.send<ReviewBatch & { warnings?: string[] }>('POST', `${batchApiPath(batchId)}/copy`, { revision, targetVersion })
       await refresh().catch(() => undefined)
       return batch
     },
@@ -213,24 +214,24 @@ export function useReviewActions() {
       return batch
     },
     async propose(batchId: string, plateId: string, baseRevision: string, fields: EditableFields) {
-      const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `/api/batches/${batchId}/plates/${plateId}`, { baseRevision, fields })
+      const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${batchApiPath(batchId)}/plates/${plateId}`, { baseRevision, fields })
       await refresh(batchId)
       return result
     },
     async revertPipelineField(batchId: string, plateId: string, field: keyof EditableFields, jobId: string) {
       try {
-        return await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `/api/batches/${encodeURIComponent(batchId)}/plates/${encodeURIComponent(plateId)}`, { revert: field, jobId })
+        return await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `${batchApiPath(batchId)}/plates/${encodeURIComponent(plateId)}`, { revert: field, jobId })
       } finally {
         await refresh(batchId).catch(() => undefined)
       }
     },
     async submit(batchId: string, revision: number) {
-      const batch = await api.send<ReviewBatch>('POST', `/api/batches/${batchId}/submit`, { revision })
+      const batch = await api.send<ReviewBatch>('POST', `${batchApiPath(batchId)}/submit`, { revision })
       await refresh(batchId)
       return batch
     },
     async approve(batchId: string, revision: number) {
-      const batch = await api.send<ReviewBatch>('POST', `/api/batches/${batchId}/approve`, { revision })
+      const batch = await api.send<ReviewBatch>('POST', `${batchApiPath(batchId)}/approve`, { revision })
       await refresh(batchId)
       return batch
     },
@@ -238,11 +239,6 @@ export function useReviewActions() {
 }
 
 export type OverlaidPlate = PlateCardData & StoryFields & { changedInBatch: boolean }
-
-function mostRecentBatch(batches: ReviewBatch[] | undefined): ReviewBatch | undefined {
-  const updated = (batch: ReviewBatch) => (batch as ReviewBatch & { updatedAt?: string }).updatedAt ?? batch.createdAt
-  return batches?.reduce<ReviewBatch | undefined>((latest, batch) => !latest || updated(batch) > updated(latest) ? batch : latest, undefined)
-}
 
 export function useSelectedBatchId() {
   return useSearchParams()?.get('batch') ?? null
@@ -341,7 +337,7 @@ export function useEditPlate({ parallel = false }: { parallel?: boolean } = {}) 
       if (reviewed && workspace.mode === 'selected' && reviewed.batchId !== workspace.id) return { ok: false, error: 'not_found' }
       const id = reviewed?.batchId ?? (workspace.mode === 'selected' ? workspace.id : await ensureBatch(plate))
       batchId = id
-      const key = `/api/batches/${id}`
+      const key = batchApiPath(id)
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await fetchBatchDetail(api, key)
       const baseRevision = reviewed?.baseRevision ?? (workspace.mode === 'selected' ? plate.revision : detail.plates.find(entry => entry.proposed.id === plate.id)?.revision ?? plate.revision)
       if (!baseRevision) throw new Error('Cannot save a plate without a revision. Reload and try again.')
@@ -394,7 +390,7 @@ export function useReorderState() {
     try {
       if (workspace.mode === 'selected' && workspace.status !== 'ready') return { ok: false, error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden' }
       const id = workspace.mode === 'selected' ? workspace.id : await ensureBatch({ id: order[0], state })
-      const key = `/api/batches/${id}`
+      const key = batchApiPath(id)
       const detail = cache.get(key)?.data as BatchDetail | undefined ?? await fetchBatchDetail(api, key)
       await mutate(key, async () => {
         const batch = await api.send<ReviewBatch>('PUT', `${key}/state-order/${encodeURIComponent(state)}`, { batchRevision: detail.batch.revision, order, ...(standard ? { standard } : {}) })
@@ -430,7 +426,7 @@ export function useReorderState() {
   function capture(): MoveOrigin {
     const cachedBatches = cache.get(batchesKey(['open'], { mine: true }))?.data as ReviewBatch[] | undefined
     const id = workspace.mode === 'selected' ? workspace.id : displayed?.batch.id ?? mostRecentBatch(cachedBatches)?.id
-    const batch = id ? (cache.get('/api/batches/' + id)?.data as BatchDetail | undefined)?.batch ?? displayed?.batch : undefined
+    const batch = id ? (cache.get(batchApiPath(id))?.data as BatchDetail | undefined)?.batch ?? displayed?.batch : undefined
     return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 
@@ -444,7 +440,7 @@ export function useReorderState() {
       if (workspace.mode === 'selected' && (workspace.status !== 'ready' || origin.batchId !== workspace.id)) return { ok: false, error: 'not_found' }
       if (origin.batchId && origin.revision === null) return { ok: false, error: 'superseded_revision' }
       const id = origin.batchId ?? await ensureBatch({ id: firstPromotion.plateId, state })
-      key = '/api/batches/' + id
+      key = batchApiPath(id)
       await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, ...(Array.isArray(promotion) ? { promotions } : { promotion }), ...(standard ? { standard } : {}) })
       const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), { revalidate: false })
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))

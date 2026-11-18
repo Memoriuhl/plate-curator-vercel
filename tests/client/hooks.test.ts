@@ -20,7 +20,7 @@ test('batch cache keys distinguish mine and compose it with states', () => {
 })
 
 const session = vi.hoisted(() => ({ user: { uid: 'jon' }, api: { get: vi.fn(), send: vi.fn() } }))
-const navigation = vi.hoisted(() => ({ refresh: vi.fn() }))
+const navigation = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }))
 vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useSearchParams: () => new URLSearchParams(), useRouter: () => navigation }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
@@ -64,6 +64,7 @@ function harness(fallback: Record<string, unknown> = {}) {
 }
 beforeEach(() => {
   navigation.refresh.mockClear()
+  navigation.replace.mockClear()
   session.api.get.mockReset().mockImplementation(async (key: string) => key === ownKey ? [batch] : detail())
   session.api.send.mockReset()
 })
@@ -702,24 +703,32 @@ test('Publish confirmation sends the displayed revision and retains its result w
   const other = { ...approved, id: 'other', name: 'Other release', approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' } }
   session.api.get.mockImplementation(async (key: string) => {
     if (key === '/api/me') return { role: 'owner' }
+    if (key.endsWith('/publish')) return { batchRevision: 8, destination: 'license-plate-game-staging', enabledHere: true, approvalProblems: [], error: null, retryReason: 'not_waiting', confirmation: { revision: 8, since: null, plateCount: 0, contributors: [] } }
     if (key.endsWith('/run')) return { phase: published ? 'published' : 'waiting-for-publish', runId: 'release-run', outcome: published ? { version: 12 } : null, updatedAt: null }
     if (key.includes('?')) return [{ ...approved, state: published ? 'published' : 'approved' }, other]
-    return { batch: { ...approved, state: published ? 'published' : 'approved' }, plates: detail().plates }
+    return { batch: { ...approved, state: published ? 'published' : 'approved' }, plates: detail({ plateId: baseline.id, fields: { tags: proposed.tags }, baseRevision: 'old', resultRevision: 'new', authorId: 'editor', updatedAt: approved.approval.at }).plates }
   })
-  session.api.send.mockImplementation(async () => { published = true; return { status: 'publishing' } })
+  session.api.send.mockImplementation(async (_method, path) => {
+    if (path === '/api/live-access') throw new Error('No live subscription in this fixture')
+    published = true
+    return { status: 'publishing' }
+  })
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', '') } })
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open') } })
   try {
     render(createElement(PublishWorkspace), harness())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish revision 8' })).toBeDefined())
-    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 8' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm Publish' })).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Publish' }))
     const dialog = screen.getByRole('dialog')
     expect(dialog.textContent).toContain('Publish Veterans release?')
-    expect(dialog.textContent).toContain('This creates the next Catalog Snapshot.')
+    expect(dialog.textContent).toContain('This creates the next Snapshot for Staging Catalog (license-plate-game-staging).')
     expect(dialog.textContent).toContain('edited')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 8' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
+    expect(session.api.send.mock.calls.filter(([, path]) => path.endsWith('/publish'))).toEqual([
+      ['POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) }],
+    ])
+    expect(navigation.replace).toHaveBeenCalledWith('/publish?batch=release', { scroll: false })
     expect(within(screen.getByRole('region', { name: 'Approval run' })).getByText('v12')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Publish revision 8' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()

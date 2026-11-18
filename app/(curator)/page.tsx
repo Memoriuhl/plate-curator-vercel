@@ -2,20 +2,24 @@ import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { connection } from 'next/server'
 import { loadDashboard } from '@/lib/catalog/dashboard'
+import { batchHref } from '@/lib/review/href'
 import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 
-async function FirstJurisdiction() {
+type Search = Promise<{ batch?: string | string[] }>
+
+async function FirstJurisdiction({ searchParams }: { searchParams: Search }) {
   await connection()
-  const { jurisdictions } = await loadDashboard()
-  if (jurisdictions[0]) redirect(`/states/${jurisdictions[0].code}`)
+  const [{ jurisdictions }, query] = await Promise.all([loadDashboard(), searchParams])
+  const batch = Array.isArray(query.batch) ? query.batch[0] : query.batch
+  if (jurisdictions[0]) redirect(batchHref(`/states/${jurisdictions[0].code}`, batch ?? null))
   return <p>No jurisdictions available.</p>
 }
 
-export default function Home() {
+export default function Home({ searchParams }: { searchParams: Search }) {
   return (
     <main className="app-main">
       <Suspense fallback={<DashboardSkeleton kind="state" />}>
-        <FirstJurisdiction />
+        <FirstJurisdiction searchParams={searchParams} />
       </Suspense>
     </main>
   )

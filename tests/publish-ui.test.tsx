@@ -18,7 +18,8 @@ vi.mock('../lib/client/hooks', () => ({
   useBatches: () => ({ data: state.batches }),
   useReviewActions: () => ({}),
 }))
-vi.mock('next/navigation', () => ({ usePathname: () => '/publish', useSearchParams: () => new URLSearchParams(state.query) }))
+vi.mock('../lib/client/live-signal', () => ({ useBatchRevisionSignal: () => 'Live' }))
+vi.mock('next/navigation', () => ({ usePathname: () => '/publish', useRouter: () => ({ replace: vi.fn() }), useSearchParams: () => new URLSearchParams(state.query) }))
 
 test('groups field edits, cleared variants and reorders across States', () => {
   const baseline = {
@@ -159,10 +160,10 @@ test('revoked stop identifies requester and requires a fresh Publish by an activ
 
 test.each([
   ['batch=older', 'older'],
-  ['batch=missing', 'newest'],
-  ['batch=published', 'newest'],
+  ['batch=missing', 'missing'],
+  ['batch=published', 'published'],
   ['', 'newest'],
-])('Publish selection honors only approved query batches: %s', (query, selected) => {
+])('Publish preserves an explicit Batch ID and defaults only without one: %s', (query, selected) => {
   state.query = query
   state.batches = [
     { id: 'newest', state: 'approved' as const, createdAt: '2026-11-17' },
@@ -170,6 +171,5 @@ test.each([
     { id: 'published', state: 'published' as const, createdAt: '2026-11-15' },
   ].map(batch => ({ ...batch, name: batch.id, createdBy: 'owner', createdByName: null, revision: 1, baselineVersion: 1, stateOrders: {}, plateIds: [], approval: null }))
   renderToStaticMarkup(<PublishWorkspace />)
-  expect(state.selected).toContain(selected)
-  expect(state.selected).not.toContain(selected === 'older' ? 'newest' : 'older')
+  expect(state.selected).toEqual([selected])
 })
