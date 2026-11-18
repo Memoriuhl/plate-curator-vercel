@@ -18,6 +18,7 @@ import {
 } from 'react-icons/io5'
 import { groupFamilies } from '@/components/dashboard/family-data'
 import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
+import { ResearchActions } from '@/components/research/research-actions'
 import { PlateTagActions } from '@/components/dashboard/plate-tag-actions'
 import {
   AlertDialog,
@@ -584,16 +585,16 @@ export function PlatePage(props: PlatePageProps) {
               <span className="sr-only">{localPipelineReason('First issued year is not an editable Batch field')}</span>
             </label>
             <div className="flex items-center justify-between">
-              <h3 className="label">Fun facts 0 / 4</h3>
+              <h3 className="label">Fun facts {current.funFacts?.length ?? 0} / 4</h3>
               <Parked reason="Fun facts are not editable Batch fields">
                 <IoAdd />
                 Add fact
               </Parked>
             </div>
-            <p className="rounded-xl bg-[var(--danger-tint)] p-3 text-sm text-[var(--danger)]">
+            {current.funFacts?.length ? <ul className="grid gap-2">{current.funFacts.map((fact, index) => <li key={index} className="rounded-xl bg-[var(--fill)] p-3 text-sm">{fact.text} <a href={fact.sourceUrl} target="_blank" rel="noreferrer" className="underline">{fact.sourceTitle ?? 'Source'}</a></li>)}</ul> : <p className="rounded-xl bg-[var(--danger-tint)] p-3 text-sm text-[var(--danger)]">
               No fun facts yet. Each one cites a source link below; uncited
               facts never ship.
-            </p>
+            </p>}
             <div className="flex items-center justify-between">
               <h3 className="label">Sources and read-more</h3>
               <Parked reason="Source links are not editable Batch fields">
@@ -602,7 +603,7 @@ export function PlatePage(props: PlatePageProps) {
               </Parked>
             </div>
             <div className="grid gap-2">
-              {[props.plate.sourceUrl, props.plate.wikiUrl]
+              {[...new Set([props.plate.sourceUrl, current.wikiUrl ?? props.plate.wikiUrl, ...(current.readMore ?? []).map(link => link.url)])]
                 .filter((url): url is string => !!url)
                 .map((url, index) => {
                   let domain = url
@@ -629,6 +630,7 @@ export function PlatePage(props: PlatePageProps) {
                 })}
             </div>
             </>}
+            <ResearchActions key={current.id} plate={current} />
           </Card>
         </div>
         <Card title={`Family ${current.templateFamily ?? 'unassigned'}`}>

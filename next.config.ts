@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next'
 import { withWorkflow } from 'workflow/next'
+import { withEve } from 'eve/next'
 
 const nextConfig: NextConfig = {
   agentRules: false,
@@ -10,4 +11,4 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withWorkflow(nextConfig)
+export default withEve(withWorkflow(nextConfig))

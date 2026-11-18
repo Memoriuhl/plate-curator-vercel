@@ -11,13 +11,12 @@ export function plateChecks(plate: Plate, imageUrl: string | null): PlateChecks 
   const wikiUrl = text(plate.wikiUrl)
   const family = text(plate.templateFamily)
   const role = plate.templateRole ?? null
-  const facts = Array.isArray(plate.funFacts) && plate.funFacts.length > 0 ? plate.funFacts.map(fact =>
-    process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && typeof fact === 'object' && fact !== null ? fact.text : fact).join('\n') : text(plate.funFacts)
+  const facts = Array.isArray(plate.funFacts) && plate.funFacts.length > 0 ? plate.funFacts.map(fact => typeof fact === 'string' ? fact : fact.text).join('\n') : text(plate.funFacts)
   const rarity = typeof plate.rarity === 'object' && plate.rarity !== null && 'tier' in plate.rarity ? text(plate.rarity.tier) : text(plate.rarity)
   return {
     description: check(description, (description?.length ?? 0) < 40),
     funFacts: check(facts),
-    link: check(sourceUrl ?? wikiUrl, sourceUrl === null),
+    link: check(sourceUrl ?? wikiUrl ?? plate.readMore?.[0]?.url ?? null, sourceUrl === null && !plate.readMore?.length),
     tags: check(plate.tags.length > 0 ? plate.tags.join(', ') : null, plate.tags.length < 3),
     family: check(family ? role ? `${family} · ${role}` : family : null, role === null),
     image: check(imageUrl),
