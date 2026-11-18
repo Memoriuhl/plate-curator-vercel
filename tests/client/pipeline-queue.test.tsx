@@ -154,6 +154,11 @@ test('the stage cards show icons and diagrams before the editable options', () =
     ['Search Commons', 'Check images', 'Offer candidates'],
     ['Embed images', 'Compare', 'Propose families'],
   ])
+  expect(flows.map(flow => flow.style.gridTemplateColumns)).toEqual([
+    'repeat(2, minmax(0, max-content))',
+    'repeat(3, minmax(0, max-content))',
+    'repeat(3, minmax(0, max-content))',
+  ])
   const researchFlow = screen.getByRole('list', { name: 'Research / enrich steps' })
   fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
   const options = screen.getByRole('button', { name: 'Research edits' })

@@ -18,6 +18,7 @@ import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
 
 const selectedPlateLimit = 200
+const flowStepsPerRow = 4
 const groupFeatures = ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const
 
 type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> &
@@ -115,12 +116,13 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                     </strong>
                     <span className="caption block">{stage.description}</span>
                     {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
-                      className="caption mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--ink-2)]">
+                      className="caption mt-2 grid items-start gap-x-2 gap-y-1 text-[var(--ink-2)]"
+                      style={{ gridTemplateColumns: `repeat(${Math.min(stage.flow.length, flowStepsPerRow)}, minmax(0, max-content))` }}>
                       {stage.flow.map(({ label, icon: StepIcon }, index) => (
-                        <span key={label} role="listitem" className="inline-flex items-center gap-1.5">
-                          {index > 0 ? <IoArrowForwardOutline aria-hidden="true" className="mr-0.5 size-3" /> : null}
-                          <StepIcon aria-hidden="true" className="size-3.5" />
-                          {label}
+                        <span key={label} role="listitem" className="flex min-w-0 items-start gap-1">
+                          {index % flowStepsPerRow !== 0 ? <IoArrowForwardOutline aria-hidden="true" className="mt-0.5 size-3 shrink-0" /> : null}
+                          <StepIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
                         </span>
                       ))}
                     </span> : null}
