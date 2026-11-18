@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { PipelineQueueWarmup } from '@/components/dashboard/use-pipeline-queue'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CuratorHeader } from '../../components/app/curator-header'
@@ -12,7 +13,9 @@ export default function CuratorLayout({
   return (
     <TooltipProvider delayDuration={300}>
       <CuratorHeader />
-      <PipelineQueueWarmup />
+      <Suspense fallback={null}>
+        <PipelineQueueWarmup />
+      </Suspense>
       <SessionGate>{children}</SessionGate>
     </TooltipProvider>
   )
