@@ -952,7 +952,7 @@ test('five variants stay uncapped; six show five measured rows and half the sixt
     )!
     expect(list.style.height).toBe('655px')
     expect(list.className).toContain('overflow-y-auto')
-    expect(list.className).toContain('[scrollbar-gutter:stable]')
+    expect(list.className).not.toContain('[scrollbar-gutter:stable]')
     expect(list.className).not.toContain('overscroll-contain')
     expect(observe).toHaveBeenCalledTimes(6)
     sizes[5] = 200

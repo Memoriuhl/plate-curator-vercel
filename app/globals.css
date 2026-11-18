@@ -9,7 +9,18 @@
   --header-h: 64px;
   scroll-padding-top: var(--header-h);
   color-scheme: light dark;
-  scrollbar-gutter: stable;
+}
+
+@media (hover: hover) and (pointer: fine) and (forced-colors: none) and (prefers-contrast: no-preference) {
+  :where(*) {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  :where([data-scrollbar-active], :not(html, body):is(:hover, :focus-within)) {
+    scrollbar-color: color-mix(in srgb, var(--ink-2) 72%, transparent)
+      transparent;
+  }
 }
 
 @theme inline {
@@ -522,7 +533,7 @@ body {
 }
 @media (min-width: 1024px) {
   .states-layout {
-    grid-template-columns: calc(132px + 17px + var(--space-1)) minmax(0, 1fr);
+    grid-template-columns: calc(132px + var(--space-1)) minmax(0, 1fr);
     grid-template-rows: auto auto auto 1fr;
     column-gap: var(--space-6);
     row-gap: var(--stack-gap);
@@ -556,13 +567,12 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    scrollbar-gutter: stable;
     padding: 0 var(--space-1) var(--space-1) 0;
     flex-direction: column;
   }
   .states-layout .jurisdiction-card {
     flex: 0 0 auto;
-    width: 132px;
+    width: min(132px, 100%);
   }
   .states-layout .jurisdiction-region {
     top: 0;

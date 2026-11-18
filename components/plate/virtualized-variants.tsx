@@ -151,7 +151,7 @@ export function VirtualizedVariants({
       tabIndex={0}
       role="list"
       aria-label="Variants"
-      className="min-h-0 overflow-y-auto [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+      className="min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
       style={{ height: cap }}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget) && !keyboard)
