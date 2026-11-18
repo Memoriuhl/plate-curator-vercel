@@ -26,6 +26,28 @@ test('Arizona snapshot v11 matches the game family key even with a missing Varia
   expect(variants[1].revision).toBe(plateRevision(chooseLife))
 })
 
+test('Arizona v16 groups legacy Variants identified by their explicit Standard link', async () => {
+  const { snapshot, curator } = await fixture()
+  const ids = ['AZ.standard', 'AZ.amateur_radio', 'AZ.choose_life']
+  const plates = ids.map(id => {
+    const plate = snapshot.plates.find(plate => plate.id === id)!
+    if (id !== 'AZ.standard') delete plate.isTemplate
+    return plate
+  })
+  const result = buildJurisdiction({ ...snapshot, version: 16, plates }, curator, source.imageUrl, 'AZ')!
+  expect(result.catalogVersion).toBe(16)
+  expect(groupFamilies(result.plates).map(({ template, variants }) => ({
+    head: template.id,
+    members: variants.map(variant => [variant.id, variant.templateRole, variant.variantOfPlateId]),
+  }))).toEqual([{
+    head: 'AZ.standard',
+    members: [
+      ['AZ.amateur_radio', 'variant', 'AZ.standard'],
+      ['AZ.choose_life', 'variant', 'AZ.standard'],
+    ],
+  }])
+})
+
 async function fixture() {
   return { snapshot: await source.readSnapshot(), curator: await source.readCuratorState() }
 }

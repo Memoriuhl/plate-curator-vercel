@@ -25,7 +25,7 @@ const batch: ReviewBatch = {
 function setup(overrides: Partial<ReviewBatch> = {}) {
   const store = createMemoryStore([{ ...batch, ...overrides }])
   const stateBaseline = vi.fn(async () => plates)
-  const deps: ReviewDeps = { store, stateBaseline, baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, baseline: async id => plates.find(plate => plate.id === id) ?? null, now: () => '' }
+  const deps: ReviewDeps = { store, stateBaseline, baselineAtVersion: async (_version, id) => plates.find(plate => plate.id === id) ?? null, baseline: async id => plates.find(plate => plate.id === id) ?? null, now: () => '2026-11-17T16:15:00Z' }
   return { deps, store, stateBaseline }
 }
 
@@ -33,7 +33,7 @@ test('reordering saves the full state from the pinned version without expanding 
   const { deps, store, stateBaseline } = setup()
   const order = ['AK.three', 'AK.two', 'AK.one']
   expect(await reorderState(deps, editor, { batchId: 'batch', state: 'AK', batchRevision: 4, order, standard: { from: 'AK.two', to: order[0] } })).toEqual({
-    ok: true, value: { ...batch, plateIds: ['AK.one', 'AK.two', 'AK.three'], revision: 5, stateOrders: { AK: order }, baselineOrders: { AK: plates.map(plate => plate.id) } },
+    ok: true, value: { ...batch, lastChangedAt: '2026-11-17T16:15:00Z', plateIds: ['AK.one', 'AK.two', 'AK.three'], revision: 5, stateOrders: { AK: order }, baselineOrders: { AK: plates.map(plate => plate.id) } },
   })
   expect(stateBaseline).toHaveBeenCalledWith(7, 'AK')
   expect(await store.getBatch('batch')).toMatchObject({ plateIds: ['AK.one', 'AK.two', 'AK.three'], stateOrders: { AK: order } })

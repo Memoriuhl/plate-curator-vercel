@@ -162,7 +162,7 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   const first = render(<Workspace value={session(editor)}><TagActions /></Workspace>)
   const second = render(<Workspace value={session(owner)}><TagActions /></Workspace>)
   await waitFor(() => expect(first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!).toBeTruthy())
-  await waitFor(() => expect(second.container.textContent).toContain('rev 0'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0'))
   expect(canEdit(batch(), editor)).toBe(true)
   expect(canEdit(batch(), owner)).toBe(true)
   hold = new Promise(resolve => { release = resolve })
@@ -175,8 +175,8 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
   expect(within(within(second.container).getByRole('article', { name: 'Army family' })).getByText('Variant')).toBeTruthy()
   await act(async () => { release!() })
   await waitFor(() => expect(within(within(second.container).getByRole('article', { name: 'Navy family' })).getByText('Variant')).toBeTruthy())
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
-  expect(second.container.textContent).toContain('rev 1')
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
+  expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1')
   for (const view of [first, second]) expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-id')).toBe('shared')
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 1 })
   expect(requests.filter(r => r.path !== '/api/live-access')).toEqual([expect.objectContaining({ method: 'POST', path: '/api/batches/shared/family-merge' })])
@@ -225,7 +225,7 @@ test('remote revision waits for drag settlement and preserves the lifted Plate p
   const handle = view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 110)
   await act(async () => { await proposeEdit(deps, owner, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['remote'], templateFamily: 'navy', variantOfPlateId: 'AK.b' } }) })
-  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   expect(within(within(view.container).getByRole('article', { name: 'Army family' })).getByText('Variant')).toBeTruthy()
   pointer(handle, 'pointermove', 400); pointer(handle, 'pointerup', 400)
   await waitFor(() => expect(view.container.textContent).toContain('The Batch changed. Drag again using the latest selection.'))
@@ -243,7 +243,7 @@ test('initial catch-up coalesces bursts, ignores old signals and disposes on swi
   await waitFor(() => expect(view.container.textContent).toContain('Live'))
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)) })
   const key = owner.uid + '/api/batches/shared'
-  expect(view.container.textContent).toContain('rev 3')
+  expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('3')
   const initialReads = reads.get(key)!
   expect(initialReads).toBeGreaterThan(0)
   act(() => { emit('shared', 2); emit('shared', 3) })

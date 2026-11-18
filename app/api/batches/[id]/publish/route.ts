@@ -89,7 +89,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
       if (confirmDraft && batch.state === 'submitted') await deps.supersedeRun?.(batch)
       return await dispatchRetry(publishing, accepted, auth.actor.uid, deps.now())
     }
-    if (eligibility.reason !== PUBLISH_ERRORS.notWaiting) return json({ error: eligibility.reason, reviewedVersion: eligibility.reviewedVersion, liveVersion: eligibility.liveVersion }, 409)
+    if (confirmDraft || eligibility.reason !== PUBLISH_ERRORS.notWaiting) return json({ error: eligibility.reason, reviewedVersion: eligibility.reviewedVersion, liveVersion: eligibility.liveVersion }, 409)
     const { batchId, revision, ...authority } = command
     try { await resumeHook(`publish:${batchId}:${revision}`, { ownerUid: auth.actor.uid, ...authority }) } catch { return json({ error: PUBLISH_ERRORS.notWaiting }, 409) }
     await deps.store.requestPublish(id, body.revision, deps.now(), requestedBy)
@@ -118,10 +118,29 @@ export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]
     const reason = receipt && !receipt.committedAt ? await publishing.records.stopped(receipt) : null
     const stop = publishControlStop(control)
     const baseline = stop ? { error: stop } : await publishBaselineStatus(publishing, batch)
+    const enabledHere = publishAllowed()
     const [pipelineBusy, confirmation] = await Promise.all([
       publishing.records.pipelineBusy?.(),
       deps.store.changesSinceReview?.(id, auth.actor.uid, batch.revision),
     ])
-    return json({ ...baseline, pipelineBusy, confirmation, canConfirmDraft: confirmDraft && publishAllowed() && !pipelineBusy && eligibility.canRetry, canAbandon: publishAllowed() && !!prepared && !abandonReason, abandonReason, ...(prepared ? { prepared } : {}), ...(abandonment ? { abandonment } : {}), canRetry: !confirmDraft && publishAllowed() && !pipelineBusy && eligibility.canRetry, retryReason: eligibility.reason, ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}) })
+    const ready = enabledHere && !baseline.error && !pipelineBusy && eligibility.canRetry
+    const approvalProblems = confirmDraft && ready ? await reviewApprovalProblems(deps, batch) : []
+    return json({
+      ...baseline,
+      batchRevision: batch.revision,
+      destination: process.env.GCP_PROJECT_ID ?? null,
+      enabledHere,
+      pipelineBusy,
+      confirmation,
+      approvalProblems,
+      canConfirmDraft: confirmDraft && ready && approvalProblems.length === 0,
+      canAbandon: enabledHere && !!prepared && !abandonReason,
+      abandonReason,
+      ...(prepared ? { prepared } : {}),
+      ...(abandonment ? { abandonment } : {}),
+      canRetry: !confirmDraft && ready,
+      retryReason: eligibility.reason,
+      ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}),
+    })
   } catch { return json({ error: PUBLISH_ERRORS.unavailable }, 503) }
 }

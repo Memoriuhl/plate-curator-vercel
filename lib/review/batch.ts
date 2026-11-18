@@ -134,7 +134,8 @@ async function updatePlate(
     const fields: EditableFields = Object.fromEntries(editableKeys
       .filter(key => !sameEditableValue(key, baseline[key], plate[key]))
       .map(key => [key, plate[key]]))
-    const nextBatch: ReviewBatch = { ...batch, plateIds, state: 'open', revision: batch.revision + 1, approval: null }
+    const changedAt = d.now()
+    const nextBatch: ReviewBatch = { ...batch, lastChangedAt: changedAt, plateIds, state: 'open', revision: batch.revision + 1, approval: null }
     const attribution = retainedPipelineChanges(existing, plate)
     for (const field of revertedFields) {
       const change = existing?.pipelineChanges?.[field]
@@ -150,7 +151,7 @@ async function updatePlate(
     const edit = {
       plateId: i.plateId, baseRevision: plateRevision(baseline), fields,
       ...attribution,
-      authorId: a.uid, updatedAt: d.now(), resultRevision: plateRevision(plate),
+      authorId: a.uid, updatedAt: changedAt, resultRevision: plateRevision(plate),
     }
     let combined: Awaited<ReturnType<typeof standardEdits>> | undefined
     const firstId = batch.stateOrders[plate.state]?.[0]
@@ -274,7 +275,7 @@ export async function reorderState(
     : await standardEdits(d, actor, batch, plates, input.order, changes, input.standard)
   if (!combined.ok) return combined
   const next: ReviewBatch = {
-    ...batch, plateIds: combined.value.plateIds, state: 'open', approval: null, revision: batch.revision + 1,
+    ...batch, lastChangedAt: d.now(), plateIds: combined.value.plateIds, state: 'open', approval: null, revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
     baselineOrders: { ...batch.baselineOrders, [input.state]: batch.baselineOrders?.[input.state] ?? plates.map(plate => plate.id) },
   }

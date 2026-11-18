@@ -1,7 +1,9 @@
 import type { Plate } from './types'
 
-export function familyRole(plate: Pick<Plate, 'templateRole' | 'isTemplate'>) {
-  return plate.templateRole ?? (typeof plate.isTemplate === 'boolean' ? plate.isTemplate ? 'template' : 'variant' : null)
+export function familyRole(plate: Pick<Plate, 'templateRole' | 'isTemplate' | 'variantOfPlateId'>) {
+  if (plate.templateRole) return plate.templateRole
+  if (typeof plate.isTemplate === 'boolean') return plate.isTemplate ? 'template' : 'variant'
+  return plate.variantOfPlateId ? 'variant' : null
 }
 
 type FamilyMember = {

@@ -1,19 +1,18 @@
 'use client'
 
 import Link from 'next/link'
-import { ApiError, apiErrorReasons } from '@/lib/client/api'
 import { usePathname } from 'next/navigation'
-import { useState, type ReactNode } from 'react'
-import { IoPaperPlaneOutline } from 'react-icons/io5'
+import type { ReactNode } from 'react'
+import { BatchLastChanged } from '@/components/review/batch-last-changed'
+import { mostRecentBatch } from '@/lib/review/batch-selection'
+import { batchHref, reviewHref } from '@/lib/review/href'
 import {
   useWorkspaceBatch,
   useBatch,
   useBatches,
   useMe,
-  useReviewActions,
 } from '@/lib/client/hooks'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
 import { PublishButton } from './publish-button'
 import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
@@ -37,20 +36,11 @@ export function BatchActions({
   const workspace = useWorkspaceBatch()
   const pathname = usePathname()
   const batches = useBatches(['open'], { mine: true })
-  const personalBatch = batches.data?.toSorted((a, b) =>
-    (
-      (b as typeof b & { updatedAt?: string }).updatedAt ?? b.createdAt
-    ).localeCompare(
-      (a as typeof a & { updatedAt?: string }).updatedAt ?? a.createdAt,
-    ),
-  )[0]
+  const personalBatch = mostRecentBatch(batches.data)
   const batch = workspace.mode === 'selected' ? workspace.detail?.batch : personalBatch
   const personalDetail = useBatch(workspace.mode === 'personal' ? batch?.id ?? null : null, { reuse: true })
   const detail = workspace.mode === 'selected' ? { data: workspace.detail, isLoading: workspace.status === 'loading', error: workspace.status === 'unavailable' } : personalDetail
   const me = useMe()
-  const actions = useReviewActions()
-  const [pending, setPending] = useState(false)
-  const [message, setMessage] = useState('')
   const run = useTagRun()
   const queue = usePipelineQueue(batch?.id, batch?.name)
   const batchPlates =
@@ -66,61 +56,23 @@ export function BatchActions({
         description, wikiUrl, funFacts, firstIssuedYear, readMore,
       }
     }) ?? []
-  const edits =
-    detail.data?.plates.filter((plate) => plate.order !== undefined || plate.edit && Object.keys(plate.edit.fields).length > 0).length ?? 0
-  const pipelineBusy = queue.runs.some(run => run.batchId === batch?.id && run.incrementalDrafts && ['queued', 'running'].includes(run.status))
   return (
     <>
       <PipelineRuns queue={queue} />
       <header className="state-header">
         {children}
         <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
-          <span className="batch-summary min-h-6 min-w-60" aria-hidden={!batch}>
-            {batch ? (
-              <>
-                <Avatar size="sm">
-                  <AvatarFallback>
-                    {(me.data?.uid ?? batch.createdBy).slice(0, 1).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span>
-                  {workspace.mode === 'selected' ? 'Selected batch:' : 'Your batch:'}{' '}
-                  {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
-                </span>
-                {workspace.mode === 'selected' ? <span>{batch.state}</span> : null}
-              </>
-            ) : null}
-          </span>
-          {workspace.mode === 'personal' && batch ? <Link href={pathname + '?batch=' + encodeURIComponent(batch.id)}>Open / Share</Link> : null}
-          <Button
-            variant="outline"
-            disabled={
-              (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending || pipelineBusy
-            }
-            title={pipelineBusy ? 'Wait for this Batch’s pipeline work to finish.' : undefined}
-            onClick={async () => {
-              if (!detail.data || (workspace.mode === 'selected' && workspace.status !== 'ready')) return
-              setPending(true)
-              setMessage('')
-              try {
-                await actions.submit(
-                  detail.data.batch.id,
-                  detail.data.batch.revision,
-                )
-                setMessage('Submitted for review.')
-              } catch (error) {
-                const code = error instanceof ApiError ? error.code : null
-                if (code === 'standard_change_unconfirmed') setMessage(apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.')
-                else if (code === 'pipeline_busy') setMessage('Submit after the Plate Pipeline finishes this Batch.')
-                else setMessage('Could not submit your batch. Please try again.')
-              } finally {
-                setPending(false)
-              }
-            }}
-          >
-            <IoPaperPlaneOutline aria-hidden="true" />
-            {pending ? 'Submitting…' : 'Submit for review'}
-          </Button>
+          {workspace.mode === 'personal' && batch ? (
+            <span className="batch-summary min-w-0 flex-wrap">
+              <Avatar size="sm">
+                <AvatarFallback>{(batch.createdByName || batch.createdBy).slice(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <strong>{batch.name}</strong>
+              <BatchLastChanged batch={detail.data?.batch ?? batch} />
+            </span>
+          ) : null}
+          {workspace.mode === 'personal' && batch ? <Link href={batchHref(pathname, batch.id)}>Open / Share</Link> : null}
+          {batch ? <Link href={reviewHref(undefined, undefined, batch.id)}>Review Batch</Link> : null}
           <RunMenu
             queue={queue}
             underTagged={underTagged}
@@ -132,11 +84,10 @@ export function BatchActions({
             modelError={run.modelError}
             start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
           />
-          <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} draft={edits > 0 && (batch?.state === 'open' || batch?.state === 'submitted')} approved={batch?.state === 'approved'} />
-          {batches.error || detail.error ? (
-            <span role="alert">Could not load your batch.</span>
-          ) : null}
-          {message ? <span role="status">{message}</span> : null}
+          <PublishButton batchId={workspace.mode === 'selected' ? workspace.id : batch?.id} owner={me.data?.role === 'owner'} />
+          {workspace.mode === 'personal' && batches.isLoading && !batch ? <span role="status">Loading your Batch…</span> : null}
+          {workspace.mode === 'personal' && !batches.isLoading && !batches.error && !batch ? <span>No open Batch yet</span> : null}
+          {(workspace.mode === 'personal' && batches.error) || detail.error ? <span role="alert">Could not load this Batch.</span> : null}
         </div>
         <TagRunBanner
           entries={run.entries}

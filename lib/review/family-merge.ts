@@ -61,6 +61,7 @@ export async function mergeFamily(
   const plateIds = [...new Set([...batch.plateIds, ...changes.keys()])]
   if (plateIds.length > limits.plates) return { ok: false, error: 'invalid_state', reasons: ['This move would exceed the Batch plate limit.'] }
 
+  const changedAt = d.now()
   const deleteEditsFor: string[] = []
   const nextEdits = baseline.flatMap(base => {
     if (!changes.has(base.id)) return []
@@ -73,9 +74,9 @@ export async function mergeFamily(
       return []
     }
     return [{ plateId: base.id, fields: delta, ...attribution, baseRevision: plateRevision(base),
-      resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: d.now() }]
+      resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: changedAt }]
   })
-  const next = { ...batch, plateIds, state: 'open' as const, approval: null, revision: batch.revision + 1 }
+  const next = { ...batch, lastChangedAt: changedAt, plateIds, state: 'open' as const, approval: null, revision: batch.revision + 1 }
   const saved = await d.store.commit(batch.id, input.batchRevision, { batch: next, by: actor, edits: nextEdits, deleteEditsFor })
   if (saved !== 'ok') return { ok: false, error: saved === 'pipeline_busy' ? saved : 'superseded_revision' }
   if (batch.state !== 'open') await d.supersedeRun?.(batch)

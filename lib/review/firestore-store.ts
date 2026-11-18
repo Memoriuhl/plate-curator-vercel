@@ -1,3 +1,4 @@
+import { canCopyForFreshReview } from './access'
 import type { DocumentSnapshot, Firestore, Transaction } from '@google-cloud/firestore'
 import { liveEnvKey, signalPath } from './live-signal'
 import type { ProposedEdit, PublishMetadata, ReviewBatch, ReviewStore } from './types'
@@ -75,7 +76,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         }
         if (!source.exists || source.get('env') !== env) return { ok: false, error: 'not_found' }
         if (source.get('revision') !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
-        if (source.get('state') !== 'approved') return { ok: false, error: 'invalid_state' }
+        if (!canCopyForFreshReview({ state: source.get('state'), baselineVersion: source.get('baselineVersion') }, input.targetVersion)) return { ok: false, error: 'invalid_state' }
         if (source.get('publishReservation') || receipt.get('committedAt')) return { ok: false, error: 'invalid_state' }
         const liveVersion = head.get('version')
         if (typeof liveVersion !== 'number') throw new Error('Catalog head unavailable')

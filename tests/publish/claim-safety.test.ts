@@ -65,3 +65,17 @@ test.each(['owner', 'batch', 'revision', 'version', 'committed', 'other-commit',
 test('D: only matching prepared identity, version and bytes pass the before-upload proof', () => {
   expect(uploadError(prepared, prepared, command, prepared.blobSha256, 1, false)).toBeNull()
 })
+
+test('confirming a submitted draft can start its own command alongside the waiting review', () => {
+  const waiting = {
+    ...input,
+    batch: { ...batch, approvalRun: { runId: 'waiting-for-review', revision: batch.revision - 1 } },
+    claim: undefined,
+    runStatus: 'running',
+  }
+  expect(retryEligibility(waiting)).toMatchObject({ canRetry: false, reason: 'not_waiting' })
+  const confirmed = { ...fresh, confirmedDraftRevision: batch.revision - 1 }
+  expect(retryEligibility({ ...waiting, command: confirmed })).toMatchObject({ canRetry: true })
+  expect(retryEligibility({ ...waiting, command: confirmed, claim: { ...input.claim!, runId: 'active-publish' } }))
+    .toMatchObject({ canRetry: false, reason: 'locked' })
+})

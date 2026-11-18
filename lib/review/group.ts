@@ -76,7 +76,7 @@ export async function acceptGroup(d: ReviewDeps, jobs: JobsDeps, actor: Actor, i
     if (!Object.keys(fields).length && !hasPipelineHistory(attribution)) deleteEditsFor.push(plate.id)
     else nextEdits.push({ plateId: plate.id, baseRevision: plateRevision(baseline), fields, ...attribution, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(plate) })
   }
-  const next: ReviewBatch = { ...batch, plateIds, revision: batch.revision + 1, approval: null }
+  const next: ReviewBatch = { ...batch, lastChangedAt: d.now(), plateIds, revision: batch.revision + 1, approval: null }
   const committed = await d.store.commit(batch.id, batch.revision, { batch: next, by: actor, edits: nextEdits, deleteEditsFor })
   return committed === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
 }

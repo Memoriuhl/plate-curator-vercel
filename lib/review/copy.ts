@@ -1,3 +1,4 @@
+import { canCopyForFreshReview } from './access'
 import { standardOrderProblems } from './standard'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../catalog/types'
@@ -26,7 +27,7 @@ export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: st
   const source = await d.store.readBatch(input.sourceId)
   if (!source) return { ok: false, error: 'not_found' }
   if (source.batch.revision !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
-  if (source.batch.state !== 'approved') return { ok: false, error: 'invalid_state' }
+  if (!canCopyForFreshReview(source.batch, input.targetVersion)) return { ok: false, error: 'invalid_state' }
   const liveVersion = await d.head()
   if (liveVersion !== input.targetVersion) return { ok: false, error: 'head_moved', liveVersion }
   const snapshot = await d.snapshot(input.targetVersion)
@@ -55,7 +56,7 @@ export async function copyBatch(d: CopyDeps, actor: Actor, input: { sourceId: st
     return { plateId: edit.plateId, fields: structuredClone(edit.fields), baseRevision: plateRevision(baseline), resultRevision: plateRevision({ ...baseline, ...edit.fields }), authorId: actor.uid, updatedAt: now }
   })
   const result = await d.store.copy({ ...input, batch: {
-    id, name: `${source.batch.name} (fresh review)`, createdBy: actor.uid, createdByName: actor.name, createdAt: now,
+    id, name: `${source.batch.name} (fresh review)`, createdBy: actor.uid, createdByName: actor.name, createdAt: now, lastChangedAt: now,
     state: 'open', revision: 0, baselineVersion: input.targetVersion, approval: null,
     source: { batchId: input.sourceId, revision: input.sourceRevision },
     plateIds: [...source.batch.plateIds], stateOrders: structuredClone(source.batch.stateOrders), baselineOrders,

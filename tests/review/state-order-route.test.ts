@@ -13,7 +13,7 @@ vi.mock('../../lib/server/context', () => context)
 const batch = { id: 'batch', name: 'Order', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 7, plateIds: ['one'], stateOrders: {}, approval: null }
 beforeEach(() => {
   context.currentActor.mockResolvedValue({ ok: true, actor: { uid: 'editor', name: null, role: 'editor' } })
-  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template' as const, isStandard: id === 'one' })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '' } satisfies ReviewDeps)
+  context.reviewDeps.mockReturnValue({ store: createMemoryStore([batch]), stateBaseline: async () => ['one', 'two'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template' as const, isStandard: id === 'one' })), baselineAtVersion: async () => null, baseline: async () => null, now: () => '2026-11-17T16:15:00Z' } satisfies ReviewDeps)
 })
 function put(body: unknown) {
   return PUT(new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
@@ -21,7 +21,7 @@ function put(body: unknown) {
 test('signed-in creator receives the updated batch', async () => {
   const response = await put({ batchRevision: 4, order: ['two', 'one'], standard: { from: 'one', to: 'two' } })
   expect(response.status).toBe(200)
-  expect(await response.json()).toEqual({ ...batch, plateIds: ['one', 'two'], revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
+  expect(await response.json()).toEqual({ ...batch, lastChangedAt: '2026-11-17T16:15:00Z', plateIds: ['one', 'two'], revision: 5, stateOrders: { AK: ['two', 'one'] }, baselineOrders: { AK: ['one', 'two'] } })
 })
 
 test('combined order request promotes the Variant with one revision and rejects stale retries', async () => {

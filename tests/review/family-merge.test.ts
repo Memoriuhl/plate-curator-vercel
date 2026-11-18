@@ -48,7 +48,7 @@ test('saves eligible Arizona plates together and leaves Standard, deleted plates
     ok: true, value: { moved: [radio, life], alreadyInFamily: 1, deleted: 1, standard: 1 },
   })
   expect(commit).toHaveBeenCalledOnce()
-  expect(await store.getBatch(batch.id)).toMatchObject({ revision: 5, stateOrders: batch.stateOrders })
+  expect(await store.getBatch(batch.id)).toMatchObject({ revision: 5, lastChangedAt: deps.now(), stateOrders: batch.stateOrders })
   const reloaded = await batchDetail(deps, batch.id)
   if (!reloaded.ok) throw new Error(reloaded.error)
   const proposed = new Map(reloaded.value.plates.map(entry => [entry.proposed.id, entry.proposed]))

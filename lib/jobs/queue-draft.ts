@@ -104,7 +104,7 @@ export async function saveQueueDraft(
   if (plateIds.size > limits.plates) return { error: 'invalid_result' }
   if (edits.length) {
     const result = await tx.commitDraft(batch.id, batch.revision, {
-      batch: { ...batch, revision: batch.revision + 1, approval: null, plateIds: [...plateIds] },
+      batch: { ...batch, lastChangedAt: at, revision: batch.revision + 1, approval: null, plateIds: [...plateIds] },
       by: { uid: run.requestedBy, name: byName }, edits,
     })
     if (result !== 'ok') return { error: 'draft_conflict' }

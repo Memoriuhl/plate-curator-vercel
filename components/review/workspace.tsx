@@ -28,8 +28,9 @@ import { changeSummary, DiffTable } from './diff'
 import { RunStatus } from './run-status'
 import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { hasPipelineHistory } from '@/lib/review/pipeline-changes'
-import { reviewHref } from '@/lib/review/href'
-import { localPipelineReason } from '@/lib/local-pipeline'
+import { batchHref, reviewHref } from '@/lib/review/href'
+import { PublishButton } from '@/components/dashboard/publish-button'
+import { BatchLastChanged } from './batch-last-changed'
 import { useBatchRun } from '@/lib/client/hooks'
 
 type State = {
@@ -87,6 +88,7 @@ export function reviewError(error: unknown, revision: number) {
     return `This batch changed while you were reviewing. Look again at revision ${revision}.`
   if (code === 'standard_change_unconfirmed')
     return apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.'
+  if (code === 'pipeline_busy') return 'Submit after the Plate Pipeline finishes this Batch.'
   if (code === 'invalid_state')
     return 'This batch is no longer available for this action. Refresh and look again.'
   return 'Could not save this action. Please try again.'
@@ -118,7 +120,7 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
     .join(', ')
   const submit = batch.state === 'open' && batch.createdBy === me.data?.uid
   const approve =
-    me.data?.role === 'owner' && ['submitted', 'conflict'].includes(batch.state)
+    me.data?.role === 'owner' && batch.state === 'submitted'
   async function act() {
     setBusy(true)
     setMessage('')
@@ -151,10 +153,6 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
             ). Any later edit asks you to look again.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" disabled title={localPipelineReason('No request-changes transition or comment delivery')}>
-              Request changes
-            </Button>
-            <span className="text-muted-foreground">{localPipelineReason('No request-changes transition or comment delivery')}</span>
             {approve || submit ? (
               <Button disabled={busy} onClick={act}>
                 {approve && <IoCheckmark aria-hidden="true" />}
@@ -163,11 +161,12 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
                   : `Approve revision ${batch.revision}`}
               </Button>
             ) : (
-              <p>Waiting for an Owner to approve</p>
+              batch.state === 'submitted' ? <p>Waiting for an Owner to approve</p> : null
             )}
           </div>
         </>
       )}
+      {batch.state !== 'published' && <PublishButton batchId={batch.id} owner={me.data?.role === 'owner'} size="sm" />}
       {message && (
         <p className="w-full" role="alert">
           {message}
@@ -203,7 +202,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const [all, setAll] = useState(false)
   const [search, setSearch] = useState('')
   const [pagination, setPagination] = useState({ scope: '', count: reviewPageSize })
-  const [now] = useState(() => Date.now())
   const loaded = useCallback(
     (id: string, detail: BatchDetail) =>
       setDetails((previous) =>
@@ -248,7 +246,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     ? [...visible, ...candidateEntries].find(entry => entry.baseline.id === plateId && (!code || entry.baseline.state === code))
     : listed[0]
   useEffect(() => {
-    if (first && !batchId && !params.has('view') && !code)
+    if (first && batchId === null && !params.has('view') && !code)
       router.replace(reviewHref(undefined, undefined, first.batch.id))
   }, [first, batchId, code, params, router])
   const stateCounts = new Map<string, number>()
@@ -280,6 +278,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       setReverting(false)
     }
   }
+  if (batchId === '') return <p role="alert">This Batch is unavailable. <Link href="/review?view=states">Choose another Batch</Link></p>
   return (
     <div className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] min-w-0 grid-cols-1 gap-4 md:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
       {(!batchId ? batches : []).map((batch) => (
@@ -497,26 +496,9 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   {entry.baseline.id}
                 </p>
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
-                <span>Revisions</span>
-                {Array.from(
-                  {
-                    length: Math.min(20, Math.max(0, entry.batch.revision - 1)),
-                  },
-                  (_, i) => (
-                    <span key={i} className="size-2 rounded-full bg-muted" />
-                  ),
-                )}
-                <span className="flex items-center gap-2 rounded-full bg-primary p-1 pr-3 text-primary-foreground">
-                  <Author
-                    uid={entry.batch.createdBy}
-                    name={entry.batch.createdByName}
-                  />
-                  rev {entry.batch.revision} ·{' '}
-                  {entry.edit
-                    ? `${Math.max(0, Math.floor((now - Date.parse(entry.edit.updatedAt)) / 60000))} min ago`
-                    : 'no edits'}
-                </span>
+              <div className="text-xs text-muted-foreground">
+                <strong className="block">{entry.batch.name}</strong>
+                <BatchLastChanged batch={entry.batch} />
               </div>
             </header>
             <DiffTable
@@ -538,7 +520,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               detail={currentDetails[entry.batch.id]}
             />
           </>
-        ) : review.error || mine.error || selected.error ? (
+        ) : (batchId ? selected.error : review.error || mine.error) ? (
           <p role="alert">Could not load review batches. Please refresh.</p>
         ) : (batchId ? selected.isLoading : review.isLoading || mine.isLoading || batches.some(batch => !currentDetails[batch.id])) ? (
           <p role="status">Loading review batches…</p>
@@ -551,9 +533,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                     : batchId ? 'No draft changes in this Batch'
                       : 'Nothing waiting for review'}
             </h2>
-            <Link href={batchId && (filters.run || since !== null) ? reviewHref(undefined, undefined, batchId) : '/'} className="underline">
-              {batchId && (filters.run || since !== null) ? 'Show all Batch changes' : 'Dashboard'}
-            </Link>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <Link href={batchId && (filters.run || since !== null) ? reviewHref(undefined, undefined, batchId) : batchHref('/', batchId)} className="underline">
+                {batchId && (filters.run || since !== null) ? 'Show all Batch changes' : 'Dashboard'}
+              </Link>
+              {selected.data && <PublishButton batchId={selected.data.batch.id} owner={me.data?.role === 'owner'} size="sm" />}
+            </div>
           </div>
         )}
       </section>

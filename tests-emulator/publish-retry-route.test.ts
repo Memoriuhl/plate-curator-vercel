@@ -363,3 +363,36 @@ test('the publish gate follows Batch environment across legacy worker namespaces
     await writes.commit()
   }
 })
+
+test('Owner can confirm a submitted draft while its review workflow is still running', async () => {
+  const deps = mocks.deps()
+  const supersede = vi.fn(async () => undefined)
+  deps.supersedeRun = supersede
+  await db.doc('reviewBatches/batch').set({
+    ...batch, env, state: 'submitted', approval: null,
+    approvalRun: { runId: 'waiting-for-review', revision: batch.revision },
+  })
+  await db.doc('reviewBatches/batch/edits/one').set({ plateId: 'one', fields: { tags: ['confirmed draft'] } })
+  mocks.status.mockResolvedValue('running')
+
+  expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({
+    batchRevision: batch.revision, canConfirmDraft: true, confirmation: { revision: batch.revision },
+  })
+  expect((await POST(request('confirm-submitted'), ctx)).status).toBe(202)
+  expect(supersede).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    state: 'submitted', approvalRun: { runId: 'waiting-for-review', revision: batch.revision },
+  }))
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+  expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
+    expect.any(Function),
+    [batch.id, batch.revision + 1, expect.objectContaining({ confirmedDraftRevision: batch.revision })],
+    expect.any(Object),
+  )
+  expect(await deps.store.getBatch(batch.id)).toMatchObject({
+    state: 'approved',
+    revision: batch.revision + 1,
+    approval: { revision: batch.revision, by: owner.uid },
+    approvalRun: { runId: 'fresh-run', revision: batch.revision },
+  })
+  expect((await deps.pointer.read()).version).toBe(1)
+})
