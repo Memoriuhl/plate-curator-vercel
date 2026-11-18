@@ -4,13 +4,27 @@ export type CheckStatus = 'good' | 'weak' | 'missing'
 
 export type Check = { status: CheckStatus; value: string | null }
 
-export const PLATE_CHECK_KEYS = ['description', 'funFacts', 'link', 'tags', 'family', 'image', 'rarity'] as const
+export const PLATE_CHECK_KEYS = [
+  'description',
+  'funFacts',
+  'link',
+  'tags',
+  'family',
+  'image',
+  'rarity',
+] as const
 
 export type PlateCheckKey = (typeof PLATE_CHECK_KEYS)[number]
 
 export type PlateChecks = Record<PlateCheckKey, Check>
 
-export const COMPLETENESS_CHECK_KEYS = ['description', 'link', 'tags', 'family', 'image'] as const satisfies readonly PlateCheckKey[]
+export const COMPLETENESS_CHECK_KEYS = [
+  'description',
+  'link',
+  'tags',
+  'family',
+  'image',
+] as const satisfies readonly PlateCheckKey[]
 
 export const PLATE_IMAGE_SIZE = { width: 320, height: 160 } as const
 
@@ -47,17 +61,27 @@ export type PlateCardData = StoryFields & {
   complete: boolean
 }
 
-export type DashboardData = { catalogVersion: number; jurisdictions: JurisdictionSummary[] }
+export type DashboardData = {
+  catalogVersion: number
+  jurisdictions: JurisdictionSummary[]
+}
 
-export type JurisdictionData = { catalogVersion: number; code: string; name: string; region: string; plates: PlateCardData[] }
+export type JurisdictionData = {
+  catalogVersion: number
+  code: string
+  name: string
+  region: string
+  plates: PlateCardData[]
+}
 
 export type PlateDetail = {
-  plate: PlateCardData & StoryFields & {
-    description: string | null
-    category: string | null
-    sourceUrl: string | null
-    wikiUrl: string | null
-  }
+  plate: PlateCardData &
+    StoryFields & {
+      description: string | null
+      category: string | null
+      sourceUrl: string | null
+      wikiUrl: string | null
+    }
   family: PlateCardData[]
   prevId: string | null
   nextId: string | null

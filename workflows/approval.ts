@@ -6,55 +6,122 @@ import { catalogChanged } from '../lib/server/catalog-head'
 import { publishDeps, reviewDeps } from '../lib/server/context'
 import { catalogPush } from './catalog-push'
 
+/**
+ * Wait for the batch's approval or supersession and publish an approved revision under
+ * its command.
+ */
 export async function approvalRun(batchId: string, revision: number) {
   'use workflow'
 
-  const decision = createHook<{ by: string } | { superseded: true }>({ token: `approval:${batchId}:${revision}` })
+  const decision = createHook<{ by: string } | { superseded: true }>({
+    token: `approval:${batchId}:${revision}`,
+  })
   const before = await readBatch(batchId)
   if (before?.state === 'submitted' && before.revision === revision) {
-    const decided = await Promise.race([decision, sleep('7d').then(() => 'timeout' as const)])
+    const decided = await Promise.race([
+      decision,
+      sleep('7d').then(() => 'timeout' as const),
+    ])
     if (decided === 'timeout') return { outcome: 'decision_timeout' as const }
     if ('superseded' in decided) return { outcome: 'superseded' as const }
   }
 
   const approved = await readBatch(batchId)
-  if (approved?.state !== 'approved' || approved.approval?.revision !== revision) return { outcome: 'superseded' as const }
+  if (
+    approved?.state !== 'approved' ||
+    approved.approval?.revision !== revision
+  )
+    return { outcome: 'superseded' as const }
 
-  const command = createHook<PublishRequester | { superseded: true }>({ token: `publish:${batchId}:${approved.revision}` })
+  const command = createHook<PublishRequester | { superseded: true }>({
+    token: `publish:${batchId}:${approved.revision}`,
+  })
   const current = await readBatch(batchId)
-  if (current?.state !== 'approved' || current.revision !== approved.revision) return { outcome: 'superseded' as const }
-  const requested = await Promise.race([command, sleep('7d').then(() => 'timeout' as const)])
+  if (current?.state !== 'approved' || current.revision !== approved.revision)
+    return { outcome: 'superseded' as const }
+  const requested = await Promise.race([
+    command,
+    sleep('7d').then(() => 'timeout' as const),
+  ])
   if (requested === 'timeout') return { outcome: 'publish_timeout' as const }
   if ('superseded' in requested) return { outcome: 'superseded' as const }
 
   const outcome = await runPublish(batchId, approved.revision, requested)
-  if (outcome.outcome === 'published') return { ...outcome, push: await catalogPush(outcome.version) }
+  if (outcome.outcome === 'published')
+    return { ...outcome, push: await catalogPush(outcome.version) }
   return outcome
 }
 
+/**
+ * Read the current batch in a durable step so the workflow can check its approval state.
+ */
 async function readBatch(batchId: string) {
   'use step'
   return reviewDeps().store.getBatch(batchId)
 }
 
-export async function publishRun(batchId: string, revision: number, command: PublishRequester) {
+/** Run a confirmed publish command and send catalog notifications if it commits. */
+export async function publishRun(
+  batchId: string,
+  revision: number,
+  command: PublishRequester
+) {
   'use workflow'
   const outcome = await runPublish(batchId, revision, command)
-  if (outcome.outcome === 'published') return { ...outcome, push: await catalogPush(outcome.version) }
+  if (outcome.outcome === 'published')
+    return { ...outcome, push: await catalogPush(outcome.version) }
   return outcome
 }
 
-async function runPublish(batchId: string, revision: number, command: PublishRequester) {
+/**
+ * Execute the release in a step and invalidate catalog caches when the live version
+ * changes.
+ */
+async function runPublish(
+  batchId: string,
+  revision: number,
+  command: PublishRequester
+) {
   'use step'
   const batch = await reviewDeps().store.getBatch(batchId)
-  if (!batch || (batch.state !== 'published' && (batch.state !== 'approved' || batch.revision !== revision || batch.approval?.revision !== revision - 1))) return { outcome: 'superseded' as const }
+  if (
+    !batch ||
+    (batch.state !== 'published' &&
+      (batch.state !== 'approved' ||
+        batch.revision !== revision ||
+        batch.approval?.revision !== revision - 1))
+  )
+    return { outcome: 'superseded' as const }
   const { ownerUid, ...authority } = command
-  const outcome = await publishBatch(publishDeps(), { uid: ownerUid, name: null, role: 'owner' }, { batchId, revision, ...authority })
+  const outcome = await publishBatch(
+    publishDeps(),
+    { uid: ownerUid, name: null, role: 'owner' },
+    { batchId, revision, ...authority }
+  )
+  // Expire the catalog head after the release so server reads see the new version.
   if (outcome.ok) catalogChanged()
-  if (!outcome.ok && (outcome.error === 'locked' || outcome.error === 'unavailable')) {
+  if (
+    !outcome.ok &&
+    (outcome.error === 'locked' || outcome.error === 'unavailable')
+  ) {
     throw new RetryableError(`Publish ${outcome.error}`, { retryAfter: '30s' })
   }
   return outcome.ok
-    ? { outcome: 'published' as const, version: outcome.value.toVersion, ...requesterFields(command.requestedBy) }
-    : { outcome: 'publish_failed' as const, error: outcome.error, reasons: outcome.reasons ?? [], ...requesterFields(command.requestedBy), ...(outcome.reviewedVersion !== undefined ? { reviewedVersion: outcome.reviewedVersion, liveVersion: outcome.liveVersion } : {}) }
+    ? {
+        outcome: 'published' as const,
+        version: outcome.value.toVersion,
+        ...requesterFields(command.requestedBy),
+      }
+    : {
+        outcome: 'publish_failed' as const,
+        error: outcome.error,
+        reasons: outcome.reasons ?? [],
+        ...requesterFields(command.requestedBy),
+        ...(outcome.reviewedVersion !== undefined
+          ? {
+              reviewedVersion: outcome.reviewedVersion,
+              liveVersion: outcome.liveVersion,
+            }
+          : {}),
+      }
 }

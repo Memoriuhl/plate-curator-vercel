@@ -6,12 +6,14 @@ import { AlertDialog as AlertDialogPrimitive } from 'radix-ui'
 
 import { Button } from '@/components/ui/button'
 
+/** Provide the shared alert dialog root and its styling slot for confirmation flows. */
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
 }
 
+/** Open the alert dialog from the supplied trigger control. */
 function AlertDialogTrigger({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
@@ -20,6 +22,7 @@ function AlertDialogTrigger({
   )
 }
 
+/** Mount dialog content outside the triggering layout when a portal is used. */
 function AlertDialogPortal({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
@@ -28,6 +31,7 @@ function AlertDialogPortal({
   )
 }
 
+/** Render the modal backdrop and coordinate its visual state with the dialog. */
 function AlertDialogOverlay({
   className,
   ...props
@@ -37,13 +41,14 @@ function AlertDialogOverlay({
       data-slot="alert-dialog-overlay"
       className={cn(
         'fixed inset-0 z-50 bg-[var(--scrim)] duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Render the focused dialog panel above its backdrop and apply the selected size. */
 function AlertDialogContent({
   className,
   size = 'default',
@@ -59,7 +64,7 @@ function AlertDialogContent({
         data-size={size}
         className={cn(
           'group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-xl)] bg-popover p-4 text-popover-foreground   duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-          className,
+          className
         )}
         {...props}
       />
@@ -67,6 +72,7 @@ function AlertDialogContent({
   )
 }
 
+/** Lay out the heading and optional media within the dialog panel. */
 function AlertDialogHeader({
   className,
   ...props
@@ -76,13 +82,14 @@ function AlertDialogHeader({
       data-slot="alert-dialog-header"
       className={cn(
         'grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-4 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Align the dialog's confirmation and cancellation controls across screen sizes. */
 function AlertDialogFooter({
   className,
   ...props
@@ -92,13 +99,14 @@ function AlertDialogFooter({
       data-slot="alert-dialog-footer"
       className={cn(
         '-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-[var(--radius-xl)]  bg-muted/50 p-4 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Place an icon or other context media beside the dialog's message. */
 function AlertDialogMedia({
   className,
   ...props
@@ -108,13 +116,14 @@ function AlertDialogMedia({
       data-slot="alert-dialog-media"
       className={cn(
         "mb-2 inline-flex size-10 items-center justify-center rounded-[var(--radius-md)] bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-6",
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Render the accessible alert dialog title with the shared typography. */
 function AlertDialogTitle({
   className,
   ...props
@@ -124,13 +133,14 @@ function AlertDialogTitle({
       data-slot="alert-dialog-title"
       className={cn(
         'dialog-title sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Attach accessible supporting text to the alert dialog. */
 function AlertDialogDescription({
   className,
   ...props
@@ -140,13 +150,14 @@ function AlertDialogDescription({
       data-slot="alert-dialog-description"
       className={cn(
         'text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Style the Radix confirmation action using the shared button variants. */
 function AlertDialogAction({
   className,
   variant = 'primary',
@@ -165,6 +176,7 @@ function AlertDialogAction({
   )
 }
 
+/** Style the Radix dismiss action using the shared button variants. */
 function AlertDialogCancel({
   className,
   variant = 'outline',

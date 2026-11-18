@@ -11,8 +11,12 @@ export type Member = {
   createdAt: string
 }
 
-export type PendingMember = Pick<Member, 'email' | 'role' | 'signIn' | 'invitedBy'> & { invite: NonNullable<Member['invite']> }
-export type MemberResult = 'ok' | 'not_found' | 'invalid_state' | 'expired' | 'hash_mismatch'
+export type PendingMember = Pick<
+  Member,
+  'email' | 'role' | 'signIn' | 'invitedBy'
+> & { invite: NonNullable<Member['invite']> }
+export type MemberResult =
+  'ok' | 'not_found' | 'invalid_state' | 'expired' | 'hash_mismatch'
 export type GuardedMemberResult = 'ok' | 'not_found' | 'last_owner'
 export interface MembersStore {
   getByEmail(email: string): Promise<Member | null>
@@ -21,10 +25,20 @@ export interface MembersStore {
   list(): Promise<Member[]>
   create(input: PendingMember): Promise<'ok' | 'exists'>
   updateRole(email: string, role: Member['role']): Promise<MemberResult>
-  updateRoleGuarded(email: string, role: Member['role']): Promise<GuardedMemberResult>
+  updateRoleGuarded(
+    email: string,
+    role: Member['role']
+  ): Promise<GuardedMemberResult>
   removeGuarded(email: string): Promise<GuardedMemberResult>
-  reissue(email: string, invite: NonNullable<Member['invite']>): Promise<MemberResult>
-  activate(email: string, uid: string, tokenHash?: string): Promise<MemberResult>
+  reissue(
+    email: string,
+    invite: NonNullable<Member['invite']>
+  ): Promise<MemberResult>
+  activate(
+    email: string,
+    uid: string,
+    tokenHash?: string
+  ): Promise<MemberResult>
   remove(email: string): Promise<'ok' | 'not_found'>
   upsertSeed(member: Member): Promise<void>
 }

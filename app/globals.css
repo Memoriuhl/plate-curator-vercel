@@ -343,7 +343,8 @@ body {
 }
 .dashboard-search:focus-within {
   background: var(--elevated);
-  box-shadow: 0 0 0 2px var(--ink-2),
+  box-shadow:
+    0 0 0 2px var(--ink-2),
     0 0 12px 4px color-mix(in srgb, var(--ink-2) 20%, transparent);
 }
 .dashboard-search input:focus {
@@ -614,7 +615,6 @@ body {
   }
 }
 
-
 .family-plate-details {
   container: plate-checks / inline-size;
   min-width: 134px;
@@ -636,25 +636,36 @@ body {
 }
 
 @container plate-checks (width < 176px) {
-  .family-plate-details [data-check-strip] { gap: 5px; }
+  .family-plate-details [data-check-strip] {
+    gap: 5px;
+  }
   .family-plate-details [data-check],
-  .family-plate-details [data-check] svg { width: 16px; height: 16px; }
+  .family-plate-details [data-check] svg {
+    width: 16px;
+    height: 16px;
+  }
 }
 
 @container plate-checks (width < 142px) {
-  .family-plate-details [data-check-strip] { gap: 3px; }
+  .family-plate-details [data-check-strip] {
+    gap: 3px;
+  }
   .family-plate-details [data-check],
-  .family-plate-details [data-check] svg { width: 14px; height: 14px; }
+  .family-plate-details [data-check] svg {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 @container plate-checks (width < 116px) {
-  .family-plate-details [data-check-strip] { gap: 2px; }
+  .family-plate-details [data-check-strip] {
+    gap: 2px;
+  }
 }
 
-
-
-.family-card { container-name: family-card; }
-
+.family-card {
+  container-name: family-card;
+}
 
 @container family-card (width < 328px) {
   [data-plate-image] {
@@ -664,8 +675,12 @@ body {
 }
 
 @container family-card (width < 280px) {
-  #families [data-plate-row] { gap: 8px; }
-  #families .variant-row { padding: 8px; }
+  #families [data-plate-row] {
+    gap: 8px;
+  }
+  #families .variant-row {
+    padding: 8px;
+  }
   #families [data-plate-image] {
     --family-image-width: 96px;
     --family-image-height: 48px;
@@ -677,10 +692,15 @@ body {
   #families [data-plate-row]:has([data-batch-marker]) .family-plate-heading {
     padding-inline-end: 24px;
   }
-  #families .family-plate-details [data-check-strip] { flex-wrap: wrap; }
+  #families .family-plate-details [data-check-strip] {
+    flex-wrap: wrap;
+  }
 }
 
-.family-card [data-batch-marker] > * { width: 20px; height: 20px; }
+.family-card [data-batch-marker] > * {
+  width: 20px;
+  height: 20px;
+}
 
 .variant-row {
   padding: 10px;
@@ -688,7 +708,7 @@ body {
   background: var(--fill);
 }
 
-.variant-row[data-selected="true"] {
+.variant-row[data-selected='true'] {
   background: color-mix(in srgb, var(--primary) 16%, var(--fill));
 }
 
@@ -713,7 +733,10 @@ body {
 }
 
 .drag-stack {
-  box-shadow: 8px 8px 0 -2px color-mix(in srgb, var(--ink) 18%, var(--card)), 16px 16px 0 -4px color-mix(in srgb, var(--ink) 10%, var(--card)), 0 20px 40px rgb(0 0 0 / 0.35);
+  box-shadow:
+    8px 8px 0 -2px color-mix(in srgb, var(--ink) 18%, var(--card)),
+    16px 16px 0 -4px color-mix(in srgb, var(--ink) 10%, var(--card)),
+    0 20px 40px rgb(0 0 0 / 0.35);
 }
 
 .inline-select-trigger,
@@ -753,7 +776,9 @@ body {
   width: 14px;
   height: 14px;
 }
-.inline-select-trigger[data-state='open'] > svg { transform: rotate(180deg); }
+.inline-select-trigger[data-state='open'] > svg {
+  transform: rotate(180deg);
+}
 .inline-select-trigger:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -773,6 +798,12 @@ body {
   outline: none;
   cursor: pointer;
 }
-.inline-select-option .inline-select-choice { display: flex; }
-.inline-select-option[data-highlighted] { background: var(--fill); }
-.inline-select-option[data-state='checked'] { font-weight: 800; }
+.inline-select-option .inline-select-choice {
+  display: flex;
+}
+.inline-select-option[data-highlighted] {
+  background: var(--fill);
+}
+.inline-select-option[data-state='checked'] {
+  font-weight: 800;
+}

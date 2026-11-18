@@ -20,6 +20,9 @@ export type PlatePageProps = {
   fromState?: boolean
 }
 
+/**
+ * Project a plate into the editing record with its revision and current family identity.
+ */
 export function slimPlate(plate: PlateCardData): FamilyPlate {
   return {
     id: plate.id,
@@ -35,12 +38,16 @@ export function slimPlate(plate: PlateCardData): FamilyPlate {
   }
 }
 
+/**
+ * Build a display card from plate detail and derive the completeness indicators it
+ * needs.
+ */
 export function cardData(
   plate: FamilyPlate & {
     description?: string | null
     sourceUrl?: string | null
     wikiUrl?: string | null
-  },
+  }
 ): PlateCardData {
   const checks = plateChecks(
     {
@@ -51,7 +58,7 @@ export function cardData(
       templateRole: plate.templateRole ?? undefined,
       variantOfPlateId: plate.variantOfPlateId ?? undefined,
     },
-    plate.imageUrl,
+    plate.imageUrl
   )
   return {
     ...plate,

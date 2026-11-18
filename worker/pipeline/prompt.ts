@@ -1,6 +1,6 @@
-import type { Source } from './sources';
+import type { Source } from './sources'
 
-export const STORY_PROMPT_VERSION = 'story-v2';
+export const STORY_PROMPT_VERSION = 'story-v2'
 
 export const STORY_SYSTEM = `You write short, sourced notes for a license-plate spotting app. A player taps a plate and wants to know why it exists. Use ONLY the numbered sources you are given; never add outside knowledge.
 
@@ -19,11 +19,21 @@ Fun fact rules:
 - Not about serial-number formats, colors, fonts or layout of the plate.
 - Don't repeat the description. Don't use first, only, oldest, largest, best or most unless the source uses that word for that claim.
 - Ignore a source that is about something other than this plate's subject.
-- Fewer good facts beat four weak ones; an empty list is fine.`;
+- Fewer good facts beat four weak ones; an empty list is fine.`
 
-export function storyUserPrompt(input: { displayName: string; stateName: string; sources: Source[] }): string {
-  const blocks = input.sources.map((s) => `[${s.id}] ${s.title} (${s.url})\n${s.text}`).join('\n\n');
-  return `Plate: "${input.displayName}", a ${input.stateName} license plate.\n\nSources:\n${blocks}\n\nReturn the JSON object.`;
+/**
+ * Build the story synthesis request with the plate and labeled sources needed to cite
+ * evidence.
+ */
+export function storyUserPrompt(input: {
+  displayName: string
+  stateName: string
+  sources: Source[]
+}): string {
+  const blocks = input.sources
+    .map((s) => `[${s.id}] ${s.title} (${s.url})\n${s.text}`)
+    .join('\n\n')
+  return `Plate: "${input.displayName}", a ${input.stateName} license plate.\n\nSources:\n${blocks}\n\nReturn the JSON object.`
 }
 
 export const STORY_SCHEMA = {
@@ -52,4 +62,4 @@ export const STORY_SCHEMA = {
     },
   },
   required: ['description', 'descriptionSource', 'firstIssuedYear', 'funFacts'],
-} as const;
+} as const

@@ -21,15 +21,23 @@ const state = vi.hoisted(() => ({
   remote: null as PlateCardData | null,
   refreshed: false,
 }))
-vi.mock('../components/research/research-actions', () => ({ ResearchActions: () => null }))
-vi.mock('../components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
-vi.mock('../components/dashboard/plate-tag-actions', () => ({ PlateTagActions: () => null }))
+vi.mock('../components/research/research-actions', () => ({
+  ResearchActions: () => null,
+}))
+vi.mock('../components/dashboard/selected-batch-bar', () => ({
+  SelectedBatchBar: () => null,
+}))
+vi.mock('../components/dashboard/plate-tag-actions', () => ({
+  PlateTagActions: () => null,
+}))
 vi.mock('swr', async (importOriginal) => ({
-  ...await importOriginal<typeof import('swr')>(),
+  ...(await importOriginal<typeof import('swr')>()),
   useSWRConfig: () => ({ mutate: state.mutate }),
 }))
 vi.mock('../lib/client/hooks', () => ({
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: state.edit, pending: state.pending }),
+  /** Provide the plate overlay used to render this catalog scenario. */
   useDraftOverlay: (plates: PlateCardData[]) =>
     plates.map((plate) => ({
       ...(state.refreshed && state.remote?.id === plate.id
@@ -39,7 +47,9 @@ vi.mock('../lib/client/hooks', () => ({
     })),
 }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(state.query),
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ back: vi.fn() }),
 }))
 vi.mock('next/link', () => ({
@@ -61,13 +71,16 @@ const props: PlatePageProps = {
   prevId: 'AK.standard_gold',
   nextId: 'AK.air_force',
 }
+/** Find the rendered description textarea for the plate field interactions. */
 const description = () =>
   screen.getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement
+/** Change the named field value using the same input event as an editor. */
 function change(label: string, value: string) {
   fireEvent.change(screen.getByRole('textbox', { name: label }), {
     target: { value },
   })
 }
+/** Enter a description and submit it using the textarea shortcut. */
 function saveDescription(value: string) {
   change('Description', value)
   fireEvent.keyDown(description(), { key: 'Enter', ctrlKey: true })
@@ -82,26 +95,59 @@ beforeEach(() => {
   })
   state.edit.mockReset().mockResolvedValue({ ok: true })
 })
-afterEach(() => { cleanup(); vi.unstubAllEnvs() })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+})
 
 test('story controls require the local flag on the plate page', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   render(<PlatePage {...props} />)
-  expect(screen.getByRole('spinbutton', { name: 'First issued year' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')).toBe(false)
-  expect(screen.getByRole('button', { name: 'Add link' }).hasAttribute('disabled')).toBe(false)
+  expect(
+    screen.getByRole('spinbutton', { name: 'First issued year' })
+  ).toBeTruthy()
+  expect(
+    screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')
+  ).toBe(false)
+  expect(
+    screen.getByRole('button', { name: 'Add link' }).hasAttribute('disabled')
+  ).toBe(false)
 })
 
 test('accepted research facts and links display with local editing disabled', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '0')
-  render(<PlatePage {...props} plate={{ ...props.plate,
-    funFacts: [{ text: 'The wildlife program began in 1987.', sourceUrl: 'https://example.com/fact', sourceTitle: 'Program history' }],
-    readMore: [{ title: 'Wildlife program', site: 'example.com', url: 'https://example.com/wildlife' }],
-  }} />)
+  render(
+    <PlatePage
+      {...props}
+      plate={{
+        ...props.plate,
+        funFacts: [
+          {
+            text: 'The wildlife program began in 1987.',
+            sourceUrl: 'https://example.com/fact',
+            sourceTitle: 'Program history',
+          },
+        ],
+        readMore: [
+          {
+            title: 'Wildlife program',
+            site: 'example.com',
+            url: 'https://example.com/wildlife',
+          },
+        ],
+      }}
+    />
+  )
   expect(screen.getByText('The wildlife program began in 1987.')).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Program history' }).getAttribute('href')).toBe('https://example.com/fact')
-  expect(screen.getByRole('link', { name: /example.com/ }).getAttribute('href')).toBe('https://example.com/wildlife')
-  expect(screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')).toBe(true)
+  expect(
+    screen.getByRole('link', { name: 'Program history' }).getAttribute('href')
+  ).toBe('https://example.com/fact')
+  expect(
+    screen.getByRole('link', { name: /example.com/ }).getAttribute('href')
+  ).toBe('https://example.com/wildlife')
+  expect(
+    screen.getByRole('button', { name: 'Add fact' }).hasAttribute('disabled')
+  ).toBe(true)
 })
 
 test('tags normalize on Enter, deduplicate, and remove individually', async () => {
@@ -113,7 +159,7 @@ test('tags normalize on Enter, deduplicate, and remove individually', async () =
   await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(1))
   expect(state.edit).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: army.id }),
-    { tags: [...army.tags, 'new tag'] },
+    { tags: [...army.tags, 'new tag'] }
   )
   change('Add tag', army.tags[0])
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Add tag' }), {
@@ -121,12 +167,12 @@ test('tags normalize on Enter, deduplicate, and remove individually', async () =
   })
   expect(state.edit).toHaveBeenCalledTimes(1)
   fireEvent.click(
-    screen.getByRole('button', { name: `Remove tag ${army.tags[0]}` }),
+    screen.getByRole('button', { name: `Remove tag ${army.tags[0]}` })
   )
   await waitFor(() =>
     expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
       tags: army.tags.slice(1),
-    }),
+    })
   )
 })
 
@@ -138,14 +184,14 @@ test('description stays local until blur or Ctrl+Enter and clears with null', as
   await waitFor(() =>
     expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
       description: 'Updated story',
-    }),
+    })
   )
   change('Description', '')
   fireEvent.blur(description())
   await waitFor(() =>
     expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
       description: null,
-    }),
+    })
   )
 })
 
@@ -154,7 +200,7 @@ test('description rejects overlong text without saving', () => {
   saveDescription('x'.repeat(2001))
   expect(state.edit).not.toHaveBeenCalled()
   expect(screen.getByRole('alert').textContent).toContain(
-    '2000 characters or fewer',
+    '2000 characters or fewer'
   )
 })
 
@@ -164,14 +210,19 @@ test('Standard requires confirmation and sends the acknowledgement', async () =>
   expect(state.edit).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await waitFor(() =>
-    expect(state.edit).toHaveBeenCalledWith(expect.anything(), { isStandard: true }, undefined, { from: 'AK.standard_gold', to: army.id }),
+    expect(state.edit).toHaveBeenCalledWith(
+      expect.anything(),
+      { isStandard: true },
+      undefined,
+      { from: 'AK.standard_gold', to: army.id }
+    )
   )
 })
 
 test('family plus sends the destination family and its template id', async () => {
   render(<PlatePage {...props} />)
   fireEvent.click(
-    screen.getByRole('button', { name: 'Add Standard Gold to family' }),
+    screen.getByRole('button', { name: 'Add Standard Gold to family' })
   )
   fireEvent.click(screen.getByRole('button', { name: 'Add to family' }))
   await waitFor(() =>
@@ -181,8 +232,8 @@ test('family plus sends the destination family and its template id', async () =>
         templateFamily: army.templateFamily,
         templateRole: 'variant',
         variantOfPlateId: army.id,
-      },
-    ),
+      }
+    )
   )
 })
 
@@ -193,9 +244,9 @@ test('a family without a template allows a variant and omits its parent id', asy
       plates={props.plates.map((plate) =>
         plate.templateFamily === army.templateFamily
           ? { ...plate, templateRole: null }
-          : plate,
+          : plate
       )}
-    />,
+    />
   )
   expect(screen.getByText('No template yet')).toBeTruthy()
   const add = screen.getByRole('button', {
@@ -207,8 +258,8 @@ test('a family without a template allows a variant and omits its parent id', asy
   await waitFor(() =>
     expect(state.edit).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'AK.standard_gold' }),
-      { templateFamily: army.templateFamily, templateRole: 'variant' },
-    ),
+      { templateFamily: army.templateFamily, templateRole: 'variant' }
+    )
   )
   expect(state.edit.mock.calls[0][1]).not.toHaveProperty('variantOfPlateId')
 })
@@ -222,16 +273,20 @@ test('family and role edits use the editable fields contract', async () => {
   await waitFor(() =>
     expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
       templateFamily: 'new_family',
-    }),
+    })
   )
   fireEvent.click(screen.getByRole('button', { name: 'Variant' }))
   await waitFor(() =>
     expect(state.edit).toHaveBeenLastCalledWith(expect.anything(), {
       templateRole: 'variant',
-    }),
+    })
   )
 })
 
+/**
+ * Arrange a conflicting remote plate revision and wait for the editor's resolution
+ * controls.
+ */
 async function conflict() {
   state.remote = {
     ...army,
@@ -270,7 +325,7 @@ test('Keep saved compares both values and drops the local draft without another 
   fireEvent.click(screen.getByRole('button', { name: 'Keep saved' }))
   await waitFor(() => expect(description().value).toBe('Their story'))
   expect(
-    screen.queryByText('Someone changed this while you were editing.'),
+    screen.queryByText('Someone changed this while you were editing.')
   ).toBeNull()
   expect(state.edit).toHaveBeenCalledTimes(1)
 })
@@ -283,7 +338,7 @@ test('Reapply mine retries against the saved revision shown', async () => {
   expect(state.edit).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: army.id }),
     { description: 'My story' },
-    { batchId: 'current', baseRevision: 'fresh' },
+    { batchId: 'current', baseRevision: 'fresh' }
   )
   expect(state.mutate).not.toHaveBeenCalled()
   await screen.findByText('Saved to your batch')
@@ -316,49 +371,71 @@ test.each([
   expect(state.edit).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await waitFor(() =>
-    expect(screen.getByRole('alert').textContent).toContain(message),
+    expect(screen.getByRole('alert').textContent).toContain(message)
   )
 })
 
 test('navigation keeps state filters and parked actions are disabled', () => {
   render(<PlatePage {...props} />)
   expect(
-    screen.getByRole('link', { name: 'Back to Alaska' }).getAttribute('href'),
+    screen.getByRole('link', { name: 'Back to Alaska' }).getAttribute('href')
   ).toBe('/states/AK?show=tags&q=army')
   expect(
     (
       screen.getByRole('button', {
         name: 'Replace or crop',
       }) as HTMLButtonElement
-    ).disabled,
+    ).disabled
   ).toBe(true)
 })
-
 
 test('selected Batch survives the way back and adjacent Plate navigation', () => {
   state.query = 'show=tags&q=army&batch=shared'
   const view = render(<PlatePage {...props} />)
-  const links = Array.from(view.container.querySelectorAll('a')).map(link => link.getAttribute('href'))
+  const links = Array.from(view.container.querySelectorAll('a')).map((link) =>
+    link.getAttribute('href')
+  )
   expect(links).toContain('/states/AK?show=tags&q=army&batch=shared')
-  expect(links).toContain('/plates/AK.standard_gold?show=tags&q=army&batch=shared')
+  expect(links).toContain(
+    '/plates/AK.standard_gold?show=tags&q=army&batch=shared'
+  )
 })
 
 test('back link displays the jurisdiction code', () => {
   render(<PlatePage {...props} />)
-  expect(screen.getByRole('link', { name: 'Back to Alaska' }).textContent).toBe('AK')
+  expect(screen.getByRole('link', { name: 'Back to Alaska' }).textContent).toBe(
+    'AK'
+  )
 })
 
 test('other plates order variants first and preserve order within groups', () => {
-  const outside = props.plates.filter(plate => plate.templateFamily !== army.templateFamily)
-  const ordered = [...outside.filter(plate => plate.templateRole !== 'template'), ...outside.filter(plate => plate.templateRole === 'template')]
+  const outside = props.plates.filter(
+    (plate) => plate.templateFamily !== army.templateFamily
+  )
+  const ordered = [
+    ...outside.filter((plate) => plate.templateRole !== 'template'),
+    ...outside.filter((plate) => plate.templateRole === 'template'),
+  ]
   render(<PlatePage {...props} />)
-  expect(screen.getAllByRole('button', { name: /^Add .+ to family$/ }).map(button => button.getAttribute('aria-label'))).toEqual(ordered.slice(0, 100).map(plate => 'Add ' + plate.displayName + ' to family'))
+  expect(
+    screen
+      .getAllByRole('button', { name: /^Add .+ to family$/ })
+      .map((button) => button.getAttribute('aria-label'))
+  ).toEqual(
+    ordered
+      .slice(0, 100)
+      .map((plate) => 'Add ' + plate.displayName + ' to family')
+  )
 })
 
 test('template confirmation cancellation does not save', () => {
   render(<PlatePage {...props} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
-  expect(screen.getByRole('alertdialog').textContent).toBe('Add Standard Gold to this family?It stops being a Template.CancelAdd to family')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Add Standard Gold to family' })
+  )
+  expect(screen.getByRole('alertdialog').textContent).toBe(
+    'Add Standard Gold to this family?It stops being a Template.CancelAdd to family'
+  )
   expect(state.edit).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -366,39 +443,112 @@ test('template confirmation cancellation does not save', () => {
 })
 
 test('variant adds immediately without confirmation', async () => {
-  const variant = { ...props.plates.find(plate => plate.id === 'AK.standard_gold')!, templateRole: 'variant' as const }
-  render(<PlatePage {...props} plates={[...props.plates.filter(plate => plate.id !== variant.id), variant]} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Add Standard Gold to family' }))
+  const variant = {
+    ...props.plates.find((plate) => plate.id === 'AK.standard_gold')!,
+    templateRole: 'variant' as const,
+  }
+  render(
+    <PlatePage
+      {...props}
+      plates={[
+        ...props.plates.filter((plate) => plate.id !== variant.id),
+        variant,
+      ]}
+    />
+  )
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Add Standard Gold to family' })
+  )
   expect(screen.queryByRole('alertdialog')).toBeNull()
   await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(1))
 })
 
-test.each([1, 2])('templates with %i linked variants cannot be added', count => {
-  const candidate = props.plates.find(plate => plate.id === 'AK.standard_gold')!
-  const children = [
-    { ...candidate, id: 'AK.explicit', displayName: 'Explicit child', templateRole: 'variant' as const, templateFamily: 'different', variantOfPlateId: candidate.id },
-    { ...candidate, id: 'AK.legacy', displayName: 'Legacy child', templateRole: 'variant' as const, variantOfPlateId: null },
-    { ...candidate, id: 'AK.unrelated', displayName: 'Unrelated child', templateRole: 'variant' as const, variantOfPlateId: 'AK.other' },
-  ]
-  render(<PlatePage {...props} plates={[slimPlate(army), candidate, ...children.slice(0, count), children[2], { ...candidate, id: 'AK.other', displayName: 'Other template', templateFamily: 'other' }]} />)
-  const add = screen.getByRole('button', { name: 'Add Standard Gold to family' }) as HTMLButtonElement
-  expect(add.disabled).toBe(true)
-  expect(document.getElementById(add.getAttribute('aria-describedby')!)?.textContent).toBe('Move or detach its ' + count + ' ' + (count === 1 ? 'Variant' : 'Variants') + ' first.')
-  fireEvent.click(add)
-  expect(screen.queryByRole('alertdialog')).toBeNull()
-  expect(state.edit).not.toHaveBeenCalled()
-})
+test.each([1, 2])(
+  'templates with %i linked variants cannot be added',
+  (count) => {
+    const candidate = props.plates.find(
+      (plate) => plate.id === 'AK.standard_gold'
+    )!
+    const children = [
+      {
+        ...candidate,
+        id: 'AK.explicit',
+        displayName: 'Explicit child',
+        templateRole: 'variant' as const,
+        templateFamily: 'different',
+        variantOfPlateId: candidate.id,
+      },
+      {
+        ...candidate,
+        id: 'AK.legacy',
+        displayName: 'Legacy child',
+        templateRole: 'variant' as const,
+        variantOfPlateId: null,
+      },
+      {
+        ...candidate,
+        id: 'AK.unrelated',
+        displayName: 'Unrelated child',
+        templateRole: 'variant' as const,
+        variantOfPlateId: 'AK.other',
+      },
+    ]
+    render(
+      <PlatePage
+        {...props}
+        plates={[
+          slimPlate(army),
+          candidate,
+          ...children.slice(0, count),
+          children[2],
+          {
+            ...candidate,
+            id: 'AK.other',
+            displayName: 'Other template',
+            templateFamily: 'other',
+          },
+        ]}
+      />
+    )
+    const add = screen.getByRole('button', {
+      name: 'Add Standard Gold to family',
+    }) as HTMLButtonElement
+    expect(add.disabled).toBe(true)
+    expect(
+      document.getElementById(add.getAttribute('aria-describedby')!)
+        ?.textContent
+    ).toBe(
+      'Move or detach its ' +
+        count +
+        ' ' +
+        (count === 1 ? 'Variant' : 'Variants') +
+        ' first.'
+    )
+    fireEvent.click(add)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(state.edit).not.toHaveBeenCalled()
+  }
+)
 
 test('delete requires confirmation and Cancel leaves the batch unchanged', async () => {
   render(<PlatePage {...props} plates={[]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   expect(screen.getByRole('alertdialog')).toBeTruthy()
-  expect(screen.getByText('It is removed from the game at the next Publish. You can undo until then.')).toBeTruthy()
+  expect(
+    screen.getByText(
+      'It is removed from the game at the next Publish. You can undo until then.'
+    )
+  ).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(state.edit).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-  await waitFor(() => expect(state.edit).toHaveBeenCalledWith(expect.objectContaining({ id: army.id }), { deleted: true }))
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: army.id }),
+      { deleted: true }
+    )
+  )
 })
 
 test('pending deletion remains visible and can be undone', async () => {
@@ -406,62 +556,152 @@ test('pending deletion remains visible and can be undone', async () => {
   state.refreshed = true
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
-  await waitFor(() => expect(state.edit).toHaveBeenCalledWith(expect.objectContaining({ id: army.id }), { deleted: false }))
+  await waitFor(() =>
+    expect(state.edit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: army.id }),
+      { deleted: false }
+    )
+  )
 })
 
 test('Standard deletion is disabled with a visible reason from the draft overlay', () => {
   state.remote = { ...army, isStandard: true }
   state.refreshed = true
   render(<PlatePage {...props} />)
-  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(
+    (screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement)
+      .disabled
+  ).toBe(true)
   expect(screen.getByText('Set another Standard plate first.')).toBeTruthy()
 })
 
-test.each(['moved', 'promoted', 'deleted'] as const)('Template deletion counts Variants after the draft overlay: %s', action => {
-  const template = { ...props.plate, isStandard: false, templateRole: 'template' as const, templateFamily: 'test-family' }
-  const variant = { ...army, id: 'AK.variant', templateRole: 'variant' as const, templateFamily: 'test-family', variantOfPlateId: template.id }
-  render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
-  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
-  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
-  expect(screen.queryByRole('alertdialog')).toBeNull()
-  expect(state.edit).not.toHaveBeenCalled()
-  cleanup()
-  state.remote = action === 'moved' ? { ...variant, templateFamily: 'other', variantOfPlateId: null }
-    : action === 'promoted' ? { ...variant, templateRole: 'template', variantOfPlateId: null } : { ...variant, deleted: true }
-  state.refreshed = true
-  render(<PlatePage {...props} plate={template} plates={[template, variant]} />)
-  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
-  expect(screen.queryByText('Move or detach its 1 linked plates first.')).toBeNull()
-})
+test.each(['moved', 'promoted', 'deleted'] as const)(
+  'Template deletion counts Variants after the draft overlay: %s',
+  (action) => {
+    const template = {
+      ...props.plate,
+      isStandard: false,
+      templateRole: 'template' as const,
+      templateFamily: 'test-family',
+    }
+    const variant = {
+      ...army,
+      id: 'AK.variant',
+      templateRole: 'variant' as const,
+      templateFamily: 'test-family',
+      variantOfPlateId: template.id,
+    }
+    render(
+      <PlatePage {...props} plate={template} plates={[template, variant]} />
+    )
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Delete plate',
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
+    expect(
+      screen.getByText('Move or detach its 1 linked plates first.')
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(state.edit).not.toHaveBeenCalled()
+    cleanup()
+    state.remote =
+      action === 'moved'
+        ? { ...variant, templateFamily: 'other', variantOfPlateId: null }
+        : action === 'promoted'
+          ? { ...variant, templateRole: 'template', variantOfPlateId: null }
+          : { ...variant, deleted: true }
+    state.refreshed = true
+    render(
+      <PlatePage {...props} plate={template} plates={[template, variant]} />
+    )
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Delete plate',
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(false)
+    expect(
+      screen.queryByText('Move or detach its 1 linked plates first.')
+    ).toBeNull()
+  }
+)
 
 test('delete rejections explain the deletion rules through the field issue', async () => {
   state.edit.mockResolvedValue({ ok: false, error: 'invalid_state' })
   render(<PlatePage {...props} plates={[]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Delete plate' }))
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Cannot delete this plate. Set another Standard plate or move or detach its linked plates first.'))
-  expect(screen.queryByText('This batch is no longer open for editing.')).toBeNull()
+  await waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Cannot delete this plate. Set another Standard plate or move or detach its linked plates first.'
+    )
+  )
+  expect(
+    screen.queryByText('This batch is no longer open for editing.')
+  ).toBeNull()
 })
 
-test.each(['template', 'variant', null] as const)('deletion counts explicit links regardless of parent or child role: %s', role => {
-  const parent = { ...props.plate, isStandard: false, templateRole: role, templateFamily: null }
-  const child = { ...army, id: 'AK.child', templateRole: 'template' as const, templateFamily: null, variantOfPlateId: parent.id }
-  render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
-  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(true)
-  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
-})
+test.each(['template', 'variant', null] as const)(
+  'deletion counts explicit links regardless of parent or child role: %s',
+  (role) => {
+    const parent = {
+      ...props.plate,
+      isStandard: false,
+      templateRole: role,
+      templateFamily: null,
+    }
+    const child = {
+      ...army,
+      id: 'AK.child',
+      templateRole: 'template' as const,
+      templateFamily: null,
+      variantOfPlateId: parent.id,
+    }
+    render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Delete plate',
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
+    expect(
+      screen.getByText('Move or detach its 1 linked plates first.')
+    ).toBeTruthy()
+  }
+)
 
 test('role-less family members block Template deletion until deleted in the draft', () => {
-  const parent = { ...props.plate, isStandard: false, templateRole: 'template' as const, templateFamily: 'family' }
-  const child = { ...army, id: 'AK.child', templateRole: null, templateFamily: 'family', variantOfPlateId: null }
+  const parent = {
+    ...props.plate,
+    isStandard: false,
+    templateRole: 'template' as const,
+    templateFamily: 'family',
+  }
+  const child = {
+    ...army,
+    id: 'AK.child',
+    templateRole: null,
+    templateFamily: 'family',
+    variantOfPlateId: null,
+  }
   render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
-  expect(screen.getByText('Move or detach its 1 linked plates first.')).toBeTruthy()
+  expect(
+    screen.getByText('Move or detach its 1 linked plates first.')
+  ).toBeTruthy()
   cleanup()
   state.remote = { ...child, deleted: true }
   state.refreshed = true
   render(<PlatePage {...props} plate={parent} plates={[parent, child]} />)
-  expect((screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement).disabled).toBe(false)
+  expect(
+    (screen.getByRole('button', { name: 'Delete plate' }) as HTMLButtonElement)
+      .disabled
+  ).toBe(false)
 })
 
 test('rejected Undo delete explains that the parent must be restored first', async () => {
@@ -470,7 +710,11 @@ test('rejected Undo delete explains that the parent must be restored first', asy
   state.edit.mockResolvedValue({ ok: false, error: 'invalid_state' })
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Undo delete' }))
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe("Undo the parent's deletion first."))
+  await waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toBe(
+      "Undo the parent's deletion first."
+    )
+  )
 })
 
 test('Cancel leaves Set as Standard unsaved', async () => {
@@ -483,12 +727,27 @@ test('Cancel leaves Set as Standard unsaved', async () => {
 })
 
 test('a stale Set as Standard retry retains the reviewed acknowledgement', async () => {
-  state.edit.mockResolvedValueOnce({ ok: false, error: 'stale_plate', batchId: 'current', currentRevision: 'fresh', current: { id: army.id, isStandard: false }, draft: { isStandard: true } })
+  state.edit.mockResolvedValueOnce({
+    ok: false,
+    error: 'stale_plate',
+    batchId: 'current',
+    currentRevision: 'fresh',
+    current: { id: army.id, isStandard: false },
+    draft: { isStandard: true },
+  })
   render(<PlatePage {...props} />)
   fireEvent.click(screen.getByRole('button', { name: 'Set as Standard' }))
   fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
   await screen.findByText('Someone changed this while you were editing.')
   fireEvent.click(screen.getByRole('button', { name: 'Reapply mine' }))
   await waitFor(() => expect(state.edit).toHaveBeenCalledTimes(2))
-  expect(state.edit).toHaveBeenLastCalledWith(expect.objectContaining({ id: army.id }), { isStandard: true }, { batchId: 'current', baseRevision: 'fresh', standard: { from: 'AK.standard_gold', to: army.id } })
+  expect(state.edit).toHaveBeenLastCalledWith(
+    expect.objectContaining({ id: army.id }),
+    { isStandard: true },
+    {
+      batchId: 'current',
+      baseRevision: 'fresh',
+      standard: { from: 'AK.standard_gold', to: army.id },
+    }
+  )
 })

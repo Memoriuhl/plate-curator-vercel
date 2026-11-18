@@ -1,0 +1,10 @@
+# Prose and generated artifacts
+*.md
+/app/.well-known/workflow/
+/build/
+/coverage/
+/design-system/tokens.css
+/eval-results/
+/out/
+/package-lock.json
+/.remember/

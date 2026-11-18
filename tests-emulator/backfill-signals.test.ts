@@ -15,7 +15,9 @@ afterAll(async () => {
 
 test('transaction initializes missing signals from the current batch and preserves existing signals', async () => {
   const store = firestoreBatchSignalsBackfillStore(db)
-  await db.doc('reviewBatches/legacy').set({ env: 'preview:feat/x', revision: 6 })
+  await db
+    .doc('reviewBatches/legacy')
+    .set({ env: 'preview:feat/x', revision: 6 })
   await db.doc('reviewBatches/other').set({ env: 'development', revision: 9 })
   expect(await store.listBatchIds('preview:feat/x')).toEqual(['legacy'])
   expect(await store.initializeMissing('other', 'preview:feat/x')).toBe(false)
@@ -29,11 +31,30 @@ test('transaction initializes missing signals from the current batch and preserv
 })
 
 test('concurrent commit and backfill cannot overwrite the committed signal', async () => {
-  const batch = { id: 'race', name: '', createdBy: 'editor', createdByName: null, createdAt: '', state: 'open' as const, revision: 4, baselineVersion: 1, stateOrders: {}, plateIds: [], approval: null }
+  const batch = {
+    id: 'race',
+    name: '',
+    createdBy: 'editor',
+    createdByName: null,
+    createdAt: '',
+    state: 'open' as const,
+    revision: 4,
+    baselineVersion: 1,
+    stateOrders: {},
+    plateIds: [],
+    approval: null,
+  }
   await db.doc('reviewBatches/race').set({ ...batch, env: 'development' })
   await Promise.all([
-    firestoreBatchSignalsBackfillStore(db).initializeMissing('race', 'development'),
-    firestoreReviewStore(db, 'development').commit('race', 4, { batch: { ...batch, revision: 5 } }),
+    firestoreBatchSignalsBackfillStore(db).initializeMissing(
+      'race',
+      'development'
+    ),
+    firestoreReviewStore(db, 'development').commit('race', 4, {
+      batch: { ...batch, revision: 5 },
+    }),
   ])
-  expect((await db.doc('curatorLive/development/batchRevisions/race').get()).data()).toEqual({ revision: 5 })
+  expect(
+    (await db.doc('curatorLive/development/batchRevisions/race').get()).data()
+  ).toEqual({ revision: 5 })
 }, 30000)

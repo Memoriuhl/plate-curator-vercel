@@ -6,7 +6,11 @@ import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
 import type { TaggingModelId } from '@/lib/tagging/models'
-import type { FieldSuggestion, PipelineStage, StageError } from '@/lib/jobs/types'
+import type {
+  FieldSuggestion,
+  PipelineStage,
+  StageError,
+} from '@/lib/jobs/types'
 import type { StoryFields } from '@/lib/catalog/types'
 
 export type RunPlate = StoryFields & {
@@ -17,7 +21,10 @@ export type RunPlate = StoryFields & {
   tags: string[]
   hasStory?: boolean
   description?: string | null
-  checks?: { funFacts: { status: string }; description?: { value: string | null } }
+  checks?: {
+    funFacts: { status: string }
+    description?: { value: string | null }
+  }
 }
 export type TagJob = {
   previewOnly?: boolean
@@ -47,15 +54,19 @@ export const editErrors = {
   stale_plate: 'Someone changed this while you were editing.',
 }
 
+/** Explain which condition prevented the tagging workflow from starting or completing. */
 function reason(error: unknown, stage?: PipelineStage) {
   if (error instanceof ApiError) {
     if (error.status === 403) return editErrors.forbidden
     if (error.status === 422) return editErrors.invalid_state
     if (error.status === 404) return editErrors.not_found
   }
-  return stage ? 'Could not start this stage. Check your connection and try again.' : 'Could not request tags. Check your connection and try again.'
+  return stage
+    ? 'Could not start this stage. Check your connection and try again.'
+    : 'Could not request tags. Check your connection and try again.'
 }
 
+/** Manage a tagging run's selected plates, per-plate job state and polling lifecycle. */
 export function useTagRun() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
@@ -63,11 +74,17 @@ export function useTagRun() {
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
   const selection = workspace.mode === 'selected' ? workspace.id : null
-  const disabledReason = workspace.mode === 'selected'
-    ? workspace.status === 'loading' ? 'Loading selected Batch'
-      : workspace.status === 'unavailable' ? 'Selected Batch is unavailable'
-        : workspace.status !== 'ready' || workspace.detail?.batch.state !== 'open' ? 'Selected Batch is read-only for Tag' : undefined
-    : undefined
+  const disabledReason =
+    workspace.mode === 'selected'
+      ? workspace.status === 'loading'
+        ? 'Loading selected Batch'
+        : workspace.status === 'unavailable'
+          ? 'Selected Batch is unavailable'
+          : workspace.status !== 'ready' ||
+              workspace.detail?.batch.state !== 'open'
+            ? 'Selected Batch is read-only for Tag'
+            : undefined
+      : undefined
   const [batchId, setBatchId] = useState<string | null>(null)
   const [entries, setEntries] = useState<RunEntry[]>([])
   const [starting, setStarting] = useState(false)
@@ -83,7 +100,7 @@ export function useTagRun() {
     (entry) =>
       entry.jobId &&
       !entry.error &&
-      ['queued', 'claimed'].includes(entry.job.state),
+      ['queued', 'claimed'].includes(entry.job.state)
   )
 
   const [previousSelection, setPreviousSelection] = useState(selection)
@@ -99,7 +116,7 @@ export function useTagRun() {
     () => () => {
       generation.current++
     },
-    [selection],
+    [selection]
   )
 
   useEffect(() => {
@@ -135,8 +152,8 @@ export function useTagRun() {
           if (!stopped && version === generation.current)
             setEntries((current) =>
               current.map((item) =>
-                item.jobId === entry.jobId ? { ...item, ...update } : item,
-              ),
+                item.jobId === entry.jobId ? { ...item, ...update } : item
+              )
             )
         }
       } finally {
@@ -149,9 +166,21 @@ export function useTagRun() {
     }
   }, [api, pollingNeeded])
 
-  async function start(plates: RunPlate[], retry = false, model?: TaggingModelId, stage?: PipelineStage) {
+  /**
+   * Start the requested stage or tagging run and track each submitted job against the
+   * current generation.
+   */
+  async function start(
+    plates: RunPlate[],
+    retry = false,
+    model?: TaggingModelId,
+    stage?: PipelineStage
+  ) {
     if (stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
-    if (!retry) { lastModel.current = model; lastStage.current = stage }
+    if (!retry) {
+      lastModel.current = model
+      lastStage.current = stage
+    }
     const chosen = retry ? lastModel.current : model
     const chosenStage = retry ? lastStage.current : stage
     if (chosenStage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
@@ -160,30 +189,36 @@ export function useTagRun() {
     setModelError(undefined)
     setStarting(true)
     const version = retry ? generation.current : ++generation.current
-    const initial = plates
-      .slice(0, 25)
-      .map((plate) => ({
-        plate,
-        job: { state: 'queued' as const, suggestions: [], ...(chosenStage ? { stage: chosenStage } : {}) },
-      }))
+    const initial = plates.slice(0, 25).map((plate) => ({
+      plate,
+      job: {
+        state: 'queued' as const,
+        suggestions: [],
+        ...(chosenStage ? { stage: chosenStage } : {}),
+      },
+    }))
     setEntries((current) =>
       retry
         ? current.map(
             (entry) =>
-              initial.find((item) => item.plate.id === entry.plate.id) ?? entry,
+              initial.find((item) => item.plate.id === entry.plate.id) ?? entry
           )
-        : initial,
+        : initial
     )
+    /** Apply a job status update only while its run generation is still current. */
     const update = (id: string, changes: Partial<RunEntry>) => {
       if (version === generation.current)
         setEntries((current) =>
           current.map((entry) =>
-            entry.plate.id === id ? { ...entry, ...changes } : entry,
-          ),
+            entry.plate.id === id ? { ...entry, ...changes } : entry
+          )
         )
     }
     try {
-      const batchId = workspace.mode === 'selected' ? workspace.id : await ensureBatch(plates[0])
+      const batchId =
+        workspace.mode === 'selected'
+          ? workspace.id
+          : await ensureBatch(plates[0])
       if (version !== generation.current) return
       setBatchId(batchId)
       for (const { plate } of initial) {
@@ -192,12 +227,22 @@ export function useTagRun() {
           const result = await api.send<{ jobId: string; runId: string }>(
             'POST',
             `/api/batches/${batchId}/plates/${encodeURIComponent(plate.id)}/${chosenStage ? 'pipeline' : 'tagging'}`,
-            { ...(chosen ? { model: chosen } : {}), ...(chosenStage ? { stage: chosenStage } : {}) },
+            {
+              ...(chosen ? { model: chosen } : {}),
+              ...(chosenStage ? { stage: chosenStage } : {}),
+            }
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
         } catch (error) {
-          if (error instanceof ApiError && error.status === 422 && error.code === 'invalid_state') {
-            if (version === generation.current) setModelError('That model is no longer available. Choose another.')
+          if (
+            error instanceof ApiError &&
+            error.status === 422 &&
+            error.code === 'invalid_state'
+          ) {
+            if (version === generation.current)
+              setModelError(
+                'That model is no longer available. Choose another.'
+              )
             void mutate('/api/tagging/models').catch(() => undefined)
           }
           update(plate.id, { error: reason(error, chosenStage) })
@@ -212,10 +257,19 @@ export function useTagRun() {
     }
   }
 
+  /** Dismiss the current run and invalidate updates still in flight. */
   function dismiss() {
     generation.current++
     setEntries([])
     setStarting(false)
   }
-  return { modelError, entries, batchId, disabledReason, starting, start, dismiss }
+  return {
+    modelError,
+    entries,
+    batchId,
+    disabledReason,
+    starting,
+    start,
+    dismiss,
+  }
 }

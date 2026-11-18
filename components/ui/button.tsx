@@ -21,9 +21,10 @@ const buttonVariants = cva(
       },
     },
     defaultVariants: { variant: 'primary', size: 'default' },
-  },
+  }
 )
 
+/** Apply the shared button styles to a native button or the supplied child element. */
 function Button({
   className,
   variant = 'primary',

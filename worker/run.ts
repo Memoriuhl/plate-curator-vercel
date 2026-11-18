@@ -1,15 +1,43 @@
 import type { ModelAdapter } from './model'
-import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
+import type {
+  FieldSuggestion,
+  PipelineStage,
+  StageError,
+} from '../lib/jobs/types'
 import type { GroupInput } from '../lib/jobs/specialized-suggestions'
 import type { ImageEnhancementOptions } from '../lib/jobs/image-enhancement'
 import type { ImageGroupOptions } from '../lib/jobs/image-options'
 import type { LocalWorkerCapabilities } from '../lib/jobs/capabilities'
-import { localCapabilityReport, withCapabilityHeartbeat } from './capability-heartbeat'
-import { savedResearchSourcesHeader, type EnrichmentOptions } from '../lib/research/enrichment'
+import {
+  localCapabilityReport,
+  withCapabilityHeartbeat,
+} from './capability-heartbeat'
+import {
+  savedResearchSourcesHeader,
+  type EnrichmentOptions,
+} from '../lib/research/enrichment'
 import type { StoryFields } from '../lib/catalog/types'
 
-export type WorkerPlate = StoryFields & { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
-export type StageResult = { enhancedImage?: string; enhancedImageFrames?: string[]; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
+export type WorkerPlate = StoryFields & {
+  image: string
+  imageUrl?: string | null
+  displayName: string
+  state: string
+  tags: string[]
+  description?: string | null
+  sourceUrl?: string | null
+  wikiUrl?: string | null
+}
+export type StageResult = {
+  enhancedImage?: string
+  enhancedImageFrames?: string[]
+  fieldSuggestion?: FieldSuggestion
+  stageError?: StageError
+  backend: string
+  model: string
+  promptVersion: string
+  usage?: Record<string, number>
+}
 
 export interface WorkerDeps {
   capabilities?: LocalWorkerCapabilities
@@ -19,7 +47,17 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions; onPhase?: (index: number) => Promise<void> }) => Promise<StageResult>
+  suggestFields?: (input: {
+    stage: PipelineStage
+    plate: WorkerPlate
+    model?: string
+    groupScope?: GroupInput
+    standardId?: string
+    options?: ImageGroupOptions &
+      Partial<ImageEnhancementOptions> &
+      EnrichmentOptions
+    onPhase?: (index: number) => Promise<void>
+  }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -34,50 +72,86 @@ interface Claim {
   stage?: PipelineStage
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions
+  stageOptions?: ImageGroupOptions &
+    Partial<ImageEnhancementOptions> &
+    EnrichmentOptions
   plate: WorkerPlate
   local?: boolean
   queueRunId?: string
 }
 
+/**
+ * Poll for a worker claim, report local capabilities and execute eligible work with
+ * heartbeat updates.
+ */
 export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${deps.token}` }
-  if (deps.protectionBypass) headers['x-vercel-protection-bypass'] = deps.protectionBypass
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${deps.token}`,
+  }
+  if (deps.protectionBypass)
+    headers['x-vercel-protection-bypass'] = deps.protectionBypass
   const base = deps.apiBase.replace(/\/+$/, '')
   const capabilities = localCapabilityReport(deps)
   if (deps.suggestFields) headers[savedResearchSourcesHeader] = '1'
-  const response = await deps.fetch(`${base}/api/worker/claim`, { method: 'POST', headers: capabilities ? { ...headers, 'Content-Type': 'application/json' } : headers, ...(capabilities ? { body: JSON.stringify({ capabilities }) } : {}) })
+  const response = await deps.fetch(`${base}/api/worker/claim`, {
+    method: 'POST',
+    headers: capabilities
+      ? { ...headers, 'Content-Type': 'application/json' }
+      : headers,
+    ...(capabilities ? { body: JSON.stringify({ capabilities }) } : {}),
+  })
   if (response.status === 401) return 'stopped'
   if (response.status === 204) return 'idle'
   if (!response.ok) throw new Error(`Claim failed: ${response.status}`)
-  const claim = await response.json() as Claim
+  const claim = (await response.json()) as Claim
   return withCapabilityHeartbeat(deps, async () => {
-  if (!claim.local) return executeClaim(deps, claim, headers, base)
-  let reported = false
-  let failure = claim.stage && !deps.suggestFields ? 'no_handler' : 'report_failed'
-  try {
-    if (failure === 'no_handler') return 'dropped'
-    const outcome = await executeClaim(deps, claim, headers, base)
-    reported = outcome === 'reported'
-    if (deps.now() >= Date.parse(claim.leaseExpiresAt)) failure = 'lease_expired'
-    return outcome
-  } catch (error) {
-    failure = 'stage_failed'
-    throw error
-  } finally {
-    if (!reported) {
-      await deps.fetch(`${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/fail`, { method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ claimId: claim.claimId, error: failure }),
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => { deps.log('Stage ended; failure acknowledgement needs recovery') })
+    if (!claim.local) return executeClaim(deps, claim, headers, base)
+    let reported = false
+    let failure =
+      claim.stage && !deps.suggestFields ? 'no_handler' : 'report_failed'
+    try {
+      if (failure === 'no_handler') return 'dropped'
+      const outcome = await executeClaim(deps, claim, headers, base)
+      reported = outcome === 'reported'
+      if (deps.now() >= Date.parse(claim.leaseExpiresAt))
+        failure = 'lease_expired'
+      return outcome
+    } catch (error) {
+      failure = 'stage_failed'
+      throw error
+    } finally {
+      if (!reported) {
+        await deps
+          .fetch(
+            `${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/fail`,
+            {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ claimId: claim.claimId, error: failure }),
+              signal: AbortSignal.timeout(10_000),
+            }
+          )
+          .catch(() => {
+            deps.log('Stage ended; failure acknowledgement needs recovery')
+          })
+      }
     }
-  }
   })
 }
 
-async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<string, string>, base: string): Promise<Outcome> {
+/**
+ * Run the claimed stage or tag model and report its result only while the claim remains
+ * usable.
+ */
+async function executeClaim(
+  deps: WorkerDeps,
+  claim: Claim,
+  headers: Record<string, string>,
+  base: string
+): Promise<Outcome> {
   const deadline = Date.parse(claim.leaseExpiresAt)
-  const adapter = claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
+  const adapter =
+    claim.model && deps.adapterFor ? deps.adapterFor(claim.model) : deps.adapter
   const start = deps.now()
   let backend = adapter.backend
   let model = adapter.model
@@ -93,17 +167,33 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
       deps.log('No handler is configured for this pipeline stage')
       return 'dropped'
     }
-    const onPhase = claim.local && claim.queueRunId ? async (index: number) => {
-      try {
-        await deps.fetch(`${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/progress`, {
-          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ claimId: claim.claimId, index }), signal: AbortSignal.timeout(1200),
-        })
-      } catch {
-        // Status updates are best-effort. A valid result can still be reported.
-      }
-    } : undefined
-    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.standardId ? { standardId: claim.standardId } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}), ...(onPhase ? { onPhase } : {}) })
+    const onPhase =
+      claim.local && claim.queueRunId
+        ? async (index: number) => {
+            try {
+              await deps.fetch(
+                `${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/progress`,
+                {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ claimId: claim.claimId, index }),
+                  signal: AbortSignal.timeout(1200),
+                }
+              )
+            } catch {
+              // Status updates are best-effort. A valid result can still be reported.
+            }
+          }
+        : undefined
+    const result = await deps.suggestFields({
+      stage: claim.stage,
+      plate: claim.plate,
+      model: claim.model,
+      ...(claim.groupScope ? { groupScope: claim.groupScope } : {}),
+      ...(claim.standardId ? { standardId: claim.standardId } : {}),
+      ...(claim.stageOptions ? { options: claim.stageOptions } : {}),
+      ...(onPhase ? { onPhase } : {}),
+    })
     fieldSuggestion = result.fieldSuggestion
     enhancedImage = result.enhancedImage
     enhancedImageFrames = result.enhancedImageFrames
@@ -115,7 +205,11 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   } else {
     let imageB64: string
     try {
-      imageB64 = await deps.readImage(claim.local && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? claim.plate.imageUrl || claim.plate.image : claim.plate.image)
+      imageB64 = await deps.readImage(
+        claim.local && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+          ? claim.plate.imageUrl || claim.plate.image
+          : claim.plate.image
+      )
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       backend = 'missing-image'
@@ -127,11 +221,31 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
       usage = result.usage
     }
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(enhancedImage ? { enhancedImage } : {}), ...(enhancedImageFrames ? { enhancedImageFrames } : {}), ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({
+    claimId: claim.claimId,
+    suggestions,
+    ...(enhancedImage ? { enhancedImage } : {}),
+    ...(enhancedImageFrames ? { enhancedImageFrames } : {}),
+    ...(fieldSuggestion ? { fieldSuggestion } : {}),
+    ...(stageError ? { stageError } : {}),
+    backend,
+    model,
+    promptVersion,
+    durationMs: Math.max(0, deps.now() - start),
+    ...(usage ? { usage } : {}),
+  })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {
-      const report = await deps.fetch(`${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/report`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(Math.max(1, deadline - deps.now())) })
+      const report = await deps.fetch(
+        `${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/report`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(Math.max(1, deadline - deps.now())),
+        }
+      )
       if (report.status === 401) return 'stopped'
       if (report.ok) return 'reported'
       if (report.status === 409) {
@@ -155,17 +269,30 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   return 'dropped'
 }
 
-export async function runLoop(deps: WorkerDeps, { idleMs, concurrency = 1 }: { idleMs: number; concurrency?: number }): Promise<void> {
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) throw new Error('Invalid concurrency')
+/** Run the configured number of polling lanes until the worker is stopped. */
+export async function runLoop(
+  deps: WorkerDeps,
+  { idleMs, concurrency = 1 }: { idleMs: number; concurrency?: number }
+): Promise<void> {
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64)
+    throw new Error('Invalid concurrency')
   let stopped = false
+  /**
+   * Poll one lane repeatedly and delay retries after idle responses or request failures.
+   */
   async function lane() {
     while (!stopped) {
       try {
         const outcome = await runOnce(deps)
-        if (outcome === 'stopped') { stopped = true; return }
+        if (outcome === 'stopped') {
+          stopped = true
+          return
+        }
         if (outcome === 'idle') await deps.sleep(idleMs)
       } catch (error) {
-        deps.log(`Worker iteration failed: ${error instanceof Error ? error.message : String(error)}`)
+        deps.log(
+          `Worker iteration failed: ${error instanceof Error ? error.message : String(error)}`
+        )
         await deps.sleep(idleMs)
       }
     }

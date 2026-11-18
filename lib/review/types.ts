@@ -4,7 +4,8 @@ import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
-export type BatchState = 'open' | 'submitted' | 'approved' | 'published' | 'conflict'
+export type BatchState =
+  'open' | 'submitted' | 'approved' | 'published' | 'conflict'
 export type ReviewBatch = {
   id: string
   name: string
@@ -27,7 +28,24 @@ export type ReviewBatch = {
   source?: { batchId: string; revision: number }
   pipelineApplications?: Record<string, { by: string; at: string }>
 }
-export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description' | 'colorDetail' | 'lineageColor'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
+export type EditableFields = Partial<
+  Pick<
+    Plate,
+    | 'tags'
+    | 'templateFamily'
+    | 'templateRole'
+    | 'isStandard'
+    | 'description'
+    | 'colorDetail'
+    | 'lineageColor'
+  >
+> &
+  StoryFields & {
+    imageUrl?: string | null
+    sourceUrl?: string | null
+    variantOfPlateId?: string | null
+    deleted?: boolean
+  }
 export type DraftChangeTarget = keyof EditableFields | 'order' | 'all'
 export type PipelineFieldChangeEntry = {
   runId: string
@@ -38,7 +56,9 @@ export type PipelineFieldChangeEntry = {
   previous?: EditableFields[keyof EditableFields]
   value?: EditableFields[keyof EditableFields]
 }
-export type PipelineFieldChange = PipelineFieldChangeEntry & { prior?: PipelineFieldChangeEntry[] }
+export type PipelineFieldChange = PipelineFieldChangeEntry & {
+  prior?: PipelineFieldChangeEntry[]
+}
 export type ProposedEdit = {
   plateId: string
   baseRevision: string
@@ -51,31 +71,100 @@ export type ProposedEdit = {
   resultRevision: string
 }
 export type StandardChange = { from: string | null; to: string }
-export type ReviewError = 'pipeline_busy' | 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' | 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
-export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
+export type ReviewError =
+  | 'pipeline_busy'
+  | 'standard_change_unconfirmed'
+  | 'standard_required'
+  | 'standard_invalid_template'
+  | 'forbidden'
+  | 'not_found'
+  | 'stale_plate'
+  | 'superseded_revision'
+  | 'invalid_state'
+export type Outcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
 export interface ReviewStore {
-  markViewed?(batchId: string, uid: string, revision: number, viewedAt: string): Promise<boolean>
+  markViewed?(
+    batchId: string,
+    uid: string,
+    revision: number,
+    viewedAt: string
+  ): Promise<boolean>
   recentPlateIds?(batchId: string, since: number): Promise<string[] | null>
-  changesSinceReview?(batchId: string, uid: string, revision: number): Promise<ReviewChanges | null>
-  updatePublishMetadata(batchId: string, revision: number, fields: PublishMetadata): Promise<boolean>
-  copy(input: { sourceId: string; sourceRevision: number; targetVersion: number; batch: ReviewBatch; edits: ProposedEdit[] }): Promise<CopyCommitResult>
+  changesSinceReview?(
+    batchId: string,
+    uid: string,
+    revision: number
+  ): Promise<ReviewChanges | null>
+  updatePublishMetadata(
+    batchId: string,
+    revision: number,
+    fields: PublishMetadata
+  ): Promise<boolean>
+  copy(input: {
+    sourceId: string
+    sourceRevision: number
+    targetVersion: number
+    batch: ReviewBatch
+    edits: ProposedEdit[]
+  }): Promise<CopyCommitResult>
   create(batch: ReviewBatch): Promise<'ok' | 'exists'>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
-  readBatch(batchId: string): Promise<{ batch: ReviewBatch; edits: ProposedEdit[] } | null>
+  readBatch(
+    batchId: string
+  ): Promise<{ batch: ReviewBatch; edits: ProposedEdit[] } | null>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
   recordRun(batchId: string, revision: number, runId: string): Promise<boolean>
-  requestPublish(batchId: string, revision: number, at: string, requestedBy?: RequesterAuthority): Promise<boolean>
-  commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; by?: Pick<Actor, 'uid' | 'name'>; edit?: ProposedEdit; edits?: ProposedEdit[]; deleteEditsFor?: string[]; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
+  requestPublish(
+    batchId: string,
+    revision: number,
+    at: string,
+    requestedBy?: RequesterAuthority
+  ): Promise<boolean>
+  commit(
+    batchId: string,
+    expectedRevision: number,
+    next: {
+      batch: ReviewBatch
+      by?: Pick<Actor, 'uid' | 'name'>
+      edit?: ProposedEdit
+      edits?: ProposedEdit[]
+      deleteEditsFor?: string[]
+      deleteEditFor?: string
+      publishToken?: string
+    }
+  ): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
 }
-export type PublishMetadata = Partial<Pick<ReviewBatch, 'publishAbandonment' | 'publishCommand' | 'approvalRun' | 'publishRequestedAt' | 'publishRequestedBy'>>
-export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }
+export type PublishMetadata = Partial<
+  Pick<
+    ReviewBatch,
+    | 'publishAbandonment'
+    | 'publishCommand'
+    | 'approvalRun'
+    | 'publishRequestedAt'
+    | 'publishRequestedBy'
+  >
+>
+export type CopyCommitResult =
+  | { ok: true; value: ReviewBatch }
+  | {
+      ok: false
+      error:
+        'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'
+      liveVersion?: number
+    }
 export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
   baselineAtVersion(version: number, plateId: string): Promise<Plate | null>
-  stateBaseline(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>
+  stateBaseline(
+    version: number,
+    state: string,
+    order?: 'snapshot'
+  ): Promise<Plate[]>
   supersedeRun?(batch: ReviewBatch): Promise<void>
   now(): string
 }

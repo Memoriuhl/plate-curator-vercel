@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+/** Render a disabled pipeline action with the reason it is unavailable. */
 export function ComingSoon({
   children,
   label,
@@ -35,7 +36,9 @@ export function ComingSoon({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{localPipelineReason('No action connected')}</TooltipContent>
+        <TooltipContent>
+          {localPipelineReason('No action connected')}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

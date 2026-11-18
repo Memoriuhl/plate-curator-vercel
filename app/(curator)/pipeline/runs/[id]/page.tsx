@@ -8,7 +8,13 @@ async function RunResults({ params }: { params: Promise<{ id: string }> }) {
 
 export default function Page({ params }: { params: Promise<{ id: string }> }) {
   return (
-    <Suspense fallback={<main className="p-4 md:p-6"><p role="status">Loading run results…</p></main>}>
+    <Suspense
+      fallback={
+        <main className="p-4 md:p-6">
+          <p role="status">Loading run results…</p>
+        </main>
+      }
+    >
       <RunResults params={params} />
     </Suspense>
   )

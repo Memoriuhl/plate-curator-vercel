@@ -10,10 +10,12 @@ import { cn } from '@/components/utils'
 import { PublishButton } from './publish-button'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 
+/** Summarize one review batch and link to the actions available for its current state. */
 function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   const detail = useBatch(batch.id)
   const loadedBatch = detail.data?.batch
-  const currentBatch = loadedBatch && loadedBatch.revision >= batch.revision ? loadedBatch : batch
+  const currentBatch =
+    loadedBatch && loadedBatch.revision >= batch.revision ? loadedBatch : batch
   const states = [
     ...new Set(detail.data?.plates.map((plate) => plate.baseline.state) ?? []),
   ].join(', ')
@@ -28,17 +30,20 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
         {states || (detail.error ? 'Unavailable' : '…')}
       </strong>
       <span className="review-plate-count">
-        {batch.plateIds.length} {batch.plateIds.length === 1 ? 'plate' : 'plates'}
+        {batch.plateIds.length}{' '}
+        {batch.plateIds.length === 1 ? 'plate' : 'plates'}
       </span>
       <span
         className={cn(
           'review-status',
-          batch.state === 'approved' ? 'review-approved' : 'review-submitted',
+          batch.state === 'approved' ? 'review-approved' : 'review-submitted'
         )}
       >
         {batch.state === 'approved' ? 'Approved' : 'Submitted'}
       </span>
-      <span className="review-last-changed"><BatchLastChanged batch={currentBatch} /></span>
+      <span className="review-last-changed">
+        <BatchLastChanged batch={currentBatch} />
+      </span>
       <div className="review-actions">
         <Button asChild size="sm">
           <Link href={`/review?batch=${encodeURIComponent(batch.id)}`}>
@@ -51,6 +56,7 @@ function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
   )
 }
 
+/** Show the current review batches and owner-specific actions in the dashboard strip. */
 export function ReviewStrip() {
   const { data, error, isLoading } = useBatches(['submitted', 'approved'])
   const me = useMe()

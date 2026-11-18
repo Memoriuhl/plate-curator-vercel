@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { IoSearchOutline } from 'react-icons/io5'
 
+/**
+ * Synchronize the dashboard text search with the current URL and provide keyboard focus
+ * access.
+ */
 export function DashboardSearch() {
   const params = useSearchParams()
   const router = useRouter()
@@ -12,18 +16,30 @@ export function DashboardSearch() {
   const query = params.get('q') ?? ''
   const queryString = params.toString()
   const href = `${pathname}${queryString ? `?${queryString}` : ''}`
-  const [search, setSearch] = useState(() => ({ value: query, query, href, pathname, queryString, pending: [] as string[] }))
+  const [search, setSearch] = useState(() => ({
+    value: query,
+    query,
+    href,
+    pathname,
+    queryString,
+    pending: [] as string[],
+  }))
   const value = search.value
   if (search.href !== href) {
-    setSearch(current => {
+    setSearch((current) => {
       const acknowledgement = current.pending.indexOf(href)
       return {
-        value: acknowledgement < 0 && current.query !== query ? query : current.value,
+        value:
+          acknowledgement < 0 && current.query !== query
+            ? query
+            : current.value,
         query,
         href,
         pathname: acknowledgement < 0 ? pathname : current.pathname,
         queryString: acknowledgement < 0 ? queryString : current.queryString,
-        pending: current.pending.filter((_, index) => index !== acknowledgement),
+        pending: current.pending.filter(
+          (_, index) => index !== acknowledgement
+        ),
       }
     })
   }
@@ -34,16 +50,26 @@ export function DashboardSearch() {
   useEffect(() => {
     if (targetHref === href) return
     const timer = setTimeout(() => {
-      setSearch(current => ({ ...current, pending: [...current.pending, targetHref] }))
+      setSearch((current) => ({
+        ...current,
+        pending: [...current.pending, targetHref],
+      }))
       router.replace(targetHref, { scroll: false })
     }, 250)
     return () => clearTimeout(timer)
   }, [targetHref, href, router])
   useEffect(() => {
+    /** Restore the search field from URL history after browser navigation. */
     function historyChange() {
       const params = new URLSearchParams(window.location.search)
-      setSearch(current => ({ ...current, value: params.get('q') ?? '', pathname: window.location.pathname, queryString: params.toString() }))
+      setSearch((current) => ({
+        ...current,
+        value: params.get('q') ?? '',
+        pathname: window.location.pathname,
+        queryString: params.toString(),
+      }))
     }
+    /** Focus the search field on slash unless a focused control already handles input. */
     function shortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (
@@ -73,9 +99,9 @@ export function DashboardSearch() {
         aria-label="Search every plate by name, id or tag"
         placeholder="Search every plate by name, id or tag"
         value={search.value}
-        onChange={event => {
+        onChange={(event) => {
           const value = event.target.value
-          setSearch(current => ({ ...current, value }))
+          setSearch((current) => ({ ...current, value }))
         }}
       />
       <kbd aria-hidden="true">/</kbd>

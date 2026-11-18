@@ -1,59 +1,200 @@
 import { expect, test, vi } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { createJob, claimJob, claimNext, expireJob, getJob, getJobForActor, reportResult } from '../../lib/jobs/jobs'
-import { issueWorkerToken, verifyWorkerToken, revokeWorkerToken } from '../../lib/jobs/tokens'
+import {
+  createJob,
+  claimJob,
+  claimNext,
+  expireJob,
+  getJob,
+  getJobForActor,
+  reportResult,
+} from '../../lib/jobs/jobs'
+import {
+  issueWorkerToken,
+  verifyWorkerToken,
+  revokeWorkerToken,
+} from '../../lib/jobs/tokens'
 import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewStore } from '../../lib/review/types'
 
-export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: ReviewStore; other: JobsStore }>) {
+/** Register the shared job lifecycle scenarios against the supplied storage backend. */
+export function jobsScenarios(
+  make: () => Promise<{
+    store: JobsStore
+    review: ReviewStore
+    other: JobsStore
+  }>
+) {
+  /**
+   * Prepare an open review batch, controlled clock and job dependencies for each store
+   * scenario.
+   */
   async function setup() {
     const stores = await make()
-    await stores.review.create({ stateOrders: {}, id: 'batch', name: 'Batch', createdBy: 'owner', createdByName: null, createdAt: '2026-11-15T12:00:00Z', state: 'open', revision: 0, baselineVersion: 1, plateIds: ['one', 'two'], approval: null })
+    await stores.review.create({
+      stateOrders: {},
+      id: 'batch',
+      name: 'Batch',
+      createdBy: 'owner',
+      createdByName: null,
+      createdAt: '2026-11-15T12:00:00Z',
+      state: 'open',
+      revision: 0,
+      baselineVersion: 1,
+      plateIds: ['one', 'two'],
+      approval: null,
+    })
     let time = 1000
     let sequence = 0
-    const plate: Plate = { id: 'one', state: 'CA', slug: 'one', displayName: 'One', image: 'one.png', tags: [] }
-    const deps: JobsDeps = { store: stores.store, baseline: async id => id === 'missing' ? null : ({ ...plate, id }), now: () => time, id: () => `id-${++sequence}`, leaseMs: 100 }
-    async function create(id = 'job') { return createJob(deps, { id, batchId: 'batch', plateId: 'one', requestedBy: 'requester' }) }
+    const plate: Plate = {
+      id: 'one',
+      state: 'CA',
+      slug: 'one',
+      displayName: 'One',
+      image: 'one.png',
+      tags: [],
+    }
+    const deps: JobsDeps = {
+      store: stores.store,
+      /** Provide the baseline plate data used by the review or job scenario. */ baseline:
+        async (id) => (id === 'missing' ? null : { ...plate, id }),
+      /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () =>
+        time,
+      /** Issue deterministic IDs in allocation order so the test can address each generated record. */ id: () =>
+        `id-${++sequence}`,
+      leaseMs: 100,
+    }
+    /** Create the default tagging job in the fixture batch with the requested ID. */
+    async function create(id = 'job') {
+      return createJob(deps, {
+        id,
+        batchId: 'batch',
+        plateId: 'one',
+        requestedBy: 'requester',
+      })
+    }
+    /** Claim the next job and stop the test early if the fixture has no eligible work. */
     async function claim() {
       const claimed = await claimNext(deps, 'worker')
       if (!claimed) throw new Error('Expected claim')
       return claimed
     }
-    const result = { suggestions: [' Blue ', 'blue', ''], backend: 'local', model: 'model', promptVersion: 'v1', durationMs: 10, usage: { tokens: 4 } }
-    return { ...stores, deps, plate, create, claim, result, advance: (value: number) => { time += value } }
+    const result = {
+      suggestions: [' Blue ', 'blue', ''],
+      backend: 'local',
+      model: 'model',
+      promptVersion: 'v1',
+      durationMs: 10,
+      usage: { tokens: 4 },
+    }
+    return {
+      ...stores,
+      deps,
+      plate,
+      create,
+      claim,
+      result,
+      /** Move the test clock forward so deadlines can be reached without waiting. */ advance:
+        (value: number) => {
+          time += value
+        },
+    }
   }
 
   test('job requester persists and only the requester or an owner can retrieve it', async () => {
     const s = await setup()
     await s.create()
     const requester = { uid: 'requester', name: null, role: 'editor' } as const
-    expect(await getJob(s.deps, 'job')).toMatchObject({ requestedBy: requester.uid })
-    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({ ok: true, value: { requestedBy: requester.uid } })
-    expect(await getJobForActor(s.deps, { uid: 'owner', name: null, role: 'owner' }, 'job')).toMatchObject({ ok: true })
-    expect(await getJobForActor(s.deps, { uid: 'owner', name: null, role: 'editor' }, 'job')).toEqual({ ok: false, error: 'not_found' })
-    expect(await getJobForActor(s.deps, requester, 'missing')).toEqual({ ok: false, error: 'not_found' })
+    expect(await getJob(s.deps, 'job')).toMatchObject({
+      requestedBy: requester.uid,
+    })
+    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({
+      ok: true,
+      value: { requestedBy: requester.uid },
+    })
+    expect(
+      await getJobForActor(
+        s.deps,
+        { uid: 'owner', name: null, role: 'owner' },
+        'job'
+      )
+    ).toMatchObject({ ok: true })
+    expect(
+      await getJobForActor(
+        s.deps,
+        { uid: 'owner', name: null, role: 'editor' },
+        'job'
+      )
+    ).toEqual({ ok: false, error: 'not_found' })
+    expect(await getJobForActor(s.deps, requester, 'missing')).toEqual({
+      ok: false,
+      error: 'not_found',
+    })
     const c = await s.claim()
     await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
-    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({ ok: true, value: { requestedBy: requester.uid, state: 'completed' } })
+    expect(await getJobForActor(s.deps, requester, 'job')).toMatchObject({
+      ok: true,
+      value: { requestedBy: requester.uid, state: 'completed' },
+    })
   })
 
   test('tagging a catalog plate outside the batch completes without adding membership', async () => {
     const s = await setup()
-    expect(await createJob(s.deps, { id: 'job', batchId: 'batch', plateId: 'three', requestedBy: 'requester' })).toMatchObject({ ok: true, value: { inputHash: plateRevision({ ...s.plate, id: 'three' }) } })
+    expect(
+      await createJob(s.deps, {
+        id: 'job',
+        batchId: 'batch',
+        plateId: 'three',
+        requestedBy: 'requester',
+      })
+    ).toMatchObject({
+      ok: true,
+      value: { inputHash: plateRevision({ ...s.plate, id: 'three' }) },
+    })
     const c = await s.claim()
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toMatchObject({ ok: true })
-    expect(await s.review.getBatch('batch')).toMatchObject({ plateIds: ['one', 'two'], revision: 0 })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    ).toMatchObject({ ok: true })
+    expect(await s.review.getBatch('batch')).toMatchObject({
+      plateIds: ['one', 'two'],
+      revision: 0,
+    })
   })
 
   test('job input freezes the Batch draft and its reviewed revision before claim', async () => {
     const s = await setup()
     const batch = await s.review.getBatch('batch')
     const draft = { ...s.plate, tags: ['draft'], templateFamily: 'navy' }
-    await s.review.commit('batch', 0, { batch: { ...batch!, revision: 1 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['draft'], templateFamily: 'navy' }, authorId: 'owner', updatedAt: 'now', resultRevision: plateRevision(draft) } })
-    expect(await s.create()).toMatchObject({ ok: true, value: { inputHash: plateRevision(draft), inputPlate: draft } })
-    await s.review.commit('batch', 1, { batch: { ...batch!, revision: 2 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['later'] }, authorId: 'owner', updatedAt: 'later', resultRevision: 'later' } })
-    expect(await s.claim()).toMatchObject({ job: { inputHash: plateRevision(draft), inputPlate: draft } })
+    await s.review.commit('batch', 0, {
+      batch: { ...batch!, revision: 1 },
+      edit: {
+        plateId: 'one',
+        baseRevision: plateRevision(s.plate),
+        fields: { tags: ['draft'], templateFamily: 'navy' },
+        authorId: 'owner',
+        updatedAt: 'now',
+        resultRevision: plateRevision(draft),
+      },
+    })
+    expect(await s.create()).toMatchObject({
+      ok: true,
+      value: { inputHash: plateRevision(draft), inputPlate: draft },
+    })
+    await s.review.commit('batch', 1, {
+      batch: { ...batch!, revision: 2 },
+      edit: {
+        plateId: 'one',
+        baseRevision: plateRevision(s.plate),
+        fields: { tags: ['later'] },
+        authorId: 'owner',
+        updatedAt: 'later',
+        resultRevision: 'later',
+      },
+    })
+    expect(await s.claim()).toMatchObject({
+      job: { inputHash: plateRevision(draft), inputPlate: draft },
+    })
   })
 
   test('claims the oldest queued job with a lease', async () => {
@@ -61,27 +202,47 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     await s.create('first')
     s.advance(1)
     await s.create('second')
-    expect(await s.claim()).toMatchObject({ job: { id: 'first', inputHash: plateRevision(s.plate), env: 'development', state: 'claimed' }, claimId: 'id-1', leaseExpiresAt: 1101 })
+    expect(await s.claim()).toMatchObject({
+      job: {
+        id: 'first',
+        inputHash: plateRevision(s.plate),
+        env: 'development',
+        state: 'claimed',
+      },
+      claimId: 'id-1',
+      leaseExpiresAt: 1101,
+    })
     expect(await s.claim()).toMatchObject({ job: { id: 'second' } })
   })
   test('an expired job is never claimed and refuses reports', async () => {
     const s = await setup()
     await s.create()
     const claimed = await s.claim()
-    expect(await expireJob(s.deps, 'job')).toMatchObject({ ok: true, value: { state: 'expired' } })
+    expect(await expireJob(s.deps, 'job')).toMatchObject({
+      ok: true,
+      value: { state: 'expired' },
+    })
     expect(await claimNext(s.deps, 'worker')).toBeNull()
-    expect(await reportResult(s.deps, 'worker', 'job', claimed.claimId, s.result)).toEqual({ ok: false, error: 'claim_expired' })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', claimed.claimId, s.result)
+    ).toEqual({ ok: false, error: 'claim_expired' })
   })
   test('expiring a completed job keeps its result', async () => {
     const s = await setup()
     await s.create()
     const claimed = await s.claim()
     await reportResult(s.deps, 'worker', 'job', claimed.claimId, s.result)
-    expect(await expireJob(s.deps, 'job')).toMatchObject({ ok: true, value: { state: 'completed', result: { suggestions: ['blue'] } } })
+    expect(await expireJob(s.deps, 'job')).toMatchObject({
+      ok: true,
+      value: { state: 'completed', result: { suggestions: ['blue'] } },
+    })
   })
   test('expiring an unknown job is not_found', async () => {
     const s = await setup()
-    expect(await expireJob(s.deps, 'missing')).toEqual({ ok: false, error: 'not_found' })
+    expect(await expireJob(s.deps, 'missing')).toEqual({
+      ok: false,
+      error: 'not_found',
+    })
   })
   test('nothing queued returns null', async () => {
     const s = await setup()
@@ -95,50 +256,101 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     const second = await s.claim()
     expect(second.job.id).toBe(first.job.id)
     expect(second.claimId).not.toBe(first.claimId)
-    expect(await reportResult(s.deps, 'worker', 'job', first.claimId, s.result)).toEqual({ ok: false, error: 'claim_mismatch' })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', first.claimId, s.result)
+    ).toEqual({ ok: false, error: 'claim_mismatch' })
   })
   test('report with a wrong claim id is refused', async () => {
     const s = await setup()
     await s.create()
     await s.claim()
-    expect(await reportResult(s.deps, 'worker', 'job', 'wrong', s.result)).toEqual({ ok: false, error: 'claim_mismatch' })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', 'wrong', s.result)
+    ).toEqual({ ok: false, error: 'claim_mismatch' })
   })
   test('report after lease expiry is refused', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
     s.advance(100)
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toEqual({ ok: false, error: 'claim_expired' })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    ).toEqual({ ok: false, error: 'claim_expired' })
   })
   test('report for a plate whose revision changed is refused as stale_input', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
     const batch = await s.review.getBatch('batch')
-    await s.review.commit('batch', 0, { batch: { ...batch!, revision: 1 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['edited'] }, authorId: 'owner', updatedAt: 'now', resultRevision: 'changed' } })
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toEqual({ ok: false, error: 'stale_input' })
+    await s.review.commit('batch', 0, {
+      batch: { ...batch!, revision: 1 },
+      edit: {
+        plateId: 'one',
+        baseRevision: plateRevision(s.plate),
+        fields: { tags: ['edited'] },
+        authorId: 'owner',
+        updatedAt: 'now',
+        resultRevision: 'changed',
+      },
+    })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    ).toEqual({ ok: false, error: 'stale_input' })
   })
   test('editing a different plate does not invalidate a report', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
     const batch = await s.review.getBatch('batch')
-    await s.review.commit('batch', 0, { batch: { ...batch!, revision: 1 }, edit: { plateId: 'two', baseRevision: 'before', fields: { tags: ['edited'] }, authorId: 'owner', updatedAt: 'now', resultRevision: 'changed' } })
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toMatchObject({ ok: true })
+    await s.review.commit('batch', 0, {
+      batch: { ...batch!, revision: 1 },
+      edit: {
+        plateId: 'two',
+        baseRevision: 'before',
+        fields: { tags: ['edited'] },
+        authorId: 'owner',
+        updatedAt: 'now',
+        resultRevision: 'changed',
+      },
+    })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    ).toMatchObject({ ok: true })
   })
   test('a repeated identical report is acknowledged without a second write', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
-    const first = await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    const first = await reportResult(
+      s.deps,
+      'worker',
+      'job',
+      c.claimId,
+      s.result
+    )
     const write = vi.fn()
     const transaction = s.store.transaction.bind(s.store)
-    const spy = vi.spyOn(s.store, 'transaction').mockImplementation(run => transaction(tx => run({
-      ...tx, set(job) { write(job); tx.set(job) },
-    } as JobsTransaction)))
+    const spy = vi.spyOn(s.store, 'transaction').mockImplementation((run) =>
+      transaction((tx) =>
+        run({
+          ...tx,
+          /** Observe each job update while preserving the real transaction write. */ set(
+            job
+          ) {
+            write(job)
+            tx.set(job)
+          },
+        } as JobsTransaction)
+      )
+    )
     s.advance(200)
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)).toEqual(first)
-    expect(await getJob(s.deps, 'job')).toMatchObject({ completedAt: 1000, result: { suggestions: ['blue'] } })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
+    ).toEqual(first)
+    expect(await getJob(s.deps, 'job')).toMatchObject({
+      completedAt: 1000,
+      result: { suggestions: ['blue'] },
+    })
     expect(write).not.toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -146,15 +358,36 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     const s = await setup()
     await s.create()
     const c = await s.claim()
-    const suggestions = [null, 4, {}, '', ' ', 'x'.repeat(61), ' BLUE ', 'blue', ...Array.from({ length: 30 }, (_, i) => `Tag ${i}`)]
-    await reportResult(s.deps, 'worker', 'job', c.claimId, { ...s.result, suggestions })
-    expect((await getJob(s.deps, 'job'))?.result?.suggestions).toEqual(['blue', ...Array.from({ length: 19 }, (_, i) => `tag ${i}`)])
+    const suggestions = [
+      null,
+      4,
+      {},
+      '',
+      ' ',
+      'x'.repeat(61),
+      ' BLUE ',
+      'blue',
+      ...Array.from({ length: 30 }, (_, i) => `Tag ${i}`),
+    ]
+    await reportResult(s.deps, 'worker', 'job', c.claimId, {
+      ...s.result,
+      suggestions,
+    })
+    expect((await getJob(s.deps, 'job'))?.result?.suggestions).toEqual([
+      'blue',
+      ...Array.from({ length: 19 }, (_, i) => `tag ${i}`),
+    ])
   })
   test('zero valid suggestions are accepted', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, { ...s.result, suggestions: [null, ''] })).toMatchObject({ ok: true, value: { result: { suggestions: [] } } })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, {
+        ...s.result,
+        suggestions: [null, ''],
+      })
+    ).toMatchObject({ ok: true, value: { result: { suggestions: [] } } })
   })
   test('worker token verifies, and a revoked token does not', async () => {
     const s = await setup()
@@ -163,28 +396,67 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     if (!issued.ok) throw new Error('Expected token')
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBe('worker')
     const stored = await s.store.getToken(issued.value.hash)
-    expect(stored).toMatchObject({ hash: issued.value.hash, workerId: 'worker', env: 'development', revokedAt: null })
+    expect(stored).toMatchObject({
+      hash: issued.value.hash,
+      workerId: 'worker',
+      env: 'development',
+      revokedAt: null,
+    })
     expect(JSON.stringify(stored)).not.toContain(issued.value.token)
-    expect(await revokeWorkerToken(s.deps, { uid: 'editor', name: null, role: 'editor' }, issued.value.hash)).toEqual({ ok: false, error: 'forbidden' })
-    await revokeWorkerToken({ ...s.deps, store: s.other }, owner, issued.value.hash)
+    expect(
+      await revokeWorkerToken(
+        s.deps,
+        { uid: 'editor', name: null, role: 'editor' },
+        issued.value.hash
+      )
+    ).toEqual({ ok: false, error: 'forbidden' })
+    await revokeWorkerToken(
+      { ...s.deps, store: s.other },
+      owner,
+      issued.value.hash
+    )
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBe('worker')
-    expect(await verifyWorkerToken({ ...s.deps, store: s.other }, issued.value.token)).toBeNull()
+    expect(
+      await verifyWorkerToken({ ...s.deps, store: s.other }, issued.value.token)
+    ).toBeNull()
     expect(await verifyWorkerToken(s.deps, 'invalid')).toBeNull()
-    expect(await revokeWorkerToken(s.deps, owner, issued.value.hash)).toEqual({ ok: true, value: null })
+    expect(await revokeWorkerToken(s.deps, owner, issued.value.hash)).toEqual({
+      ok: true,
+      value: null,
+    })
     expect(await verifyWorkerToken(s.deps, issued.value.token)).toBeNull()
-    expect(await issueWorkerToken(s.deps, { uid: 'editor', name: null, role: 'editor' }, 'worker')).toEqual({ ok: false, error: 'forbidden' })
+    expect(
+      await issueWorkerToken(
+        s.deps,
+        { uid: 'editor', name: null, role: 'editor' },
+        'worker'
+      )
+    ).toEqual({ ok: false, error: 'forbidden' })
   })
   test('jobs from another environment are invisible to claims', async () => {
     const s = await setup()
     await s.create()
     expect(await claimNext({ ...s.deps, store: s.other }, 'worker')).toBeNull()
     expect(await getJob({ ...s.deps, store: s.other }, 'job')).toBeNull()
-    expect(await createJob({ ...s.deps, store: s.other }, { id: 'other-job', batchId: 'batch', plateId: 'one', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
+    expect(
+      await createJob(
+        { ...s.deps, store: s.other },
+        {
+          id: 'other-job',
+          batchId: 'batch',
+          plateId: 'one',
+          requestedBy: 'requester',
+        }
+      )
+    ).toEqual({ ok: false, error: 'not_found' })
   })
   test('two concurrent claims never return the same job', async () => {
     const s = await setup()
     await s.create()
-    const results = await Promise.all([claimNext(s.deps, 'one'), claimNext(s.deps, 'two')])
+    const results = await Promise.all([
+      claimNext(s.deps, 'one'),
+      claimNext(s.deps, 'two'),
+    ])
     expect(results.filter(Boolean)).toHaveLength(1)
   })
   test('changed reports and another worker cannot overwrite accepted results', async () => {
@@ -192,72 +464,186 @@ export function jobsScenarios(make: () => Promise<{ store: JobsStore; review: Re
     await s.create()
     const c = await s.claim()
     await reportResult(s.deps, 'worker', 'job', c.claimId, s.result)
-    expect(await reportResult(s.deps, 'other', 'job', c.claimId, s.result)).toEqual({ ok: false, error: 'claim_mismatch' })
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, { ...s.result, model: 'changed' })).toEqual({ ok: false, error: 'result_mismatch' })
+    expect(
+      await reportResult(s.deps, 'other', 'job', c.claimId, s.result)
+    ).toEqual({ ok: false, error: 'claim_mismatch' })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, {
+        ...s.result,
+        model: 'changed',
+      })
+    ).toEqual({ ok: false, error: 'result_mismatch' })
   })
   test('missing batches and plates cannot create jobs', async () => {
     const s = await setup()
-    expect(await createJob(s.deps, { id: 'missing', batchId: 'missing', plateId: 'one', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
-    expect(await createJob(s.deps, { id: 'missing', batchId: 'batch', plateId: 'missing', requestedBy: 'requester' })).toEqual({ ok: false, error: 'not_found' })
+    expect(
+      await createJob(s.deps, {
+        id: 'missing',
+        batchId: 'missing',
+        plateId: 'one',
+        requestedBy: 'requester',
+      })
+    ).toEqual({ ok: false, error: 'not_found' })
+    expect(
+      await createJob(s.deps, {
+        id: 'missing',
+        batchId: 'batch',
+        plateId: 'missing',
+        requestedBy: 'requester',
+      })
+    ).toEqual({ ok: false, error: 'not_found' })
     expect(await s.create()).toMatchObject({ ok: true })
     expect(await s.create()).toEqual({ ok: false, error: 'already_exists' })
   })
   test('creation uses the proposed plate revision', async () => {
     const s = await setup()
     const batch = await s.review.getBatch('batch')
-    await s.review.commit('batch', 0, { batch: { ...batch!, revision: 1 }, edit: { plateId: 'one', baseRevision: plateRevision(s.plate), fields: { tags: ['edited'] }, authorId: 'owner', updatedAt: 'now', resultRevision: 'changed' } })
-    expect(await s.create()).toMatchObject({ ok: true, value: { inputHash: plateRevision({ ...s.plate, tags: ['edited'] }) } })
+    await s.review.commit('batch', 0, {
+      batch: { ...batch!, revision: 1 },
+      edit: {
+        plateId: 'one',
+        baseRevision: plateRevision(s.plate),
+        fields: { tags: ['edited'] },
+        authorId: 'owner',
+        updatedAt: 'now',
+        resultRevision: 'changed',
+      },
+    })
+    expect(await s.create()).toMatchObject({
+      ok: true,
+      value: { inputHash: plateRevision({ ...s.plate, tags: ['edited'] }) },
+    })
   })
-  test.each([null, {}, 'blue'])('invalid suggestions container is refused: %j', async suggestions => {
-    const s = await setup()
-    await s.create()
-    const c = await s.claim()
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, { ...s.result, suggestions })).toEqual({ ok: false, error: 'invalid_result' })
-    expect(await getJob(s.deps, 'job')).toMatchObject({ state: 'claimed' })
-  })
+  test.each([null, {}, 'blue'])(
+    'invalid suggestions container is refused: %j',
+    async (suggestions) => {
+      const s = await setup()
+      await s.create()
+      const c = await s.claim()
+      expect(
+        await reportResult(s.deps, 'worker', 'job', c.claimId, {
+          ...s.result,
+          suggestions,
+        })
+      ).toEqual({ ok: false, error: 'invalid_result' })
+      expect(await getJob(s.deps, 'job')).toMatchObject({ state: 'claimed' })
+    }
+  )
   test('report metadata survives persistence and reordered usage is idempotent', async () => {
     const s = await setup()
     await s.create()
     const c = await s.claim()
     const input = { ...s.result, usage: { input: 3, output: 4 } }
     const first = await reportResult(s.deps, 'worker', 'job', c.claimId, input)
-    expect(first).toMatchObject({ ok: true, value: { result: { backend: input.backend, model: input.model, promptVersion: input.promptVersion, durationMs: 10, usage: input.usage } } })
-    expect(await reportResult(s.deps, 'worker', 'job', c.claimId, { ...input, usage: { output: 4, input: 3 } })).toEqual(first)
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        result: {
+          backend: input.backend,
+          model: input.model,
+          promptVersion: input.promptVersion,
+          durationMs: 10,
+          usage: input.usage,
+        },
+      },
+    })
+    expect(
+      await reportResult(s.deps, 'worker', 'job', c.claimId, {
+        ...input,
+        usage: { output: 4, input: 3 },
+      })
+    ).toEqual(first)
   })
   test('hosted jobs are skipped by queue claims and claimed by id', async () => {
     const s = await setup()
-    await createJob(s.deps, { id: 'hosted', batchId: 'batch', plateId: 'one', requestedBy: 'requester', route: 'hosted' })
+    await createJob(s.deps, {
+      id: 'hosted',
+      batchId: 'batch',
+      plateId: 'one',
+      requestedBy: 'requester',
+      route: 'hosted',
+    })
     s.advance(1)
     await s.create('local')
-    expect(await claimNext(s.deps, 'worker')).toMatchObject({ job: { id: 'local' } })
+    expect(await claimNext(s.deps, 'worker')).toMatchObject({
+      job: { id: 'local' },
+    })
     expect(await claimNext(s.deps, 'worker')).toBeNull()
     const claimed = await claimJob(s.deps, 'hosted-worker', 'hosted')
-    expect(claimed).toMatchObject({ ok: true, value: { job: { id: 'hosted', route: 'hosted', state: 'claimed', workerId: 'hosted-worker', leaseExpiresAt: 1101 } } })
+    expect(claimed).toMatchObject({
+      ok: true,
+      value: {
+        job: {
+          id: 'hosted',
+          route: 'hosted',
+          state: 'claimed',
+          workerId: 'hosted-worker',
+          leaseExpiresAt: 1101,
+        },
+      },
+    })
     if (!claimed.ok) throw new Error('Expected claim')
-    expect(await reportResult(s.deps, 'hosted-worker', 'hosted', claimed.value.claimId, s.result)).toMatchObject({ ok: true, value: { state: 'completed' } })
+    expect(
+      await reportResult(
+        s.deps,
+        'hosted-worker',
+        'hosted',
+        claimed.value.claimId,
+        s.result
+      )
+    ).toMatchObject({ ok: true, value: { state: 'completed' } })
   })
   test('claiming by id refuses another live claim but lets the same worker reclaim', async () => {
     const s = await setup()
     await s.create()
     const first = await claimJob(s.deps, 'hosted-worker', 'job')
-    expect(await claimJob(s.deps, 'other', 'job')).toEqual({ ok: false, error: 'claim_mismatch' })
+    expect(await claimJob(s.deps, 'other', 'job')).toEqual({
+      ok: false,
+      error: 'claim_mismatch',
+    })
     const again = await claimJob(s.deps, 'hosted-worker', 'job')
     if (!first.ok || !again.ok) throw new Error('Expected claims')
     expect(again.value.claimId).not.toBe(first.value.claimId)
-    expect(await reportResult(s.deps, 'hosted-worker', 'job', first.value.claimId, s.result)).toEqual({ ok: false, error: 'claim_mismatch' })
+    expect(
+      await reportResult(
+        s.deps,
+        'hosted-worker',
+        'job',
+        first.value.claimId,
+        s.result
+      )
+    ).toEqual({ ok: false, error: 'claim_mismatch' })
     s.advance(100)
-    expect(await claimJob(s.deps, 'other', 'job')).toMatchObject({ ok: true, value: { job: { workerId: 'other' } } })
+    expect(await claimJob(s.deps, 'other', 'job')).toMatchObject({
+      ok: true,
+      value: { job: { workerId: 'other' } },
+    })
   })
   test('claiming by id reports completed, expired and missing jobs without a new claim', async () => {
     const s = await setup()
     await s.create('done')
     const c = await claimJob(s.deps, 'hosted-worker', 'done')
     if (!c.ok) throw new Error('Expected claim')
-    await reportResult(s.deps, 'hosted-worker', 'done', c.value.claimId, s.result)
-    expect(await claimJob(s.deps, 'hosted-worker', 'done')).toMatchObject({ ok: true, value: { job: { state: 'completed' }, claimId: c.value.claimId } })
+    await reportResult(
+      s.deps,
+      'hosted-worker',
+      'done',
+      c.value.claimId,
+      s.result
+    )
+    expect(await claimJob(s.deps, 'hosted-worker', 'done')).toMatchObject({
+      ok: true,
+      value: { job: { state: 'completed' }, claimId: c.value.claimId },
+    })
     await s.create('gone')
     await expireJob(s.deps, 'gone')
-    expect(await claimJob(s.deps, 'hosted-worker', 'gone')).toEqual({ ok: false, error: 'claim_expired' })
-    expect(await claimJob(s.deps, 'hosted-worker', 'missing')).toEqual({ ok: false, error: 'not_found' })
+    expect(await claimJob(s.deps, 'hosted-worker', 'gone')).toEqual({
+      ok: false,
+      error: 'claim_expired',
+    })
+    expect(await claimJob(s.deps, 'hosted-worker', 'missing')).toEqual({
+      ok: false,
+      error: 'not_found',
+    })
   })
 }

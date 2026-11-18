@@ -1,7 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { IoDesktopOutline, IoSunnyOutline, IoMoonOutline } from 'react-icons/io5'
+import {
+  IoDesktopOutline,
+  IoSunnyOutline,
+  IoMoonOutline,
+} from 'react-icons/io5'
 import { cn } from '@/components/utils'
 import { DropdownMenuItem, DropdownMenuRadioGroup } from '../ui/dropdown-menu'
 
@@ -12,6 +16,7 @@ const options = [
   { value: 'dark', label: 'Dark', Icon: IoMoonOutline },
 ] as const
 
+/** Apply the selected theme to the document and persist the preference when possible. */
 export function applyTheme(theme: Theme) {
   if (theme === 'system') {
     document.documentElement.removeAttribute('data-theme')
@@ -25,12 +30,14 @@ export function applyTheme(theme: Theme) {
   } catch {}
 }
 
+/** Expose the curator's light, dark and system theme choices in the header menu. */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof document === 'undefined') return 'system'
     const value = document.documentElement.dataset.theme
     return value === 'light' || value === 'dark' ? value : 'system'
   })
+  /** Apply the selected theme and immediately update the menu selection. */
   function choose(value: Theme) {
     applyTheme(value)
     setTheme(value)
@@ -46,18 +53,37 @@ export function ThemeToggle() {
           key={value}
           role="radio"
           aria-checked={theme === value}
-          onSelect={(event) => { event.preventDefault(); choose(value) }}
+          onSelect={(event) => {
+            event.preventDefault()
+            choose(value)
+          }}
           onKeyDown={(event) => {
-            const offset = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0
+            const offset =
+              event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                ? 1
+                : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                  ? -1
+                  : 0
             if (!offset && event.key !== 'Home' && event.key !== 'End') return
             event.preventDefault()
             event.stopPropagation()
-            const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (index + offset + options.length) % options.length
+            const next =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? options.length - 1
+                  : (index + offset + options.length) % options.length
             choose(options[next].value)
-            const items = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]')
+            const items =
+              event.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+                '[role="radio"]'
+              )
             items?.[next].focus()
           }}
-          className={cn('flex min-w-16 flex-col gap-1 px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-[var(--ink)]', theme === value && 'bg-[var(--card)] text-[var(--ink)] shadow-sm')}
+          className={cn(
+            'flex min-w-16 flex-col gap-1 px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-[var(--ink)]',
+            theme === value && 'bg-[var(--card)] text-[var(--ink)] shadow-sm'
+          )}
         >
           <Icon className="size-4" aria-hidden="true" />
           {label}

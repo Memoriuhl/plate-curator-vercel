@@ -5,6 +5,7 @@ import { cn } from '@/components/utils'
 import { Avatar as AvatarPrimitive } from 'radix-ui'
 import { IoEyeOutline, IoPencilOutline } from 'react-icons/io5'
 
+/** Render the shared avatar container with the selected size and optional status mark. */
 function Avatar({
   className,
   size = 'default',
@@ -25,7 +26,7 @@ function Avatar({
       data-activity={activity}
       className={cn(
         'group/avatar relative flex size-8 shrink-0 rounded-full select-none data-[size=lg]:size-10 data-[size=sm]:size-6',
-        className,
+        className
       )}
       {...props}
     >
@@ -43,6 +44,7 @@ function Avatar({
   )
 }
 
+/** Display the avatar image within the sizing and shape of its root. */
 function AvatarImage({
   className,
   ...props
@@ -52,13 +54,14 @@ function AvatarImage({
       data-slot="avatar-image"
       className={cn(
         'aspect-square size-full rounded-full object-cover',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Display readable fallback content while the avatar image is unavailable. */
 function AvatarFallback({
   className,
   ...props
@@ -68,26 +71,28 @@ function AvatarFallback({
       data-slot="avatar-fallback"
       className={cn(
         'flex size-full items-center justify-center rounded-full bg-[var(--player-you)] pt-px text-sm leading-none font-extrabold text-[var(--on-color)] group-data-[size=sm]/avatar:pt-0 group-data-[size=sm]/avatar:text-xs group-data-[size=sm]/avatar:leading-none',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Position the avatar's status mark using the root's size. */
 function AvatarBadge({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       data-slot="avatar-badge"
       className={cn(
         'absolute -right-1 -bottom-1 z-10 inline-flex size-[14px] items-center justify-center rounded-full bg-card text-foreground [&>svg]:size-[10px] group-data-[activity=editing]/avatar:text-success',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Group overlapping avatars while keeping their outlines visible. */
 function AvatarGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
@@ -98,6 +103,7 @@ function AvatarGroup({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
+/** Render the count indicator for members beyond the displayed avatar group. */
 function AvatarGroupCount({
   className,
   ...props
@@ -107,7 +113,7 @@ function AvatarGroupCount({
       data-slot="avatar-group-count"
       className={cn(
         'relative flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm text-muted-foreground  group-has-data-[size=lg]/avatar-group:size-10 group-has-data-[size=sm]/avatar-group:size-6 [&>svg]:size-4 group-has-data-[size=lg]/avatar-group:[&>svg]:size-5 group-has-data-[size=sm]/avatar-group:[&>svg]:size-3',
-        className,
+        className
       )}
       {...props}
     />

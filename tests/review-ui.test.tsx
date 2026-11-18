@@ -21,17 +21,32 @@ const state = vi.hoisted(() => ({
   buttons: new Map<string, ComponentProps<'button'>>(),
 }))
 vi.mock('../lib/client/hooks', () => ({
-  useBatchRun: () => ({ data: { phase: 'published', outcome: { version: 12 } } }),
+  /** Supply the workflow phase used by the fixture batch view. */
+  useBatchRun: () => ({
+    data: { phase: 'published', outcome: { version: 12 } },
+  }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
   useMe: () => ({ data: { uid: 'author', role: state.role } }),
+  /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: [] }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
+  /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
 }))
-vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn(), useRecentReviewPlates: () => ({}) }))
+vi.mock('../lib/client/review-checkpoint', () => ({
+  useReviewCheckpoint: vi.fn(),
+  useRecentReviewPlates: () => ({}),
+}))
 vi.mock('../lib/client/session', () => ({
+  /** Supply the fixture session and API client to the component under test. */
   useSession: () => ({ user: { displayName: 'Author' } }),
 }))
 vi.mock('../components/ui/button', () => ({
+  /**
+   * Render a native action with the requested label and disabled state for review
+   * assertions.
+   */
   Button: (props: ComponentProps<'button'>) => {
     const label = Array.isArray(props.children)
       ? props.children.filter((child) => typeof child === 'string').join('')
@@ -41,7 +56,9 @@ vi.mock('../components/ui/button', () => ({
   },
 }))
 vi.mock('next/navigation', () => ({
+  /** Supply the query parameters that define the fixture workspace state. */
   useSearchParams: () => new URLSearchParams(state.query),
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
   useRouter: () => ({ replace: vi.fn() }),
 }))
 const before: Plate = {
@@ -93,15 +110,24 @@ beforeEach(() => {
   state.submit.mockReset()
   state.mutate.mockReset().mockResolvedValue(detail)
 })
-test.each(['open', 'submitted'] as const)('Review summarizes %s Batches without Publish actions', status => {
-  const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: status } }} />)
-  expect(html).toContain('1 changed plate · rev 4')
-  expect(html).toContain(status === 'open' ? 'Submit for review' : 'Approve revision 4')
-  expect(html).not.toContain('Publish to players')
-})
+test.each(['open', 'submitted'] as const)(
+  'Review summarizes %s Batches without Publish actions',
+  (status) => {
+    const html = renderToStaticMarkup(
+      <ReviewFooter
+        detail={{ ...detail, batch: { ...detail.batch, state: status } }}
+      />
+    )
+    expect(html).toContain('1 changed plate · rev 4')
+    expect(html).toContain(
+      status === 'open' ? 'Submit for review' : 'Approve revision 4'
+    )
+    expect(html).not.toContain('Publish to players')
+  }
+)
 test('summaries describe fields, family and standard changes', () => {
   expect(changeSummary(before, after)).toBe(
-    'image, name, description, tags, moved to veterans, role, order, now Standard, links',
+    'image, name, description, tags, moved to veterans, role, order, now Standard, links'
   )
   expect(changeSummary(before, before)).toBe('No changes')
 })
@@ -113,7 +139,7 @@ test('table renders every field kind, tags diff and unchanged values in order', 
       version={41}
       revision={4}
       order={[before.id, 'AK.other']}
-    />,
+    />
   )
   for (const value of [
     'Image',
@@ -134,7 +160,6 @@ test('table renders every field kind, tags diff and unchanged values in order', 
     'not available',
     'none',
 
-
     'success-tint',
   ])
     expect(html).toContain(value)
@@ -152,26 +177,26 @@ test('Review retains existing approval metadata', () => {
           approval: { by: 'owner', at: 'today', revision: 4 },
         },
       }}
-    />,
+    />
   )
   expect(html).toContain('Approved by an Owner on today')
   expect(html).not.toContain('Request changes')
 })
 test('superseded and invalid state errors explain recovery', () => {
   expect(reviewError({ code: 'superseded_revision' }, 5)).toBe(
-    'This batch changed while you were reviewing. Look again at revision 5.',
+    'This batch changed while you were reviewing. Look again at revision 5.'
   )
   expect(reviewError({ code: 'invalid_state' }, 4)).toContain('Refresh')
 })
 test('empty state links to dashboard and selection links preserve URL state', () => {
   const html = renderToStaticMarkup(
-    <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />,
+    <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />
   )
   expect(html).toContain('Nothing waiting for review')
   expect(html).toContain('href="/"')
   expect(html).not.toContain('href="/review?state=AK"')
   expect(reviewHref('AK', 'AK.army', 'batch id')).toBe(
-    '/review?state=AK&plate=AK.army&batch=batch+id',
+    '/review?state=AK&plate=AK.army&batch=batch+id'
   )
 })
 test('URL state, plate and batch select the requested comparison', () => {
@@ -188,13 +213,13 @@ test('URL state, plate and batch select the requested comparison', () => {
           ],
         },
       ]}
-    />,
+    />
   )
   expect(html).toContain('New Army')
   expect(html).toContain('After · rev 4')
   expect(html).toContain('1 changed plate · rev 4')
   expect(html).toContain(
-    'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"',
+    'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"'
   )
   expect(html).not.toContain('Nothing waiting for review')
 })
@@ -216,7 +241,6 @@ test('the footer keeps the whole Batch revision and summarizes the changed plate
   const html = renderToStaticMarkup(<ReviewFooter detail={multi} />)
   expect(html).toContain('1 changed plate · rev 4')
   expect(html).toContain('title="AK"')
-
 })
 
 test('the compact comparison and footer switch with the URL Batch', () => {
@@ -224,7 +248,7 @@ test('the compact comparison and footer switch with the URL Batch', () => {
     state.detail = selected
     state.query = `state=AK&plate=AK.army&batch=${selected.batch.id}`
     return renderToStaticMarkup(
-      <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />,
+      <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />
     )
   }
   const named = render(detail)
@@ -252,28 +276,53 @@ test('review shows reordered plates with canonical old and new positions', () =>
   const reordered: BatchDetail = {
     ...detail,
     batch: { ...detail.batch, stateOrders: { AK: [before.id, 'AK.other'] } },
-    plates: [{ baseline: before, proposed: before, edit: null, revision: 'r', order }],
+    plates: [
+      { baseline: before, proposed: before, edit: null, revision: 'r', order },
+    ],
   }
   state.query = 'state=AK&plate=AK.army&batch=one'
   state.detail = reordered
-  const html = renderToStaticMarkup(<ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />)
+  const html = renderToStaticMarkup(
+    <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />
+  )
   expect(html).toContain('reordered: 3 → 1')
   expect(html).toContain('3 of 5')
   expect(html).toContain('1 of 5')
 })
 
 test('review describes a cleared variant link', () => {
-  const variant = { ...before, templateRole: 'variant' as const, variantOfPlateId: 'AK.parent' }
-  const detached = { ...variant, templateRole: 'template' as const, templateFamily: variant.id, variantOfPlateId: null }
+  const variant = {
+    ...before,
+    templateRole: 'variant' as const,
+    variantOfPlateId: 'AK.parent',
+  }
+  const detached = {
+    ...variant,
+    templateRole: 'template' as const,
+    templateFamily: variant.id,
+    variantOfPlateId: null,
+  }
   expect(changeSummary(variant, detached)).toContain('variant link cleared')
-  const html = renderToStaticMarkup(<DiffTable before={variant} after={detached} version={41} revision={5} order={[variant.id]} />)
+  const html = renderToStaticMarkup(
+    <DiffTable
+      before={variant}
+      after={detached}
+      version={41}
+      revision={5}
+      order={[variant.id]}
+    />
+  )
   expect(html).toContain('Variant of')
   expect(html).toContain('AK.parent')
   expect(html).toContain('cleared')
 })
 
 test('published Batch is read-only with its Snapshot version', () => {
-  const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: 'published' } }} />)
+  const html = renderToStaticMarkup(
+    <ReviewFooter
+      detail={{ ...detail, batch: { ...detail.batch, state: 'published' } }}
+    />
+  )
   expect(html).toContain('Published · v12')
   expect(html).not.toContain('Request changes')
   expect(html).not.toContain('Approve revision')
@@ -281,7 +330,20 @@ test('published Batch is read-only with its Snapshot version', () => {
 })
 
 test('cards repeat unchanged values without tint and highlight only changed values and chips', () => {
-  const html = renderToStaticMarkup(<DiffTable before={before} after={{ ...before, description: 'Updated', tags: ['veteran', 'service'] }} version={41} revision={4} order={[before.id]} beforeImageUrl="/plate.webp" />)
+  const html = renderToStaticMarkup(
+    <DiffTable
+      before={before}
+      after={{
+        ...before,
+        description: 'Updated',
+        tags: ['veteran', 'service'],
+      }}
+      version={41}
+      revision={4}
+      order={[before.id]}
+      beforeImageUrl="/plate.webp"
+    />
+  )
   const [left, right] = html.split('<section').slice(1)
   for (const card of [left, right]) {
     expect(card).toContain('>Army</span>')
@@ -299,7 +361,16 @@ test('cards repeat unchanged values without tint and highlight only changed valu
 })
 
 test('changed image keeps live preview and names proposed file unless a URL is supplied', () => {
-  const html = renderToStaticMarkup(<DiffTable before={before} after={after} version={41} revision={4} order={[before.id]} beforeImageUrl="/plate.webp" />)
+  const html = renderToStaticMarkup(
+    <DiffTable
+      before={before}
+      after={after}
+      version={41}
+      revision={4}
+      order={[before.id]}
+      beforeImageUrl="/plate.webp"
+    />
+  )
   expect(html).toContain('ring-[var(--danger)]')
   expect(html).toContain('ring-[var(--success)]')
   expect(html).toContain('AK/new.webp')
@@ -309,25 +380,85 @@ test('changed image keeps live preview and names proposed file unless a URL is s
 test('review submission errors show every affected state', async () => {
   const { ApiError } = await import('../lib/client/api')
   const reasons = ['AK: make Gold the Standard.', 'NY: make Blue the Standard.']
-  expect(reviewError(new ApiError(409, 'standard_change_unconfirmed', { reasons }), 1)).toBe(reasons.join(' '))
+  expect(
+    reviewError(
+      new ApiError(409, 'standard_change_unconfirmed', { reasons }),
+      1
+    )
+  ).toBe(reasons.join(' '))
 })
 
 test('a run History link lists just the changed plates from that run across states', () => {
-  const kansas = { ...before, id: 'KS.sesquicentennial', state: 'KS', displayName: 'Sesquicentennial' }
-  const virginia = { ...before, id: 'VA.dogwood', state: 'VA', displayName: 'Dogwood' }
+  const kansas = {
+    ...before,
+    id: 'KS.sesquicentennial',
+    state: 'KS',
+    displayName: 'Sesquicentennial',
+  }
+  const virginia = {
+    ...before,
+    id: 'VA.dogwood',
+    state: 'VA',
+    displayName: 'Dogwood',
+  }
   state.query = 'batch=one&run=mountain'
   state.detail = {
     ...detail,
     plates: [
-      ...detail.plates.map(plate => ({ ...plate, edit: { plateId: before.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['service'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] } })),
-      { baseline: kansas, proposed: { ...kansas, tags: ['prairie'] }, edit: { plateId: kansas.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['prairie'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] }, revision: 'ks' },
-      { baseline: virginia, proposed: { ...virginia, tags: ['flower'] }, edit: { plateId: virginia.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['flower'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['coastal'] }, revision: 'va' },
+      ...detail.plates.map((plate) => ({
+        ...plate,
+        edit: {
+          plateId: before.id,
+          baseRevision: 'a',
+          resultRevision: 'b',
+          fields: { tags: ['service'] },
+          authorId: 'author',
+          updatedAt: '',
+          pipelineRunIds: ['mountain'],
+        },
+      })),
+      {
+        baseline: kansas,
+        proposed: { ...kansas, tags: ['prairie'] },
+        edit: {
+          plateId: kansas.id,
+          baseRevision: 'a',
+          resultRevision: 'b',
+          fields: { tags: ['prairie'] },
+          authorId: 'author',
+          updatedAt: '',
+          pipelineRunIds: ['mountain'],
+        },
+        revision: 'ks',
+      },
+      {
+        baseline: virginia,
+        proposed: { ...virginia, tags: ['flower'] },
+        edit: {
+          plateId: virginia.id,
+          baseRevision: 'a',
+          resultRevision: 'b',
+          fields: { tags: ['flower'] },
+          authorId: 'author',
+          updatedAt: '',
+          pipelineRunIds: ['coastal'],
+        },
+        revision: 'va',
+      },
     ],
   }
-  const html = renderToStaticMarkup(<ReviewWorkspace states={[
-    { code: 'AK', name: 'Alaska', plates: [] }, { code: 'KS', name: 'Kansas', plates: [] }, { code: 'VA', name: 'Virginia', plates: [] },
-  ]} />)
+  const html = renderToStaticMarkup(
+    <ReviewWorkspace
+      states={[
+        { code: 'AK', name: 'Alaska', plates: [] },
+        { code: 'KS', name: 'Kansas', plates: [] },
+        { code: 'VA', name: 'Virginia', plates: [] },
+      ]}
+    />
+  )
   expect(html).toContain('Sesquicentennial')
-  expect(html).toContain('state=KS&amp;plate=KS.sesquicentennial&amp;batch=one&amp;run=mountain')
+  expect(html).toContain(
+    'state=KS&amp;plate=KS.sesquicentennial&amp;batch=one&amp;run=mountain'
+  )
   expect(html).not.toContain('Dogwood')
 })

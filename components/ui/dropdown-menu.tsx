@@ -6,12 +6,14 @@ import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui'
 
 import { IoChevronForwardOutline, IoCheckmarkOutline } from 'react-icons/io5'
 
+/** Provide the shared Radix menu root and its styling slot. */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/** Mount the dropdown menu content outside the trigger's layout. */
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -20,6 +22,7 @@ function DropdownMenuPortal({
   )
 }
 
+/** Associate the provided control with the menu's open and focus behavior. */
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -31,6 +34,7 @@ function DropdownMenuTrigger({
   )
 }
 
+/** Render the floating menu panel with shared positioning and visual styles. */
 function DropdownMenuContent({
   className,
   align = 'start',
@@ -45,7 +49,7 @@ function DropdownMenuContent({
         align={align}
         className={cn(
           'z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-lg)] bg-popover p-1 text-popover-foreground    duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-          className,
+          className
         )}
         {...props}
       />
@@ -53,6 +57,7 @@ function DropdownMenuContent({
   )
 }
 
+/** Group related menu items while preserving Radix keyboard navigation. */
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
@@ -61,6 +66,7 @@ function DropdownMenuGroup({
   )
 }
 
+/** Render a menu action with its selected variant and optional inset alignment. */
 function DropdownMenuItem({
   className,
   inset,
@@ -77,13 +83,14 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Render a menu option with an indicator for its checked state. */
 function DropdownMenuCheckboxItem({
   className,
   children,
@@ -99,7 +106,7 @@ function DropdownMenuCheckboxItem({
       data-inset={inset}
       className={cn(
         "relative flex cursor-default items-center gap-1.5 rounded-[var(--radius-md)] py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className,
+        className
       )}
       checked={checked}
       {...props}
@@ -117,6 +124,7 @@ function DropdownMenuCheckboxItem({
   )
 }
 
+/** Manage single selection among related menu radio items. */
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
@@ -128,6 +136,7 @@ function DropdownMenuRadioGroup({
   )
 }
 
+/** Render a radio option with an indicator for its active state. */
 function DropdownMenuRadioItem({
   className,
   children,
@@ -142,7 +151,7 @@ function DropdownMenuRadioItem({
       data-inset={inset}
       className={cn(
         "relative flex cursor-default items-center gap-1.5 rounded-[var(--radius-md)] py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className,
+        className
       )}
       {...props}
     >
@@ -159,6 +168,7 @@ function DropdownMenuRadioItem({
   )
 }
 
+/** Label a related set of menu options with the shared group typography. */
 function DropdownMenuLabel({
   className,
   inset,
@@ -172,13 +182,14 @@ function DropdownMenuLabel({
       data-inset={inset}
       className={cn(
         'px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Divide related menu sections with a styled separator. */
 function DropdownMenuSeparator({
   className,
   ...props
@@ -192,6 +203,7 @@ function DropdownMenuSeparator({
   )
 }
 
+/** Display an item's shortcut with a consistent position and text style. */
 function DropdownMenuShortcut({
   className,
   ...props
@@ -201,19 +213,21 @@ function DropdownMenuShortcut({
       data-slot="dropdown-menu-shortcut"
       className={cn(
         'ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground',
-        className,
+        className
       )}
       {...props}
     />
   )
 }
 
+/** Provide Radix submenu state for nested menu options. */
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
 }
 
+/** Open the nested menu from an item with a directional affordance. */
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -228,7 +242,7 @@ function DropdownMenuSubTrigger({
       data-inset={inset}
       className={cn(
         "flex cursor-default items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-open:bg-accent data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className,
+        className
       )}
       {...props}
     >
@@ -238,6 +252,7 @@ function DropdownMenuSubTrigger({
   )
 }
 
+/** Render nested menu options in the shared floating panel style. */
 function DropdownMenuSubContent({
   className,
   ...props
@@ -247,7 +262,7 @@ function DropdownMenuSubContent({
       data-slot="dropdown-menu-sub-content"
       className={cn(
         'z-50 min-w-[96px] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-[var(--radius-lg)] bg-popover p-1 text-popover-foreground    duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-        className,
+        className
       )}
       {...props}
     />

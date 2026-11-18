@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 
+/** Show the curator brand and give users a consistent way back to the workspace home. */
 export function Brand() {
   return (
     <Link href="/" className="brand">

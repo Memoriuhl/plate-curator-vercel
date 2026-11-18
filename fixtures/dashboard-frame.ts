@@ -11,15 +11,19 @@ import type {
 } from '../lib/catalog/dashboard-types'
 
 const snapshot = catalog as Snapshot
+/**
+ * Use an absent image to keep screenshot fixture rendering independent of network
+ * assets.
+ */
 const imageUrl = () => null
 export const dashboardFixture: DashboardData = buildDashboard(
   snapshot,
   curator,
-  imageUrl,
+  imageUrl
 )
 export const alaskaFixture: JurisdictionData = buildJurisdiction(
   snapshot,
   curator,
   imageUrl,
-  'AK',
+  'AK'
 )!

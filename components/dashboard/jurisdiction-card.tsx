@@ -10,6 +10,7 @@ import { IoReloadOutline } from 'react-icons/io5'
 import type { JurisdictionSummary } from '@/lib/catalog/dashboard-types'
 import { cn } from '@/components/utils'
 
+/** Expose pending jurisdiction navigation visually and to assistive technology. */
 function PendingIndicator() {
   const { pending } = useLinkStatus()
   if (!pending) return null
@@ -19,32 +20,54 @@ function PendingIndicator() {
       data-navigation-pending
       className="absolute right-2 top-2 size-3"
     >
-      <IoReloadOutline className="size-3 motion-safe:animate-spin" aria-hidden="true" />
+      <IoReloadOutline
+        className="size-3 motion-safe:animate-spin"
+        aria-hidden="true"
+      />
       <span className="sr-only">Loading jurisdiction…</span>
     </span>
   )
 }
 
-export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jurisdiction: JurisdictionSummary; prefetchNearby?: boolean }) {
+/**
+ * Render a jurisdiction link with its plate counts, active state and selection marker.
+ */
+export function JurisdictionCard({
+  jurisdiction,
+  prefetchNearby = false,
+}: {
+  jurisdiction: JurisdictionSummary
+  prefetchNearby?: boolean
+}) {
   const hasSelection = useStateSelected(jurisdiction.code)
   const batchId = useSelectedBatchId()
   const params = useParams<{ code: string }>()
   const selected = params.code === jurisdiction.code
+  // Fully prefetch nearby or focused links. Other links use Next.js's default.
   const [prefetch, setPrefetch] = useState<true | 'auto'>('auto')
   const ref = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
     const card = ref.current
     const strip = card?.closest<HTMLElement>('.jurisdiction-strip')
     if (!selected || !card || !strip) return
+    /** Scroll the selected jurisdiction into view along the strip's active axis. */
     const reveal = () => {
       const bounds = card.getBoundingClientRect()
       const viewport = strip.getBoundingClientRect()
       const vertical = getComputedStyle(strip).flexDirection === 'column'
       const start = vertical ? bounds.top : bounds.left
       const end = vertical ? bounds.bottom : bounds.right
-      const viewportStart = vertical ? viewport.top + strip.clientTop : viewport.left + strip.clientLeft
-      const viewportEnd = viewportStart + (vertical ? strip.clientHeight : strip.clientWidth)
-      const delta = start < viewportStart ? start - viewportStart : end > viewportEnd ? end - viewportEnd : 0
+      const viewportStart = vertical
+        ? viewport.top + strip.clientTop
+        : viewport.left + strip.clientLeft
+      const viewportEnd =
+        viewportStart + (vertical ? strip.clientHeight : strip.clientWidth)
+      const delta =
+        start < viewportStart
+          ? start - viewportStart
+          : end > viewportEnd
+            ? end - viewportEnd
+            : 0
       if (delta) strip.scrollBy(vertical ? { top: delta } : { left: delta })
     }
     reveal()
@@ -64,7 +87,11 @@ export function JurisdictionCard({ jurisdiction, prefetchNearby = false }: { jur
       onFocus={() => setPrefetch(true)}
       scroll={false}
       aria-current={selected ? 'page' : undefined}
-      className={cn('jurisdiction-card relative', selected && 'jurisdiction-selected', hasSelection && 'outline-2 outline-offset-2 outline-[var(--primary)]')}
+      className={cn(
+        'jurisdiction-card relative',
+        selected && 'jurisdiction-selected',
+        hasSelection && 'outline-2 outline-offset-2 outline-[var(--primary)]'
+      )}
     >
       <strong>{jurisdiction.code}</strong>
       <PendingIndicator />

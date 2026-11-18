@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 
+/** Show a retry action when the jurisdiction dashboard fails to load. */
 export default function DashboardError({ reset }: { reset: () => void }) {
   return (
     <main className="app-main">

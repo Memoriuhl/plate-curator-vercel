@@ -40,10 +40,7 @@ import { cn } from '@/components/utils'
 import { localPipelineReason } from '@/lib/local-pipeline'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import { StoryEditor } from './story-editor'
-import {
-  useDraftOverlay,
-  useEditPlate,
-} from '@/lib/client/hooks'
+import { useDraftOverlay, useEditPlate } from '@/lib/client/hooks'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { Conflict, type Issue } from '@/components/plate/edit-conflict'
 import { cardData } from './types'
@@ -51,6 +48,7 @@ import type { FamilyPlate, PlatePageProps } from './types'
 
 const input =
   'w-full min-w-0 rounded-[var(--radius-md)] border-0 bg-[var(--fill)] px-3 py-2 text-[var(--ink)]'
+/** Render one plate detail section with its optional heading and supporting content. */
 function Card({
   title,
   children,
@@ -73,6 +71,7 @@ function Card({
   )
 }
 
+/** Show a disabled action with the current reason the plate feature is unavailable. */
 function Parked({ children, reason }: { children: ReactNode; reason: string }) {
   return (
     <span title={localPipelineReason(reason)} className="inline-flex">
@@ -84,6 +83,10 @@ function Parked({ children, reason }: { children: ReactNode; reason: string }) {
   )
 }
 
+/**
+ * Extract a readable filename from a plate image URL without failing on malformed
+ * encoding.
+ */
 function fileName(url: string) {
   const name = url.split('/').at(-1)!.split('?')[0]
   try {
@@ -93,6 +96,10 @@ function fileName(url: string) {
   }
 }
 
+/**
+ * Keep unsaved field text and its starting plate revision together while the curator
+ * edits.
+ */
 function DraftText({
   value,
   label,
@@ -108,9 +115,17 @@ function DraftText({
   pending: boolean
   save(value: string, target: PlateCardData): Promise<boolean>
 }) {
-  const [local, setLocal] = useState<{ value: string; plate: PlateCardData; base: string } | null>(null)
+  const [local, setLocal] = useState<{
+    value: string
+    plate: PlateCardData
+    base: string
+  } | null>(null)
   const draft = local?.value ?? value
   const valid = !multiline || draft.length <= 2000
+  /**
+   * Commit valid changed text using its captured revision and clear the local draft on
+   * success.
+   */
   async function commit() {
     if (valid && local && draft !== local.base && !pending) {
       if (await save(draft, local.plate)) setLocal(null)
@@ -122,12 +137,27 @@ function DraftText({
     disabled: pending,
     className: input,
     value: draft,
+    /**
+     * Update the field's draft text while preserving the original value and plate for
+     * conflict checks.
+     */
     onChange: (
-      event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ) => setLocal(previous => ({ value: event.target.value, plate: previous?.plate ?? plate, base: previous?.base ?? value })),
+      event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    ) =>
+      setLocal((previous) => ({
+        value: event.target.value,
+        plate: previous?.plate ?? plate,
+        base: previous?.base ?? value,
+      })),
+    /** Commit pending field text when the editor loses focus. */
     onBlur: () => void commit(),
+    /** Use Escape to discard local text or Enter to submit single-line edits. */
     onKeyDown: (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setLocal(null); return }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setLocal(null)
+        return
+      }
       if (
         event.key === 'Enter' &&
         (!multiline || event.metaKey || event.ctrlKey)
@@ -148,6 +178,7 @@ function DraftText({
   )
 }
 
+/** Link to a related plate and identify whether it is the template or a variant. */
 function Member({
   plate,
   selected,
@@ -162,20 +193,24 @@ function Member({
       href={href}
       className={cn(
         'flex min-w-0 flex-1 items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 hover:bg-[var(--fill)] focus-visible:bg-[var(--fill)]',
-        selected && 'bg-[var(--fill)]',
+        selected && 'bg-[var(--fill)]'
       )}
     >
       <span className="flex h-9 w-[72px] shrink-0 items-center justify-center rounded bg-[var(--fill)]">
         {plate.imageUrl ? (
-          <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={plate.imageUrl}>
-          <Image
-            src={plate.imageUrl}
-            alt=""
-            width={72}
-            height={36}
-            unoptimized
-            className="h-9 w-[72px] object-contain"
-          />
+          <PlateImageHover
+            plateId={plate.id}
+            plateName={plate.displayName}
+            before={plate.imageUrl}
+          >
+            <Image
+              src={plate.imageUrl}
+              alt=""
+              width={72}
+              height={36}
+              unoptimized
+              className="h-9 w-[72px] object-contain"
+            />
           </PlateImageHover>
         ) : null}
       </span>
@@ -189,6 +224,7 @@ function Member({
   )
 }
 
+/** Render and edit a plate with its batch overlay, family context and navigation. */
 export function PlatePage(props: PlatePageProps) {
   const params = useSearchParams()
   const router = useRouter()
@@ -196,52 +232,98 @@ export function PlatePage(props: PlatePageProps) {
   const { edit, pending } = useEditPlate()
   const standardConfirmation = useStandardConfirmation()
   const localPipeline = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
-  const detailCard = useMemo(() => [{ ...cardData(props.plate), ...(localPipeline ? {
-    funFacts: props.plate.funFacts ?? [], readMore: props.plate.readMore ?? [], firstIssuedYear: props.plate.firstIssuedYear ?? null,
-    sourceUrl: props.plate.sourceUrl, wikiUrl: props.plate.wikiUrl,
-  } : {}) }], [props.plate, localPipeline])
+  // Keep both baseline projections stable so the draft overlays can reuse their results.
+  const detailCard = useMemo(
+    () => [
+      {
+        ...cardData(props.plate),
+        ...(localPipeline
+          ? {
+              funFacts: props.plate.funFacts ?? [],
+              readMore: props.plate.readMore ?? [],
+              firstIssuedYear: props.plate.firstIssuedYear ?? null,
+              sourceUrl: props.plate.sourceUrl,
+              wikiUrl: props.plate.wikiUrl,
+            }
+          : {}),
+      },
+    ],
+    [props.plate, localPipeline]
+  )
   const cards = useMemo(() => props.plates.map(cardData), [props.plates])
   const [plate] = useDraftOverlay(detailCard)
   const plates = useDraftOverlay(cards)
   const [tag, setTag] = useState('')
   const [tagPlate, setTagPlate] = useState<PlateCardData | null>(null)
   const addTrigger = useRef<HTMLButtonElement | null>(null)
-  const [addingTemplate, setAddingTemplate] = useState<PlateCardData | null>(null)
+  const [addingTemplate, setAddingTemplate] = useState<PlateCardData | null>(
+    null
+  )
   const [filter, setFilter] = useState('')
   const [issue, setIssue] = useState<Issue | null>(null)
   const [status, setStatus] = useState('')
   const [draftReset, setDraftReset] = useState<Record<string, number>>({})
   const [resolving, setResolving] = useState(false)
-  const blocked = pending || standardConfirmation.pending || resolving || issue?.result.error === 'stale_plate'
+  const blocked =
+    pending ||
+    standardConfirmation.pending ||
+    resolving ||
+    issue?.result.error === 'stale_plate'
   const current = { ...plate, description: plate.checks.description.value }
   const family = plates.filter((member) =>
     current.templateFamily
       ? member.templateFamily === current.templateFamily
-      : member.id === current.id,
+      : member.id === current.id
   )
-  const linkedPlateCount = plates.filter(member => member.id !== current.id && !member.deleted
-    && (member.variantOfPlateId === current.id || current.templateRole === 'template' && member.templateRole !== 'template'
-      && !!current.templateFamily && member.templateFamily === current.templateFamily)).length
-  const deleteReason = current.isStandard ? 'Set another Standard plate first.'
-    : linkedPlateCount > 0 ? `Move or detach its ${linkedPlateCount} linked plates first.` : null
+  const linkedPlateCount = plates.filter(
+    (member) =>
+      member.id !== current.id &&
+      !member.deleted &&
+      (member.variantOfPlateId === current.id ||
+        (current.templateRole === 'template' &&
+          member.templateRole !== 'template' &&
+          !!current.templateFamily &&
+          member.templateFamily === current.templateFamily))
+  ).length
+  const deleteReason = current.isStandard
+    ? 'Set another Standard plate first.'
+    : linkedPlateCount > 0
+      ? `Move or detach its ${linkedPlateCount} linked plates first.`
+      : null
+  // Reuse the eligible family list while filtering within it.
   const others = useMemo(() => {
-    const outside = plates.filter(member => current.templateFamily
-      ? member.templateFamily !== current.templateFamily
-      : member.id !== current.id)
-    return [...outside.filter(member => member.templateRole !== 'template'), ...outside.filter(member => member.templateRole === 'template')]
+    const outside = plates.filter((member) =>
+      current.templateFamily
+        ? member.templateFamily !== current.templateFamily
+        : member.id !== current.id
+    )
+    return [
+      ...outside.filter((member) => member.templateRole !== 'template'),
+      ...outside.filter((member) => member.templateRole === 'template'),
+    ]
   }, [plates, current.templateFamily, current.id])
-  const linkedVariantCounts = useMemo(() => new Map(
-    groupFamilies(plates).map(family => [family.template.id, family.variants.length]),
-  ), [plates])
-  const linkedVariantCount = addingTemplate ? linkedVariantCounts.get(addingTemplate.id) ?? 0 : 0
+  // Index variant counts once per overlay so checking different templates is cheap.
+  const linkedVariantCounts = useMemo(
+    () =>
+      new Map(
+        groupFamilies(plates).map((family) => [
+          family.template.id,
+          family.variants.length,
+        ])
+      ),
+    [plates]
+  )
+  const linkedVariantCount = addingTemplate
+    ? (linkedVariantCounts.get(addingTemplate.id) ?? 0)
+    : 0
   const filtered = others.filter((member) =>
     `${member.displayName} ${member.id}`
       .toLowerCase()
-      .includes(filter.toLowerCase()),
+      .includes(filter.toLowerCase())
   )
   const template = family.find((member) => member.templateRole === 'template')
   const templates = plates.filter(
-    (member) => member.templateRole === 'template',
+    (member) => member.templateRole === 'template'
   )
   const templateIndex =
     templates.findIndex((member) => member.id === current.id) + 1
@@ -250,12 +332,30 @@ export function PlatePage(props: PlatePageProps) {
     if (params.has(key)) query.set(key, params.get(key)!)
   const suffix = query.size ? `?${query}` : ''
   const stateHref = `/states/${plate.state}${suffix}`
+  /** Build links between plates while preserving the workspace return context. */
   const plateHref = (id: string) => `/plates/${encodeURIComponent(id)}${suffix}`
 
-  async function save(target: PlateCardData, fields: EditableFields, reviewed?: { batchId: string; baseRevision: string }, standard?: StandardChange) {
+  /**
+   * Save plate fields with batch feedback and retain any conflicting values for
+   * resolution.
+   */
+  async function save(
+    target: PlateCardData,
+    fields: EditableFields,
+    reviewed?: { batchId: string; baseRevision: string },
+    standard?: StandardChange
+  ) {
     setStatus('Saving to your batch…')
     try {
-      const result = reviewed ? await edit(target, fields, standard ? { ...reviewed, standard } : reviewed) : standard ? await edit(target, fields, undefined, standard) : await edit(target, fields)
+      const result = reviewed
+        ? await edit(
+            target,
+            fields,
+            standard ? { ...reviewed, standard } : reviewed
+          )
+        : standard
+          ? await edit(target, fields, undefined, standard)
+          : await edit(target, fields)
       if (result.ok) {
         setStatus('Saved to your batch')
         setIssue(null)
@@ -270,8 +370,18 @@ export function PlatePage(props: PlatePageProps) {
     return false
   }
 
+  /**
+   * Attach the current plate to an eligible family without exceeding its variant
+   * constraints.
+   */
   async function addToFamily(member: PlateCardData) {
-    if (blocked || !current.templateFamily || (member.templateRole === 'template' && (linkedVariantCounts.get(member.id) ?? 0) > 0)) return
+    if (
+      blocked ||
+      !current.templateFamily ||
+      (member.templateRole === 'template' &&
+        (linkedVariantCounts.get(member.id) ?? 0) > 0)
+    )
+      return
     await save(member, {
       templateFamily: current.templateFamily,
       templateRole: 'variant',
@@ -279,6 +389,7 @@ export function PlatePage(props: PlatePageProps) {
     })
   }
 
+  /** Show a conflict only next to the affected field of the current plate. */
   function fieldIssue(field: keyof EditableFields, id = current.id) {
     if (!issue || issue.plate.id !== id || !Object.hasOwn(issue.fields, field))
       return null
@@ -296,6 +407,10 @@ export function PlatePage(props: PlatePageProps) {
     )
   }
 
+  /**
+   * Reload or resubmit the conflicted plate fields using the curator's chosen
+   * resolution.
+   */
   async function resolveConflict(useMine: boolean) {
     if (!issue || issue.result.error !== 'stale_plate' || pending || resolving)
       return
@@ -303,15 +418,35 @@ export function PlatePage(props: PlatePageProps) {
     try {
       const result = issue.result
       if (useMine) {
-        if (!result.currentRevision) throw new Error('Missing conflict revision')
-        if (!await save(issue.plate, result.draft, { batchId: result.batchId, baseRevision: result.currentRevision }, issue.standard)) return
+        if (!result.currentRevision)
+          throw new Error('Missing conflict revision')
+        if (
+          !(await save(
+            issue.plate,
+            result.draft,
+            { batchId: result.batchId, baseRevision: result.currentRevision },
+            issue.standard
+          ))
+        )
+          return
       } else {
         await mutate(`/api/batches/${result.batchId}`)
         setIssue(null)
         setStatus('Kept the saved value')
       }
-      setDraftReset(previous => ({ ...previous, ...Object.fromEntries(Object.keys(issue.fields).map(field => [field, (previous[field] ?? 0) + 1])) }))
-      if (Object.hasOwn(issue.fields, 'tags')) { setTag(''); setTagPlate(null) }
+      setDraftReset((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          Object.keys(issue.fields).map((field) => [
+            field,
+            (previous[field] ?? 0) + 1,
+          ])
+        ),
+      }))
+      if (Object.hasOwn(issue.fields, 'tags')) {
+        setTag('')
+        setTagPlate(null)
+      }
     } catch {
       setStatus('Could not refresh. Check your connection and try again.')
     } finally {
@@ -322,15 +457,36 @@ export function PlatePage(props: PlatePageProps) {
   return (
     <div className="grid min-w-0 gap-4">
       <SelectedBatchBar />
-      <AlertDialog open={addingTemplate !== null} onOpenChange={open => { if (!open) setAddingTemplate(null) }}>
-        <AlertDialogContent onCloseAutoFocus={event => { event.preventDefault(); addTrigger.current?.focus() }}>
-          <AlertDialogTitle>Add {addingTemplate?.displayName} to this family?</AlertDialogTitle>
+      <AlertDialog
+        open={addingTemplate !== null}
+        onOpenChange={(open) => {
+          if (!open) setAddingTemplate(null)
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            addTrigger.current?.focus()
+          }}
+        >
+          <AlertDialogTitle>
+            Add {addingTemplate?.displayName} to this family?
+          </AlertDialogTitle>
           <AlertDialogDescription>
             It stops being a Template.
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={blocked || !current.templateFamily || linkedVariantCount > 0} onClick={() => { if (addingTemplate) void addToFamily(addingTemplate) }}>Add to family</AlertDialogAction>
+            <AlertDialogAction
+              disabled={
+                blocked || !current.templateFamily || linkedVariantCount > 0
+              }
+              onClick={() => {
+                if (addingTemplate) void addToFamily(addingTemplate)
+              }}
+            >
+              Add to family
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -350,7 +506,14 @@ export function PlatePage(props: PlatePageProps) {
             <IoChevronBack />
             {plate.state}
           </Link>
-          <h1 className={cn("page-title", current.deleted && "line-through opacity-60")}>{current.displayName}</h1>
+          <h1
+            className={cn(
+              'page-title',
+              current.deleted && 'line-through opacity-60'
+            )}
+          >
+            {current.displayName}
+          </h1>
           <PipelineReviewLink plate={plate} />
           <span className="id text-[var(--ink-2)]">
             {current.id} ·{' '}
@@ -368,7 +531,7 @@ export function PlatePage(props: PlatePageProps) {
               'caption',
               status.startsWith('Could not')
                 ? 'text-[var(--danger)]'
-                : 'text-[var(--success)]',
+                : 'text-[var(--success)]'
             )}
           >
             {pending
@@ -406,16 +569,23 @@ export function PlatePage(props: PlatePageProps) {
           <Card>
             <div className="flex min-h-[200px] items-center justify-center overflow-hidden">
               {props.plate.imageUrl ? (
-                <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={props.plate.imageUrl}>
-                <Image
-                  src={props.plate.imageUrl}
-                  width={props.plate.imageSize.width}
-                  height={props.plate.imageSize.height}
-                  alt={`${plate.displayName} plate`}
-                  unoptimized
-                  priority
-                  className={cn("max-w-full object-contain", current.deleted && "opacity-60")}
-                />
+                <PlateImageHover
+                  plateId={plate.id}
+                  plateName={plate.displayName}
+                  before={props.plate.imageUrl}
+                >
+                  <Image
+                    src={props.plate.imageUrl}
+                    width={props.plate.imageSize.width}
+                    height={props.plate.imageSize.height}
+                    alt={`${plate.displayName} plate`}
+                    unoptimized
+                    priority
+                    className={cn(
+                      'max-w-full object-contain',
+                      current.deleted && 'opacity-60'
+                    )}
+                  />
                 </PlateImageHover>
               ) : (
                 <p>No image available</p>
@@ -423,26 +593,63 @@ export function PlatePage(props: PlatePageProps) {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="id break-all text-[var(--ink-2)]">
-                {plate.imageUrl
-                  ? fileName(plate.imageUrl)
-                  : 'No source file'}{' '}
-                · {props.plate.imageSize.width} px
+                {plate.imageUrl ? fileName(plate.imageUrl) : 'No source file'} ·{' '}
+                {props.plate.imageSize.width} px
               </p>
-              <Parked reason="No image upload or crop draft endpoint">Replace or crop</Parked>
+              <Parked reason="No image upload or crop draft endpoint">
+                Replace or crop
+              </Parked>
             </div>
             {fieldIssue('deleted')}
-            {!current.deleted && deleteReason ? <p id="delete-plate-reason" className="caption text-[var(--ink-2)]">{deleteReason}</p> : null}
-            {current.deleted ? <Button variant="outline" disabled={blocked} onClick={() => void save(current, { deleted: false })}>Undo delete</Button> : (
+            {!current.deleted && deleteReason ? (
+              <p
+                id="delete-plate-reason"
+                className="caption text-[var(--ink-2)]"
+              >
+                {deleteReason}
+              </p>
+            ) : null}
+            {current.deleted ? (
+              <Button
+                variant="outline"
+                disabled={blocked}
+                onClick={() => void save(current, { deleted: false })}
+              >
+                Undo delete
+              </Button>
+            ) : (
               <AlertDialog>
-                <AlertDialogTrigger asChild><Button variant="outline" className="text-[var(--danger)]" disabled={blocked || !!deleteReason} aria-describedby={deleteReason ? 'delete-plate-reason' : undefined}>Delete plate</Button></AlertDialogTrigger>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-[var(--danger)]"
+                    disabled={blocked || !!deleteReason}
+                    aria-describedby={
+                      deleteReason ? 'delete-plate-reason' : undefined
+                    }
+                  >
+                    Delete plate
+                  </Button>
+                </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete {current.displayName}?</AlertDialogTitle>
-                    <AlertDialogDescription>It is removed from the game at the next Publish. You can undo until then.</AlertDialogDescription>
+                    <AlertDialogTitle>
+                      Delete {current.displayName}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      It is removed from the game at the next Publish. You can
+                      undo until then.
+                    </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction className="bg-[var(--danger)] text-white" disabled={blocked || !!deleteReason} onClick={() => void save(current, { deleted: true })}>Delete</AlertDialogAction>
+                    <AlertDialogAction
+                      className="bg-[var(--danger)] text-white"
+                      disabled={blocked || !!deleteReason}
+                      onClick={() => void save(current, { deleted: true })}
+                    >
+                      Delete
+                    </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -453,7 +660,9 @@ export function PlatePage(props: PlatePageProps) {
             <p className="caption text-[var(--ink-2)]">
               Rarity is not available for this plate.
             </p>
-            <Parked reason="Manual rarity is not an editable Batch field">Set by hand</Parked>
+            <Parked reason="Manual rarity is not an editable Batch field">
+              Set by hand
+            </Parked>
           </Card>
           <Card
             title={`Tags ${current.tags.length}`}
@@ -485,17 +694,33 @@ export function PlatePage(props: PlatePageProps) {
                 placeholder="Add tag…"
                 value={tag}
                 disabled={blocked}
-                onChange={(event) => { setTagPlate(previous => previous ?? current); setTag(event.target.value) }}
+                onChange={(event) => {
+                  setTagPlate((previous) => previous ?? current)
+                  setTag(event.target.value)
+                }}
                 className="w-28 min-w-0 bg-transparent text-sm"
                 onKeyDown={(event) => {
-                  if (event.key === 'Escape') { setTag(''); setTagPlate(null) }
+                  if (event.key === 'Escape') {
+                    setTag('')
+                    setTagPlate(null)
+                  }
                   if (event.key === 'Enter') {
                     event.preventDefault()
                     const value = tag.trim().toLowerCase()
                     const target = tagPlate ?? current
                     if (value && !target.tags.includes(value))
-                      void save(target, { tags: [...target.tags, value] }).then(ok => { if (ok) { setTag(''); setTagPlate(null) } })
-                    else { setTag(''); setTagPlate(null) }
+                      void save(target, { tags: [...target.tags, value] }).then(
+                        (ok) => {
+                          if (ok) {
+                            setTag('')
+                            setTagPlate(null)
+                          }
+                        }
+                      )
+                    else {
+                      setTag('')
+                      setTagPlate(null)
+                    }
                   }
                 }}
               />
@@ -513,10 +738,24 @@ export function PlatePage(props: PlatePageProps) {
               <Button
                 variant="outline"
                 aria-pressed={current.isStandard}
-                disabled={blocked || current.isStandard || current.templateRole !== 'template' || current.deleted}
+                disabled={
+                  blocked ||
+                  current.isStandard ||
+                  current.templateRole !== 'template' ||
+                  current.deleted
+                }
                 onClick={async () => {
-                  const standard = await standardConfirmation.confirm(plates, current.id)
-                  if (standard !== false) await save(current, { isStandard: true }, undefined, standard)
+                  const standard = await standardConfirmation.confirm(
+                    plates,
+                    current.id
+                  )
+                  if (standard !== false)
+                    await save(
+                      current,
+                      { isStandard: true },
+                      undefined,
+                      standard
+                    )
                 }}
               >
                 <IoStarOutline />
@@ -574,70 +813,127 @@ export function PlatePage(props: PlatePageProps) {
               multiline
               value={current.description ?? ''}
               pending={blocked}
-              save={(value, target) => save(target, { description: value || null })}
+              save={(value, target) =>
+                save(target, { description: value || null })
+              }
             />
-            {localPipeline ? <>
-              {(['firstIssuedYear', 'funFacts', 'readMore', 'wikiUrl'] as const).map(field => <div key={field}>{fieldIssue(field)}</div>)}
-              <StoryEditor key={`${current.id}-${current.revision}`} plate={current} pending={blocked} save={save} />
-            </> : <>
-            <label className="grid gap-2">
-              <span className="label">First issued</span>
-              <span title={localPipelineReason('First issued year is not an editable Batch field')}>
-                <input
-                  aria-label="First issued year"
-                  className={cn(input, 'max-w-40')}
-                  placeholder="Year"
-                  disabled
+            {localPipeline ? (
+              <>
+                {(
+                  [
+                    'firstIssuedYear',
+                    'funFacts',
+                    'readMore',
+                    'wikiUrl',
+                  ] as const
+                ).map((field) => (
+                  <div key={field}>{fieldIssue(field)}</div>
+                ))}
+                <StoryEditor
+                  key={`${current.id}-${current.revision}`}
+                  plate={current}
+                  pending={blocked}
+                  save={save}
                 />
-              </span>
-              <span className="sr-only">{localPipelineReason('First issued year is not an editable Batch field')}</span>
-            </label>
-            <div className="flex items-center justify-between">
-              <h3 className="label">Fun facts {current.funFacts?.length ?? 0} / 4</h3>
-              <Parked reason="Fun facts are not editable Batch fields">
-                <IoAdd />
-                Add fact
-              </Parked>
-            </div>
-            {current.funFacts?.length ? <ul className="grid gap-2">{current.funFacts.map((fact, index) => <li key={index} className="rounded-xl bg-[var(--fill)] p-3 text-sm">{fact.text} <a href={fact.sourceUrl} target="_blank" rel="noreferrer" className="underline">{fact.sourceTitle ?? 'Source'}</a></li>)}</ul> : <p className="rounded-xl bg-[var(--danger-tint)] p-3 text-sm text-[var(--danger)]">
-              No fun facts yet. Each one cites a source link below; uncited
-              facts never ship.
-            </p>}
-            <div className="flex items-center justify-between">
-              <h3 className="label">Sources and read-more</h3>
-              <Parked reason="Source links are not editable Batch fields">
-                <IoAdd />
-                Add link
-              </Parked>
-            </div>
-            <div className="grid gap-2">
-              {[...new Set([props.plate.sourceUrl, current.wikiUrl ?? props.plate.wikiUrl, ...(current.readMore ?? []).map(link => link.url)])]
-                .filter((url): url is string => !!url)
-                .map((url, index) => {
-                  let domain = url
-                  try {
-                    domain = new URL(url).hostname
-                  } catch {
-                    return null
-                  }
-                  return (
-                    <a
-                      key={`${index}-${url}`}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--fill)] p-3 text-sm"
-                    >
-                      <span className="flex items-center gap-2">
-                        <IoLinkOutline />
-                        {index === 0 ? 'Source' : 'Read more'}
-                      </span>
-                      <span className="id break-all">{domain}</span>
-                    </a>
-                  )
-                })}
-            </div>
-            </>}
+              </>
+            ) : (
+              <>
+                <label className="grid gap-2">
+                  <span className="label">First issued</span>
+                  <span
+                    title={localPipelineReason(
+                      'First issued year is not an editable Batch field'
+                    )}
+                  >
+                    <input
+                      aria-label="First issued year"
+                      className={cn(input, 'max-w-40')}
+                      placeholder="Year"
+                      disabled
+                    />
+                  </span>
+                  <span className="sr-only">
+                    {localPipelineReason(
+                      'First issued year is not an editable Batch field'
+                    )}
+                  </span>
+                </label>
+                <div className="flex items-center justify-between">
+                  <h3 className="label">
+                    Fun facts {current.funFacts?.length ?? 0} / 4
+                  </h3>
+                  <Parked reason="Fun facts are not editable Batch fields">
+                    <IoAdd />
+                    Add fact
+                  </Parked>
+                </div>
+                {current.funFacts?.length ? (
+                  <ul className="grid gap-2">
+                    {current.funFacts.map((fact, index) => (
+                      <li
+                        key={index}
+                        className="rounded-xl bg-[var(--fill)] p-3 text-sm"
+                      >
+                        {fact.text}{' '}
+                        <a
+                          href={fact.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {fact.sourceTitle ?? 'Source'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded-xl bg-[var(--danger-tint)] p-3 text-sm text-[var(--danger)]">
+                    No fun facts yet. Each one cites a source link below;
+                    uncited facts never ship.
+                  </p>
+                )}
+                <div className="flex items-center justify-between">
+                  <h3 className="label">Sources and read-more</h3>
+                  <Parked reason="Source links are not editable Batch fields">
+                    <IoAdd />
+                    Add link
+                  </Parked>
+                </div>
+                <div className="grid gap-2">
+                  {[
+                    ...new Set([
+                      props.plate.sourceUrl,
+                      current.wikiUrl ?? props.plate.wikiUrl,
+                      ...(current.readMore ?? []).map((link) => link.url),
+                    ]),
+                  ]
+                    .filter((url): url is string => !!url)
+                    .map((url, index) => {
+                      let domain = url
+                      try {
+                        domain = new URL(url).hostname
+                      } catch {
+                        return null
+                      }
+                      return (
+                        <a
+                          key={`${index}-${url}`}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--fill)] p-3 text-sm"
+                        >
+                          <span className="flex items-center gap-2">
+                            <IoLinkOutline />
+                            {index === 0 ? 'Source' : 'Read more'}
+                          </span>
+                          <span className="id break-all">{domain}</span>
+                        </a>
+                      )
+                    })}
+                </div>
+              </>
+            )}
             <ResearchActions key={current.id} plate={current} />
           </Card>
         </div>
@@ -669,7 +965,10 @@ export function PlatePage(props: PlatePageProps) {
             />
             <div className="max-h-[580px] overflow-y-auto">
               {filtered.slice(0, 100).map((member) => {
-                const count = member.templateRole === 'template' ? linkedVariantCounts.get(member.id) ?? 0 : 0
+                const count =
+                  member.templateRole === 'template'
+                    ? (linkedVariantCounts.get(member.id) ?? 0)
+                    : 0
                 const reasonId = 'family-move-' + member.id
                 return (
                   <div key={member.id} className="grid gap-2">
@@ -680,9 +979,11 @@ export function PlatePage(props: PlatePageProps) {
                         aria-label={`Add ${member.displayName} to family`}
                         variant="ghost"
                         size="icon"
-                        disabled={blocked || !current.templateFamily || count > 0}
+                        disabled={
+                          blocked || !current.templateFamily || count > 0
+                        }
                         aria-describedby={count > 0 ? reasonId : undefined}
-                        onClick={event => {
+                        onClick={(event) => {
                           if (member.templateRole === 'template') {
                             addTrigger.current = event.currentTarget
                             setAddingTemplate(member)
@@ -692,7 +993,15 @@ export function PlatePage(props: PlatePageProps) {
                         <IoAdd />
                       </Button>
                     </div>
-                    {count > 0 ? <p id={reasonId} className="caption px-3 text-[var(--ink-2)]">Move or detach its {count} {count === 1 ? 'Variant' : 'Variants'} first.</p> : null}
+                    {count > 0 ? (
+                      <p
+                        id={reasonId}
+                        className="caption px-3 text-[var(--ink-2)]"
+                      >
+                        Move or detach its {count}{' '}
+                        {count === 1 ? 'Variant' : 'Variants'} first.
+                      </p>
+                    ) : null}
                   </div>
                 )
               })}

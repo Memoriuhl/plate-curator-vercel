@@ -5,113 +5,237 @@ export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
 import { draftGroupingFields, editableKeys, limits } from './fields'
 import { sameEditableValue } from './story'
-import { hasPipelineHistory, pipelineImageFields, retainedPipelineChanges } from './pipeline-changes'
+import {
+  hasPipelineHistory,
+  pipelineImageFields,
+  retainedPipelineChanges,
+} from './pipeline-changes'
 import { plateRevision } from './revision'
-import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
+import type {
+  Actor,
+  EditableFields,
+  Outcome,
+  ReviewBatch,
+  ReviewDeps,
+  StandardChange,
+} from './types'
 
-const groupRevertReason = 'Reverting this field would leave a Template family or Variant link inconsistent. Edit the related grouping together.'
-export const imageRevertReason = 'The image or its source changed after this run. Review the current image and source together before making another change.'
+const groupRevertReason =
+  'Reverting this field would leave a Template family or Variant link inconsistent. Edit the related grouping together.'
+export const imageRevertReason =
+  'The image or its source changed after this run. Review the current image and source together before making another change.'
 
-async function regroupRemainsValid(d: ReviewDeps, batch: ReviewBatch, current: Plate, target: Plate) {
+/**
+ * Overlay the current drafts on the state's baseline to ensure a proposed regroup
+ * preserves valid families.
+ */
+async function regroupRemainsValid(
+  d: ReviewDeps,
+  batch: ReviewBatch,
+  current: Plate,
+  target: Plate
+) {
   const [baseline, edits] = await Promise.all([
     d.stateBaseline(batch.baselineVersion, target.state, 'snapshot'),
     d.store.listEdits(batch.id),
   ])
-  const byId = new Map(edits.map(edit => [edit.plateId, edit.fields]))
-  const state = new Map(baseline.map(plate => [plate.id, { ...plate, ...byId.get(plate.id) }]))
+  const byId = new Map(edits.map((edit) => [edit.plateId, edit.fields]))
+  const state = new Map(
+    baseline.map((plate) => [plate.id, { ...plate, ...byId.get(plate.id) }])
+  )
   state.set(target.id, target)
-  const affectedFamilies = new Set([current.templateFamily, target.templateFamily].filter(Boolean))
+  const affectedFamilies = new Set(
+    [current.templateFamily, target.templateFamily].filter(Boolean)
+  )
   return validRegroup(state, affectedFamilies, new Set([target.id]))
 }
 
-export function validRegroup(state: ReadonlyMap<string, Plate>, affectedFamilies: ReadonlySet<string | undefined>, changedIds: ReadonlySet<string>) {
+/**
+ * Check that every affected family retains exactly one template and that changed plates
+ * point to valid parents.
+ */
+export function validRegroup(
+  state: ReadonlyMap<string, Plate>,
+  affectedFamilies: ReadonlySet<string | undefined>,
+  changedIds: ReadonlySet<string>
+) {
   const counts = new Map<string, { plates: number; templates: number }>()
   for (const member of state.values()) {
     if (member.deleted) continue
     if (member.templateFamily && affectedFamilies.has(member.templateFamily)) {
-      const count = counts.get(member.templateFamily) ?? { plates: 0, templates: 0 }
+      const count = counts.get(member.templateFamily) ?? {
+        plates: 0,
+        templates: 0,
+      }
       count.plates += 1
       if (familyRole(member) === 'template') count.templates += 1
       counts.set(member.templateFamily, count)
     }
-    if (member.variantOfPlateId && (changedIds.has(member.id) || changedIds.has(member.variantOfPlateId))) {
+    if (
+      member.variantOfPlateId &&
+      (changedIds.has(member.id) || changedIds.has(member.variantOfPlateId))
+    ) {
       const parent = state.get(member.variantOfPlateId)
-      if (!parent || parent.deleted || familyRole(parent) !== 'template' || parent.id === member.id || parent.templateFamily !== member.templateFamily || familyRole(member) !== 'variant')
+      if (
+        !parent ||
+        parent.deleted ||
+        familyRole(parent) !== 'template' ||
+        parent.id === member.id ||
+        parent.templateFamily !== member.templateFamily ||
+        familyRole(member) !== 'variant'
+      )
         return false
     }
   }
-  return [...counts.values()].every(({ plates, templates }) => !plates || templates === 1)
+  return [...counts.values()].every(
+    ({ plates, templates }) => !plates || templates === 1
+  )
 }
 
 type FieldRevert = { field: keyof EditableFields; jobId: string }
 
+/** Apply a curator's edit through the shared revision and batch access checks. */
 export function proposeEdit(
   d: ReviewDeps,
   actor: Actor,
-  input: { batchId: string; plateId: string; baseRevision: string; fields: EditableFields; standard?: StandardChange },
+  input: {
+    batchId: string
+    plateId: string
+    baseRevision: string
+    fields: EditableFields
+    standard?: StandardChange
+  }
 ) {
   return updatePlate(d, actor, input)
 }
 
-export function revertPipelineField(d: ReviewDeps, actor: Actor, input: { batchId: string; plateId: string } & FieldRevert) {
+/** Restore a field's prior value while preserving the other results in the draft. */
+export function revertPipelineField(
+  d: ReviewDeps,
+  actor: Actor,
+  input: { batchId: string; plateId: string } & FieldRevert
+) {
   return updatePlate(d, actor, { ...input, revert: input })
 }
 
+/**
+ * Validate and commit a plate edit with revision checks so concurrent drafts and
+ * pipeline results reconcile safely.
+ */
 async function updatePlate(
   d: ReviewDeps,
   a: Actor,
-  i: { batchId: string; plateId: string } &
-    ({ baseRevision: string; fields: EditableFields; standard?: StandardChange; revert?: never } |
-     { revert: FieldRevert; baseRevision?: never; fields?: never; standard?: never }),
+  i: { batchId: string; plateId: string } & (
+    | {
+        baseRevision: string
+        fields: EditableFields
+        standard?: StandardChange
+        revert?: never
+      }
+    | {
+        revert: FieldRevert
+        baseRevision?: never
+        fields?: never
+        standard?: never
+      }
+  )
 ): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const batch = await d.store.getBatch(i.batchId)
     if (!batch) return { ok: false, error: 'not_found' }
     if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
-    if (!editableStates.includes(batch.state)) return { ok: false, error: 'invalid_state' }
+    if (!editableStates.includes(batch.state))
+      return { ok: false, error: 'invalid_state' }
     const baseline = await d.baselineAtVersion(batch.baselineVersion, i.plateId)
     if (!baseline) return { ok: false, error: 'not_found' }
-    const plateIds = batch.plateIds.includes(i.plateId) ? batch.plateIds : [...batch.plateIds, i.plateId]
-    if (plateIds.length > limits.plates) return { ok: false, error: 'invalid_state' }
+    const plateIds = batch.plateIds.includes(i.plateId)
+      ? batch.plateIds
+      : [...batch.plateIds, i.plateId]
+    if (plateIds.length > limits.plates)
+      return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(i.batchId, i.plateId)
     const current = { ...baseline, ...existing?.fields }
     let requested: EditableFields
     let revertedFields: (keyof EditableFields)[] = []
     if (i.revert) {
       const { field, jobId } = i.revert
-      revertedFields = field === 'imageUrl' || field === 'sourceUrl' ? [...pipelineImageFields] : [field]
+      revertedFields =
+        field === 'imageUrl' || field === 'sourceUrl'
+          ? [...pipelineImageFields]
+          : [field]
       const previous: [keyof EditableFields, unknown][] = []
       for (const key of revertedFields) {
         const change = existing?.pipelineChanges?.[key]
-        if (!change || change.jobId !== jobId || !sameEditableValue(key, change.value, current[key]))
-          return { ok: false, error: 'superseded_revision', ...(revertedFields.length > 1 ? { reasons: [imageRevertReason] } : {}) }
-        previous.push([key, Object.hasOwn(change, 'previous') ? change.previous : baseline[key]])
+        if (
+          !change ||
+          change.jobId !== jobId ||
+          !sameEditableValue(key, change.value, current[key])
+        )
+          return {
+            ok: false,
+            error: 'superseded_revision',
+            ...(revertedFields.length > 1
+              ? { reasons: [imageRevertReason] }
+              : {}),
+          }
+        previous.push([
+          key,
+          Object.hasOwn(change, 'previous') ? change.previous : baseline[key],
+        ])
       }
       requested = Object.fromEntries(previous)
     } else {
-      if (plateRevision(current) !== i.baseRevision) return { ok: false, error: 'stale_plate', current }
+      if (plateRevision(current) !== i.baseRevision)
+        return { ok: false, error: 'stale_plate', current }
       requested = i.fields
     }
-    const changes = Object.fromEntries(editableKeys
-      .filter(key => (revertedFields.includes(key) || requested[key] !== undefined) && !sameEditableValue(key, current[key], requested[key]))
-      .map(key => [key, requested[key]]))
+    const changes = Object.fromEntries(
+      editableKeys
+        .filter(
+          (key) =>
+            (revertedFields.includes(key) || requested[key] !== undefined) &&
+            !sameEditableValue(key, current[key], requested[key])
+        )
+        .map((key) => [key, requested[key]])
+    )
     const plate = { ...current, ...changes }
-    for (const field of revertedFields) if (plate[field] === undefined) delete plate[field]
-    if (i.revert && draftGroupingFields.some(field => Object.hasOwn(changes, field)) && !await regroupRemainsValid(d, batch, current, plate))
+    for (const field of revertedFields)
+      if (plate[field] === undefined) delete plate[field]
+    if (
+      i.revert &&
+      draftGroupingFields.some((field) => Object.hasOwn(changes, field)) &&
+      !(await regroupRemainsValid(d, batch, current, plate))
+    )
       return { ok: false, error: 'invalid_state', reasons: [groupRevertReason] }
-    if (current.isStandard && (
-      Object.hasOwn(changes, 'isStandard') && !plate.isStandard ||
-      Object.hasOwn(changes, 'templateRole') && familyRole(plate) !== 'template'
-    )) return { ok: false, error: 'standard_required' }
+    if (
+      current.isStandard &&
+      ((Object.hasOwn(changes, 'isStandard') && !plate.isStandard) ||
+        (Object.hasOwn(changes, 'templateRole') &&
+          familyRole(plate) !== 'template'))
+    )
+      return { ok: false, error: 'standard_required' }
     if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
       const edits = await d.store.listEdits(batch.id)
-      const deleted = edits.filter(edit => edit.plateId !== plate.id && edit.fields.deleted)
-      if (deleted.some(edit => edit.plateId === plate.variantOfPlateId)) return { ok: false, error: 'invalid_state' }
+      const deleted = edits.filter(
+        (edit) => edit.plateId !== plate.id && edit.fields.deleted
+      )
+      if (deleted.some((edit) => edit.plateId === plate.variantOfPlateId))
+        return { ok: false, error: 'invalid_state' }
       if (plate.templateFamily) {
-        const parents = await Promise.all(deleted.map(async edit => ({
-          ...await d.baselineAtVersion(batch.baselineVersion, edit.plateId), ...edit.fields,
-        })))
-        if (parents.some(parent => familyRole(parent) === 'template' && parent.templateFamily === plate.templateFamily)) return { ok: false, error: 'invalid_state' }
+        const parents = await Promise.all(
+          deleted.map(async (edit) => ({
+            ...(await d.baselineAtVersion(batch.baselineVersion, edit.plateId)),
+            ...edit.fields,
+          }))
+        )
+        if (
+          parents.some(
+            (parent) =>
+              familyRole(parent) === 'template' &&
+              parent.templateFamily === plate.templateFamily
+          )
+        )
+          return { ok: false, error: 'invalid_state' }
       }
     }
     if (plate.deleted) {
@@ -120,21 +244,38 @@ async function updatePlate(
         d.stateBaseline(batch.baselineVersion, plate.state),
         d.store.listEdits(batch.id),
       ])
-      const fieldsById = new Map(edits.map(edit => [edit.plateId, edit.fields]))
-      const hasLinkedPlates = plates.some(baseline => {
+      const fieldsById = new Map(
+        edits.map((edit) => [edit.plateId, edit.fields])
+      )
+      const hasLinkedPlates = plates.some((baseline) => {
         const member = { ...baseline, ...fieldsById.get(baseline.id) }
-        return member.id !== plate.id && !member.deleted
-          && (member.variantOfPlateId === plate.id || familyRole(plate) === 'template' && familyRole(member) !== 'template'
-            && !!plate.templateFamily && member.templateFamily === plate.templateFamily)
+        return (
+          member.id !== plate.id &&
+          !member.deleted &&
+          (member.variantOfPlateId === plate.id ||
+            (familyRole(plate) === 'template' &&
+              familyRole(member) !== 'template' &&
+              !!plate.templateFamily &&
+              member.templateFamily === plate.templateFamily))
+        )
       })
       if (hasLinkedPlates) return { ok: false, error: 'invalid_state' }
     }
     if (!plate.deleted && baseline.deleted === undefined) delete plate.deleted
-    const fields: EditableFields = Object.fromEntries(editableKeys
-      .filter(key => !sameEditableValue(key, baseline[key], plate[key]))
-      .map(key => [key, plate[key]]))
+    const fields: EditableFields = Object.fromEntries(
+      editableKeys
+        .filter((key) => !sameEditableValue(key, baseline[key], plate[key]))
+        .map((key) => [key, plate[key]])
+    )
     const changedAt = d.now()
-    const nextBatch: ReviewBatch = { ...batch, lastChangedAt: changedAt, plateIds, state: 'open', revision: batch.revision + 1, approval: null }
+    const nextBatch: ReviewBatch = {
+      ...batch,
+      lastChangedAt: changedAt,
+      plateIds,
+      state: 'open',
+      revision: batch.revision + 1,
+      approval: null,
+    }
     const attribution = retainedPipelineChanges(existing, plate)
     for (const field of revertedFields) {
       const change = existing?.pipelineChanges?.[field]
@@ -142,49 +283,103 @@ async function updatePlate(
       if (prior && sameEditableValue(field, prior.value, plate[field])) {
         const remainder = change?.prior?.slice(0, -1)
         attribution.pipelineChanges ??= {}
-        attribution.pipelineChanges[field] = { ...prior, ...(remainder?.length ? { prior: remainder } : {}) }
+        attribution.pipelineChanges[field] = {
+          ...prior,
+          ...(remainder?.length ? { prior: remainder } : {}),
+        }
       } else if (attribution.pipelineChanges) {
         delete attribution.pipelineChanges[field]
       }
     }
     const edit = {
-      plateId: i.plateId, baseRevision: plateRevision(baseline), fields,
+      plateId: i.plateId,
+      baseRevision: plateRevision(baseline),
+      fields,
       ...attribution,
-      authorId: a.uid, updatedAt: changedAt, resultRevision: plateRevision(plate),
+      authorId: a.uid,
+      updatedAt: changedAt,
+      resultRevision: plateRevision(plate),
     }
     let combined: Awaited<ReturnType<typeof standardEdits>> | undefined
     const firstId = batch.stateOrders[plate.state]?.[0]
-    const affectsStandard = (current.isStandard || plate.id === firstId) && ['isStandard', 'templateRole', 'deleted', 'variantOfPlateId'].some(key => Object.hasOwn(requested, key))
-    if (requested.isStandard === true || firstId && affectsStandard) {
-      const baselinePlates = await d.stateBaseline(batch.baselineVersion, plate.state)
-      let order = batch.stateOrders[plate.state] ?? baselinePlates.map(member => member.id)
+    const affectsStandard =
+      (current.isStandard || plate.id === firstId) &&
+      ['isStandard', 'templateRole', 'deleted', 'variantOfPlateId'].some(
+        (key) => Object.hasOwn(requested, key)
+      )
+    if (requested.isStandard === true || (firstId && affectsStandard)) {
+      const baselinePlates = await d.stateBaseline(
+        batch.baselineVersion,
+        plate.state
+      )
+      let order =
+        batch.stateOrders[plate.state] ??
+        baselinePlates.map((member) => member.id)
       if (requested.isStandard === true) {
-        if (plate.deleted || familyRole(plate) !== 'template') return { ok: false, error: 'standard_invalid_template' }
+        if (plate.deleted || familyRole(plate) !== 'template')
+          return { ok: false, error: 'standard_invalid_template' }
         const existingEdits = await d.store.listEdits(batch.id)
-        const effectiveFields = new Map(existingEdits.map(edit => [edit.plateId, edit.fields]))
-        const familyIds = new Set(baselinePlates.filter(member => {
-          const effective = { ...member, ...effectiveFields.get(member.id) }
-          return member.id === plate.id || effective.variantOfPlateId === plate.id || !!plate.templateFamily && effective.templateFamily === plate.templateFamily
-        }).map(member => member.id))
-        order = [plate.id, ...order.filter(id => id !== plate.id && familyIds.has(id)), ...order.filter(id => !familyIds.has(id))]
+        const effectiveFields = new Map(
+          existingEdits.map((edit) => [edit.plateId, edit.fields])
+        )
+        const familyIds = new Set(
+          baselinePlates
+            .filter((member) => {
+              const effective = { ...member, ...effectiveFields.get(member.id) }
+              return (
+                member.id === plate.id ||
+                effective.variantOfPlateId === plate.id ||
+                (!!plate.templateFamily &&
+                  effective.templateFamily === plate.templateFamily)
+              )
+            })
+            .map((member) => member.id)
+        )
+        order = [
+          plate.id,
+          ...order.filter((id) => id !== plate.id && familyIds.has(id)),
+          ...order.filter((id) => !familyIds.has(id)),
+        ]
       }
-      combined = await standardEdits(d, a, batch, baselinePlates, order, new Map([[plate.id, changes]]), i.standard)
+      combined = await standardEdits(
+        d,
+        a,
+        batch,
+        baselinePlates,
+        order,
+        new Map([[plate.id, changes]]),
+        i.standard
+      )
       if (!combined.ok) return combined
       if (i.revert && hasPipelineHistory(edit)) {
-        const selected = combined.value.edits.find(candidate => candidate.plateId === i.plateId)
+        const selected = combined.value.edits.find(
+          (candidate) => candidate.plateId === i.plateId
+        )
         if (selected) Object.assign(selected, attribution)
         else {
-          combined.value.deleteEditsFor = combined.value.deleteEditsFor.filter(id => id !== i.plateId)
+          combined.value.deleteEditsFor = combined.value.deleteEditsFor.filter(
+            (id) => id !== i.plateId
+          )
           combined.value.edits.push(edit)
         }
       }
       nextBatch.plateIds = combined.value.plateIds
       nextBatch.stateOrders = { ...batch.stateOrders, [plate.state]: order }
-      nextBatch.baselineOrders = { ...batch.baselineOrders, [plate.state]: batch.baselineOrders?.[plate.state] ?? baselinePlates.map(member => member.id) }
+      nextBatch.baselineOrders = {
+        ...batch.baselineOrders,
+        [plate.state]:
+          batch.baselineOrders?.[plate.state] ??
+          baselinePlates.map((member) => member.id),
+      }
     }
     const result = await d.store.commit(i.batchId, batch.revision, {
-      batch: nextBatch, by: a,
-      ...(combined?.ok ? combined.value : Object.keys(fields).length || hasPipelineHistory(edit) ? { edit } : { deleteEditFor: i.plateId }),
+      batch: nextBatch,
+      by: a,
+      ...(combined?.ok
+        ? combined.value
+        : Object.keys(fields).length || hasPipelineHistory(edit)
+          ? { edit }
+          : { deleteEditFor: i.plateId }),
     })
     if (result === 'ok') {
       if (batch.state !== 'open') await d.supersedeRun?.(batch)
@@ -194,91 +389,226 @@ async function updatePlate(
   return { ok: false, error: 'superseded_revision' }
 }
 
-export async function submitBatch(d: ReviewDeps, a: Actor, batchId: string, revision: number): Promise<Outcome<ReviewBatch>> {
+/** Move an eligible open batch to submitted at the caller's revision. */
+export async function submitBatch(
+  d: ReviewDeps,
+  a: Actor,
+  batchId: string,
+  revision: number
+): Promise<Outcome<ReviewBatch>> {
   return transitionBatch(d, a, batchId, revision, 'submitted')
 }
 
-export async function approveBatch(d: ReviewDeps, a: Actor, batchId: string, revision: number): Promise<Outcome<ReviewBatch>> {
+/** Allow an owner to approve a submitted batch at its current revision. */
+export async function approveBatch(
+  d: ReviewDeps,
+  a: Actor,
+  batchId: string,
+  revision: number
+): Promise<Outcome<ReviewBatch>> {
   if (a.role !== 'owner') return { ok: false, error: 'forbidden' }
   return transitionBatch(d, a, batchId, revision, 'approved')
 }
 
-export async function reviewApprovalProblems(d: ReviewDeps, batch: ReviewBatch): Promise<string[]> {
+/**
+ * Collect state order and standard-plate problems that must be resolved before approval.
+ */
+export async function reviewApprovalProblems(
+  d: ReviewDeps,
+  batch: ReviewBatch
+): Promise<string[]> {
   const edits = await d.store.listEdits(batch.id)
-  const standardPlates = await Promise.all(edits.filter(edit => Object.hasOwn(edit.fields, 'isStandard')).map(edit => d.baselineAtVersion(batch.baselineVersion, edit.plateId)))
-  const touchedStates = new Set([...Object.keys(batch.stateOrders), ...standardPlates.flatMap(plate => plate ? [plate.state] : [])])
-  const states = await Promise.all([...touchedStates].map(state => d.stateBaseline(batch.baselineVersion, state)))
+  const standardPlates = await Promise.all(
+    edits
+      .filter((edit) => Object.hasOwn(edit.fields, 'isStandard'))
+      .map((edit) => d.baselineAtVersion(batch.baselineVersion, edit.plateId))
+  )
+  const touchedStates = new Set([
+    ...Object.keys(batch.stateOrders),
+    ...standardPlates.flatMap((plate) => (plate ? [plate.state] : [])),
+  ])
+  const states = await Promise.all(
+    [...touchedStates].map((state) =>
+      d.stateBaseline(batch.baselineVersion, state)
+    )
+  )
   return standardOrderProblems(states.flat(), edits, batch.stateOrders)
 }
 
+/**
+ * Perform a review state transition only while permissions, readiness and revision still
+ * match.
+ */
 async function transitionBatch(
-  d: ReviewDeps, a: Actor, batchId: string, revision: number, state: 'submitted' | 'approved',
+  d: ReviewDeps,
+  a: Actor,
+  batchId: string,
+  revision: number,
+  state: 'submitted' | 'approved'
 ): Promise<Outcome<ReviewBatch>> {
   const batch = await d.store.getBatch(batchId)
   if (!batch) return { ok: false, error: 'not_found' }
   if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== revision) return { ok: false, error: 'superseded_revision' }
-  if (batch.state !== (state === 'submitted' ? 'open' : 'submitted')) return { ok: false, error: 'invalid_state' }
+  if (batch.revision !== revision)
+    return { ok: false, error: 'superseded_revision' }
+  if (batch.state !== (state === 'submitted' ? 'open' : 'submitted'))
+    return { ok: false, error: 'invalid_state' }
   const reasons = await reviewApprovalProblems(d, batch)
-  if (reasons.length) return { ok: false, error: 'standard_change_unconfirmed', reasons }
+  if (reasons.length)
+    return { ok: false, error: 'standard_change_unconfirmed', reasons }
   const nextBatch: ReviewBatch = {
-    ...batch, ...(state === 'submitted' ? { publishRequestedAt: null, publishRequestedBy: null } : {}), state, revision: revision + 1,
-    approval: state === 'approved' ? { revision, by: a.uid, at: d.now() } : null,
+    ...batch,
+    ...(state === 'submitted'
+      ? { publishRequestedAt: null, publishRequestedBy: null }
+      : {}),
+    state,
+    revision: revision + 1,
+    approval:
+      state === 'approved' ? { revision, by: a.uid, at: d.now() } : null,
   }
   const result = await d.store.commit(batchId, revision, { batch: nextBatch })
   if (result === 'pipeline_busy') return { ok: false, error: result }
-  return result === 'ok' ? { ok: true, value: nextBatch } : { ok: false, error: 'superseded_revision' }
+  return result === 'ok'
+    ? { ok: true, value: nextBatch }
+    : { ok: false, error: 'superseded_revision' }
 }
 
+/**
+ * Save a state's manual ordering and any standard-plate changes together at the expected
+ * batch revision.
+ */
 export async function reorderState(
-  d: ReviewDeps, actor: Actor,
-  input: { batchId: string; state: string; batchRevision: number; order: string[]; standard?: StandardChange; promotion?: { plateId: string; templateFamily: string }; promotions?: { plateId: string; templateFamily: string }[] },
+  d: ReviewDeps,
+  actor: Actor,
+  input: {
+    batchId: string
+    state: string
+    batchRevision: number
+    order: string[]
+    standard?: StandardChange
+    promotion?: { plateId: string; templateFamily: string }
+    promotions?: { plateId: string; templateFamily: string }[]
+  }
 ): Promise<Outcome<ReviewBatch>> {
   const batch = await d.store.getBatch(input.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== input.batchRevision) return { ok: false, error: 'superseded_revision' }
-  if (!editableStates.includes(batch.state)) return { ok: false, error: 'invalid_state' }
+  if (batch.revision !== input.batchRevision)
+    return { ok: false, error: 'superseded_revision' }
+  if (!editableStates.includes(batch.state))
+    return { ok: false, error: 'invalid_state' }
   const plates = await d.stateBaseline(batch.baselineVersion, input.state)
-  const ids = new Set(plates.map(plate => plate.id))
-  if (!plates.length || input.order.length !== ids.size || new Set(input.order).size !== ids.size || input.order.some(id => !ids.has(id))) {
+  const ids = new Set(plates.map((plate) => plate.id))
+  if (
+    !plates.length ||
+    input.order.length !== ids.size ||
+    new Set(input.order).size !== ids.size ||
+    input.order.some((id) => !ids.has(id))
+  ) {
     return { ok: false, error: 'invalid_state' }
   }
   const existingEdits = await d.store.listEdits(batch.id)
-  const editsById = new Map(existingEdits.map(edit => [edit.plateId, edit]))
-  const promotions = input.promotions ?? (input.promotion ? [input.promotion] : [])
-  if (input.promotions && input.promotion || new Set(promotions.map(promotion => promotion.plateId)).size !== promotions.length) return { ok: false, error: 'invalid_state' }
+  const editsById = new Map(existingEdits.map((edit) => [edit.plateId, edit]))
+  const promotions =
+    input.promotions ?? (input.promotion ? [input.promotion] : [])
+  if (
+    (input.promotions && input.promotion) ||
+    new Set(promotions.map((promotion) => promotion.plateId)).size !==
+      promotions.length
+  )
+    return { ok: false, error: 'invalid_state' }
   const changes = new Map<string, EditableFields>()
   let protectedPromotion = false
   const plateIds = [...batch.plateIds]
   for (const { plateId, templateFamily } of promotions) {
-    const baseline = plates.find(plate => plate.id === plateId)
-    const current = baseline && { ...baseline, ...editsById.get(plateId)?.fields }
-      if (!current || current.deleted || familyRole(current) !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
-    if (plates.some(plate => plate.id !== plateId && (changes.get(plate.id)?.templateFamily ?? editsById.get(plate.id)?.fields.templateFamily ?? plate.templateFamily) === templateFamily)) return { ok: false, error: 'invalid_state' }
+    const baseline = plates.find((plate) => plate.id === plateId)
+    const current = baseline && {
+      ...baseline,
+      ...editsById.get(plateId)?.fields,
+    }
+    if (
+      !current ||
+      current.deleted ||
+      familyRole(current) !== 'variant' ||
+      !templateFamily.trim() ||
+      templateFamily.length > limits.text
+    )
+      return { ok: false, error: 'invalid_state' }
+    if (
+      plates.some(
+        (plate) =>
+          plate.id !== plateId &&
+          (changes.get(plate.id)?.templateFamily ??
+            editsById.get(plate.id)?.fields.templateFamily ??
+            plate.templateFamily) === templateFamily
+      )
+    )
+      return { ok: false, error: 'invalid_state' }
     protectedPromotion ||= plateId === input.order[0] || !!current.isStandard
-    changes.set(plateId, { templateRole: 'template', variantOfPlateId: null, templateFamily })
+    changes.set(plateId, {
+      templateRole: 'template',
+      variantOfPlateId: null,
+      templateFamily,
+    })
     if (!plateIds.includes(plateId)) plateIds.push(plateId)
   }
-  if (plateIds.length > limits.plates) return { ok: false, error: 'invalid_state' }
-  const previousFirst = (batch.stateOrders[input.state] ?? plates.map(plate => plate.id))[0]
-  const preserveLegacy = previousFirst === input.order[0] && !input.standard && !protectedPromotion
+  if (plateIds.length > limits.plates)
+    return { ok: false, error: 'invalid_state' }
+  const previousFirst = (batch.stateOrders[input.state] ??
+    plates.map((plate) => plate.id))[0]
+  const preserveLegacy =
+    previousFirst === input.order[0] && !input.standard && !protectedPromotion
   const edits = [...changes].map(([plateId, fields]) => {
-    const baseline = plates.find(plate => plate.id === plateId)!
+    const baseline = plates.find((plate) => plate.id === plateId)!
     const plate = { ...baseline, ...editsById.get(plateId)?.fields, ...fields }
-    const delta = Object.fromEntries(editableKeys.filter(key => !sameEditableValue(key, baseline[key], plate[key])).map(key => [key, plate[key]]))
-    return { plateId, fields: delta, ...retainedPipelineChanges(editsById.get(plateId), plate), baseRevision: plateRevision(baseline), resultRevision: plateRevision(plate), authorId: actor.uid, updatedAt: d.now() }
+    const delta = Object.fromEntries(
+      editableKeys
+        .filter((key) => !sameEditableValue(key, baseline[key], plate[key]))
+        .map((key) => [key, plate[key]])
+    )
+    return {
+      plateId,
+      fields: delta,
+      ...retainedPipelineChanges(editsById.get(plateId), plate),
+      baseRevision: plateRevision(baseline),
+      resultRevision: plateRevision(plate),
+      authorId: actor.uid,
+      updatedAt: d.now(),
+    }
   })
   const combined = preserveLegacy
     ? { ok: true as const, value: { plateIds, edits, deleteEditsFor: [] } }
-    : await standardEdits(d, actor, batch, plates, input.order, changes, input.standard)
+    : await standardEdits(
+        d,
+        actor,
+        batch,
+        plates,
+        input.order,
+        changes,
+        input.standard
+      )
   if (!combined.ok) return combined
   const next: ReviewBatch = {
-    ...batch, lastChangedAt: d.now(), plateIds: combined.value.plateIds, state: 'open', approval: null, revision: batch.revision + 1,
+    ...batch,
+    lastChangedAt: d.now(),
+    plateIds: combined.value.plateIds,
+    state: 'open',
+    approval: null,
+    revision: batch.revision + 1,
     stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
-    baselineOrders: { ...batch.baselineOrders, [input.state]: batch.baselineOrders?.[input.state] ?? plates.map(plate => plate.id) },
+    baselineOrders: {
+      ...batch.baselineOrders,
+      [input.state]:
+        batch.baselineOrders?.[input.state] ?? plates.map((plate) => plate.id),
+    },
   }
-  const result = await d.store.commit(batch.id, batch.revision, { batch: next, by: actor, ...combined.value })
+  const result = await d.store.commit(batch.id, batch.revision, {
+    batch: next,
+    by: actor,
+    ...combined.value,
+  })
   if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)
-  return result === 'ok' ? { ok: true, value: next } : { ok: false, error: 'superseded_revision' }
+  return result === 'ok'
+    ? { ok: true, value: next }
+    : { ok: false, error: 'superseded_revision' }
 }

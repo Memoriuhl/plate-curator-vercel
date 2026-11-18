@@ -1,24 +1,26 @@
-import { createHook, sleep } from "workflow";
+import { createHook, sleep } from 'workflow'
 
-export type SpikeNote = { note: string };
+export type SpikeNote = { note: string }
 
+/** Exercise the workflow hook by waiting for a note until the configured timeout. */
 export async function waitForSpikeNote(token: string, timeoutMinutes: number) {
-  "use workflow";
+  'use workflow'
 
-  const hook = createHook<SpikeNote>({ token });
+  const hook = createHook<SpikeNote>({ token })
   const result = await Promise.race([
     hook,
-    sleep(timeoutMinutes * 60_000).then(() => "timeout" as const),
-  ]);
+    sleep(timeoutMinutes * 60_000).then(() => 'timeout' as const),
+  ])
 
-  if (result === "timeout") return { outcome: "timed_out" as const };
-  return recordNote(result);
+  if (result === 'timeout') return { outcome: 'timed_out' as const }
+  return recordNote(result)
 }
 
+/** Record the test workflow's note and deployment as the settled step result. */
 async function recordNote({ note }: SpikeNote) {
-  "use step";
+  'use step'
 
-  const deployment = process.env.VERCEL_DEPLOYMENT_ID ?? "local";
-  console.log(`Spike resumed on ${deployment}: ${note}`);
-  return { outcome: "resumed" as const, note, deployment };
+  const deployment = process.env.VERCEL_DEPLOYMENT_ID ?? 'local'
+  console.log(`Spike resumed on ${deployment}: ${note}`)
+  return { outcome: 'resumed' as const, note, deployment }
 }

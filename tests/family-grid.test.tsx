@@ -1,4 +1,8 @@
-vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useRouter: () => ({ prefetch: vi.fn() }) }))
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter:
+    () => ({ prefetch: vi.fn() }),
+}))
 import {
   projectFamilyPlate,
   expandFamilyPlate,
@@ -65,7 +69,7 @@ describe('filters', () => {
       expect(matchesPlate(base, show, '', changed)).toBe(expected)
       if (show === 'changed')
         expect(matchesPlate(base, show, '', new Set())).toBe(false)
-    },
+    }
   )
   test('searches name, id and tag ignoring case and combines with filters', () => {
     const plate = { ...base, tags: ['Searchable'] }
@@ -87,7 +91,7 @@ test('image and title links with nonfocusable status glyphs', () => {
       variants={[variant]}
       number={1}
       onPreview={() => {}}
-    />,
+    />
   )
   expect(html.match(/<a /g)).toHaveLength(4)
   expect(html).toContain('href="/plates/head"')
@@ -97,9 +101,16 @@ test('image and title links with nonfocusable status glyphs', () => {
 })
 
 test('hover preview contains identity, full description and fun facts, all checks and every tag', () => {
-  const plate = { ...base, tags: ['one', 'two', 'three', 'four'], checks: { ...base.checks, funFacts: { status: 'good' as const, value: 'First fact\nSecond fact' } } }
+  const plate = {
+    ...base,
+    tags: ['one', 'two', 'three', 'four'],
+    checks: {
+      ...base.checks,
+      funFacts: { status: 'good' as const, value: 'First fact\nSecond fact' },
+    },
+  }
   const html = renderToStaticMarkup(
-    <PlateHoverContent plate={plate} parent="Parent" left={8} top={8} />,
+    <PlateHoverContent plate={plate} parent="Parent" left={8} top={8} />
   )
   for (const value of [
     plate.displayName,
@@ -146,7 +157,7 @@ test('server projection contains only grid fields and check statuses, never full
       'sortOrder',
       'tags',
       'checks',
-    ].sort(),
+    ].sort()
   )
   expect(slim.checks.description).toBe(base.checks.description.status)
   expect(JSON.stringify(slim)).not.toContain('value')
@@ -160,7 +171,9 @@ test('server projection contains only grid fields and check statuses, never full
 
 test('family projection round-trip preserves the server revision', () => {
   const plate = { ...base, revision: 'server-revision' }
-  expect(expandFamilyPlate(projectFamilyPlate(plate)).revision).toBe(plate.revision)
+  expect(expandFamilyPlate(projectFamilyPlate(plate)).revision).toBe(
+    plate.revision
+  )
 })
 
 test('server counts preserve every filter definition', () => {
@@ -178,7 +191,7 @@ test('large families server-render only a bounded variant window and retain the 
     id: `variant-${index}`,
   }))
   const html = renderToStaticMarkup(
-    <FamilyCard template={head} variants={variants} />,
+    <FamilyCard template={head} variants={variants} />
   )
   const links = html.match(/data-plate-row=/g) ?? []
   expect(links.length).toBeGreaterThan(1)
@@ -191,7 +204,14 @@ test('large families server-render only a bounded variant window and retain the 
 test('pending deletions remain in the family grid with an undo action', () => {
   const deleted = { ...head, deleted: true }
   expect(expandFamilyPlate(projectFamilyPlate(deleted)).deleted).toBe(true)
-  const html = renderToStaticMarkup(<FamilyCard template={deleted} variants={[variant]} canEdit onUndoDelete={() => {}} />)
+  const html = renderToStaticMarkup(
+    <FamilyCard
+      template={deleted}
+      variants={[variant]}
+      canEdit
+      onUndoDelete={() => {}}
+    />
+  )
   expect(html).toContain('Undo delete')
   expect(html).toContain('line-through')
   expect(html).toContain(variant.displayName)

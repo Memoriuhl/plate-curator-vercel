@@ -1,14 +1,30 @@
 import { createHook, getWorkflowMetadata, sleep } from 'workflow'
-import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../lib/jobs/queue-engine'
+import {
+  bindQueueWorkflow,
+  dispatchQueueStage,
+  observeQueueStage,
+} from '../lib/jobs/queue-engine'
 import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
 import { executeHostedQueueStage } from '../lib/jobs/queue-hosted'
 
-export async function localPipelineRun(id: string, attempt: number, startIndex: number, stepCount: number) {
+/**
+ * Drive the queue attempt through its stages and wait for worker events, retries or
+ * timeouts.
+ */
+export async function localPipelineRun(
+  id: string,
+  attempt: number,
+  startIndex: number,
+  stepCount: number
+) {
   'use workflow'
   const { workflowRunId } = getWorkflowMetadata()
-  if (!await bind(id, attempt, workflowRunId)) return { outcome: 'superseded' }
+  if (!(await bind(id, attempt, workflowRunId)))
+    return { outcome: 'superseded' }
   for (let index = startIndex; index < stepCount; index++) {
-    using hook = createHook<{ jobId?: string }>({ token: `local-pipeline:${id}:${attempt}:${index}` })
+    using hook = createHook<{ jobId?: string }>({
+      token: `local-pipeline:${id}:${attempt}:${index}`,
+    })
     if (await hook.getConflict()) return { outcome: 'hook_conflict' }
     const jobId = await dispatch(id, attempt, index, hook.token)
     if (!jobId) {
@@ -31,33 +47,56 @@ export async function localPipelineRun(id: string, attempt: number, startIndex: 
         index = (state.nextIndex ?? index + 1) - 1
         break
       }
-      const timer = state.phase === 'claimed' && state.deadline ? sleep(new Date(state.deadline)) : sleep('1h')
-      const wake = await Promise.race([event.then(() => 'event' as const), timer.then(() => 'timer' as const)])
+      const timer =
+        state.phase === 'claimed' && state.deadline
+          ? sleep(new Date(state.deadline))
+          : sleep('1h')
+      const wake = await Promise.race([
+        event.then(() => 'event' as const),
+        timer.then(() => 'timer' as const),
+      ])
       if (wake === 'event') event = events.next()
     }
   }
   return { outcome: 'completed' }
 }
 
+/** Bind the workflow runtime ID to the queue attempt in a durable step. */
 async function bind(id: string, attempt: number, workflowId: string) {
   'use step'
   return bindQueueWorkflow(jobsDeps(), id, attempt, workflowId)
 }
 
-async function dispatch(id: string, attempt: number, index: number, token: string) {
+/** Create or recover the job for the next queue stage in a durable step. */
+async function dispatch(
+  id: string,
+  attempt: number,
+  index: number,
+  token: string
+) {
   'use step'
   return dispatchQueueStage(jobsDeps(), id, attempt, index, token)
 }
 
+/** Read and settle stage progress using the current jobs store in a durable step. */
 async function observe(id: string, attempt: number, index: number) {
   'use step'
   return observeQueueStage(jobsDeps(), id, attempt, index)
 }
 
+/**
+ * Run hosted stages within the workflow while using the same queue settlement contract.
+ */
 async function executeHosted(id: string) {
   'use step'
-  return executeHostedQueueStage(jobsDeps(), id, hostedTaggingDeps, async job => {
-    const { hostedQueueResearch } = await import('../lib/server/research-context')
-    return hostedQueueResearch(job)
-  })
+  return executeHostedQueueStage(
+    jobsDeps(),
+    id,
+    hostedTaggingDeps,
+    async (job) => {
+      const { hostedQueueResearch } =
+        await import('../lib/server/research-context')
+      return hostedQueueResearch(job)
+    }
+  )
 }

@@ -24,11 +24,16 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { localPipelineReason } from '@/lib/local-pipeline'
 
+/** Show account, theme and session actions appropriate for the current curator. */
 export function HeaderActions() {
   const { user, ready, signOut } = useSession()
   const me = useMe()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
+  /**
+   * Sign out from the header and report a failure while restoring the pending control
+   * state.
+   */
   async function handleSignOut() {
     setPending(true)
     setError(false)
@@ -44,13 +49,18 @@ export function HeaderActions() {
     <div className="header-actions">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span tabIndex={0} aria-label={`Inbox: ${localPipelineReason('No Inbox route or notification feed')}`}>
+          <span
+            tabIndex={0}
+            aria-label={`Inbox: ${localPipelineReason('No Inbox route or notification feed')}`}
+          >
             <Button variant="ghost" size="icon" disabled aria-label="Inbox">
               <IoFileTrayOutline className="chrome-icon" aria-hidden="true" />
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{localPipelineReason('No Inbox route or notification feed')}</TooltipContent>
+        <TooltipContent>
+          {localPipelineReason('No Inbox route or notification feed')}
+        </TooltipContent>
       </Tooltip>
       {!ready ? (
         <span role="status" className="caption">
@@ -79,7 +89,10 @@ export function HeaderActions() {
             <DropdownMenuLabel>{user.email || 'Signed in'}</DropdownMenuLabel>
             {me.data?.role === 'owner' ? (
               <DropdownMenuItem asChild>
-                <Link href="/members"><IoPeopleOutline className="chrome-icon" aria-hidden="true" />Members</Link>
+                <Link href="/members">
+                  <IoPeopleOutline className="chrome-icon" aria-hidden="true" />
+                  Members
+                </Link>
               </DropdownMenuItem>
             ) : null}
             <ThemeToggle />

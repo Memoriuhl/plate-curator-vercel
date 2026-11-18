@@ -9,17 +9,12 @@
   "namespace": "Interstate",
   "libraries": [],
   "sections": {},
-  "groups": [
-    "Logos",
-    "Plates"
-  ],
+  "groups": ["Logos", "Plates"],
   "assetGroups": {
     "Logos": {
       "name": "Logos",
       "tile": "s",
-      "order": [
-        "state-spotter-icon.png"
-      ],
+      "order": ["state-spotter-icon.png"],
       "files": {
         "state-spotter-icon.png": {
           "name": "state-spotter-icon.png",

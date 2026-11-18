@@ -17,7 +17,7 @@ export const COLORS = [
   'silver',
   'maroon',
   'navy',
-] as const;
+] as const
 
 export const THEMES = [
   'patriotic',
@@ -30,7 +30,7 @@ export const THEMES = [
   'memorial',
   'charity',
   'religious',
-] as const;
+] as const
 
 export const MOTIFS = [
   'star',
@@ -52,7 +52,7 @@ export const MOTIFS = [
   'tree',
   'leaf',
   'arrow',
-] as const;
+] as const
 
 const STOPWORDS = new Set([
   'the',
@@ -78,83 +78,104 @@ const STOPWORDS = new Set([
   'special',
   'specialty',
   'optional',
-]);
+])
 
+/**
+ * Extract distinctive words from a plate title so the flattened tags include searchable
+ * names.
+ */
 export function titleKeywords(displayName: string): string[] {
   return displayName
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t))
 }
 
-function pickFromVocab<T extends string>(input: unknown, vocab: readonly T[]): T[] {
-  if (!Array.isArray(input)) return [];
-  const allowed = new Set<string>(vocab);
-  const seen = new Set<T>();
-  const out: T[] = [];
+/**
+ * Normalize and deduplicate model values while enforcing the vocabulary for their tag
+ * field.
+ */
+function pickFromVocab<T extends string>(
+  input: unknown,
+  vocab: readonly T[]
+): T[] {
+  if (!Array.isArray(input)) return []
+  const allowed = new Set<string>(vocab)
+  const seen = new Set<T>()
+  const out: T[] = []
   for (const item of input) {
-    if (typeof item !== 'string') continue;
-    const norm = item.trim().toLowerCase();
-    if (!allowed.has(norm)) continue;
-    if (seen.has(norm as T)) continue;
-    seen.add(norm as T);
-    out.push(norm as T);
+    if (typeof item !== 'string') continue
+    const norm = item.trim().toLowerCase()
+    if (!allowed.has(norm)) continue
+    if (seen.has(norm as T)) continue
+    seen.add(norm as T)
+    out.push(norm as T)
   }
-  return out;
+  return out
 }
 
+/** Clean candidate subject tags and reject generic words and malformed phrases. */
 function pickSubjects(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
+  if (!Array.isArray(input)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
   for (const item of input) {
-    if (typeof item !== 'string') continue;
-    let s = item.trim().toLowerCase();
-    if (!/^[a-z][a-z\s-]{1,30}$/.test(s)) continue;
-    if (s.endsWith('es') && s.length > 4) s = s.slice(0, -2);
-    else if (s.endsWith('s') && !s.endsWith('ss') && s.length > 3) s = s.slice(0, -1);
-    if (STOPWORDS.has(s) || seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
+    if (typeof item !== 'string') continue
+    let s = item.trim().toLowerCase()
+    if (!/^[a-z][a-z\s-]{1,30}$/.test(s)) continue
+    if (s.endsWith('es') && s.length > 4) s = s.slice(0, -2)
+    else if (s.endsWith('s') && !s.endsWith('ss') && s.length > 3)
+      s = s.slice(0, -1)
+    if (STOPWORDS.has(s) || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
   }
-  return out;
+  return out
 }
 
 export type StructuredTags = {
-  primaryColor: string | null;
-  colors: string[];
-  textColors: string[];
-  subjects: string[];
-  themes: string[];
-  motifs: string[];
-  tier: 'design' | 'variant' | 'issue';
-  isColorSplit: boolean;
-  perceivedColor: string | null;
-  contextTags: string[];
-  taxonomyConfidence: number;
-  emblemText: string[];
-};
+  primaryColor: string | null
+  colors: string[]
+  textColors: string[]
+  subjects: string[]
+  themes: string[]
+  motifs: string[]
+  tier: 'design' | 'variant' | 'issue'
+  isColorSplit: boolean
+  perceivedColor: string | null
+  contextTags: string[]
+  taxonomyConfidence: number
+  emblemText: string[]
+}
 
-export function flattenStructuredTags(s: StructuredTags, displayName: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
+/**
+ * Flatten structured model tags with title-derived keywords for existing catalog
+ * consumers.
+ */
+export function flattenStructuredTags(
+  s: StructuredTags,
+  displayName: string
+): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  /** Append a normalized tag once while preserving the first occurrence. */
   const push = (t: string): void => {
-    const norm = t.trim().toLowerCase();
-    if (!norm || seen.has(norm)) return;
-    seen.add(norm);
-    out.push(norm);
-  };
+    const norm = t.trim().toLowerCase()
+    if (!norm || seen.has(norm)) return
+    seen.add(norm)
+    out.push(norm)
+  }
 
-  if (s.primaryColor) push(s.primaryColor);
-  for (const c of s.colors) push(c);
-  for (const c of s.textColors) push(`${c} text`);
-  for (const t of s.themes) push(t);
-  for (const m of s.motifs) push(m);
-  for (const sub of s.subjects) push(sub);
-  for (const e of s.emblemText) push(e);
-  for (const k of titleKeywords(displayName)) push(k);
-  return out;
+  if (s.primaryColor) push(s.primaryColor)
+  for (const c of s.colors) push(c)
+  for (const c of s.textColors) push(`${c} text`)
+  for (const t of s.themes) push(t)
+  for (const m of s.motifs) push(m)
+  for (const sub of s.subjects) push(sub)
+  for (const e of s.emblemText) push(e)
+  for (const k of titleKeywords(displayName)) push(k)
+  return out
 }
 
 export const SYSTEM_PROMPT = `You are a license-plate analyst. You look at one image of a vehicle license plate and return
@@ -211,76 +232,124 @@ Rules:
 - Use ONLY listed values for the controlled-vocabulary fields. Better empty than guessed.
 - Letters and words ARE text (the registration, the state name, a motto, a slogan); their colors go in textColors even when the lettering is small or covers little area.
 - A picture, icon, symbol, emblem, seal, or sticker is NOT text: never report its color as a textColor. If such a graphic contains readable letters, put those letters in emblemText.
-- Do NOT invent contextTags or emblemText you cannot actually read in the image.`;
+- Do NOT invent contextTags or emblemText you cannot actually read in the image.`
 
+/**
+ * Build the image tagging request with enough plate context to disambiguate the design.
+ */
 function buildUserPrompt(displayName: string, state: string): string {
-  return `This plate is from ${state}, named "${displayName}". Identify its background colors, subjects, themes, motifs, and any acronym lettering on an emblem/seal/logo. For textColors, check EVERY piece of lettering separately — the registration number, the state name, and any motto or slogan (often a small word along the top or bottom) — and list each distinct lettering color, since they are frequently different colors. Respond with the JSON object only.`;
+  return `This plate is from ${state}, named "${displayName}". Identify its background colors, subjects, themes, motifs, and any acronym lettering on an emblem/seal/logo. For textColors, check EVERY piece of lettering separately — the registration number, the state name, and any motto or slogan (often a small word along the top or bottom) — and list each distinct lettering color, since they are frequently different colors. Respond with the JSON object only.`
 }
 
+/** Repair common bare values in model output before retrying JSON parsing. */
 export function repairLooseJson(s: string): string {
-  return s.replace(/:\s*([A-Za-z][A-Za-z ]*?)\s*([,}\]])/g, (_m, val: string, end: string) => {
-    const low = val.trim().toLowerCase();
-    if (low === 'true' || low === 'false' || low === 'null') return `: ${low}${end}`;
-    return `: "${val.trim()}"${end}`;
-  });
+  return s.replace(
+    /:\s*([A-Za-z][A-Za-z ]*?)\s*([,}\]])/g,
+    (_m, val: string, end: string) => {
+      const low = val.trim().toLowerCase()
+      if (low === 'true' || low === 'false' || low === 'null')
+        return `: ${low}${end}`
+      return `: "${val.trim()}"${end}`
+    }
+  )
 }
 
+/** Read a model response slice as JSON and try repairing loose values if it fails. */
 function parseLoose(slice: string): Record<string, unknown> {
   try {
-    return JSON.parse(slice) as Record<string, unknown>;
+    return JSON.parse(slice) as Record<string, unknown>
   } catch {
-    return JSON.parse(repairLooseJson(slice)) as Record<string, unknown>;
+    return JSON.parse(repairLooseJson(slice)) as Record<string, unknown>
   }
 }
 
+/**
+ * Extract the JSON object from a model response even when it is wrapped in prose or a
+ * code fence.
+ */
 export function extractJson(raw: string): Record<string, unknown> {
-  let t = raw.trim();
-  if (t.startsWith('```')) t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  const start = t.indexOf('{');
-  if (start === -1) throw new Error(`no JSON in: ${raw.slice(0, 200)}`);
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
+  let t = raw.trim()
+  if (t.startsWith('```'))
+    t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+  const start = t.indexOf('{')
+  if (start === -1) throw new Error(`no JSON in: ${raw.slice(0, 200)}`)
+  let depth = 0
+  let inStr = false
+  let esc = false
   for (let i = start; i < t.length; i++) {
-    const ch = t[i];
+    const ch = t[i]
     if (inStr) {
-      if (esc) esc = false;
-      else if (ch === '\\') esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+      continue
     }
-    if (ch === '"') inStr = true;
-    else if (ch === '{') depth++;
+    if (ch === '"') inStr = true
+    else if (ch === '{') depth++
     else if (ch === '}') {
-      depth--;
-      if (depth === 0) return parseLoose(t.slice(start, i + 1));
+      depth--
+      if (depth === 0) return parseLoose(t.slice(start, i + 1))
     }
   }
-  throw new Error(`no balanced JSON object in: ${raw.slice(0, 200)}`);
+  throw new Error(`no balanced JSON object in: ${raw.slice(0, 200)}`)
 }
-
 
 export interface ModelAdapter {
   backend: string
   model: string
   promptVersion: string
-  suggest(input: { imageB64: string; plate: { displayName: string; state: string; tags: string[] } }): Promise<{ tags: string[]; usage?: Record<string, number> }>
+  suggest(input: {
+    imageB64: string
+    plate: { displayName: string; state: string; tags: string[] }
+  }): Promise<{ tags: string[]; usage?: Record<string, number> }>
 }
 
-export type Attempt = { latencyMs: number; model: string; usage?: Record<string, number>; cost: number | null; costSource: 'reported' | 'estimated' | 'unknown'; status?: number }
-export type Pricing = { input: string; output: string; input_cache_read?: string }
+export type Attempt = {
+  latencyMs: number
+  model: string
+  usage?: Record<string, number>
+  cost: number | null
+  costSource: 'reported' | 'estimated' | 'unknown'
+  status?: number
+}
+export type Pricing = {
+  input: string
+  output: string
+  input_cache_read?: string
+}
 export const HOSTED_MODEL = 'google/gemini-3.5-flash-lite'
 
-export async function gatewayPricing(model: string, request: typeof fetch = fetch): Promise<Pricing> {
+/** Read the Gateway model's input and output pricing for benchmark cost estimates. */
+export async function gatewayPricing(
+  model: string,
+  request: typeof fetch = fetch
+): Promise<Pricing> {
   const response = await request('https://ai-gateway.vercel.sh/v1/models')
-  if (!response.ok) throw new Error(`Pricing request failed: ${response.status}`)
+  if (!response.ok)
+    throw new Error(`Pricing request failed: ${response.status}`)
   const body = await response.json()
   const entry = body.data.find((entry: { id: string }) => entry.id === model)
-  if (!entry?.tags?.includes('vision') || !entry.pricing || !['input', 'output'].every(key => Number.isFinite(Number(entry.pricing[key])) && Number(entry.pricing[key]) >= 0)) throw new Error('Image model or pricing unavailable')
+  if (
+    !entry?.tags?.includes('vision') ||
+    !entry.pricing ||
+    !['input', 'output'].every(
+      (key) =>
+        Number.isFinite(Number(entry.pricing[key])) &&
+        Number(entry.pricing[key]) >= 0
+    )
+  )
+    throw new Error('Image model or pricing unavailable')
   return entry.pricing
 }
 
-export function retryAfterMs(header: string | null, now = Date.now()): number | undefined {
+/**
+ * Interpret Retry-After as seconds or a timestamp so caller retries honor the provider's
+ * delay.
+ */
+export function retryAfterMs(
+  header: string | null,
+  now = Date.now()
+): number | undefined {
   if (!header) return undefined
   const seconds = Number(header)
   if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
@@ -288,69 +357,195 @@ export function retryAfterMs(header: string | null, now = Date.now()): number | 
   return Number.isFinite(at) ? Math.max(0, at - now) : undefined
 }
 
-export function gatewayAdapter(options: { apiKey: string; model?: string; fetch?: typeof fetch; pricing?: Pricing; beforeRequest?: () => void; onAttempt?: (attempt: Attempt) => void }): ModelAdapter {
+/**
+ * Build the hosted model adapter with the configured model, prompt version and usage
+ * recorder.
+ */
+export function gatewayAdapter(options: {
+  apiKey: string
+  model?: string
+  fetch?: typeof fetch
+  pricing?: Pricing
+  beforeRequest?: () => void
+  onAttempt?: (attempt: Attempt) => void
+}): ModelAdapter {
   const model = options.model ?? HOSTED_MODEL
   const request = options.fetch ?? fetch
+  // Share one pricing promise per adapter so tagging requests reuse the lookup.
   let pricing: Promise<Pricing> | undefined
-  return { backend: 'hosted', model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), async suggest(input) {
-    if (!options.apiKey) throw new Error('AI_GATEWAY_API_KEY is required')
-    const rates = options.pricing ?? await (pricing ??= gatewayPricing(model, request))
-    options.beforeRequest?.()
-    const start = performance.now()
-    const attempt: Attempt = { model, latencyMs: 0, cost: null, costSource: 'unknown' }
-    try {
-      const bytes = Buffer.from(input.imageB64, 'base64')
-      const mime = bytes[0] === 0x89 ? 'image/png' : bytes[0] === 0xff ? 'image/jpeg' : bytes.toString('ascii', 0, 3) === 'GIF' ? 'image/gif' : 'image/webp'
-      const response = await request('https://ai-gateway.vercel.sh/v1/chat/completions', {
-        method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(180000),
-        body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [{ type: 'text', text: buildUserPrompt(input.plate.displayName, input.plate.state) }, { type: 'image_url', image_url: { url: `data:${mime};base64,${input.imageB64}` } }] }] }),
-      })
-      attempt.status = response.status
-      if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { status: response.status, retryAfterMs: retryAfterMs(response.headers.get('retry-after')) })
-      const body = await response.json()
-      attempt.model = body.model ?? model
-      attempt.usage = Object.fromEntries(Object.entries(body.usage ?? {}).filter(([, value]) => typeof value === 'number')) as Record<string, number>
-      const reported = body.usage?.cost ?? body.cost
-      if (reported != null && Number.isFinite(Number(reported)) && Number(reported) >= 0) {
-        attempt.cost = Number(reported)
-        attempt.costSource = 'reported'
-      } else if (typeof body.usage?.prompt_tokens === 'number' && typeof body.usage?.completion_tokens === 'number') {
-        const cached = body.usage.prompt_tokens_details?.cached_tokens ?? 0
-        attempt.cost = (body.usage.prompt_tokens - cached) * Number(rates.input) + cached * Number(rates.input_cache_read ?? rates.input) + body.usage.completion_tokens * Number(rates.output)
-        attempt.costSource = 'estimated'
+  return {
+    backend: 'hosted',
+    model,
+    promptVersion: createHash('sha256')
+      .update(SYSTEM_PROMPT)
+      .digest('hex')
+      .slice(0, 12),
+    /** Send a Gateway tagging request, normalize its completion and record the attempt's usage. */ async suggest(
+      input
+    ) {
+      if (!options.apiKey) throw new Error('AI_GATEWAY_API_KEY is required')
+      const rates =
+        options.pricing ?? (await (pricing ??= gatewayPricing(model, request)))
+      options.beforeRequest?.()
+      const start = performance.now()
+      const attempt: Attempt = {
+        model,
+        latencyMs: 0,
+        cost: null,
+        costSource: 'unknown',
       }
-      return { tags: normalizeCompletion(body.choices?.[0]?.message?.content ?? '', input), usage: attempt.usage }
-    } finally {
-      attempt.latencyMs = performance.now() - start
-      options.onAttempt?.(attempt)
-    }
-  } }
+      try {
+        const bytes = Buffer.from(input.imageB64, 'base64')
+        const mime =
+          bytes[0] === 0x89
+            ? 'image/png'
+            : bytes[0] === 0xff
+              ? 'image/jpeg'
+              : bytes.toString('ascii', 0, 3) === 'GIF'
+                ? 'image/gif'
+                : 'image/webp'
+        const response = await request(
+          'https://ai-gateway.vercel.sh/v1/chat/completions',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${options.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            signal: AbortSignal.timeout(180000),
+            body: JSON.stringify({
+              model,
+              temperature: 0.1,
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: buildUserPrompt(
+                        input.plate.displayName,
+                        input.plate.state
+                      ),
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:${mime};base64,${input.imageB64}`,
+                      },
+                    },
+                  ],
+                },
+              ],
+            }),
+          }
+        )
+        attempt.status = response.status
+        if (!response.ok)
+          throw Object.assign(
+            new Error(`Model request failed: ${response.status}`),
+            {
+              status: response.status,
+              retryAfterMs: retryAfterMs(response.headers.get('retry-after')),
+            }
+          )
+        const body = await response.json()
+        attempt.model = body.model ?? model
+        attempt.usage = Object.fromEntries(
+          Object.entries(body.usage ?? {}).filter(
+            ([, value]) => typeof value === 'number'
+          )
+        ) as Record<string, number>
+        const reported = body.usage?.cost ?? body.cost
+        if (
+          reported != null &&
+          Number.isFinite(Number(reported)) &&
+          Number(reported) >= 0
+        ) {
+          attempt.cost = Number(reported)
+          attempt.costSource = 'reported'
+        } else if (
+          typeof body.usage?.prompt_tokens === 'number' &&
+          typeof body.usage?.completion_tokens === 'number'
+        ) {
+          // Apply the provider's cache-read rate to prompt tokens it reports as reused.
+          const cached = body.usage.prompt_tokens_details?.cached_tokens ?? 0
+          attempt.cost =
+            (body.usage.prompt_tokens - cached) * Number(rates.input) +
+            cached * Number(rates.input_cache_read ?? rates.input) +
+            body.usage.completion_tokens * Number(rates.output)
+          attempt.costSource = 'estimated'
+        }
+        return {
+          tags: normalizeCompletion(
+            body.choices?.[0]?.message?.content ?? '',
+            input
+          ),
+          usage: attempt.usage,
+        }
+      } finally {
+        attempt.latencyMs = performance.now() - start
+        options.onAttempt?.(attempt)
+      }
+    },
+  }
 }
 
 type Input = Parameters<ModelAdapter['suggest']>[0]
 type Options = { url: string; model: string; fetch?: typeof fetch }
 
+/** Send one image prompt to Ollama and return its raw completion and token usage. */
 async function ollamaChatOnce(options: Options, input: Input) {
-  const response = await (options.fetch ?? fetch)(`${options.url.replace(/\/+$/, '').replace(/\/v1$/, '')}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: options.model, stream: false, think: false, keep_alive: '30m', options: { temperature: 0.1, num_ctx: 4096 }, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(input.plate.displayName, input.plate.state), images: [input.imageB64] }] }),
-  })
-  if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { status: response.status })
+  const response = await (options.fetch ?? fetch)(
+    `${options.url.replace(/\/+$/, '').replace(/\/v1$/, '')}/api/chat`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: options.model,
+        stream: false,
+        think: false,
+        keep_alive: '30m',
+        options: { temperature: 0.1, num_ctx: 4096 },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: buildUserPrompt(
+              input.plate.displayName,
+              input.plate.state
+            ),
+            images: [input.imageB64],
+          },
+        ],
+      }),
+    }
+  )
+  if (!response.ok)
+    throw Object.assign(new Error(`Model request failed: ${response.status}`), {
+      status: response.status,
+    })
   const body = await response.json()
-  if (body.error || !body.message?.content) throw new Error('Model returned no completion')
+  if (body.error || !body.message?.content)
+    throw new Error('Model returned no completion')
   const usage: Record<string, number> = {}
   for (const key of ['eval_count', 'prompt_eval_count']) {
-    if (typeof body[key] === 'number' && Number.isFinite(body[key])) usage[key] = body[key]
+    if (typeof body[key] === 'number' && Number.isFinite(body[key]))
+      usage[key] = body[key]
   }
   return { text: String(body.message.content), usage }
 }
 
+/** Run the local model and normalize its response into the common tagging result. */
 export async function callVLM(options: Options, input: Input) {
   const { text, usage } = await ollamaChat(options, input)
   return { tags: normalizeCompletion(text, input), usage }
 }
 
+/**
+ * Validate the model completion's structured tags and build the normalized suggestion
+ * payload.
+ */
 export function normalizeCompletion(text: string, input: Input) {
   const parsed = extractJson(text)
   const primaryColor = pickFromVocab([parsed.primaryColor], COLORS)[0] ?? null
@@ -361,21 +556,47 @@ export function normalizeCompletion(text: string, input: Input) {
     subjects: pickSubjects(parsed.subjects).slice(0, 6),
     themes: pickFromVocab(parsed.themes, THEMES).slice(0, 3),
     motifs: pickFromVocab(parsed.motifs, MOTIFS).slice(0, 4),
-    emblemText: Array.isArray(parsed.emblemText) ? parsed.emblemText.filter((v): v is string => typeof v === 'string' && /^[a-z]{2,6}$/i.test(v)).slice(0, 3) : [],
-    tier: parsed.tier === 'variant' || parsed.tier === 'issue' ? parsed.tier : 'design',
+    emblemText: Array.isArray(parsed.emblemText)
+      ? parsed.emblemText
+          .filter(
+            (v): v is string => typeof v === 'string' && /^[a-z]{2,6}$/i.test(v)
+          )
+          .slice(0, 3)
+      : [],
+    tier:
+      parsed.tier === 'variant' || parsed.tier === 'issue'
+        ? parsed.tier
+        : 'design',
     isColorSplit: parsed.isColorSplit === true,
     perceivedColor: pickFromVocab([parsed.perceivedColor], COLORS)[0] ?? null,
     contextTags: [],
-    taxonomyConfidence: typeof parsed.taxonomyConfidence === 'number' ? Math.max(0, Math.min(1, parsed.taxonomyConfidence)) : 0,
+    taxonomyConfidence:
+      typeof parsed.taxonomyConfidence === 'number'
+        ? Math.max(0, Math.min(1, parsed.taxonomyConfidence))
+        : 0,
   }
   return flattenStructuredTags(structured, input.plate.displayName)
 }
 
+/**
+ * Build the Ollama tagging adapter with its model identity and common suggestion
+ * interface.
+ */
 export function ollamaAdapter(options: Options): ModelAdapter {
-  return { backend: 'ollama', model: options.model, promptVersion: createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12), suggest: (input) => callVLM(options, input) }
+  return {
+    backend: 'ollama',
+    model: options.model,
+    promptVersion: createHash('sha256')
+      .update(SYSTEM_PROMPT)
+      .digest('hex')
+      .slice(0, 12),
+    /** Send one input through the Ollama vision tagging path. */ suggest: (
+      input
+    ) => callVLM(options, input),
+  }
 }
 
-
+/** Retry transient Ollama chat failures within the configured attempt limit. */
 export async function ollamaChat(options: Options, input: Input) {
   let lastError: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -385,7 +606,8 @@ export async function ollamaChat(options: Options, input: Input) {
       const status = (error as { status?: number }).status
       if (status && status < 500) throw error
       lastError = error
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+      if (attempt < 2)
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
     }
   }
   throw lastError

@@ -1,5 +1,5 @@
 /* shadcn/ui theme variables mapped onto Interstate tokens. Paste into app/globals.css after importing tokens.css. */
-@import "./tokens.css";
+@import './tokens.css';
 
 :root {
   --background: var(--ground);

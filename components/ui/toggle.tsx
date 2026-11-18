@@ -13,9 +13,10 @@ const toggleVariants = cva(
       size: { default: 'h-8 px-3', sm: 'h-8 px-3', lg: 'h-10 px-4' },
     },
     defaultVariants: { variant: 'default', size: 'default' },
-  },
+  }
 )
 
+/** Render a shared pressed-state control with the selected styling variants. */
 function Toggle({
   className,
   variant,

@@ -6,9 +6,11 @@ import type { EditableFields, StandardChange } from '@/lib/review/types'
 import type { EditResult } from '@/lib/client/hooks'
 
 const errors = {
-  standard_change_unconfirmed: 'Use Standard plate issues to make the first Template the Standard, then try again.',
+  standard_change_unconfirmed:
+    'Use Standard plate issues to make the first Template the Standard, then try again.',
   standard_required: 'Choose another Standard before changing this plate.',
-  standard_invalid_template: 'The first plate must be a Template that is not deleted.',
+  standard_invalid_template:
+    'The first plate must be a Template that is not deleted.',
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
   invalid_state: 'This batch is no longer open for editing.',
@@ -23,6 +25,7 @@ export type Issue = {
   result: Extract<EditResult, { ok: false }>
 }
 
+/** Explain the reported edit conflict and offer the corresponding resolution actions. */
 export function Conflict({
   issue,
   pending,
@@ -39,9 +42,10 @@ export function Conflict({
       <p role="alert" className="rounded-xl bg-[var(--danger-tint)] p-3">
         {issue.result.error === 'invalid_state' && issue.fields.deleted === true
           ? 'Cannot delete this plate. Set another Standard plate or move or detach its linked plates first.'
-          : issue.result.error === 'invalid_state' && issue.fields.deleted === false
-          ? "Undo the parent's deletion first."
-          : errors[issue.result.error]}
+          : issue.result.error === 'invalid_state' &&
+              issue.fields.deleted === false
+            ? "Undo the parent's deletion first."
+            : errors[issue.result.error]}
       </p>
     )
   const result = issue.result
@@ -78,8 +82,8 @@ export function Conflict({
   )
 }
 
+/** Format a field value for comparison, including empty and multi-value fields. */
 function format(value: unknown) {
   if (value == null || value === '') return '(empty)'
   return Array.isArray(value) ? value.join(', ') : String(value)
 }
-
