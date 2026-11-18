@@ -1,3 +1,4 @@
+import { runPlateDetail } from '../../../../lib/jobs/run-plates'
 import { enqueueRun, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
       stepCount: attempt.steps.length, completedCount: attempt.completedJobIds.length })),
     jobs: run.jobs.filter(job => job.state === 'claimed').map(job => Object.fromEntries(Object.entries(job).filter(([key]) => key !== 'inputPlate' && key !== 'result'))),
   }))
-  const detail = selected ? { ...selected, attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
+  const detail = selected ? { ...selected, plates: Object.values(selected.attempts.at(-1)?.projection?.plates ?? {}).map(entry => runPlateDetail(entry.batchInput)), attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
     Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))) } : undefined
   const orphanJobs = await listLocalOrphanJobs(jobsDeps(), auth.actor)
   const capabilities = { ...await readLocalWorkerCapabilities(jobsDeps()), previewOnly: { available: true } }

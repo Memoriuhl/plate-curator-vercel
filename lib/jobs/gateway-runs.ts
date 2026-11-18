@@ -2,10 +2,12 @@ import type { Actor } from '../review/types'
 import type { JobsDeps } from './types'
 import type { PipelineProgress, StepProgress } from './run-progress'
 import type { RunStatus } from './queue-types'
+import { runPlateDetail, type RunPlateDetail } from './run-plates'
 
 export type GatewayRun = {
   id: string; batchId: string; requestedBy: string; plateIds: string[]; modelId?: string
   createdAt: number; status: RunStatus; progress: PipelineProgress
+  plates?: RunPlateDetail[]
   results: { jobId: string; plateId: string; plateName: string; inputHash: string; suggestions: string[] }[]
 }
 
@@ -28,6 +30,7 @@ export async function listGatewayRuns(d: JobsDeps, actor: Actor): Promise<Gatewa
       return { id, batchId: jobs[0].batchId, requestedBy: jobs[0].requestedBy, plateIds: jobs.map(job => job.plateId), modelId: jobs[0].modelId,
         createdAt: Math.min(...jobs.map(job => job.createdAt)), status,
         progress: { steps, workerIds: [], ...(ends.length === jobs.length && !active ? { endedAt: Math.max(...ends) } : {}), workflowUrl: jobs[0].workflowUrl ?? null },
+        plates: jobs.flatMap(job => job.inputPlate ? [runPlateDetail(job.inputPlate)] : []),
         results: jobs.filter(job => job.state === 'completed').map(job => ({ jobId: job.id, plateId: job.plateId, plateName: job.inputPlate?.displayName ?? job.plateId, inputHash: job.inputHash, suggestions: job.result?.suggestions ?? [] })) }
     }).sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     return [...runs.filter(run => ['running', 'queued'].includes(run.status)), ...runs.filter(run => !['running', 'queued'].includes(run.status)).slice(0, 50)]

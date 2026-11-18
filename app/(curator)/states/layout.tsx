@@ -14,11 +14,11 @@ export default function StatesLayout({ children }: { children: React.ReactNode }
           <SelectedBatchBar />
         </Suspense>
       </div>
-      <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>
-        <DashboardSearch />
-      </Suspense>
       <Suspense fallback={<DashboardSkeleton kind="jurisdictions" />}>
         <JurisdictionStrip />
+      </Suspense>
+      <Suspense fallback={<div className="dashboard-search" role="status">Loading search…</div>}>
+        <DashboardSearch />
       </Suspense>
       <Suspense fallback={<DashboardSkeleton kind="state" />}>
         <div className="states-content transition-opacity group-has-[[data-navigation-pending]]/states:opacity-70">

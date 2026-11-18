@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { ApiError, apiErrorReasons } from '@/lib/client/api'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { IoPaperPlaneOutline } from 'react-icons/io5'
 import {
   useWorkspaceBatch,
@@ -26,11 +26,13 @@ export function BatchActions({
   allPlates,
   stateCode,
   stateName,
+  children,
 }: {
   underTagged: RunPlate[]
   allPlates?: RunPlate[]
   stateCode: string
   stateName: string
+  children?: ReactNode
 }) {
   const workspace = useWorkspaceBatch()
   const pathname = usePathname()
@@ -66,74 +68,77 @@ export function BatchActions({
     detail.data?.plates.filter((plate) => plate.edit !== null || plate.order !== undefined).length ?? 0
   return (
     <>
-      <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
-        <span className="batch-summary min-h-6 min-w-60" aria-hidden={!batch}>
-          {batch ? (
-            <>
-              <Avatar size="sm">
-                <AvatarFallback>
-                  {(me.data?.uid ?? batch.createdBy).slice(0, 1).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span>
-                {workspace.mode === 'selected' ? 'Selected batch:' : 'Your batch:'}{' '}
-                {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
-              </span>
-              {workspace.mode === 'selected' ? <span>{batch.state}</span> : null}
-            </>
-          ) : null}
-        </span>
-        {workspace.mode === 'personal' && batch ? <Link href={pathname + '?batch=' + encodeURIComponent(batch.id)}>Open / Share</Link> : null}
-        <Button
-          variant="outline"
-          disabled={
-            (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending
-          }
-          onClick={async () => {
-            if (!detail.data || (workspace.mode === 'selected' && workspace.status !== 'ready')) return
-            setPending(true)
-            setMessage('')
-            try {
-              await actions.submit(
-                detail.data.batch.id,
-                detail.data.batch.revision,
-              )
-              setMessage('Submitted for review.')
-            } catch (error) {
-              setMessage(error instanceof ApiError && error.code === 'standard_change_unconfirmed' ? apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.' : 'Could not submit your batch. Please try again.')
-            } finally {
-              setPending(false)
-            }
-          }}
-        >
-          <IoPaperPlaneOutline aria-hidden="true" />
-          {pending ? 'Submitting…' : 'Submit for review'}
-        </Button>
-        <RunMenu
-          queue={queue}
-          underTagged={underTagged}
-          allPlates={allPlates}
-          batchPlates={batchPlates}
-          stateName={stateName}
-          disabledReason={run.disabledReason}
-          disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
-          modelError={run.modelError}
-          start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
-        />
-        <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
-        {batches.error || detail.error ? (
-          <span role="alert">Could not load your batch.</span>
-        ) : null}
-        {message ? <span role="status">{message}</span> : null}
-      </div>
-      <TagRunBanner
-        entries={run.entries}
-        starting={run.starting}
-        batchId={run.batchId}
-        dismiss={run.dismiss}
-        retry={(plate) => void run.start([plate], true)}
-      />
       <PipelineRuns queue={queue} />
+      <header className="state-header">
+        {children}
+        <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
+          <span className="batch-summary min-h-6 min-w-60" aria-hidden={!batch}>
+            {batch ? (
+              <>
+                <Avatar size="sm">
+                  <AvatarFallback>
+                    {(me.data?.uid ?? batch.createdBy).slice(0, 1).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span>
+                  {workspace.mode === 'selected' ? 'Selected batch:' : 'Your batch:'}{' '}
+                  {detail.isLoading ? 'Loading…' : `${edits} changes, saved`}
+                </span>
+                {workspace.mode === 'selected' ? <span>{batch.state}</span> : null}
+              </>
+            ) : null}
+          </span>
+          {workspace.mode === 'personal' && batch ? <Link href={pathname + '?batch=' + encodeURIComponent(batch.id)}>Open / Share</Link> : null}
+          <Button
+            variant="outline"
+            disabled={
+              (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending
+            }
+            onClick={async () => {
+              if (!detail.data || (workspace.mode === 'selected' && workspace.status !== 'ready')) return
+              setPending(true)
+              setMessage('')
+              try {
+                await actions.submit(
+                  detail.data.batch.id,
+                  detail.data.batch.revision,
+                )
+                setMessage('Submitted for review.')
+              } catch (error) {
+                setMessage(error instanceof ApiError && error.code === 'standard_change_unconfirmed' ? apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.' : 'Could not submit your batch. Please try again.')
+              } finally {
+                setPending(false)
+              }
+            }}
+          >
+            <IoPaperPlaneOutline aria-hidden="true" />
+            {pending ? 'Submitting…' : 'Submit for review'}
+          </Button>
+          <RunMenu
+            queue={queue}
+            underTagged={underTagged}
+            allPlates={allPlates}
+            batchPlates={batchPlates}
+            stateName={stateName}
+            disabledReason={run.disabledReason}
+            disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
+            modelError={run.modelError}
+            start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
+          />
+          <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
+          {batches.error || detail.error ? (
+            <span role="alert">Could not load your batch.</span>
+          ) : null}
+          {message ? <span role="status">{message}</span> : null}
+        </div>
+        <TagRunBanner
+          entries={run.entries}
+          starting={run.starting}
+          batchId={run.batchId}
+          dismiss={run.dismiss}
+          retry={(plate) => void run.start([plate], true)}
+        />
+      </header>
     </>
   )
 }

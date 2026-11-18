@@ -9,6 +9,7 @@ export type StepProgress = {
   status: RunStatus | 'waiting' | 'skipped'
   durationMs?: number
   reason?: string
+  workerId?: string
 }
 export type PipelineProgress = {
   steps: StepProgress[]
@@ -37,7 +38,7 @@ export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProg
     const durationMs = job?.result?.durationMs ?? (startedAt !== undefined && endedAt !== undefined ? Math.max(0, endedAt - startedAt) : undefined)
     return {
       index: step.index, plateId: step.plateId, plateName: projection?.plates[step.plateId]?.batchInput.displayName ?? job?.inputPlate?.displayName ?? step.plateId,
-      stage: step.stage, status, ...(durationMs !== undefined ? { durationMs } : {}),
+      stage: step.stage, status, ...(durationMs !== undefined ? { durationMs } : {}), ...(job?.workerId ? { workerId: job.workerId } : {}),
       ...((step.reason ?? job?.result?.stageError ?? job?.failure) ? { reason: step.reason ?? job?.result?.stageError ?? job?.failure } : {}),
     } satisfies StepProgress
   })

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SWRConfig } from 'swr'
+import { TooltipProvider } from '../../components/ui/tooltip'
 import type { ReactNode } from 'react'
 import { usePipelineQueue } from '../../components/dashboard/use-pipeline-queue'
 import { PipelineQueuePanel } from '../../components/dashboard/pipeline-queue-panel'
@@ -33,6 +34,7 @@ const plate = { id: 'AK.one', state: 'AK', displayName: 'One', revision: 'hash',
 const wrapper = ({ children }: { children: ReactNode }) => <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>{children}</SWRConfig>
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); localStorage.clear(); mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
   mocks.models = [...TAGGING_MODELS]
@@ -40,7 +42,7 @@ beforeEach(() => {
   mocks.api.get.mockReset().mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
 })
-afterEach(() => { cleanup(); vi.unstubAllEnvs() })
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 test('reload restores saved run via one list, and an active run does not block enqueue', async () => {
   const first = renderHook(usePipelineQueue, { wrapper })
@@ -50,6 +52,7 @@ test('reload restores saved run via one list, and an active run does not block e
   expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ plateIds: ['AK.one'], stages: ['tag'], requestId: expect.any(String) }))
   first.unmount()
   const restored = renderHook(usePipelineQueue, { wrapper })
+  act(() => restored.result.current.select('saved-run'))
   await waitFor(() => expect(restored.result.current.selected?.id).toBe('saved-run'))
 })
 
@@ -199,27 +202,39 @@ test('Preview never bootstraps or changes Batch metadata; it uses an existing Ba
   expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ batchId: 'existing-batch', previewOnly: true }))
 })
 
-test('run cards show a failed Wiki step, cancelled dependants, duration, and a real Visibility link', () => {
+test('run cards describe cancelled dependencies and share the real workflow link after deliberate hover', async () => {
   const run = saved({ status: 'failed', stages: ['wiki-link', 'describe', 'story'] })
   run.attempts[0] = { ...run.attempts[0], status: 'failed', endedAt: 33100, workflowId: 'wrun_real', workflowUrl: 'https://vercel.com/memoriuhl/plate-curator-vercel/workflows/runs/wrun_real?environment=preview', steps: [
     { index: 0, plateId: 'AK.one', stage: 'wiki-link', resourceClass: 'io', status: 'failed', startedAt: 100, endedAt: 33100, reason: 'no_sources' },
     { index: 1, plateId: 'AK.one', stage: 'describe', resourceClass: 'gpu', status: 'cancelled', reason: 'upstream_failed' },
     { index: 2, plateId: 'AK.one', stage: 'story', resourceClass: 'gpu', status: 'cancelled', reason: 'upstream_failed' },
   ] }
-  render(<PipelineRunCard run={run} stages={run.stages} progress={queueProgress(run)} observedAt={99999} requester="Editor" />)
+  render(<TooltipProvider><PipelineRunCard run={run} stages={run.stages} progress={queueProgress(run)} observedAt={99999} requester="Editor" /></TooltipProvider>)
   expect(screen.getByRole('button', { name: /Wiki link: Failed · 00:33/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /Describe: Cancelled · not run/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /Story: Cancelled · not run/ })).toBeTruthy()
-  const link = screen.getByRole('link', { name: 'View workflow for run saved-run' })
-  expect(link.getAttribute('href')).toBe(run.attempts[0].workflowUrl)
-  expect(link.getAttribute('target')).toBe('_blank')
   expect(screen.queryByRole('progressbar')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: /Describe: Cancelled/ }))
-  expect(screen.getByText('An earlier step failed. This step did not run.')).toBeTruthy()
-  expect(screen.queryByText('Workflow run')).toBeNull()
+  act(() => screen.getByRole('button', { name: /Describe: Cancelled/ }).focus())
+  expect((await screen.findByRole('tooltip')).textContent).toContain('An earlier step failed. This step did not run.')
+  const stack = screen.getByRole('button', { name: '1 plate in run aved-run' })
+  act(() => stack.focus())
+  fireEvent.click(stack)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  vi.useFakeTimers()
+  try {
+    fireEvent.pointerEnter(stack, { pointerType: 'mouse' })
+    act(() => vi.advanceTimersByTime(999))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+    const link = screen.getByRole('link', { name: 'Watch this workflow' })
+    expect(link.getAttribute('href')).toBe(run.attempts[0].workflowUrl)
+    expect(link.getAttribute('target')).toBe('_blank')
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
-test('execution dropdown switches local workers and gateway views without mutating or restarting runs', async () => {
+test('execution dropdown switches local and gateway views without mutating or restarting runs', async () => {
   const local = saved()
   local.progress = { ...queueProgress(local), workerIds: ['Studio PC', 'Laptop'] }
   mocks.api.get.mockImplementation(async (path: string) => path.startsWith('/api/local-pipeline') ? { runs: [local], observedAt: 1000 } : { runs: [{
@@ -230,11 +245,12 @@ test('execution dropdown switches local workers and gateway views without mutati
   render(<Runs />, { wrapper })
   await waitFor(() => expect(screen.getByRole('article', { name: 'Pipeline run saved-run' })).toBeTruthy())
   fireEvent.keyDown(screen.getByRole('button', { name: /View runs: Local PC/ }), { key: 'Enter' })
-  await waitFor(() => expect(screen.getByRole('menuitemradio', { name: 'Studio PC' })).toBeTruthy())
+  await waitFor(() => expect(screen.getByRole('menuitemradio', { name: 'Local PC' })).toBeTruthy())
+  expect(screen.queryByText('Studio PC')).toBeNull()
   fireEvent.click(screen.getByRole('menuitemradio', { name: /Vercel Gateway/ }))
   await waitFor(() => expect(screen.getByRole('article', { name: 'Pipeline run gateway-run' })).toBeTruthy())
   expect(screen.queryByRole('article', { name: 'Pipeline run saved-run' })).toBeNull()
-  expect(screen.getByRole('button', { name: /View runs: Vercel Gateway. Gemma 4 26B/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })).toBeTruthy()
   expect(mocks.api.send).not.toHaveBeenCalled()
 })
 

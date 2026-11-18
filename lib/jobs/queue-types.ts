@@ -50,7 +50,7 @@ export type PipelineRun = {
   cancelRequestedAt?: number
   attempts: RunAttempt[]
 }
-export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string; progress?: import('./run-progress').PipelineProgress }
+export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string; plates?: import('./run-plates').RunPlateDetail[]; progress?: import('./run-progress').PipelineProgress }
 export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   attempts: (Omit<RunAttempt, 'projection' | 'steps' | 'completedJobIds' | 'jobIds' | 'choices'> & {
     stepCount?: number; completedCount?: number; steps?: RunStep[]; completedJobIds?: string[]
