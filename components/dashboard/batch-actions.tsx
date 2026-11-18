@@ -19,7 +19,7 @@ import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
 import { usePipelineQueue } from './use-pipeline-queue'
-import { PipelineQueuePanel } from './pipeline-queue-panel'
+import { PipelineRuns } from './pipeline-runs'
 
 export function BatchActions({
   underTagged,
@@ -133,7 +133,7 @@ export function BatchActions({
         dismiss={run.dismiss}
         retry={(plate) => void run.start([plate], true)}
       />
-      {process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? <PipelineQueuePanel queue={queue} /> : null}
+      <PipelineRuns queue={queue} />
     </>
   )
 }

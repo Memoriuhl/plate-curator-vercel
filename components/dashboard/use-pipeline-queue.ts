@@ -38,7 +38,7 @@ export function usePipelineQueue(existingBatchId?: string | null) {
   const posting = useRef(false)
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [selectedId, select] = useState<string | undefined>()
+  const [selectedId, select] = useState<string | undefined>('none')
   const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
   const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number; capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>> }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: false })
   useEffect(() => {

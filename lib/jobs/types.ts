@@ -39,6 +39,9 @@ export type TaggingJob = {
   resourceClass?: ResourceClass
   failure?: string
   createdAt: number
+  startedAt?: number
+  workflowId?: string
+  workflowUrl?: string | null
   state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
   endedAt?: number
   recoveryNeededAt?: number

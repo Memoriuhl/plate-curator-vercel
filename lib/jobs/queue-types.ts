@@ -18,6 +18,7 @@ export type RunAttempt = {
   noResultCount?: number
   projection?: RunProjection
   workflowId?: string
+  workflowUrl?: string | null
   cursor: number
   completedJobIds: string[]
   steps: RunStep[]
@@ -47,7 +48,7 @@ export type PipelineRun = {
   cancelRequestedAt?: number
   attempts: RunAttempt[]
 }
-export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string }
+export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string; progress?: import('./run-progress').PipelineProgress }
 export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   attempts: (Omit<RunAttempt, 'projection' | 'steps' | 'completedJobIds' | 'jobIds' | 'choices'> & {
     stepCount?: number; completedCount?: number; steps?: RunStep[]; completedJobIds?: string[]
@@ -56,6 +57,7 @@ export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   editable: boolean
   applied: boolean
   batchName?: string
+  progress?: import('./run-progress').PipelineProgress
 }
 export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; options?: PipelineOptions; previewOnly?: boolean }
 export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit'

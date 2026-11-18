@@ -7,6 +7,7 @@ import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
 import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
+import { workflowVisibilityUrl } from './workflow-visibility'
 
 async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, plateId: string) {
   const review = await tx.review(batchId, plateId)
@@ -14,7 +15,7 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
   if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
@@ -44,7 +45,7 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
       const current = await currentPlate(d, tx, input.batchId, member.plate.id)
       if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
     }
-    const job: TaggingJob = { ...input, ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
@@ -62,10 +63,12 @@ export async function claimNext(d: JobsDeps, workerId: string) {
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt }
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: now, workerId, claimId, leaseExpiresAt }
     tx.set(claimed)
     if (job.queueRunId) {
       const run = runs.find(run => run.id === job.queueRunId)!
+      const step = run.attempts.at(-1)?.steps[job.queueStep!]
+      if (step) Object.assign(step, { status: 'running', startedAt: now })
       run.lastDispatchedAt = Math.max(now, ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.updatedAt = now; run.waitReason = 'resource'
       tx.setRun(run)
     }
@@ -90,7 +93,7 @@ export async function claimJob(d: JobsDeps, workerId: string, id: string): Promi
     if (localClaimsEnabled(d) && job.route !== 'hosted' && job.state !== 'queued') return { ok: false, error: 'claim_mismatch' }
     if (localClaimsEnabled(d) && job.route !== 'hosted' && localClaimCandidate(d, await tx.list(), await tx.runs())?.id !== job.id) return { ok: false, error: 'claim_mismatch' }
     if (!claimable(job, d.now()) && job.workerId !== workerId) return { ok: false, error: 'claim_mismatch' }
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: d.now(), workerId, claimId, leaseExpiresAt: d.now() + d.leaseMs }
     tx.set(claimed)
     return { ok: true, value: { job: claimed, claimId } }
   })

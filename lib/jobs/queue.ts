@@ -135,7 +135,13 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
 export function finishRun(run: PipelineRun, status: 'completed' | 'failed' | 'cancelled', now: number, error?: string) {
   run.status = status; run.updatedAt = now
   delete run.waitReason
-  Object.assign(run.attempts.at(-1)!, { status, endedAt: now, ...(error ? { error } : {}) })
+  const attempt = run.attempts.at(-1)!
+  Object.assign(attempt, { status, endedAt: now, ...(error ? { error } : {}) })
+  if (status !== 'completed') for (const step of attempt.steps.slice(attempt.cursor)) {
+    step.status = status === 'failed' && step.index === attempt.cursor ? 'failed' : 'cancelled'
+    step.endedAt = now
+    step.reason = step.status === 'failed' ? error ?? 'stage_failed' : status === 'failed' ? 'upstream_failed' : 'run_cancelled'
+  }
 }
 
 export async function cancelRun(d: JobsDeps, actor: Actor, id: string): Promise<QueueOutcome<PipelineRun>> {
@@ -181,7 +187,9 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     const now = d.now()
     run.attempts.push({ number: previous.number + 1, requestId, createdAt: now, jobIds: [...previous.completedJobIds], completedJobIds: [...previous.completedJobIds], status: 'queued',
       cursor: previous.cursor, ...(previous.noResultCount ? { noResultCount: previous.noResultCount } : {}),
-      steps: structuredClone(previous.steps), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
+      steps: previous.steps.map(step => step.index < previous.cursor ? { ...step } : {
+        index: step.index, plateId: step.plateId, stage: step.stage, resourceClass: step.resourceClass,
+      }), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
     run.status = 'queued'; run.queuedAt = now; run.updatedAt = now; run.waitReason = 'worker'
     run.enqueueSequence = Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1
     delete run.cancelRequestedAt
