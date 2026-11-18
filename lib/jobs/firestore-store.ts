@@ -1,5 +1,5 @@
 import { canQueueDuringPublish } from '../publish/pipeline-gate'
-import type { Firestore } from '@google-cloud/firestore'
+import { FieldPath, type Firestore, type Query, type QueryDocumentSnapshot, type Transaction } from '@google-cloud/firestore'
 import { firestoreMemberByUid } from '../members/firestore-store'
 import type { EditableFields, ProposedEdit } from '../review/types'
 import { firestoreReviewStore } from '../review/firestore-store'
@@ -7,6 +7,29 @@ import type { PipelineRun } from './queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 import { liveEnvKey, signalPath } from '../review/live-signal'
+import { compareJobAge, isStandaloneDesktopJob } from './claim-eligibility'
+
+const claimPageSize = 16
+
+async function* readClaimJobs(transaction: Transaction, query: Query) {
+  let cursor: QueryDocumentSnapshot | undefined
+  while (true) {
+    const page = await transaction.get((cursor ? query.startAfter(cursor) : query).limit(claimPageSize))
+    for (const document of page.docs) yield document.data() as TaggingJob
+    if (page.size < claimPageSize) return
+    cursor = page.docs.at(-1)
+  }
+}
+
+async function oldestDesktopJob(transaction: Transaction, query: Query, localScope?: string) {
+  let oldest: TaggingJob | null = null
+  for await (const job of readClaimJobs(transaction, query)) {
+    if (oldest && job.createdAt > oldest.createdAt) break
+    // A missing route still means desktop. Finish reading timestamp ties to keep the existing ID order.
+    if (isStandaloneDesktopJob(job, localScope) && (!oldest || compareJobAge(job, oldest) < 0)) oldest = job
+  }
+  return oldest
+}
 
 export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: string = env): JobsStore {
   const jobs = db.collection('jobs')
@@ -74,6 +97,20 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           const scoped = jobs.where('env', '==', env)
           const snapshot = await transaction.get(plateId ? scoped.where('plateId', '==', plateId) : scoped)
           return snapshot.docs.map(doc => doc.data() as TaggingJob)
+        },
+        async nextStandaloneDesktopJob(now, localScope) {
+          const scoped = jobs.where('env', '==', env)
+          const queued = await oldestDesktopJob(transaction, scoped.where('state', '==', 'queued').orderBy('createdAt'), localScope)
+          const expired = await oldestDesktopJob(transaction, scoped.where('state', '==', 'claimed')
+            .where('leaseExpiresAt', '<=', now).orderBy('createdAt').orderBy('leaseExpiresAt'), localScope)
+          return expired && (!queued || compareJobAge(expired, queued) < 0) ? expired : queued
+        },
+        async listActiveJobs(localScope) {
+          const query = jobs.where('env', '==', env).where('localScope', '==', localScope)
+            .where('state', 'in', ['queued', 'claimed']).orderBy(FieldPath.documentId())
+          const active: TaggingJob[] = []
+          for await (const job of readClaimJobs(transaction, query)) active.push(job)
+          return active
         },
         async review(batchId, plateId) {
           const ref = db.collection('reviewBatches').doc(batchId)

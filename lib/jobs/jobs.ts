@@ -11,6 +11,7 @@ import { localClaimCandidate, localClaimsEnabled, type LocalClaimFeatures } from
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
 import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
+import { claimable } from './claim-eligibility'
 
 // Server coordinator only. The public worker by-id claim still refuses queue jobs.
 export async function claimHostedQueueJob(d: JobsDeps, id: string) {
@@ -80,11 +81,11 @@ export async function claimNext(d: JobsDeps, workerId: string, features: LocalCl
   const claimId = d.id()
   return d.store.transaction(async tx => {
     const now = d.now()
-    const jobs = await tx.list()
-    const local = localClaimsEnabled(d)
-    const runs = local ? await tx.runs() : []
-    const job = local ? localClaimCandidate(d, jobs, runs, 'local', features) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
-      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
+    const scope = localClaimsEnabled(d) ? d.localScope : undefined
+    const jobs = scope ? await tx.listActiveJobs(scope) : []
+    if (scope && !jobs.some(job => job.state === 'queued' && job.route !== 'hosted')) return null
+    const runs = scope ? await tx.runs() : []
+    const job = scope ? localClaimCandidate(d, jobs, runs, 'local', features) : await tx.nextStandaloneDesktopJob(now, d.localScope)
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
     const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: now, workerId, claimId, leaseExpiresAt }
@@ -98,10 +99,6 @@ export async function claimNext(d: JobsDeps, workerId: string, features: LocalCl
     }
     return { job: claimed, claimId, leaseExpiresAt }
   })
-}
-
-function claimable(job: TaggingJob, now: number) {
-  return job.state === 'queued' || (job.state === 'claimed' && job.leaseExpiresAt! <= now)
 }
 
 export async function claimJob(d: JobsDeps, workerId: string, id: string): Promise<Outcome<{ job: TaggingJob; claimId: string }>> {

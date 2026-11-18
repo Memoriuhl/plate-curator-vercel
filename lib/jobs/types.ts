@@ -69,6 +69,8 @@ export interface JobsTransaction {
   setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
   list(plateId?: string): Promise<TaggingJob[]>
+  nextStandaloneDesktopJob(now: number, localScope?: string): Promise<TaggingJob | null>
+  listActiveJobs(localScope: string): Promise<TaggingJob[]>
   review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number; edit?: ProposedEdit } | null>
   commitDraft: ReviewStore['commit']
   pipelineRequesterRole?(uid: string): Promise<Role | null>

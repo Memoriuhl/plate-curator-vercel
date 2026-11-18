@@ -2,6 +2,7 @@ import type { ReviewStore } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
 import type { PipelineRun } from './queue-types'
+import { claimable, compareJobAge, isStandaloneDesktopJob } from './claim-eligibility'
 
 export function createMemoryJobsStore(review: ReviewStore, environment: Environment) {
   const jobs = new Map<string, TaggingJob>()
@@ -43,6 +44,13 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
               return job?.env === env ? structuredClone(job) : null
             },
             async list(plateId) { return structuredClone([...jobs.values()].filter(job => job.env === env && (!plateId || job.plateId === plateId))) },
+            async nextStandaloneDesktopJob(now, localScope) {
+              const candidates = [...jobs.values()].filter(job => job.env === env && isStandaloneDesktopJob(job, localScope) && claimable(job, now))
+              return structuredClone(candidates.sort(compareJobAge)[0] ?? null)
+            },
+            async listActiveJobs(localScope) {
+              return structuredClone([...jobs.values()].filter(job => job.env === env && job.localScope === localScope && (job.state === 'queued' || job.state === 'claimed')))
+            },
             async review(batchId, plateId) {
               const batch = await scopedReview?.getBatch(batchId)
               if (!batch) return null
