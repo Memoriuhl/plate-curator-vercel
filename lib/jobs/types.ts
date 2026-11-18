@@ -13,7 +13,7 @@ export type FieldsSuggestion = { kind: 'fields'; stage: PipelineStage; fields: P
 export type FieldSuggestion = FieldsSuggestion | ImageSuggestion | GroupSuggestion | EnhancedImageSuggestion
 export type StageError = 'no_sources' | 'no_supported_fields' | 'unavailable' | 'missing_image'
 export type JobResult = { suggestions: string[]; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; durationMs: number; usage?: Record<string, number> }
-export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion' | 'stageError'> & { suggestions?: unknown; fieldSuggestion?: unknown; stageError?: unknown; enhancedImage?: unknown }
+export type ReportInput = Omit<JobResult, 'suggestions' | 'fieldSuggestion' | 'stageError'> & { suggestions?: unknown; fieldSuggestion?: unknown; stageError?: unknown; enhancedImage?: unknown; enhancedImageFrames?: unknown }
 export type TaggingJob = {
   id: string
   batchId: string
@@ -36,6 +36,7 @@ export type TaggingJob = {
   queueRunId?: string
   queueAttempt?: number
   enqueuedBy?: string
+  phaseIndex?: number
   queueStep?: number
   queueOrder?: number
   completionHook?: string
@@ -67,7 +68,7 @@ export interface JobsTransaction {
   getRun(id: string): Promise<PipelineRun | null>
   setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
-  list(): Promise<TaggingJob[]>
+  list(plateId?: string): Promise<TaggingJob[]>
   review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number; edit?: ProposedEdit } | null>
   commitDraft: ReviewStore['commit']
   pipelineRequesterRole?(uid: string): Promise<Role | null>

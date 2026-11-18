@@ -38,7 +38,7 @@ export const onlyUnderTaggedLabel = `Only under-tagged plates (fewer than ${mini
 
 export const pipelineStages: readonly StageDefinition[] = [
   { id: 'research', icon: IoSearchOutline, label: 'Research / enrich', description: 'Wikipedia link, description and sourced Story in one run', jobKind: 'research', localEnabled: true,
-    flow: [{ label: 'Find sources', icon: IoLinkOutline }, { label: 'Draft description & story', icon: IoDocumentTextOutline }],
+    flow: [{ label: 'Find sources', icon: IoLinkOutline }, { label: 'Draft description & story', icon: IoDocumentTextOutline }, { label: 'Validate result', icon: IoCheckmarkCircleOutline }],
     options: [
     { id: 'policy', label: 'Research edits', kind: 'select', default: 'fill-missing', choices: [{ value: 'fill-missing', label: 'Fill missing', icon: IoAddCircleOutline }, { value: 'replace', label: 'Replace existing', icon: IoPencilOutline }] },
     { id: 'reuseSavedSources', label: 'Reuse saved sources', kind: 'boolean', default: false },
@@ -95,4 +95,24 @@ export function stageAvailability(stage: StageDefinition, local: boolean, capabi
     }
   }
   return stage.id === 'tag' || local && stage.localEnabled ? undefined : local ? stage.disabledReason : 'Coming soon'
+}
+
+const stepReasons: Record<string, string> = {
+  no_sources: 'No usable source page was found.',
+  no_saved_sources: 'No usable saved source was available.',
+  no_supported_fields: 'The source did not support a suggestion.',
+  missing_wiki_link: 'The required Wiki link was not produced.',
+  missing_description: 'The required description was not produced.',
+  missing_image: 'The plate image could not be read.',
+  stage_failed: 'The worker could not finish this step.',
+  upstream_failed: 'An earlier step failed. This step did not run.',
+  upstream_skipped: 'An earlier step was skipped for this plate.',
+  group_member_failed: 'Grouping requires the full selection. At least one plate failed an earlier step.',
+  group_member_skipped: 'Grouping requires the full selection. At least one plate was skipped.',
+  run_cancelled: 'The remaining work was cancelled.',
+  unavailable: 'The worker cannot run this stage.',
+}
+
+export function pipelineStepReason(reason: string): string {
+  return Object.hasOwn(stepReasons, reason) ? stepReasons[reason] : reason.replaceAll('_', ' ')
 }

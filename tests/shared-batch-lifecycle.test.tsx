@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { PublishWorkspace } from '../components/publish/workspace'
 import { ReviewWorkspace } from '../components/review/workspace'
 import { BatchActions } from '../components/dashboard/batch-actions'
+import { DashboardPipelineProvider } from '../components/dashboard/pipeline-runs'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
 import { projectFamilyPlate } from '../components/dashboard/family-data'
@@ -13,9 +14,10 @@ import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-si
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
 import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
+import { discardPlateChanges } from '../lib/review/discard-changes'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
-import type { Actor, ReviewBatch, ReviewDeps } from '../lib/review/types'
+import type { Actor, DraftChangeTarget, ReviewBatch, ReviewDeps } from '../lib/review/types'
 import type { Plate } from '../lib/catalog/types'
 import { plateCards } from '../fixtures/plate-cards'
 
@@ -99,6 +101,12 @@ function session(actor: Actor, id: string | null = 'shared') {
         requests.push({ actor: actor.uid, method, path, body })
         if (method === 'POST' && path.endsWith('/publish')) return { status: 'publishing' }
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
+        if (method === 'PATCH' && body && typeof body === 'object' && 'discard' in body) {
+          const request = body as { batchRevision: number; discard: DraftChangeTarget }
+          const result = await discardPlateChanges(deps, actor, { batchId: path.split('/')[3], plateId: path.split('/')[5], batchRevision: request.batchRevision, target: request.discard })
+          if (!result.ok) throw new ApiError(409, result.error, result)
+          return result.value
+        }
         if (method === 'PATCH') {
           const result = await proposeEdit(deps, actor, { batchId: path.split('/')[3], plateId: path.split('/')[5], ...body as { baseRevision: string; fields: import('../lib/review/types').EditableFields; standard?: import('../lib/review/types').StandardChange } })
           if (!result.ok) throw new ApiError(409, result.error, result)
@@ -126,7 +134,7 @@ function Workspace({ value, page = 'dashboard' }: { value: ReturnType<typeof ses
             <SelectedBatchBar />
             <FamilyGrid plates={gridPlates} />
             <OrderAction />
-            <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+            <DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>
           </>}
           {page === 'review' && <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />}
           {page === 'publish' && <PublishWorkspace />}
@@ -155,6 +163,25 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test('Review removes one field, then clears the selected plate and leaves the other plate’s draft', async () => {
+  await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { description: 'Draft description', tags: ['draft'] } })
+  await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.b', baseRevision: plateRevision(plates[2]), fields: { tags: ['navy'] } })
+  const value = session(editor)
+  value.params.set('plate', 'AK.v')
+  const view = render(<Workspace value={value} page="review" />)
+  fireEvent.click(await view.findByRole('button', { name: 'After' }))
+  fireEvent.click(view.getByRole('button', { name: 'Remove description change' }))
+  await waitFor(async () => expect((await deps.store.getEdit('shared', 'AK.v'))?.fields).toEqual({ tags: ['draft'] }))
+  await waitFor(() => expect(view.queryByRole('button', { name: 'Remove description change' })).toBeNull())
+  fireEvent.click(view.getByRole('button', { name: 'Remove all changes' }))
+  const dialog = await view.findByRole('alertdialog', { name: 'Remove all changes for Variant?' })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Remove all changes' }))
+  await view.findByText('No changes for this plate')
+  expect(await deps.store.getEdit('shared', 'AK.v')).toBeNull()
+  expect((await deps.store.getEdit('shared', 'AK.b'))?.fields).toEqual({ tags: ['navy'] })
+  expect((await deps.store.getBatch('shared'))?.plateIds).toEqual(['AK.a', 'AK.b'])
+})
 
 function OrderAction() {
   const { reorder } = useReorderState()
@@ -186,8 +213,9 @@ test('State order and Standard reach the other Dashboard and the Batch can be su
   const reviewLink = within(first.container).getByRole('link', { name: 'Review Batch' })
   expect(reviewLink.getAttribute('href')).toBe('/review?batch=shared')
   const review = render(<Workspace value={session(editor)} page="review" />)
-  const submit = await within(review.container).findByRole('button', { name: 'Submit for review' })
-  fireEvent.click(submit)
+  await within(review.container).findByRole('region', { name: 'Before and after' })
+  expect(within(review.container).queryByRole('button', { name: 'Submit for review' })).toBeNull()
+  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
   await waitFor(() => expect(second.container.textContent).toContain('submitted'))
 })
 
@@ -207,8 +235,7 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
   const { first, second } = await twoSessions()
   await act(async () => { expect(await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } })).toMatchObject({ ok: true }) })
   await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
-  const review = render(<Workspace value={session(editor)} page="review" />)
-  fireEvent.click(await within(review.container).findByRole('button', { name: 'Submit for review' }))
+  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
   await waitFor(() => expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('submitted'))
   expect(within(second.container).getByRole('link', { name: 'Publish' }).getAttribute('href')).toBe('/publish?batch=shared')
   await act(async () => {
@@ -308,12 +335,12 @@ test('Standard repair buttons exclude states absent from this Batch state orders
   expect(requests.filter(request => request.method === 'PATCH')).toEqual([])
 })
 
-test('submit errors show the affected state and repair instruction', async () => {
+test('the legacy submit endpoint still reports the affected state and repair instruction', async () => {
   const original = (await deps.store.getBatch('shared'))!
   await deps.store.commit('shared', 0, { batch: { ...original, revision: 1, stateOrders: { AK: ['AK.b', 'AK.a', 'AK.v'] } } })
-  const view = render(<Workspace value={session(editor)} page="review" />)
-  fireEvent.click(await within(view.container).findByRole('button', { name: 'Submit for review' }))
-  await waitFor(() => expect(view.container.textContent).toContain('AK: use Standard plate issues to make Navy the Standard'))
+  expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({
+    ok: false, error: 'standard_change_unconfirmed', reasons: [expect.stringContaining('AK: use Standard plate issues to make Navy the Standard')],
+  })
 })
 
 
@@ -330,7 +357,7 @@ test('the Owner receives a live Editor change in the exact Batch confirmation', 
   })
   const view = render(<Workspace value={session(owner, batchId)} page="publish" />)
   const publish = within(view.container)
-  const open = await publish.findByRole('button', { name: 'Confirm Publish' })
+  const open = await publish.findByRole('button', { name: 'Publish to Game' })
   const dialogElement = view.container.querySelector('dialog')!
   dialogElement.showModal = () => dialogElement.setAttribute('open', '')
   dialogElement.close = () => dialogElement.removeAttribute('open')

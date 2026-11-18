@@ -4,7 +4,7 @@ import { ApiError } from '@/lib/client/api'
 import { isPublishStop, PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_ERRORS, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { batchApprovedFor, draftCanBeConfirmed, hasDraftChanges } from '@/lib/publish/command'
 import type { ReviewChanges } from '@/lib/review/checkpoint'
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useBatchRevisionSignal } from '@/lib/client/live-signal'
@@ -76,6 +76,7 @@ function BatchSelection({
   const actions = useReviewActions()
   const live = useBatchRevisionSignal(id, detail.data?.batch.revision ?? -1)
   const dialog = useRef<HTMLDialogElement>(null)
+  const blockerId = useId()
   const [abandonReason, setAbandonReason] = useState('')
   const [abandonMessage, setAbandonMessage] = useState('')
   const [openedConfirmation, setConfirmation] = useState<ReviewChanges | null>(null)
@@ -131,6 +132,23 @@ function BatchSelection({
     (draft || run.data?.phase !== 'publishing') &&
     (preflight.canConfirmDraft || approved && (canRetry || !stopped && preflight.retryReason === PUBLISH_ERRORS.notWaiting && run.data?.phase === 'waiting-for-publish'))
   const canSend = !!confirmation && canPublish && confirmation.revision === batch.revision && confirmation.revision !== rejectedRevision
+  let blocker: string | undefined
+  if (!published && !canPublish) {
+    if (preflight?.enabledHere === false) blocker = 'Publishing is disabled in this environment.'
+    else if (baseline.error) blocker = 'Could not check whether this Batch can publish. Refresh Batch to try again.'
+    else if (isPublishStop(preflight?.error)) {
+      blocker = PUBLISH_STOP_MESSAGES[preflight.error]
+      if (preflight.error === PUBLISH_STOPS.paused || preflight.error === PUBLISH_STOPS.notEnabled) blocker += ' Use Resume publishing to allow new requests.'
+    } else if (pipelineBusy) blocker = PIPELINE_BUSY_MESSAGE
+    else if (requested || busy || run.data?.phase === 'publishing' || preflight?.retryReason === 'locked') blocker = 'A Publish attempt is in progress.'
+    else if (empty) blocker = 'This Batch has no changes to publish. Choose another Batch or edit it on the Dashboard.'
+    else if (!draft && !approved) blocker = 'Reopen this Batch on the Dashboard before publishing.'
+    else if (preflight?.approvalProblems?.length) blocker = 'Resolve the Standard plate issues below before publishing.'
+    else if (stale) blocker = receiptConflict ? 'A prepared Snapshot conflicts with this Batch. See recovery below.'
+      : 'This Batch is based on an older catalog. Copy it to the current version before publishing.'
+    else if (!confirmationCurrent) blocker = 'Checking the current Batch for Publish…'
+    else blocker = 'Publish is unavailable for this Batch. Refresh Batch to check its status.'
+  }
   const destination = preflight?.destination === 'license-plate-game-staging' ? 'Staging Catalog (license-plate-game-staging)' : preflight?.destination ?? 'configured Catalog'
   async function abandon() {
     const prepared = baseline.data?.prepared
@@ -193,11 +211,12 @@ function BatchSelection({
           )}
           {counts && <p className="text-sm">{counts}</p>}
         </div>
-        {canPublish && (
-          <Button variant="publish" onClick={openConfirmation}>
-            <IoArrowUpOutline aria-hidden="true" />{canRetry ? 'Publish again' : 'Confirm Publish'}
+        {!published && <div className="grid max-w-sm justify-items-start gap-2">
+          <Button variant="publish" disabled={!canPublish} aria-describedby={blocker ? blockerId : undefined} onClick={openConfirmation}>
+            <IoArrowUpOutline aria-hidden="true" />{canPublish && canRetry ? 'Publish again' : 'Publish to Game'}
           </Button>
-        )}
+          {blocker && <p id={blockerId} role="status" className="text-sm text-muted-foreground">{blocker}</p>}
+        </div>}
       </header>
       <nav aria-label="Batch actions" className="flex flex-wrap items-center gap-3">
         <Link className="underline" href={reviewLink}>Review Batch</Link>
@@ -207,17 +226,10 @@ function BatchSelection({
       {!published && live === 'Live updates unavailable' && <p role="status">Live updates unavailable. Refresh Batch to check for changes.</p>}
       <div className="min-h-0 flex-1 space-y-3 lg:overflow-y-auto">
         <RunStatus compact batchId={id} />
-        {!published && baseline.error && <p role="alert">Could not check whether this Batch can publish. Refresh Batch to try again.</p>}
-        {!published && !baseline.error && !confirmationCurrent && <p role="status">Checking the current Batch for Publish…</p>}
-        {!published && preflight?.enabledHere === false && <p role="status">Publishing is disabled in this environment.</p>}
-        {!published && pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
-        {!published && empty && <p role="status">This Batch has no changes to publish. Edit it on the Dashboard.</p>}
-        {!published && !empty && !draft && !approved && <p role="alert">This Batch needs current approval. Review its changes or edit it on the Dashboard to reopen it.</p>}
         {!published && preflight?.approvalProblems?.length ? <div role="alert">
           <p>Resolve these Standard plate issues before publishing.</p>
           <ul className="list-disc pl-5">{preflight.approvalProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
         </div> : null}
-        {!published && preflight?.retryReason === 'locked' && <p role="status">A Publish attempt is already in progress. Wait for it to finish, then refresh this Batch.</p>}
         {approved && !empty && !stopped && !stale && !pipelineBusy && preflight?.enabledHere && !preflight.error && preflight.retryReason === PUBLISH_ERRORS.notWaiting && run.data && !['waiting-for-publish', 'publishing'].includes(run.data.phase ?? '') && (
           <p role="status">The approval run is no longer waiting for Publish. Refresh Batch to check its status.</p>
         )}
@@ -231,7 +243,6 @@ function BatchSelection({
         </section>}
         {abandonMessage && <p role="status">{abandonMessage}</p>}
         {baseline.data?.stopped && !isPublishStop(failed?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.stopped.reason]} The Catalog did not advance.{baseline.data.stopped.requestedBy ? ` Requested by ${baseline.data.stopped.requestedBy.email} (${baseline.data.stopped.requestedBy.uid}).` : ''}</p>}
-        {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
         {!empty && stale && !isPublishStop(preflight?.error) && liveVersion !== undefined && canCopyForFreshReview(batch, liveVersion) && (
           <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
         )}
@@ -310,7 +321,7 @@ function OwnerWorkspace() {
     <div className="grid gap-4 lg:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] lg:grid-cols-[minmax(220px,272px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <aside className="min-h-0 space-y-2 lg:overflow-y-auto lg:pr-2">
         <h1 className="text-2xl font-extrabold">Publish</h1>
-        <PublishControlView control={control.data?.control ?? null} error={!!control.error} change={control.change} />
+        <PublishControlView control={control.data?.control ?? null} enabledHere={control.data?.enabledHere} loading={control.isLoading} error={!!control.error} change={control.change} />
         {batches.error && <p role="alert">Could not load the Batch list.</p>}
         {batches.isLoading && <p role="status">Loading Batches…</p>}
         {approved.length > 0 && <h2 className="font-bold">Approved Batches</h2>}

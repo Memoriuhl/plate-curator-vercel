@@ -14,8 +14,8 @@ import { completeGroupScope } from '../review/group-context'
 import type { Plate } from '../catalog/types'
 import { resolveResearchModel } from '../research/models'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
+import { queuedStageWait, queueResourceClaims, type QueueWorker } from './queue-claim'
 
-export const queueLimits = { gpu: 1, io: 2 } as const
 export const queueStageTimeoutMs = 10 * 60_000
 export const maxQueueRecordBytes = 650_000
 export const maxQueueAttempts = 5
@@ -183,12 +183,14 @@ export function enqueueSelection(d: JobsDeps, actor: Actor, input: EnqueueInput,
   return enqueueRuns(d, actor, input, true, draft)
 }
 
-export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<QueueRunView[]>> {
+export async function listRuns(d: JobsDeps, actor: Actor, worker?: QueueWorker, detailId?: string | null): Promise<QueueOutcome<QueueRunView[]>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     const runs = (await tx.runs()).filter(run => run.localScope === d.localScope && (run.requestedBy === actor.uid || actor.role === 'owner'))
       .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     const jobs = await tx.list()
+    const claims = worker ? queueResourceClaims(jobs, d.localScope) : []
+    const now = d.now()
     const visible: QueueRunView[] = []
     const batches = new Map<string, ReviewBatch | null>()
     for (const run of runs) {
@@ -196,12 +198,20 @@ export async function listRuns(d: JobsDeps, actor: Actor): Promise<QueueOutcome<
       const batch = batches.get(run.batchId)
       if (!batch || !canEdit(batch, actor)) continue
       const ids = new Set(run.attempts.flatMap(attempt => attempt.jobIds))
-      visible.push({ ...run, batchName: batch.name, jobs: jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope), editable: batch.state === 'open',
-        applied: !!batch.pipelineApplications?.[`${run.id}:${run.attempts.at(-1)!.number}`] })
+      const runJobs = jobs.filter(job => ids.has(job.id) && job.localScope === d.localScope)
+      const attempt = run.attempts.at(-1)!
+      const current = runJobs.find(job => job.queueAttempt === attempt.number && job.queueStep === attempt.cursor)
+      const queueWait = worker ? queuedStageWait(run, current, claims, worker, now) : undefined
+      visible.push({ ...run, ...(queueWait ? { queueWait } : {}), batchName: batch.name, jobs: runJobs, editable: batch.state === 'open',
+        applied: !!batch.pipelineApplications?.[`${run.id}:${attempt.number}`] })
     }
-    return { ok: true, value: [...visible.filter(run => ['queued', 'running'].includes(run.status)),
-      ...visible.filter(run => !['queued', 'running'].includes(run.status))
-        .sort((a, b) => (b.attempts.at(-1)?.endedAt ?? b.updatedAt) - (a.attempts.at(-1)?.endedAt ?? a.updatedAt) || a.id.localeCompare(b.id)).slice(0, 50)] }
+    const retained = visible.filter(run => run.dismissedAt === undefined)
+    const archived = visible.filter(run => run.dismissedAt !== undefined)
+      .sort((a, b) => b.dismissedAt! - a.dismissedAt! || a.id.localeCompare(b.id))
+    const history = archived.slice(0, 50)
+    const requested = archived.find(run => run.id === detailId)
+    if (requested && !history.includes(requested)) history.push(requested)
+    return { ok: true, value: [...retained, ...history] }
   })
 }
 
@@ -211,7 +221,7 @@ export function finishRun(run: PipelineRun, status: 'completed' | 'failed' | 'ca
   const attempt = run.attempts.at(-1)!
   Object.assign(attempt, { status, endedAt: now, ...(error ? { error } : {}) })
   if (status !== 'completed') for (const step of attempt.steps.slice(attempt.cursor)) {
-    if (step.status === 'completed' || step.status === 'cancelled') continue
+    if (step.status === 'completed' || step.status === 'cancelled' || step.status === 'skipped') continue
     step.status = status === 'failed' && step.index === attempt.cursor ? 'failed' : 'cancelled'
     step.endedAt = now
     step.reason = step.status === 'failed' ? error ?? 'stage_failed' : status === 'failed' ? 'upstream_failed' : 'run_cancelled'
@@ -241,6 +251,25 @@ export async function cancelRun(d: JobsDeps, actor: Actor, id: string): Promise<
   })
 }
 
+export async function dismissRun(d: JobsDeps, actor: Actor, id: string): Promise<QueueOutcome<PipelineRun>> {
+  if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
+  return d.store.transaction(async tx => {
+    const run = await tx.getRun(id)
+    if (!run || run.localScope !== d.localScope || (run.requestedBy !== actor.uid && actor.role !== 'owner')) return { ok: false, error: 'not_found' }
+    const batch = await tx.batch(run.batchId)
+    if (!batch) return { ok: false, error: 'not_found' }
+    if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
+    if (!['completed', 'failed', 'cancelled'].includes(run.status)) return { ok: false, error: 'invalid_state' }
+    const idOfLastJob = run.attempts.at(-1)?.jobIds.at(-1)
+    if (idOfLastJob && (await tx.get(idOfLastJob))?.state === 'claimed') return { ok: false, error: 'invalid_state' }
+    if (run.dismissedAt === undefined) {
+      run.dismissedAt = d.now()
+      tx.setRun(run)
+    }
+    return { ok: true, value: run }
+  })
+}
+
 export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   if (!requestPattern.test(requestId)) return { ok: false, error: 'bad_request' }
@@ -258,7 +287,7 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     for (const id of previous.jobIds) if ((await tx.get(id))?.state === 'claimed') return { ok: false, error: 'invalid_state' }
     if (!await currentProjectionMatches(d, tx, run, batch!)) return { ok: false, error: 'stale_input' }
     const steps = previous.steps.map<RunStep>(step => {
-      if (step.status === 'skipped') return step
+      if (step.status === 'skipped' && step.reason !== 'upstream_failed' && step.reason !== 'group_member_failed') return step
       if (step.status === 'completed' || !step.status && step.index < previous.cursor) {
         const completedJobId = step.completedJobId ?? previous.completedJobIds[step.index]
         return { ...step, status: 'completed', ...(completedJobId ? { completedJobId } : {}) }
@@ -275,6 +304,7 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     run.status = 'queued'; run.queuedAt = now; run.updatedAt = now; run.waitReason = 'worker'
     run.enqueueSequence = Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1
     delete run.cancelRequestedAt
+    delete run.dismissedAt
     if (!queueRecordFits(run)) return { ok: false, error: 'payload_too_large' }
     tx.setRun(run)
     return { ok: true, value: run }

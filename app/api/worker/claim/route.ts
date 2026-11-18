@@ -13,17 +13,18 @@ export async function POST(request: Request) {
   if (!worker.ok) return worker.response
 
   const dependencies = jobsDeps()
+  const supportsSavedSources = request.headers.get(savedResearchSourcesHeader) === '1'
   let enhanceImage = false
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && dependencies.localScope) {
     const body = await readJson(request)
     if (body?.capabilities !== undefined) {
       const capabilities = parseWorkerCapabilities(body.capabilities)
-      if (!capabilities || !await reportLocalWorkerCapabilities(dependencies, worker.workerId, capabilities)) return badRequest()
+      if (!capabilities || !await reportLocalWorkerCapabilities(dependencies, worker.workerId, capabilities, supportsSavedSources)) return badRequest()
       enhanceImage = capabilities.enhanceImage?.available === true
     }
   }
   const claim = await claimNext(dependencies, worker.workerId, {
-    supportsSavedSources: request.headers.get(savedResearchSourcesHeader) === '1',
+    supportsSavedSources,
     enhanceImage,
   })
   if (!claim) return new Response(null, { status: 204, headers: { 'Cache-Control': 'private, no-store' } })

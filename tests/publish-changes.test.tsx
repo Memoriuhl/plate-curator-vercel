@@ -72,10 +72,11 @@ test('large state groups mount only a window of plate rows', () => {
   expect(rows.length).toBeLessThan(30)
 })
 
-test('missing approval remains a visible blocking message', () => {
+test('an invalid approval leaves the Publish button visible and disabled', () => {
   status.value = 'approved'
   render(<PublishWorkspace />)
-  expect(screen.getByRole('alert').textContent).toContain('needs current approval')
+  expect(screen.getByText('Reopen this Batch on the Dashboard before publishing.')).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   expect(screen.queryByRole('button', { name: /Publish revision/ })).toBeNull()
 })
 

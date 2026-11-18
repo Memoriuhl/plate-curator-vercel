@@ -10,14 +10,18 @@ export async function GET(request: Request, ctx: RouteContext<'/api/local-pipeli
   if (!localQueueEnabled(deps)) return json({ error: 'not_found' }, 404)
   const { id } = await ctx.params
   if (!/^[a-zA-Z0-9_-]{1,150}$/.test(id)) return json({ error: 'not_found' }, 404)
-  const allowed = await deps.store.transaction(async tx => {
+  const step = new URL(request.url).searchParams.get('step')
+  const artifactId = await deps.store.transaction(async tx => {
     const job = await tx.get(id)
+    const result = job?.result?.fieldSuggestion
     if (!job || job.localScope !== deps.localScope || !job.queueRunId || job.state !== 'completed' ||
-      job.result?.fieldSuggestion?.kind !== 'enhanced-image' || (job.requestedBy !== auth.actor.uid && auth.actor.role !== 'owner')) return false
+      result?.kind !== 'enhanced-image' || (job.requestedBy !== auth.actor.uid && auth.actor.role !== 'owner')) return null
     const batch = await tx.batch(job.batchId)
-    return !!batch && canEdit(batch, auth.actor)
+    if (!batch || !canEdit(batch, auth.actor)) return null
+    if (!step || step === result.frames?.at(-1)?.step) return id
+    return result.frames?.some(frame => frame.step === step) ? `${id}--${step}` : null
   })
-  if (!allowed) return json({ error: 'not_found' }, 404)
-  const image = await deps.store.readEnhancedImage(id)
+  if (!artifactId) return json({ error: 'not_found' }, 404)
+  const image = await deps.store.readEnhancedImage(artifactId)
   return image ? json({ image: image.toString('base64') }) : json({ error: 'not_found' }, 404)
 }

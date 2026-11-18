@@ -11,7 +11,7 @@ type ImageUrl = CatalogSource['imageUrl']
 
 const text = (value: unknown): string | null => typeof value === 'string' && value.length > 0 ? value : null
 
-function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardData {
+export function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardData {
   const url = imageUrl(plate)
   const family = text(plate.templateFamily)
   const role = familyRole(plate)

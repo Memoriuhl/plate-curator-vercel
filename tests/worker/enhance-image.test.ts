@@ -26,3 +26,15 @@ test('crop, upscale and corner masking change pixels independently', async () =>
   const combined = await enhanceImage(input, { ...off, crop: true, upscale: true })
   expect(combined).toMatchObject({ width: 640, height: 320 })
 })
+
+
+test('records the actual pixels at each enabled step in processing order', async () => {
+  const result = await enhanceImage(await borderedPlate(), { crop: true, upscale: true, roundCorners: true })
+  expect(result.frames.map(({ details }) => [details.step, details.width, details.height])).toEqual([
+    ['original', 360, 200], ['crop', 320, 160], ['upscale', 640, 320], ['roundCorners', 640, 320],
+  ])
+  const observed = await Promise.all(result.frames.map(({ webp }) => sharp(webp).metadata()))
+  expect(observed.map(({ hasAlpha }) => hasAlpha)).toEqual([false, false, false, true])
+  expect(result.webp.equals(result.frames[3].webp)).toBe(true)
+  expect(new Set(result.frames.map(({ details }) => details.sha256)).size).toBe(4)
+})

@@ -14,6 +14,9 @@ import { POST as claim } from '../../app/api/worker/claim/route'
 import { POST as report } from '../../app/api/worker/jobs/[id]/report/route'
 import { GET as getEnhancedImage } from '../../app/api/local-pipeline/jobs/[id]/enhanced-image/route'
 
+import { GET as getLatestEnhancement } from '../../app/api/local-pipeline/plates/[id]/enhancement/route'
+import { POST as postProgress } from '../../app/api/worker/jobs/[id]/progress/route'
+
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), jobs: vi.fn(), start: vi.fn(), resume: vi.fn(), workflow: vi.fn() }))
 vi.mock('../../lib/server/context', () => ({ currentActor: mocks.auth, jobsDeps: mocks.jobs, currentWorker: async () => ({ ok: true, workerId: 'worker' }), reviewDeps: () => ({}), catalog: () => ({ readSnapshot: async () => ({ version: 1 }) }) }))
 vi.mock('../../lib/server/catalog-head', () => ({ catalogChanged: vi.fn() }))
@@ -51,6 +54,8 @@ test('authenticated enqueue starts installed Workflow once with an attempt token
   expect(restored.runs[0].attempts[0]).not.toHaveProperty('steps')
   expect(restored.runs[0].attempts[0]).toMatchObject({ stepCount: 1, completedCount: 0 })
   expect(restored.selected.attempts[0].projection).toBeTruthy()
+  expect(restored.selected.cards).toMatchObject([{ id: 'AK.one', displayName: 'One', checks: { tags: { status: 'missing' } } }])
+  expect(restored.runs[0]).not.toHaveProperty('cards')
   expect(restored.selected.id).toBe(restored.runs[0].id)
   expect(restored.runs[0].progress).toMatchObject({ steps: [{ stage: 'tag', status: 'queued', plateName: 'One' }], workerIds: [] })
   expect(restored.runs[0].progress.steps[0]).not.toHaveProperty('inputPlate')
@@ -134,12 +139,24 @@ test('enhancement options reach the capable worker and the completed WebP is pri
     stage: claimed.stage, plate: { ...claimed.plate, image: 'AK/one.webp' }, options: claimed.stageOptions,
   })
   const route = { params: Promise.resolve({ id: claimed.job.id }) }
+  expect((await postProgress(request({ claimId: 'wrong', index: 1 }), route)).status).toBe(409)
+  expect((await postProgress(request({ claimId: claimed.claimId, index: 2 }), route)).status).toBe(400)
+  expect((await postProgress(request({ claimId: claimed.claimId, index: 1 }), route)).status).toBe(204)
+  expect((await postProgress(request({ claimId: claimed.claimId, index: 0 }), route)).status).toBe(204)
+  expect(await getJob(deps, claimed.job.id)).toMatchObject({ phaseIndex: 1 })
   expect((await report(request({ ...result, claimId: claimed.claimId, durationMs: 10 }), route)).status).toBe(200)
   expect(await observeQueueStage(deps, run.id, 1, 0)).toEqual({ phase: 'done' })
   const response = await getEnhancedImage(get(), route)
   expect(response.status).toBe(200)
   expect(response.headers.get('Cache-Control')).toBe('private, no-store')
   expect(await response.json()).toEqual({ image: result.enhancedImage })
+  const preview = (step: string) => getEnhancedImage(new Request(`https://example.org?step=${step}`), route)
+  expect(await (await preview('original')).json()).toEqual({ image: result.enhancedImageFrames?.[0] })
+  expect(await (await preview('roundCorners')).json()).toEqual({ image: result.enhancedImage })
+  expect((await preview('upscale')).status).toBe(404)
+  const latest = () => getLatestEnhancement(get(), { params: Promise.resolve({ id: 'AK.one' }) })
+  expect(await (await latest()).json()).toMatchObject({ result: { jobId: claimed.job.id, suggestion: { frames: result.fieldSuggestion?.kind === 'enhanced-image' ? result.fieldSuggestion.frames : undefined } } })
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
+  expect(await (await latest()).json()).toEqual({ result: null })
   expect((await getEnhancedImage(get(), route)).status).toBe(404)
 })

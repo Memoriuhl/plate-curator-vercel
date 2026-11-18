@@ -35,7 +35,7 @@ const errors = {
   standard_invalid_template: 'The first plate must be a Template that is not deleted.',
   forbidden: "Only the batch's creator or an Owner can edit it.",
   superseded_revision: 'This batch has a newer revision. Reload and try again.',
-  invalid_state: 'This batch is no longer open for editing.',
+  invalid_state: 'The Batch rejected this move. Check the current family and order before trying again.',
   not_found: 'This plate or batch could not be found.',
   stale_plate: 'Someone changed this while you were editing.',
 }
@@ -138,7 +138,7 @@ export function usePlateDrag(options: Options) {
     setOptimisticOrder([...orders.values()].flat())
     setOptimisticEdits(planned)
     const succeeded: { plate: PlateCardData; result: Extract<EditResult, { ok: true }> }[] = []
-    let failed = false
+    let failure: string | undefined
     try {
       if (!ordering.move || !ordering.capture) throw new Error('Reload before moving a Variant')
       const states = [...orders.keys()].sort((a, b) => Number(previousOrders.get(a)?.[0] !== orders.get(a)?.[0]) - Number(previousOrders.get(b)?.[0] !== orders.get(b)?.[0]))
@@ -150,12 +150,12 @@ export function usePlateDrag(options: Options) {
         const promotions = members.map(plate => ({ plateId: plate.id, templateFamily: planned.get(plate.id)!.templateFamily! }))
         const proposal = promotions.length === 1 ? promotions[0] : promotions
         const result = standard ? await ordering.move(state, order, proposal, origin, standard) : await ordering.move(state, order, proposal, origin)
-        if (!result.ok) { failed = true; break }
+        if (!result.ok) { failure = ('message' in result && result.message) || errors[result.error]; break }
         succeeded.push(...members.map(plate => ({ plate, result: { ...result, revision: result.revisions?.[plate.id] ?? (members.length === 1 ? result.revision : undefined) } })))
       }
-    } catch { failed = true }
+    } catch { failure = 'Could not confirm the template move in the saved Batch.' }
     try {
-      if (failed) {
+      if (failure) {
         let reverted = 0
         let orderRestored = true
         const restoredRevisions: Record<string, string> = {}
@@ -182,7 +182,7 @@ export function usePlateDrag(options: Options) {
         const saved = new Set(succeeded.map(entry => entry.plate.id))
         plateSelection.replace(plates.filter(plate => !saved.has(plate.id) || unreverted.has(plate.id)))
         const message = reverted === succeeded.length && orderRestored ? 'Saved ' + succeeded.length + ' of ' + moving.length + '; changes undone' : (succeeded.length - reverted) + ' of ' + moving.length + ' saved' + (orderRestored ? '' : '; order could not be restored')
-        announce(message)
+        announce(succeeded.length ? message : failure)
       } else {
         plateSelection.replace([])
         announce(moving.length === 1 ? '1 plate is now a Template' : moving.length + ' plates are now Templates')
@@ -298,12 +298,12 @@ export function usePlateDrag(options: Options) {
         result = standard ? await ordering.move(item.plate.state, order, { plateId: item.plate.id, templateFamily: fields.templateFamily! }, drag.origin, standard) : await ordering.move(item.plate.state, order, { plateId: item.plate.id, templateFamily: fields.templateFamily! }, drag.origin)
       } else result = standard ? await ordering.reorder(item.plate.state, order, standard) : await ordering.reorder(item.plate.state, order)
       if (!result.ok) {
-        announce(errors[result.error])
+        announce(('message' in result && result.message) || errors[result.error])
         if (result.error === 'superseded_revision') {
           setOptimisticOrder(null)
           setOptimisticEdit(null)
           await reload()
-          announce('This Batch changed. Drag again to choose a position in the latest order.')
+          announce(result.message ?? 'This Batch changed. Drag again to choose a position in the latest order.')
         }
       } else announce('Dropped')
     } catch {

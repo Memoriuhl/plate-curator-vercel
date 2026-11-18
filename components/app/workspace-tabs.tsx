@@ -40,7 +40,7 @@ function TabsView({ active, owner = false, batch = null }: { active: '' | '/' | 
           </TabsTrigger>
           <TabsTrigger value="/review" asChild>
             <Link
-              href={batchHref('/review', batch)}
+              href="/review"
               aria-current={active === '/review' ? 'page' : undefined}
             >
               Review

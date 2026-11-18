@@ -20,10 +20,11 @@ test('only an Owner with a selected Batch sees the contextual Publish action', (
   expect(renderToStaticMarkup(<PublishButton owner />)).toBe('')
 })
 
-test('workspace tabs carry the selected Batch through Dashboard, Review and Publish', () => {
+test('Review opens all changes while Dashboard and Publish carry the selected Batch', () => {
   const html = renderToStaticMarkup(<WorkspaceTabs />)
   expect(html).not.toContain('Strip Art')
-  for (const path of ['/', '/review', '/publish'])
+  expect(html).toContain('href="/review"')
+  for (const path of ['/', '/publish'])
     expect(html).toContain(`href="${path}?batch=batch%20%2FB"`)
 })
 

@@ -28,6 +28,7 @@ export type ReviewBatch = {
   pipelineApplications?: Record<string, { by: string; at: string }>
 }
 export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description' | 'colorDetail' | 'lineageColor'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
+export type DraftChangeTarget = keyof EditableFields | 'order' | 'all'
 export type PipelineFieldChangeEntry = {
   runId: string
   jobId: string

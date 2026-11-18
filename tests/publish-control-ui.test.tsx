@@ -27,3 +27,11 @@ test('missing control offers first Resume; unavailable control disables changes'
   expect(screen.getByRole('alert').textContent).toContain('unavailable')
   expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true)
 })
+
+test('a disabled deployment shows the persisted pause without offering Resume', () => {
+  const change = vi.fn()
+  render(<PublishControlView control={control} enabledHere={false} change={change} />)
+  expect(screen.getByText('Catalog publishing is paused.')).toBeTruthy()
+  expect(screen.getByText(/publishing-enabled deployment/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Resume publishing' })).toBeNull()
+})

@@ -1,21 +1,22 @@
 'use client'
 
 import { reviewHref } from '@/lib/review/href'
+import { mostRecentBatch } from '@/lib/review/batch-selection'
 
-import { useState } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import useSWR from 'swr'
 import { IoChevronDown, IoDesktopOutline } from 'react-icons/io5'
 import { SiVercel } from 'react-icons/si'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useSession } from '@/lib/client/session'
-import { useMe } from '@/lib/client/hooks'
+import { useBatches, useMe } from '@/lib/client/hooks'
 import type { GatewayRun } from '@/lib/jobs/gateway-runs'
 import { taggingModel } from '@/lib/tagging/models'
-import type { usePipelineQueue } from './use-pipeline-queue'
+import { gatewayRunsKey, usePipelineQueue } from './use-pipeline-queue'
 import { PipelineQueuePanel } from './pipeline-queue-panel'
 import { PipelineRunCard } from './pipeline-run-card'
-import { PipelineRunRail } from './pipeline-run-rail'
+import { PipelineRailSkeleton, PipelineRunRail } from './pipeline-run-rail'
 import { PipelinePlateList } from './pipeline-run-plates'
 import styles from './pipeline-runs.module.css'
 
@@ -24,13 +25,34 @@ const devices = [
   { id: 'gateway', label: 'Vercel Gateway', Icon: SiVercel },
 ] as const
 
+const DashboardPipelineContext = createContext<ReturnType<typeof usePipelineQueue> | null>(null)
+
+export function DashboardPipelineProvider({ children }: { children: ReactNode }) {
+  const batches = useBatches(['open'], { mine: true, enabled: process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' })
+  const batch = mostRecentBatch(batches.data)
+  const queue = usePipelineQueue(batch?.id, batch?.name)
+  return <DashboardPipelineContext.Provider value={queue}>{children}</DashboardPipelineContext.Provider>
+}
+
+export function useDashboardPipeline() {
+  const queue = useContext(DashboardPipelineContext)
+  if (!queue) throw new Error('Dashboard pipeline requires DashboardPipelineProvider')
+  return queue
+}
+
+export function DashboardPipelineRail() {
+  const queue = useDashboardPipeline()
+  return <div className="states-pipeline"><PipelineRuns queue={queue} /></div>
+}
+
 export function PipelineRuns({ queue }: { queue: ReturnType<typeof usePipelineQueue> }) {
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
   const [view, setView] = useState(local ? 'local' : 'gateway')
-  const { user, api } = useSession()
+  const { user, api, ready } = useSession()
   const me = useMe()
-  const gateway = useSWR<{ runs: GatewayRun[]; observedAt: number }>(user && view === 'gateway' ? '/api/jobs/runs' : null, api.get, { refreshInterval: 3000 })
+  const gateway = useSWR<{ runs: GatewayRun[]; observedAt: number }>(user && view === 'gateway' ? gatewayRunsKey : null, api.get, { refreshInterval: 3000 })
   const gatewayRuns = gateway.data?.runs ?? []
+  const gatewayPending = ready === false || gateway.isLoading && !gateway.data
   const device = view === 'local' ? devices[0] : devices[1]
   const header = <header className={styles.header}>
     <h2 className="page-title">Plate Pipeline</h2>
@@ -52,8 +74,8 @@ export function PipelineRuns({ queue }: { queue: ReturnType<typeof usePipelineQu
   </header>
   const requester = (uid: string) => uid === me.data?.uid ? me.data.name ?? 'You' : undefined
   return <section className={styles.panel} aria-label="Plate Pipeline">{header}
-    {view === 'local' ? <PipelineQueuePanel requester={requester} queue={queue} /> : <>
-      {gateway.isLoading ? <p role="status" className="caption">Loading gateway runs…</p> : gateway.error ? <p role="alert">Could not load gateway runs. <Button size="sm" variant="ghost" onClick={() => void gateway.mutate()}>Refresh runs</Button></p> : !gatewayRuns.length ? <p className="caption">No gateway runs yet.</p> : null}
+    {view === 'local' ? <PipelineQueuePanel requester={requester} queue={queue} /> : gatewayPending ? <PipelineRailSkeleton compact /> : <>
+      {gateway.error ? <p role="alert">Could not load gateway runs. <Button size="sm" variant="ghost" onClick={() => void gateway.mutate()}>Refresh runs</Button></p> : !gatewayRuns.length ? <p className="caption">No gateway runs yet.</p> : null}
       <PipelineRunRail runs={gatewayRuns} observedAt={gateway.data?.observedAt} progress={run => run.progress}
         historyHref={run => reviewHref(undefined, undefined, run.batchId, { run: run.id })}
         renderRun={run => <PipelineRunCard run={run} progress={run.progress} stages={run.stages ?? ['tag']} observedAt={gateway.data?.observedAt} requester={requester(run.requestedBy)} plates={run.plates} device="Vercel Gateway" />}

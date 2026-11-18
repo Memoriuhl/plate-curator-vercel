@@ -26,3 +26,17 @@ export function orderDifferences(baseline: string[], order: string[]) {
   const retained = increasingSubsequence(candidates.map(plate => plate.before))
   return candidates.filter((_, index) => !retained.has(index))
 }
+
+export function restorePlateOrder(baseline: string[], order: string[], plateId: string): string[] {
+  const before = baseline.indexOf(plateId)
+  if (before < 0 || !order.includes(plateId)) return order
+  const remaining = order.filter(id => id !== plateId)
+  const moved = new Set(orderDifferences(baseline, remaining).map(({ plateId }) => plateId))
+  const anchors = new Set(remaining.filter(id => !moved.has(id)))
+  const next = baseline.slice(before + 1).find(id => anchors.has(id))
+  const previous = baseline.slice(0, before).findLast(id => anchors.has(id))
+  const earliest = previous ? remaining.indexOf(previous) + 1 : 0
+  const latest = next ? remaining.indexOf(next) : remaining.length
+  const index = Math.min(latest, Math.max(earliest, before))
+  return [...remaining.slice(0, index), plateId, ...remaining.slice(index)]
+}

@@ -7,6 +7,7 @@ import { usePlateDetail, useDraftOverlay } from '@/lib/client/hooks'
 import Image from 'next/image'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { PLATE_CHECK_KEYS } from '@/lib/catalog/dashboard-types'
+import { PlateEnhancementPreview } from './plate-image-preview'
 import { CHECK_META, StatusIcon } from '@/components/plate/status-icon'
 
 type HoverCardProps = {
@@ -78,6 +79,7 @@ export function PlateHoverContent({
       style={{ left: 0, top: 0, transform: `translate(${position.left}px, ${position.top}px)` }}
     >
       {state === 'loading' ? <div aria-label="Loading plate details" aria-busy="true" className="min-h-[420px] animate-pulse space-y-3"><div className="h-36 rounded bg-[var(--fill)]" /><div className="h-6 w-2/3 rounded bg-[var(--fill)]" /><div className="h-16 rounded bg-[var(--fill)]" /><div className="h-28 rounded bg-[var(--fill)]" /></div> : <>
+      <PlateEnhancementPreview plateId={plate.id} plateName={plate.displayName} before={plate.imageUrl ?? undefined}>
       {plate.imageUrl ? (
         <Image
           src={plate.imageUrl}
@@ -92,6 +94,7 @@ export function PlateHoverContent({
           No image
         </div>
       )}
+      </PlateEnhancementPreview>
       <h3 className="plate-name">{plate.displayName}</h3>
       <p className="id break-all font-mono text-[var(--ink-2)]">
         {plate.id}

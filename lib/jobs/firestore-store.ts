@@ -70,8 +70,9 @@ export function firestoreJobsStore(db: Firestore, env: Environment, reviewEnv: s
           const doc = await transaction.get(jobs.doc(id))
           return doc.get('env') === env ? doc.data() as TaggingJob : null
         },
-        async list() {
-          const snapshot = await transaction.get(jobs.where('env', '==', env))
+        async list(plateId) {
+          const scoped = jobs.where('env', '==', env)
+          const snapshot = await transaction.get(plateId ? scoped.where('plateId', '==', plateId) : scoped)
           return snapshot.docs.map(doc => doc.data() as TaggingJob)
         },
         async review(batchId, plateId) {

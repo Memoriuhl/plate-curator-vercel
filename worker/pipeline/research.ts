@@ -45,7 +45,7 @@ export function createEnrichmentHandler(options: {
   url: string; fetch?: typeof fetch; capture?: typeof captureEnrichment; captureSaved?: typeof captureSavedEnrichment
 }) {
   const request = options.fetch ?? fetch
-  return async (input: { plate: WorkerPlate; model?: string } & EnrichmentOptions): Promise<StageResult> => {
+  return async (input: { plate: WorkerPlate; model?: string; onPhase?: (index: number) => Promise<void> } & EnrichmentOptions): Promise<StageResult> => {
     const choice = researchModel(input.model ?? 'desktop-gemma4-12b') ?? researchModel(input.model === 'gemma4:26b' ? 'desktop-gemma4-26b' : input.model === 'gemma4:12b' ? 'desktop-gemma4-12b' : '')
     if (!choice || choice.executor !== 'desktop') throw Error('Select an allowlisted desktop research model')
     const meta = { backend: 'ollama', model: choice.model, promptVersion: 'enrichment-v1' }
@@ -57,6 +57,7 @@ export function createEnrichmentHandler(options: {
       ? await (options.captureSaved ?? captureSavedEnrichment)(input.plate)
       : await (options.capture ?? captureEnrichment)(input.plate, request)
     if (!sources.length) return { ...meta, stageError: 'no_sources' }
+    await input.onPhase?.(1)
     let raw: unknown = wikiOnlyDraft(sources, wikiUrl)
     const usage: Record<string, number> = {}
     if (needsEnrichmentSynthesis(plate, policy)) {
@@ -70,6 +71,7 @@ export function createEnrichmentHandler(options: {
       raw = extractJson(body.message.content)
       for (const key of ['eval_count', 'prompt_eval_count']) if (typeof body[key] === 'number' && Number.isFinite(body[key]) && body[key] >= 0) usage[key] = body[key]
     }
+    await input.onPhase?.(2)
     // Deterministic Wiki matching survives even when synthesis supplies no text.
     if (raw && typeof raw === 'object') raw = { ...raw, wikiSource: (raw as { wikiSource?: unknown }).wikiSource ?? wikiOnlyDraft(sources, wikiUrl).wikiSource }
     const fieldSuggestion = enrichmentSuggestion(raw, sources, plate, policy)

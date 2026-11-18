@@ -14,6 +14,7 @@ import { IoStar } from 'react-icons/io5'
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { CheckStrip } from './check-strip'
+import { PlateImageHover } from './plate-image-preview'
 import { VirtualizedVariants } from './virtualized-variants'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
 import { DragPlaceholder } from '@/components/dashboard/drag-preview'
@@ -41,6 +42,9 @@ export type FamilyCardProps = {
   onUndoDelete?: (plate: PlateCardData) => void
   undoPending?: boolean
   canEdit?: boolean
+  browseOnly?: boolean
+  focusPlateId?: string
+  footer?: ReactNode
   last?: boolean
 }
 
@@ -63,6 +67,9 @@ export function FamilyCard({
   onUndoDelete,
   undoPending,
   canEdit,
+  browseOnly,
+  focusPlateId,
+  footer,
 }: FamilyCardProps) {
   const batchId = useSelectedBatchId()
   const router = useRouter()
@@ -106,6 +113,8 @@ export function FamilyCard({
   const gapHeight = drag?.active?.geometry.height ?? 0
   if (number === 1 && template.imageUrl?.startsWith('https:'))
     preconnect(new URL(template.imageUrl).origin)
+  const Row = browseOnly ? 'div' : SelectionPlate
+  const Card = browseOnly ? 'article' : SelectionFamily
   function plateContent(plate: PlateCardData, small: boolean) {
     const width = small ? 84 : 140
     const height = small ? 42 : 70
@@ -114,13 +123,14 @@ export function FamilyCard({
     const href = '/plates/' + plate.id + (batchId !== null ? '?batch=' + encodeURIComponent(batchId) : '')
     if (small && placeholder?.kind === 'variant' && placeholder.id === plate.id) return <div key={plate.id} data-drag-variant={plate.id} data-reflow-key={'variant:' + plate.id}><DragPlaceholder height={gapHeight} variant /></div>
     return (
-      <SelectionPlate key={plate.id} id={plate.id} highlight={small} disabled={!!plate.deleted || (!!matches && !matches(plate))}
+      <Row key={plate.id} id={plate.id} {...(!browseOnly && { highlight: small, disabled: !!plate.deleted || (!!matches && !matches(plate)) })}
         data-plate-row={plate.id}
+        data-dashboard-focus={plate.id === focusPlateId || undefined}
         data-drag-handle-id={plate.id}
-        aria-keyshortcuts={drag?.enabled && !plate.deleted ? "Space Enter Shift+Space" : "Space Enter"}
+        aria-keyshortcuts={browseOnly ? undefined : drag?.enabled && !plate.deleted ? "Space Enter Shift+Space" : "Space Enter"}
         title={drag?.handleTitle}
         onKeyDown={event => {
-          if (event.target !== event.currentTarget) return
+          if (browseOnly || event.target !== event.currentTarget) return
           if (event.key === ' ') event.preventDefault()
           if (entranceRunning(event.currentTarget)) return
           if (drag?.active?.keyboard || (event.key === ' ' && event.shiftKey)) {
@@ -171,19 +181,21 @@ export function FamilyCard({
         className={cn(
           'group/plate relative flex items-start gap-3',
           small && 'variant-row',
-          drag?.enabled && !plate.deleted ? 'cursor-grab!' : 'cursor-pointer',
+          !browseOnly && (drag?.enabled && !plate.deleted ? 'cursor-grab!' : 'cursor-pointer'),
+          plate.id === focusPlateId && 'outline-2 outline-offset-4 outline-[var(--primary)]',
           plate.deleted && 'opacity-60 [&_h3]:line-through',
           matches && !matches(plate) && 'opacity-35',
         )}
       >
         {!small && number !== undefined ? <span aria-label={'Family order ' + number} className="family-order pointer-events-none absolute -top-[19px] -left-[11px] z-10">{number}</span> : null}
+        <PlateImageHover enabled={!onPreview} plateId={plate.id} plateName={plate.displayName} before={plate.imageUrl}>
         <Link
           href={href}
           draggable={false}
           onDragStart={event => event.preventDefault()}
           data-plate-open
           tabIndex={-1}
-          aria-hidden="true"
+          aria-hidden={browseOnly ? undefined : true}
           aria-label={'Open ' + plate.displayName}
           prefetch={false}
           className="shrink-0 rounded-[var(--radius-sm)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
@@ -227,12 +239,13 @@ export function FamilyCard({
             )}
           </div>
         </Link>
+        </PlateImageHover>
         <div className="family-plate-details flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-start justify-between gap-2">
             <h3 title={plate.displayName + ' · ' + plate.id} className={cn('plate-name min-w-0 flex-1 truncate', small ? 'text-[13px] leading-[18px]' : 'text-[15px] leading-5')}>
               <Link lang="en" prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} onFocus={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
             </h3>
-            <PipelineReviewLink plate={plate} />
+            {!browseOnly && <PipelineReviewLink plate={plate} />}
             {plate.isStandard ? (
               <span
                 aria-label="Standard plate"
@@ -247,15 +260,15 @@ export function FamilyCard({
           {plate.deleted && onUndoDelete && <button type="button" className="caption text-[var(--danger)] focus-visible:outline-2" disabled={!canEdit || undoPending} onClick={event => { event.stopPropagation(); onUndoDelete(plate) }}>Undo delete</button>}
         </div>
         {marker ? <span data-batch-marker className="absolute top-0 right-0 size-5">{marker}</span> : null}
-      </SelectionPlate>
+      </Row>
     )
   }
   if (placeholder?.kind === 'family' && placeholder.id === template.id) return <div data-drag-family={template.id} data-reflow-key={'family:' + template.id}><DragPlaceholder height={gapHeight} /></div>
   return (
-    <SelectionFamily id={template.id}
+    <Card id={browseOnly ? `result-${template.id}` : template.id}
       data-drag-family={template.id}
       data-reflow-key={'family:' + template.id}
-      aria-label={template.displayName + ' family'}
+      aria-label={browseOnly ? template.displayName : template.displayName + ' family'}
       onClickCapture={event => drag?.suppressClick(event)}
       onPointerDown={event => {
         if ((event.target as Element).closest('[data-plate-row], button, input, a') || (event.target as Element).hasAttribute('data-variant-scroll')) return
@@ -263,13 +276,13 @@ export function FamilyCard({
         if (canEdit && !template.deleted && !entranceRunning(event.currentTarget)) drag?.onPointerDown({ kind: 'family', plate: template }, event)
       }}
       onClick={event => {
-        if ((event.target as Element).closest('[data-plate-row], button, input, a') || (event.target as Element).hasAttribute('data-variant-scroll')) return
+        if (browseOnly || (event.target as Element).closest('[data-plate-row], button, input, a') || (event.target as Element).hasAttribute('data-variant-scroll')) return
         event.preventDefault()
         if (template.deleted || (matches && !matches(template))) return
         plateSelection.select(template.id, event)
       }}
       onDragStart={event => { if (drag?.enabled) event.preventDefault() }}
-      className={cn('@container family-card relative flex origin-top min-w-0 select-none flex-col', drag?.enabled && !template.deleted ? 'cursor-grab' : 'cursor-pointer', 'gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
+      className={cn('@container family-card relative flex origin-top min-w-0 select-none flex-col', !browseOnly && (drag?.enabled && !template.deleted ? 'cursor-grab' : 'cursor-pointer'), 'gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]', merge && 'outline-2 outline-[var(--primary)]', invalidMerge && 'outline-dashed outline-[var(--danger)]')}
     >
       {plateContent(template, false)}
       {variants.length ? (
@@ -279,6 +292,7 @@ export function FamilyCard({
               plates={variants}
               familyId={template.id}
               drag={drag}
+              focusPlateId={focusPlateId}
               renderPlate={(plate) => plateContent(plate, true)}
             />
           ) : (
@@ -286,11 +300,12 @@ export function FamilyCard({
           )}
         </div>
       ) : null}
+      {footer}
       {groupingNote ? (
         <p className="caption whitespace-normal break-words text-[var(--ink-2)]">
           {groupingNote}
         </p>
       ) : null}
-    </SelectionFamily>
+    </Card>
   )
 }

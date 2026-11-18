@@ -1,3 +1,4 @@
+import { defaultImageEnhancement, enhancementOperations } from './image-enhancement'
 import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { sortedJsonValue } from '../review/canonical-value'
 import { plateRevision } from '../review/revision'
@@ -153,13 +154,31 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
     const enhancement = result.fieldSuggestion?.kind === 'enhanced-image' ? result.fieldSuggestion : null
-    if (enhancement && (!job.queueRunId || !localClaimsEnabled(d)) || !enhancement && input.enhancedImage !== undefined) {
+    const attachment = input.enhancedImage !== undefined || input.enhancedImageFrames !== undefined
+    if ((enhancement && (!job.queueRunId || !localClaimsEnabled(d))) || (!enhancement && attachment)) {
       return { ok: false, error: 'invalid_result' }
     }
-    const imageBytes = enhancement
-      ? await (await import('./verify-enhanced-image')).verifyEnhancedImage(input.enhancedImage, enhancement)
-      : null
-    if (enhancement && !imageBytes) return { ok: false, error: 'invalid_result' }
+    let imageBytes: Buffer | null = null
+    const previews = new Map<string, Buffer>()
+    if (enhancement) {
+      const { verifyEnhancedImage } = await import('./verify-enhanced-image')
+      imageBytes = await verifyEnhancedImage(input.enhancedImage, enhancement)
+      if (!imageBytes) return { ok: false, error: 'invalid_result' }
+      const { frames } = enhancement
+      const frameInput = input.enhancedImageFrames
+      if (!frames && frameInput !== undefined) return { ok: false, error: 'invalid_result' }
+      if (frames) {
+        const options = { ...defaultImageEnhancement, ...job.stageOptions }
+        const expected = ['original', ...enhancementOperations.filter(step => options[step])]
+        if (!Array.isArray(frameInput) || frameInput.length !== frames.length - 1 || expected.length !== frames.length ||
+          frames.some(({ step }, index) => expected[index] !== step)) return { ok: false, error: 'invalid_result' }
+        for (const [index, frame] of frames.slice(0, -1).entries()) {
+          const bytes = await verifyEnhancedImage(frameInput[index], frame)
+          if (!bytes) return { ok: false, error: 'invalid_result' }
+          previews.set(frame.step, bytes)
+        }
+      }
+    }
     if (job.stage === 'research') {
       if (!job.researchModel || result.model !== job.researchModel.model) return { ok: false, error: 'invalid_result' }
       if (result.fieldSuggestion?.kind === 'fields') {
@@ -207,6 +226,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
     if (imageBytes) tx.setEnhancedImage(id, imageBytes)
+    for (const [step, bytes] of previews) tx.setEnhancedImage(`${id}--${step}`, bytes)
     tx.set(completed)
     return { ok: true, value: completed }
   })

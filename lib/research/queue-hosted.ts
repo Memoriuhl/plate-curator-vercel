@@ -1,5 +1,7 @@
+import { reportJobPhase } from '../jobs/job-phase'
 import type { JobsDeps, TaggingJob } from '../jobs/types'
 import { expireJob, getJob, reportResult } from '../jobs/jobs'
+import { failLocalJob } from '../jobs/queue-failure'
 import type { ResearchStateStore } from './state'
 import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
 import { enrichmentTargets, shouldReuseSavedSources } from './enrichment'
@@ -26,6 +28,7 @@ export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps
   const fields = enrichmentTargets(plate, policy)
   const meta = { backend: 'eve', model: job.researchModel.model, promptVersion: 'enrichment-v1' }
   async function report(draft: unknown, sources: EvidenceSource[], usage: Record<string, number>) {
+    if (draft && sources.length) await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 2)
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)
     const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, { ...meta, usage, durationMs: Math.max(0, jobs.now() - (job.startedAt ?? job.createdAt)),
       ...(fieldSuggestion ? { fieldSuggestion } : { stageError: sources.length ? 'no_supported_fields' : 'no_sources' }) })
@@ -43,23 +46,28 @@ export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps
   }
   if (!prepared.sources.length) return report(null, [], { modelCalls: 0 })
   if (!needsEnrichmentSynthesis(plate, policy)) return report(wikiOnlyDraft(prepared.sources, prepared.wikiUrl), prepared.sources, { modelCalls: 0 })
+  await reportJobPhase(jobs, 'hosted', job.id, job.claimId!, 1)
   if (!job.eve) {
     const run = (await jobs.store.transaction(tx => tx.runs())).find(run => run.id === job.queueRunId)!
     const input: ResearchInput = { plateId: plate.id, displayName: plate.displayName, state: plate.state, inputRevision: job.executionHash!, baselineVersion: run.attempts.at(-1)!.projection!.baselineVersion }
     const receipt = await deps.deliver(job, input, `${enrichmentPrompt(plate, prepared.sources, policy, fields)}\nFinish with submit_draft in this single model call. Captured evidence is already registered.`)
     await jobs.store.transaction(async tx => { const current = await tx.get(job.id); if (current?.state === 'claimed' && current.claimId === job.claimId && !current.eve) tx.set({ ...current, eve: receipt }) })
   }
-  const output = await deps.state.read<{ draft: ResearchDraft }>(`draft/${job.id}`)
   const settled = await deps.state.read<{ outcome: string }>(`eve-outcome/${job.id}`)
   if (settled && job.leaseExpiresAt! <= jobs.now()) { await expireJob(jobs, job.id); return 'settled' }
-  if (output && settled) {
+  if (settled) {
+    const output = await deps.state.read<{ draft: ResearchDraft }>(`draft/${job.id}`)
+    if (!output) {
+      const result = await failLocalJob(jobs, 'hosted', job.id, job.claimId!, 'stage_failed')
+      if (!result.ok) throw Error(`Could not record the hosted research failure: ${result.error}`)
+      return 'settled'
+    }
     const usage = await deps.state.read<Record<string, number>>(`usage/${job.id}`) ?? {}
     const costs = await researchModelCosts(deps.state, job.id)
     // Use the captured matched Wiki even when the model only found text/facts.
     const draft = { ...output.draft, wikiSource: output.draft.wikiSource ?? wikiOnlyDraft(prepared.sources, prepared.wikiUrl).wikiSource }
     return report(draft, prepared.sources, { ...usage, modelCalls: costs.modelAttempts, costUsd: costs.costUsd, missingModelCosts: costs.missingModelCosts })
   }
-  if (settled) throw Error(`Eve ended without a structured draft: ${settled.outcome}`)
   if ((await getJob(jobs, job.id))?.state !== 'claimed') return 'settled'
   return 'waiting'
 }

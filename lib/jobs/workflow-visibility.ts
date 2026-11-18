@@ -1,7 +1,10 @@
-export function workflowVisibilityUrl(workflowId: string | undefined, environment: string | undefined, world?: string): string | null {
+export function workflowVisibilityUrl(workflowId: string | undefined, environment: string | undefined, world?: string, webPort = process.env.WORKFLOW_WEB_PORT): string | null {
   if (!workflowId) return null
   const id = encodeURIComponent(workflowId)
-  if (world === 'local') return `http://localhost:3456/run/${id}`
+  if (world === 'local') {
+    const port = /^[0-9]{1,5}$/.test(webPort ?? '') && Number(webPort) > 0 && Number(webPort) <= 65535 ? Number(webPort) : 3456
+    return `http://localhost:${port}/run/${id}`
+  }
   if (!['production', 'preview'].includes(environment ?? '')) return null
   return `https://vercel.com/memoriuhl/plate-curator-vercel/workflows/runs/${id}?environment=${environment}`
 }

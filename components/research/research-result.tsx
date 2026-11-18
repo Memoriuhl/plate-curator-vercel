@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
+import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { CHECK_META } from '@/components/plate/status-icon'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,9 @@ export function ResearchResult({ result, plate, pending, canEditDraft = false, o
   const sources = new Map(result.sources.map(source => [source.id, source]))
   return <div className="grid w-full min-w-0 max-w-lg gap-3 rounded-xl border border-[var(--hairline)] p-3">
     <header className="flex items-center gap-3">
-      {plate?.imageUrl && <Image src={plate.imageUrl} alt={plate.displayName} width={160} height={80} unoptimized className="h-16 w-32 shrink-0 object-contain" />}
+      {plate?.imageUrl && <PlateImageHover plateId={result.input.plateId} plateName={plate.displayName} before={plate.imageUrl}>
+        <Image src={plate.imageUrl} alt={plate.displayName} width={160} height={80} unoptimized className="h-16 w-32 shrink-0 object-contain" />
+      </PlateImageHover>}
       <div className="min-w-0">
         <strong className="block text-sm">{plate?.displayName ?? result.input.displayName}</strong>
         <span className="caption">{fields.length ? `${fields.length} suggested ${fields.length === 1 ? 'change' : 'changes'}` : 'No changes found'}</span>

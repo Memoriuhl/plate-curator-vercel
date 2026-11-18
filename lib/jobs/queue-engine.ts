@@ -5,7 +5,7 @@ import type { Actor } from '../review/types'
 import { canEdit } from '../review/access'
 import type { JobsDeps, JobsTransaction, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
-import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
+import { isPlateFailure, pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { storyUrl } from '../review/fields'
 import { taggingModel } from '../tagging/models'
 import { verifiedImageFields } from '../review/image'
@@ -29,10 +29,11 @@ function advanceCursor(run: PipelineRun, attempt: RunAttempt, now: number) {
     if (failures.length) {
       const failedPlateIds = new Set(failures.map(step => step.plateId))
       const finished = attempt.steps.some(step => step.status === 'completed' && !failedPlateIds.has(step.plateId))
-      attempt.outcome = attempt.completedJobIds.length ? 'partial' : 'no_result'
+      const savedDrafts = run.incrementalDrafts && !run.previewOnly && !!run.draftPlateIds?.length
+      attempt.outcome = finished || savedDrafts ? 'partial' : 'no_result'
       finishRun(run, finished ? 'completed' : 'failed', now, failures[0].reason)
     } else {
-      if (attempt.noResultCount) attempt.outcome = attempt.noResultCount === attempt.cursor ? 'no_result' : 'partial'
+      if (attempt.noResultCount) attempt.outcome = attempt.steps.some(step => step.status === 'completed') ? 'partial' : 'no_result'
       finishRun(run, 'completed', now)
     }
     return
@@ -48,19 +49,30 @@ function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now:
     status: skipReason ? 'skipped' : 'completed', completedJobId: jobId, endedAt: now,
     ...(skipReason ? { reason: skipReason } : {}),
   })
-  if (skipReason) attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+  if (skipReason) {
+    attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+    skipRemainingPlateSteps(attempt, 'upstream_skipped', now)
+  }
   advanceCursor(run, attempt, now)
 }
 
 function failPlateStage(run: PipelineRun, attempt: RunAttempt, reason: string, now: number) {
-  const failed = attempt.steps[attempt.cursor]
-  Object.assign(failed, { status: 'failed', reason, endedAt: now })
+  Object.assign(attempt.steps[attempt.cursor], { status: 'failed', reason, endedAt: now })
+  skipRemainingPlateSteps(attempt, 'upstream_failed', now)
+  advanceCursor(run, attempt, now)
+}
+
+function skipRemainingPlateSteps(attempt: RunAttempt, reason: 'upstream_failed' | 'upstream_skipped', now: number) {
+  const { plateId } = attempt.steps[attempt.cursor]
   for (const step of attempt.steps.slice(attempt.cursor + 1)) {
     if (step.status === 'completed' || step.status === 'cancelled') continue
-    const skipReason = step.stage === 'group' ? 'group_member_failed' : step.plateId === failed.plateId ? 'upstream_failed' : undefined
-    if (skipReason) Object.assign(step, { status: 'cancelled', reason: skipReason, endedAt: now })
+    if (step.stage === 'group') {
+      if (step.reason === 'group_member_skipped') continue
+      Object.assign(step, { status: 'skipped', reason: reason === 'upstream_failed' ? 'group_member_failed' : 'group_member_skipped', endedAt: now })
+    } else if (step.plateId === plateId) {
+      Object.assign(step, { status: 'skipped', reason, endedAt: now })
+    }
   }
-  advanceCursor(run, attempt, now)
 }
 
 function nextStage(attempt: RunAttempt, index: number): StageObservation {
@@ -115,8 +127,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     }
     const missing = missingResearchInput(attempt, step, projected)
     if (missing) {
-      if (run.plateIds.length > 1) failPlateStage(run, attempt, missing, d.now())
-      else finishRun(run, 'failed', d.now(), missing)
+      failPlateStage(run, attempt, missing, d.now())
       tx.setRun(run)
       return null
     }
@@ -177,22 +188,18 @@ async function settleQueueStage(
   let error = job.failure
   const cancelled = run.cancelRequestedAt !== undefined
   const shouldSave = run.incrementalDrafts && !run.previewOnly
-  if (cancelled && (!shouldSave || job.state !== 'completed' || job.result?.stageError ||
+  if (cancelled && (!shouldSave || job.state !== 'completed' || job.result?.stageError || job.result?.backend === 'missing-image' ||
     job.result?.fieldSuggestion?.kind === 'image' && !attempt.choices[job.id])) finishRun(run, 'cancelled', d.now())
-  else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
-  else if (job.stage === 'research' && job.result?.stageError === 'no_sources' &&
+  else if (job.state !== 'completed') {
+    if (job.state === 'failed' && job.stage !== 'group' && error && isPlateFailure(error)) failPlateStage(run, attempt, error, d.now())
+    else finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
+  } else if (job.stage === 'research' && job.result?.stageError === 'no_sources' &&
     shouldReuseSavedSources({ ...job.stageOptions, policy: job.researchPolicy })) {
     advanceStage(run, attempt, job.id, d.now(), 'no_saved_sources')
-  } else if (job.result?.stageError) {
-    const reason = job.result.stageError
-    if (run.plateIds.length > 1 && job.stage !== 'group' && ['no_sources', 'no_supported_fields', 'missing_image'].includes(reason)) {
-      failPlateStage(run, attempt, reason, d.now())
-    } else {
-      if (reason === 'no_sources' || reason === 'no_supported_fields') {
-        attempt.outcome = shouldSave && run.draftPlateIds?.length ? 'partial' : 'no_result'
-      }
-      finishRun(run, 'failed', d.now(), reason)
-    }
+  } else if (job.result?.stageError || job.result?.backend === 'missing-image') {
+    const reason = job.result.stageError ?? 'missing_image'
+    if (job.stage !== 'group' && isPlateFailure(reason)) failPlateStage(run, attempt, reason, d.now())
+    else finishRun(run, 'failed', d.now(), reason)
   } else {
     const raw = job.result?.fieldSuggestion
     const candidateId = attempt.choices[job.id]

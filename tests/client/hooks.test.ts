@@ -173,6 +173,30 @@ test.each([true, false])('lost move response reconciles saved Batch before repor
   expect(session.api.send).toHaveBeenCalledOnce()
 })
 
+test('a template move waits for the committed revision and keeps the promotion in the reloaded overlay', async () => {
+  const { result } = renderHook(() => ({ ordering: useReorderState(), overlay: useDraftOverlay([card]) }), harness())
+  expect(result.current.ordering.ready).toBe(false)
+  await waitFor(() => expect(result.current.ordering.ready).toBe(true))
+  const origin = result.current.ordering.capture()
+  const savedBatch = { ...batch, revision: 2, stateOrders: { AK: [card.id] } }
+  const saved = { batch: savedBatch, plates: [{ ...detail().plates[0], proposed: { ...proposed, templateFamily: 'new', templateRole: 'template', variantOfPlateId: null } }] }
+  session.api.send.mockResolvedValue(savedBatch)
+  session.api.get.mockImplementationOnce(async () => detail()).mockImplementation(async key => key === ownKey ? [savedBatch] : saved)
+  await act(async () => {
+    expect(await result.current.ordering.move('AK', [card.id], { plateId: card.id, templateFamily: 'new' }, origin)).toMatchObject({ ok: true })
+  })
+  expect(result.current.overlay[0]).toMatchObject({ templateFamily: 'new', templateRole: 'template', variantOfPlateId: null, sortOrder: 0 })
+})
+
+test('a successful HTTP response still requires a saved template and order', async () => {
+  const { result } = renderHook(() => useReorderState(), harness())
+  await waitFor(() => expect(result.current.ready).toBe(true))
+  session.api.send.mockResolvedValue({ ...batch, revision: 2 })
+  await act(async () => {
+    expect(await result.current.move('AK', [card.id], { plateId: card.id, templateFamily: 'new' }, result.current.capture())).toMatchObject({ ok: false, error: 'superseded_revision' })
+  })
+})
+
 test('personal Batch discovered after lift cannot inherit its newer revision', async () => {
   const context = harness()
   const { result } = renderHook(() => useReorderState(), context)
@@ -190,7 +214,14 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
   const families = action === 'merge'
     ? [{ template: parent, variants: [] }, { template: plate, variants: [] }]
     : [{ template: parent, variants: [plate] }]
-  session.api.send.mockResolvedValue(action === 'merge' ? { moved: [plate.id], alreadyInFamily: 0, standard: 0, deleted: 0 } : { batch, plate: proposed })
+  session.api.send.mockImplementation(async () => {
+    const merged = action === 'merge'
+    const savedBatch = { ...batch, revision: 2, stateOrders: merged ? {} : { AK: [parent.id, plate.id] } }
+    session.api.get.mockImplementation(async key => key === ownKey ? [savedBatch] : {
+      batch: savedBatch, plates: [{ ...detail().plates[0], proposed: { ...proposed, id: plate.id, templateFamily: 'ak_outside', templateRole: merged ? 'variant' : 'template', variantOfPlateId: merged ? parent.id : null } }],
+    })
+    return merged ? { moved: [plate.id], alreadyInFamily: 0, standard: 0, deleted: 0 } : savedBatch
+  })
   const { result } = renderHook(() => {
     const ordering = useReorderState()
     return { ...usePlateDrag({
@@ -716,8 +747,8 @@ test('Publish confirmation sends the displayed revision and retains its result w
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open') } })
   try {
     render(createElement(PublishWorkspace), harness())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm Publish' })).toBeDefined())
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm Publish' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Game' })).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Game' }))
     const dialog = screen.getByRole('dialog')
     expect(dialog.textContent).toContain('Publish Veterans release?')
     expect(dialog.textContent).toContain('This creates the next Snapshot for Staging Catalog (license-plate-game-staging).')

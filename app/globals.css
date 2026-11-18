@@ -253,7 +253,8 @@ body {
   gap: var(--stack-gap);
   min-width: 0;
 }
-.states-review {
+.states-review,
+.states-pipeline {
   min-width: 0;
 }
 .review-strip {
@@ -521,7 +522,7 @@ body {
 @media (min-width: 1024px) {
   .states-layout {
     grid-template-columns: calc(132px + 17px + var(--space-1)) minmax(0, 1fr);
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto 1fr;
     column-gap: var(--space-6);
     row-gap: var(--stack-gap);
     align-items: start;
@@ -534,15 +535,19 @@ body {
     grid-column: 2;
     grid-row: 2;
   }
+  .states-layout > .states-pipeline {
+    grid-column: 2;
+    grid-row: 3;
+  }
   .states-layout > .states-content,
   .states-layout > .skeleton-state {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 4;
   }
   .states-layout > .jurisdiction-strip,
   .states-layout > .skeleton-jurisdictions {
     grid-column: 1;
-    grid-row: 1 / span 3;
+    grid-row: 1 / span 4;
     position: sticky;
     top: calc(var(--header-h) + var(--space-6));
     height: calc(100dvh - var(--header-h) - var(--space-6) * 2);

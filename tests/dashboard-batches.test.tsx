@@ -9,6 +9,7 @@ import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { BatchActions } from '../components/dashboard/batch-actions'
+import { DashboardPipelineProvider } from '../components/dashboard/pipeline-runs'
 import { ReviewStrip } from '../components/dashboard/review-strip'
 import { FilterBar } from '../components/dashboard/filter-bar'
 import { alaskaFixture } from '../fixtures/dashboard-frame'
@@ -115,7 +116,7 @@ beforeEach(() => {
 })
 
 test('Owner sees the personal Batch name, persisted change time, Review and Publish', () => {
-  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
   expect(html).toContain('Alaska updates')
   expect(html).toContain('dateTime="2026-11-17T16:15:00Z"')
   expect(html).toContain('Last changed')
@@ -126,7 +127,7 @@ test('Owner sees the personal Batch name, persisted change time, Review and Publ
 
 test('Editor sees the Batch identity and can open Review and the pipeline menu', () => {
   state.role = 'editor'
-  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
   expect(html).toContain('Last changed')
   expect(html).toContain('href="/review?batch=batch-one"')
   expect(html).not.toContain('href="/publish')
@@ -136,7 +137,7 @@ test('Editor sees the Batch identity and can open Review and the pipeline menu',
 test('without an open Batch, the dashboard explains the empty workspace', () => {
   state.open = []
   state.detail = undefined
-  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
   expect(html).toContain('No open Batch yet')
   expect(html).not.toContain('href="/publish')
 })
@@ -187,7 +188,7 @@ test('changed filter counts current-jurisdiction batch membership including uned
 test('selected Publish keeps the shared Batch ID while its details load', () => {
   state.selected = true
   state.detail = undefined
-  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
   expect(html).toContain('href="/publish?batch=shared"')
   expect(html).not.toContain('href="/publish?batch=batch-one"')
 })
@@ -197,7 +198,7 @@ test('legacy Batch timestamps distinguish creation from an unknown edit time', (
     const legacy = { ...batch, revision, lastChangedAt: undefined }
     state.open = [legacy]
     state.detail = { batch: legacy, plates: [] }
-    const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
+    const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
     expect(html).toContain(label)
     expect(html).not.toContain('Last changed')
   }

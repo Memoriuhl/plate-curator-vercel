@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { enqueueRun, enqueueSelection, listRuns, retryRun, cancelRun } from '../../lib/jobs/queue'
-import { dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
+import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
+import { readLocalWorkerCapabilities, reportLocalWorkerCapabilities } from '../../lib/jobs/capabilities'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
 import { captureSavedEnrichment, createEnrichmentHandler } from '../../worker/pipeline/research'
@@ -130,6 +131,28 @@ test.each(['desktop', 'eve'] as const)('%s skips a plate without saved evidence 
   ] }] })
 })
 
+test('a hosted Research session that ends without a draft does not stop the next plate', async () => {
+  const s = setup()
+  s.deliver.mockImplementationOnce(async job => {
+    await s.state.update(`eve-outcome/${job.id}`, () => ({ value: { outcome: 'failed' }, result: null }))
+    return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
+  })
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'hosted-research-failure', batchId: 'batch', plateIds: ['AK.one', 'AK.two'],
+    stages: ['research'], researchModelId: 'eve-gemini-2-5-flash-lite',
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  for (const index of [0, 1]) {
+    const id = (await dispatchQueueStage(s.jobs, run.id, 1, index, `hook-${index}`))!
+    expect(await executeHostedQueueStage(s.jobs, id, async () => { throw Error('unexpected Tag') }, s.hosted)).toBe('settled')
+    expect(await observeQueueStage(s.jobs, run.id, 1, index)).toEqual({ phase: index === 0 ? 'next' : 'done' })
+  }
+  expect(await listRuns(s.jobs, actor)).toMatchObject({ value: [{ status: 'completed', draftPlateIds: ['AK.two'], attempts: [
+    { outcome: 'partial', steps: [{ status: 'failed', reason: 'stage_failed' }, { status: 'completed' }] },
+  ] }] })
+})
+
 test('a Run Pipeline selection saves one hosted result with its description and sourced facts to the Batch', async () => {
   const s = setup()
   const plateId = s.plates[0].id
@@ -236,4 +259,27 @@ test('retrieval failure and invalid synthesis never replace saved fields or retr
   expect(await s.handler({ plate: s.plates[0], policy: 'replace', model: 'desktop-gemma4-26b' })).toMatchObject({ stageError: 'no_supported_fields', model: 'gemma4:26b' })
   expect(s.request).toHaveBeenCalledOnce()
   expect(await s.review.listEdits('batch')).toEqual([])
+})
+
+test('saved-source research reports an incompatible worker using the same condition as the claim', async () => {
+  const s = setup()
+  const created = await enqueueRun(s.jobs, actor, {
+    requestId: 'saved-source-worker', batchId: 'batch', plateIds: [s.plates[0].id],
+    stages: ['research'], researchModelId: 'desktop-gemma4-26b',
+    options: { research: { policy: 'fill-missing', reuseSavedSources: true } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const run = created.value
+  await bindQueueWorkflow(s.jobs, run.id, 1, 'workflow-saved-sources')
+  await dispatchQueueStage(s.jobs, run.id, 1, 0, 'hook-saved-sources')
+  const list = async () => listRuns(s.jobs, actor, await readLocalWorkerCapabilities(s.jobs))
+  const available = { available: true }
+  const capabilities = { group: available, embeddings: available, mask: available, vision: available, pollIntervalMs: 5000 }
+  await reportLocalWorkerCapabilities(s.jobs, 'worker', capabilities, false)
+  expect(await list()).toMatchObject({ value: [{ id: run.id, queueWait: 'saved_sources_worker' }] })
+  expect(await claimNext(s.jobs, 'worker')).toBeNull()
+
+  await reportLocalWorkerCapabilities(s.jobs, 'worker', capabilities, true)
+  expect(await list()).toMatchObject({ value: [{ id: run.id, queueWait: 'worker_claim' }] })
+  expect(await claimNext(s.jobs, 'worker', { supportsSavedSources: true })).toMatchObject({ job: { queueRunId: run.id } })
 })

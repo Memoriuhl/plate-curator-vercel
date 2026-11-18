@@ -77,6 +77,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const filter = params.get('show') ?? 'all'
   const show = publishedOnly && filter === 'changed' ? 'all' : filter
   const query = params.get('q') ?? ''
+  const focusPlateId = params.get('plate')
   const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show, '', attachedIds) : []), [overlaid, show, attachedIds])
   const matches = (plate: PlateCardData) =>
     matchesPlate(plate, show, query, changedIds, standardIds, attachedIds)
@@ -99,6 +100,11 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     if (timer.current) clearTimeout(timer.current)
     anchor.current = null
     setPreview(null)
+  }
+  const leavePreview = () => {
+    if (!opened.current) { close(); return }
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(close, 230)
   }
   const { user } = useSession()
   const me = useMe()
@@ -123,7 +129,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   const drag = usePlateDrag({
     bulkEdits,
     catalogVersion,
-    families: baselineFamilies, canEdit: canEdit && !issue && !standardConfirmation.pending, show, query, ordering,
+    families: baselineFamilies, canEdit: canEdit && ordering.ready !== false && !issue && !standardConfirmation.pending, show, query, ordering,
     edits: { ...edits, edit: async (plate, fields, reviewed) => {
       const result = await edits.edit(plate, fields, reviewed)
       if (!result.ok && result.error === 'stale_plate') setIssue({ plate, fields, result })
@@ -204,7 +210,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     const dismissPointer = (event: PointerEvent) => {
       if (
         !(event.target instanceof Element) ||
-        !event.target.closest('[role=tooltip]')
+        !event.target.closest('[role=tooltip], [data-check-tooltip]')
       )
         close()
     }
@@ -244,6 +250,27 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
     getItemKey: (index) => index,
   })
   const virtualRows = virtualizer.getVirtualItems()
+  const focusIndex = focusPlateId ? visible.findIndex(family => family.template.id === focusPlateId || family.variants.some(plate => plate.id === focusPlateId)) : -1
+  const focusKey = focusIndex >= 0 ? `${pathname}:${workspace.mode === 'selected' ? workspace.id : ''}:${focusPlateId}` : null
+  const lastFocus = useRef<string | null>(null)
+  const targetRowReady = focusIndex >= 0 && virtualRows.some(row => row.index === Math.floor(focusIndex / layout.columns))
+  useEffect(() => {
+    if (!focusKey) { lastFocus.current = null; return }
+    if (!layout.ready || lastFocus.current === focusKey) return
+    if (!targetRowReady) {
+      virtualizer.scrollToIndex(Math.floor(focusIndex / layout.columns), { align: 'start' })
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      const row = Array.from(container.current?.querySelectorAll<HTMLElement>('[data-plate-row]') ?? [])
+        .find(element => element.dataset.plateRow === focusPlateId)
+      if (!row) return
+      row.scrollIntoView({ block: 'center', inline: 'nearest' })
+      row.focus({ preventScroll: true })
+      lastFocus.current = focusKey
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusKey, focusPlateId, focusIndex, targetRowReady, layout.ready, layout.columns, virtualizer])
   const reflowIdentity = visible.map(family => [family.template.id, ...family.variants.map(plate => plate.id)].join(':')).join('|') + virtualRows.map(row => `${row.index}:${row.start}`).join('|')
   useLayoutEffect(() => {
     container.current?.querySelectorAll<HTMLElement>('[data-drag-row]').forEach(element => virtualizer.measureElement(element))
@@ -353,6 +380,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
                     {...family}
                     drag={drag}
                     canEdit={canEdit}
+                    focusPlateId={focusPlateId ?? undefined}
                     onUndoDelete={plate => void undoDelete(plate)}
                     undoPending={edits.pending || resolving || !!issue || drag.saving || !!drag.active}
                     last={family.number === families.length}
@@ -361,7 +389,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
                     onPreview={open}
                     onPreload={preload}
                     onDismissPreview={close}
-                    onLeaveCheck={close}
+                    onLeaveCheck={preview?.checkKey === 'image' ? leavePreview : close}
                     onMarker={(plate, element) => {
                       if (drag.active || drag.saving) return
                       opened.current = false
@@ -374,11 +402,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
                       anchor.current = element
                       setPreview({ plate, anchor: element, immediate: false, checkKey })
                     }}
-                    onClosePreview={() => {
-                      if (!opened.current) { close(); return }
-                      if (timer.current) clearTimeout(timer.current)
-                      timer.current = setTimeout(close, 150)
-                    }}
+                    onClosePreview={leavePreview}
                     badge={(plate) =>
                       changedIds.has(plate.id) && user ? (
                         <UserAvatar user={user} size="sm" activity="changed" aria-label={userAvatarName(user) + ', edited in your batch'} />
@@ -404,9 +428,7 @@ export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
             onMouseEnter={() => {
               if (timer.current) clearTimeout(timer.current)
             }}
-            onMouseLeave={() => {
-              timer.current = setTimeout(close, 150)
-            }}
+            onMouseLeave={leavePreview}
           />
         ) : null}
       </Suspense>

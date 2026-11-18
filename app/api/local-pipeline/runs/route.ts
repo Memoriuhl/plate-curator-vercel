@@ -1,3 +1,5 @@
+import { plateCard } from '@/lib/catalog/dashboard-build'
+import { plateImageUrl } from '@/lib/catalog/image-url'
 import { runPlateDetail } from '../../../../lib/jobs/run-plates'
 import { enqueueSelection, listRuns, parseEnqueue } from '../../../../lib/jobs/queue'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
@@ -11,24 +13,29 @@ import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 export async function GET(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
-  let result = await listRuns(jobsDeps(), auth.actor)
+  const dependencies = jobsDeps()
+  const worker = await readLocalWorkerCapabilities(dependencies)
+  const selectedId = new URL(request.url).searchParams.get('detail')
+  let result = await listRuns(dependencies, auth.actor, worker, selectedId)
   if (!result.ok) return queueResponse(result)
   let reconciled = false
   for (const run of result.value) {
+    if (run.status !== 'queued' && run.status !== 'running') continue
     if (await reconcileQueueWorkflow(run).catch(() => false)) reconciled = true
     await startQueueWorkflow(run).catch(() => undefined)
     const attempt = run.attempts.at(-1)!
-    if (['queued', 'running'].includes(run.status)) {
-      const current = run.jobs.find(job => job.queueAttempt === attempt.number && job.queueStep === attempt.cursor)
-      if (current && current.state !== 'queued' && (current.state !== 'claimed' || run.waitReason === 'resource')) await wakeLocalJob(current)
-    }
+    const current = run.jobs.find(job => job.queueAttempt === attempt.number && job.queueStep === attempt.cursor)
+    if (current && current.state !== 'queued' && (current.state !== 'claimed' || run.waitReason === 'resource')) await wakeLocalJob(current)
   }
-  if (reconciled) { result = await listRuns(jobsDeps(), auth.actor); if (!result.ok) return queueResponse(result) }
-  const selectedId = new URL(request.url).searchParams.get('detail')
+  if (reconciled) { result = await listRuns(dependencies, auth.actor, worker, selectedId); if (!result.ok) return queueResponse(result) }
   const selected = selectedId ? result.value.find(run => run.id === selectedId) : result.value.find(run => run.status === 'running') ?? result.value[0]
   for (const run of result.value) {
     run.progress = queueProgress(run)
     const attempt = run.attempts.at(-1)!
+    run.progress.plateImages = Object.fromEntries(Object.values(attempt.projection?.plates ?? {}).flatMap(({ executionPlate }) => {
+      const url = plateImageUrl(executionPlate, process.env.PLATE_IMAGE_BASE ?? null)
+      return url ? [[executionPlate.id, url]] : []
+    }))
     run.progress.workflowUrl = recordedWorkflowUrl(attempt.workflowId, attempt.workflowUrl)
   }
   const summaries = result.value.map(run => ({ ...run,
@@ -37,11 +44,17 @@ export async function GET(request: Request) {
       stepCount: attempt.steps.length, completedCount: attempt.completedJobIds.length })),
     jobs: run.jobs.filter(job => job.state === 'claimed').map(job => Object.fromEntries(Object.entries(job).filter(([key]) => key !== 'inputPlate' && key !== 'result'))),
   }))
-  const detail = selected ? { ...selected, plates: Object.values(selected.attempts.at(-1)?.projection?.plates ?? {}).map(entry => runPlateDetail(entry.batchInput)), attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
-    Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))) } : undefined
-  const orphanJobs = await listLocalOrphanJobs(jobsDeps(), auth.actor)
-  const capabilities = { ...await readLocalWorkerCapabilities(jobsDeps()), previewOnly: { available: true } }
-  return json({ runs: summaries, orphanJobs, capabilities, observedAt: jobsDeps().now(), ...(detail ? { selected: detail } : {}) })
+  const entries = Object.values(selected?.attempts.at(-1)?.projection?.plates ?? {})
+  const detail = selected ? {
+    ...selected,
+    plates: entries.map(entry => runPlateDetail(entry.batchInput)),
+    cards: entries.map((entry, index) => plateCard(entry.executionPlate, index, plate => plateImageUrl(plate, process.env.PLATE_IMAGE_BASE ?? null))),
+    attempts: selected.attempts.map((attempt, index) => index === selected.attempts.length - 1 ? attempt :
+      Object.fromEntries(Object.entries(attempt).filter(([key]) => key !== 'projection'))),
+  } : undefined
+  const orphanJobs = await listLocalOrphanJobs(dependencies, auth.actor)
+  const capabilities = { ...worker, previewOnly: { available: true } }
+  return json({ runs: summaries, orphanJobs, capabilities, observedAt: dependencies.now(), ...(detail ? { selected: detail } : {}) })
 }
 
 export async function POST(request: Request) {

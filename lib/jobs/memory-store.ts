@@ -42,7 +42,7 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
               const job = jobs.get(id)
               return job?.env === env ? structuredClone(job) : null
             },
-            async list() { return structuredClone([...jobs.values()].filter(job => job.env === env)) },
+            async list(plateId) { return structuredClone([...jobs.values()].filter(job => job.env === env && (!plateId || job.plateId === plateId))) },
             async review(batchId, plateId) {
               const batch = await scopedReview?.getBatch(batchId)
               if (!batch) return null

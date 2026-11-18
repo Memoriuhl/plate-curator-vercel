@@ -6,6 +6,9 @@ import type { PlateCardData, PlateCheckKey } from '@/lib/catalog/dashboard-types
 import { useDraftOverlay, usePlateDetail } from '@/lib/client/hooks'
 import { CHECK_META } from './status-icon'
 import { PlateHoverContent } from './plate-hover-card'
+import { useLatestEnhancement } from './plate-image-preview'
+import { EnhancementComparison } from '@/components/dashboard/enhanced-image-result'
+import { cn } from '@/components/utils'
 
 export type ReadyPreviewProps = {
   plate: PlateCardData
@@ -40,7 +43,7 @@ function PendingPreview(props: ReadyPreviewProps) {
   useEffect(() => { if (visible) onReady?.() }, [visible, onReady])
   if (!props.anchor.isConnected || !visible) return null
   if (props.markerName) return <CheckTooltip plate={props.plate} anchor={props.anchor} loading={false} message={props.markerName + ', edited in your batch'} />
-  if (props.checkKey) return <CheckTooltip plate={local ? props.plate : overlaid ?? props.plate} checkKey={props.checkKey} parent={props.parent} anchor={props.anchor} loading={!local && !data} />
+  if (props.checkKey) return <CheckTooltip {...props} plate={local ? props.plate : overlaid ?? props.plate} loading={!local && !data} />
   return <PlateHoverContent {...props} plate={overlaid ?? props.plate} state={data ? undefined : 'loading'} />
 }
 
@@ -65,10 +68,11 @@ export function CheckValue({ plate, checkKey, parent }: { plate: PlateCardData; 
   return <p className={checkKey === 'description' ? 'line-clamp-4' : undefined}>{value}</p>
 }
 
-function CheckTooltip({ plate, checkKey, parent, anchor, loading, message }: { plate: PlateCardData; checkKey?: PlateCheckKey; parent?: string; anchor: HTMLElement; loading: boolean; message?: string }) {
+function CheckTooltip({ plate, checkKey, parent, anchor, loading, message, onMouseEnter, onMouseLeave }: Omit<ReadyPreviewProps, 'immediate'> & { loading: boolean; message?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const [snapshot] = useState({ plate, loading })
+  const enhancement = useLatestEnhancement(plate.id, checkKey === 'image')
   useLayoutEffect(() => {
     const place = () => {
       if (!ref.current) return
@@ -77,9 +81,22 @@ function CheckTooltip({ plate, checkKey, parent, anchor, loading, message }: { p
       setPosition({ left: Math.max(8, Math.min(icon.left + icon.width / 2 - bounds.width / 2, window.innerWidth - bounds.width - 8)), top: icon.top - bounds.height - 8 >= 8 ? icon.top - bounds.height - 8 : icon.bottom + 8 })
     }
     place()
+    const observer = new ResizeObserver(place)
+    if (ref.current) observer.observe(ref.current)
     window.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
-    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
+    return () => { observer.disconnect(); window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
   }, [anchor])
-  return createPortal(<div ref={ref} role="tooltip" data-check-tooltip className="pointer-events-none fixed z-50 w-max max-w-72 rounded-[var(--radius-md)] bg-[var(--card)] p-3 text-xs text-[var(--ink)] shadow-xl ring-1 ring-[var(--border)]" style={position}>{checkKey ? <><p className="mb-1 font-medium">{CHECK_META[checkKey].label} <span className="font-normal text-[var(--ink-2)]">· {snapshot.plate.checks[checkKey].status}</span></p><div className="break-words">{snapshot.loading ? 'Loading…' : <CheckValue plate={snapshot.plate} checkKey={checkKey} parent={parent} />}</div></> : message}</div>, document.body)
+  return createPortal(<div ref={ref} role={enhancement ? 'dialog' : 'tooltip'} data-check-tooltip
+    aria-label={enhancement ? `${plate.displayName} image enhancement` : undefined}
+    onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}
+    className={cn('fixed z-50 rounded-[var(--radius-md)] bg-[var(--card)] p-3 text-xs text-[var(--ink)] shadow-xl ring-1 ring-[var(--border)]',
+      enhancement?.suggestion.frames?.length ? 'w-[min(840px,calc(100vw-16px))]' : 'w-max max-w-72', !enhancement && 'pointer-events-none')}
+    style={position}>
+    {checkKey ? <>
+      <p className="mb-1 font-medium">{CHECK_META[checkKey].label} <span className="font-normal text-[var(--ink-2)]">· {snapshot.plate.checks[checkKey].status}</span></p>
+      {enhancement ? <EnhancementComparison key={enhancement.jobId} {...enhancement} plateName={plate.displayName} />
+        : <div className="break-words">{snapshot.loading ? 'Loading…' : <CheckValue plate={snapshot.plate} checkKey={checkKey} parent={parent} />}</div>}
+    </> : message}
+  </div>, document.body)
 }

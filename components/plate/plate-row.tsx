@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
+import { PlateImageHover } from './plate-image-preview'
 import { CheckStrip } from './check-strip'
 
 const THUMBNAIL = { width: 72, height: 36 } as const
@@ -23,6 +24,7 @@ export function PlateRow({ plate }: PlateRowProps) {
         style={THUMBNAIL}
       >
         {plate.imageUrl ? (
+          <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={plate.imageUrl}>
           <Image
             src={plate.imageUrl}
             alt={`${plate.displayName} plate`}
@@ -31,6 +33,7 @@ export function PlateRow({ plate }: PlateRowProps) {
             className='size-full object-contain'
             unoptimized
           />
+          </PlateImageHover>
         ) : (
           <span className='caption text-center'>No image</span>
         )}

@@ -133,7 +133,7 @@ test.each([false, true])('Owner sees reviewed and live versions and opens a fres
   mocks.run = failedRun
   render(<PublishWorkspace />)
   expect(screen.getAllByText(/Reviewed Catalog v1; current Catalog v2/).length).toBeGreaterThan(0)
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
   await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh'))
@@ -189,7 +189,7 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
   render(<PublishWorkspace />)
   expect(screen.getAllByText(batch.name).length).toBeGreaterThan(0)
   expect(screen.getByText(/The Batch remains approved. Resume does not restart this command/)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Publish to Game' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
 })
@@ -197,8 +197,8 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
 test('paused Publish explains the stop; after Resume stale proposals still offer Copy', () => {
   mocks.baselineError = 'paused'
   const view = render(<PublishWorkspace />)
-  expect(screen.getByText('Catalog publishing is paused. Resume before requesting Publish.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByText('Catalog publishing is paused. Use Resume publishing to allow new requests.')).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
   mocks.baselineError = 'stale_baseline'
   view.rerender(<PublishWorkspace />)
@@ -237,7 +237,7 @@ test.each(['open', 'submitted', 'approved'] as const)('Owner can explicitly conf
   render(<PublishWorkspace />)
   expect(screen.getByRole('heading', { name: batch.name })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Review Batch' }).getAttribute('href')).toBe('/review?batch=batch')
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm Publish' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Publish to Game' }))
   const dialog = within(screen.getByRole('dialog'))
   expect(dialog.getByText(/next Snapshot for Staging Catalog \(license-plate-game-staging\)/)).toBeTruthy()
   expect(dialog.getByText(state === 'approved' ? 'This uses the current Owner approval.' : 'Confirm these draft changes for release.')).toBeTruthy()
@@ -262,13 +262,13 @@ test('blocked drafts expose repair and refresh actions for the same Batch', () =
   const view = render(<PublishWorkspace />)
   expect(screen.getByText(/no changes to publish/)).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Open Batch on Dashboard' }).getAttribute('href')).toBe('/?batch=batch')
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
 
   mocks.empty = false
   mocks.pipelineBusy = true
   view.rerender(<PublishWorkspace />)
   expect(screen.getByText(/Pipeline work is queued or running/)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Batch' }))
   expect(mocks.refresh).toHaveBeenCalled()
 
@@ -276,11 +276,11 @@ test('blocked drafts expose repair and refresh actions for the same Batch', () =
   mocks.approvalProblems = ['AK: make Navy the Standard.']
   view.rerender(<PublishWorkspace />)
   expect(screen.getByText('AK: make Navy the Standard.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
 
   mocks.approvalProblems = []
   view.rerender(<PublishWorkspace />)
-  expect(screen.getByRole('button', { name: 'Confirm Publish' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Publish to Game' })).toBeTruthy()
 })
 
 test('an approved Batch cannot confirm when the deployment disallows Publish', () => {
@@ -288,13 +288,13 @@ test('an approved Batch cannot confirm when the deployment disallows Publish', (
   mocks.baselineError = null
   render(<PublishWorkspace />)
   expect(screen.getByText('Publishing is disabled in this environment.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: /Confirm Publish|Publish again/ })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
 })
 
 test.each(['open', 'submitted'] as const)('an Owner can copy the stale %s Batch for fresh review', async state => {
   mocks.selectedState = state
   render(<PublishWorkspace />)
-  expect(screen.queryByRole('button', { name: 'Confirm Publish' })).toBeNull()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
   await waitFor(() => expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(batch.id, batch.revision, 2))
 })

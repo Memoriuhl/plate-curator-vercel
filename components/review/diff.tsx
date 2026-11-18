@@ -6,8 +6,10 @@ import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
 import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
+import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { sameEditableValue } from '@/lib/review/story'
-import type { EditableFields, ProposedEdit } from '@/lib/review/types'
+import { draftGroupingFields } from '@/lib/review/fields'
+import type { DraftChangeTarget, EditableFields, ProposedEdit } from '@/lib/review/types'
 import type { Plate } from '@/lib/catalog/types'
 
 const changeFields = {
@@ -118,6 +120,7 @@ export function DiffTable({
   afterImageUrl,
   pipelineChanges,
   onRevert,
+  onDiscard,
   reverting,
   compact = false,
   preview = false,
@@ -132,6 +135,7 @@ export function DiffTable({
   order: string[]
   pipelineChanges?: ProposedEdit['pipelineChanges']
   onRevert?(field: keyof EditableFields, jobId: string): void
+  onDiscard?(target: DraftChangeTarget): void
   reverting?: boolean
   compact?: boolean
   preview?: boolean
@@ -143,7 +147,7 @@ export function DiffTable({
   const position = (plate: Plate) =>
     order.includes(plate.id) ? `${order.indexOf(plate.id) + 1} of ${order.length}` : '—'
   const rows = [
-    ['Status', 'In catalog', after.deleted ? 'Deleted at next Publish' : 'In catalog'],
+    ['Status', before.deleted ? 'Deleted' : 'In catalog', after.deleted ? before.deleted ? 'Deleted' : 'Deleted at next Publish' : 'In catalog'],
     ['Image', before.image, after.image],
     ['Name', before.displayName, after.displayName],
     ['Description', before.description, after.description],
@@ -190,6 +194,19 @@ export function DiffTable({
     ],
   ]
   const imageChanged = before.image !== after.image || before.imageUrl !== after.imageUrl
+  const changedField = (field: keyof EditableFields) => !sameEditableValue(field, before[field], after[field])
+  const firstGrouping = draftGroupingFields.find(changedField)
+  const updatedImage = changedField('imageUrl')
+  function discardTargets(label: string): { target: DraftChangeTarget; label: string }[] {
+    if (label === 'Order' && positions) return [{ target: 'order', label: 'order change' }]
+    if (label === 'Image' && updatedImage) return [{ target: 'imageUrl', label: 'image change' }]
+    const fields = label === 'Links' && !updatedImage ? ['sourceUrl', 'wikiUrl'] as const : fieldsByRow[label] ?? []
+    return fields.flatMap(field => {
+      if (!changedField(field) || field === 'imageUrl' || field === 'deleted' && Boolean(before.deleted) === Boolean(after.deleted)) return []
+      if (draftGroupingFields.some(key => key === field)) return firstGrouping === field ? [{ target: field, label: 'grouping change' }] : []
+      return [{ target: field, label: field === 'sourceUrl' ? 'source link change' : `${pipelineFieldLabel(field).toLowerCase()} change` }]
+    })
+  }
   const visibleRows = compact ? rows.filter(([label, oldValue, newValue]) =>
     (label === 'Image' && imageChanged) || JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '') ||
     fieldsByRow[String(label)]?.some(field => pipelineChanges?.[field]?.previous !== undefined &&
@@ -233,7 +250,11 @@ export function DiffTable({
                   {label === 'Image' ? (
                     <div className={cn('relative flex aspect-[2/1] w-full max-w-44 items-center justify-center rounded-lg bg-[var(--fill)]', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger)]' : 'ring-2 ring-[var(--success)]'))}>
                       {imageUrl ? (
-                        <Image src={imageUrl} alt={plate.displayName} fill sizes="176px" unoptimized className="object-contain p-1" />
+                        <span className="absolute inset-0 grid">
+                          <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={imageUrl}>
+                            <Image src={imageUrl} alt={plate.displayName} fill sizes="176px" unoptimized className="object-contain p-1" />
+                          </PlateImageHover>
+                        </span>
                       ) : (
                         <span className="break-all text-center text-xs">{String(value || 'none')}</span>
                       )}
@@ -254,6 +275,11 @@ export function DiffTable({
                       {String(value || 'none')}
                     </span>
                   )}
+                  {side === 'after' && onDiscard && discardTargets(String(label)).map(({ target, label }) => (
+                    <Button key={target} variant="ghost" size="sm" className="mt-1 text-[var(--danger)]" disabled={reverting} onClick={() => onDiscard(target)}>
+                      Remove {label}
+                    </Button>
+                  ))}
                   {side === 'after' && fieldsByRow[String(label)]?.map(field => {
                     const change = pipelineChanges?.[field]
                     if (!change || !sameEditableValue(field, change.value, after[field])) return null

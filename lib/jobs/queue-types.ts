@@ -6,6 +6,8 @@ import type { RunStep } from './pipeline-plan'
 
 export type LocalRunStage = Exclude<PipelineStage, 'order'> | 'tag'
 export type ResourceClass = 'gpu' | 'io'
+export type QueueWait = 'starting_workflow' | 'dispatching' | 'settling' | 'worker_offline' | 'saved_sources_worker' | 'image_worker'
+  | 'gpu_busy' | 'io_busy' | 'gpu_recovery' | 'io_recovery' | 'hosted' | 'worker_claim'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type RunAttempt = {
   number: number
@@ -54,14 +56,16 @@ export type PipelineRun = {
   lastDispatchedAt?: number
   waitReason?: 'worker' | 'resource' | 'inference' | 'image_choice' | 'recovery'
   status: RunStatus
+  dismissedAt?: number
   cancelRequestedAt?: number
   attempts: RunAttempt[]
 }
-export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string; plates?: import('./run-plates').RunPlateDetail[]; progress?: import('./run-progress').PipelineProgress }
+export type QueueRunView = PipelineRun & { queueWait?: QueueWait; jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string; plates?: import('./run-plates').RunPlateDetail[]; cards?: import('../catalog/dashboard-types').PlateCardData[]; progress?: import('./run-progress').PipelineProgress }
 export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   attempts: (Omit<RunAttempt, 'projection' | 'steps' | 'completedJobIds' | 'jobIds' | 'choices'> & {
     stepCount?: number; completedCount?: number; steps?: RunStep[]; completedJobIds?: string[]
   })[]
+  queueWait?: QueueWait
   jobs: TaggingJob[]
   editable: boolean
   applied: boolean

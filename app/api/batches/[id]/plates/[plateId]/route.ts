@@ -1,5 +1,6 @@
 import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import { proposeEdit, revertPipelineField } from '../../../../../../lib/review/batch'
+import { discardPlateChanges } from '../../../../../../lib/review/discard-changes'
 import { editableKeys, parseEditableFields } from '../../../../../../lib/review/fields'
 import { catalogChanged } from '../../../../../../lib/server/catalog-head'
 import { currentActor, reviewDeps } from '../../../../../../lib/server/context'
@@ -11,6 +12,14 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/batches/[i
 
   const body = await readJson(request)
   const { id, plateId } = await ctx.params
+  if (body?.discard !== undefined) {
+    const { batchRevision, discard } = body
+    const target = discard === 'order' || discard === 'all' ? discard : editableKeys.find(field => field === discard)
+    if (!target || typeof batchRevision !== 'number' || !Number.isSafeInteger(batchRevision) || batchRevision < 0) return badRequest()
+    const outcome = await discardPlateChanges(reviewDeps(), auth.actor, { batchId: id, plateId, batchRevision, target })
+    if (outcome.ok) catalogChanged()
+    return respond(outcome)
+  }
   if (body?.revert !== undefined) {
     const field = editableKeys.find(key => key === body.revert)
     if (!field || typeof body.jobId !== 'string' || !body.jobId) return badRequest()

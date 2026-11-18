@@ -93,15 +93,12 @@ beforeEach(() => {
   state.submit.mockReset()
   state.mutate.mockReset().mockResolvedValue(detail)
 })
-test('approval sends the selected batch revision and refreshes after a superseded revision', async () => {
-  renderToStaticMarkup(<ReviewFooter detail={detail} />)
-  const approve = state.buttons.get('Approve revision 4')!
-    .onClick as () => Promise<void>
-  await approve()
-  expect(state.approve).toHaveBeenCalledWith('one', 4)
-  state.approve.mockRejectedValueOnce({ code: 'superseded_revision' })
-  await approve()
-  expect(state.mutate).toHaveBeenCalledOnce()
+test.each(['open', 'submitted'] as const)('Review summarizes %s Batches without release actions', status => {
+  const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: status } }} />)
+  expect(html).toContain('1 changed plate · rev 4')
+  expect(html).not.toContain('Submit for review')
+  expect(html).not.toContain('Approve revision')
+  expect(html).not.toContain('Publish to players')
 })
 test('summaries describe fields, family and standard changes', () => {
   expect(changeSummary(before, after)).toBe(
@@ -145,24 +142,7 @@ test('table renders every field kind, tags diff and unchanged values in order', 
   expect(html).toContain('Before · Catalog v41')
   expect(html).toContain('After · rev 4')
 })
-test('owner can approve and editor cannot', () => {
-  expect(renderToStaticMarkup(<ReviewFooter detail={detail} />)).toContain(
-    'Approve revision 4',
-  )
-  state.role = 'editor'
-  const html = renderToStaticMarkup(<ReviewFooter detail={detail} />)
-  expect(html).not.toContain('Approve revision')
-  expect(html).toContain('Waiting for an Owner to approve')
-})
-test('own open batch offers submit and approved batch has no actions', () => {
-  state.role = 'editor'
-  expect(
-    renderToStaticMarkup(
-      <ReviewFooter
-        detail={{ ...detail, batch: { ...detail.batch, state: 'open' } }}
-      />,
-    ),
-  ).toContain('Submit for review')
+test('Review retains existing approval metadata', () => {
   const html = renderToStaticMarkup(
     <ReviewFooter
       detail={{
@@ -190,7 +170,7 @@ test('empty state links to dashboard and selection links preserve URL state', ()
   )
   expect(html).toContain('Nothing waiting for review')
   expect(html).toContain('href="/"')
-  expect(html).toContain('href="/review?state=AK"')
+  expect(html).not.toContain('href="/review?state=AK"')
   expect(reviewHref('AK', 'AK.army', 'batch id')).toBe(
     '/review?state=AK&plate=AK.army&batch=batch+id',
   )
@@ -213,14 +193,14 @@ test('URL state, plate and batch select the requested comparison', () => {
   )
   expect(html).toContain('New Army')
   expect(html).toContain('After · rev 4')
-  expect(html).toContain('Approve revision 4')
+  expect(html).toContain('1 changed plate · rev 4')
   expect(html).toContain(
     'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"',
   )
   expect(html).not.toContain('Nothing waiting for review')
 })
 
-test('approval keeps the whole Batch revision and summarizes the changed plates', async () => {
+test('the footer keeps the whole Batch revision and summarizes the changed plates', () => {
   const kansas = { ...before, id: 'KS.army', state: 'KS' }
   const multi: BatchDetail = {
     ...detail,
@@ -237,10 +217,7 @@ test('approval keeps the whole Batch revision and summarizes the changed plates'
   const html = renderToStaticMarkup(<ReviewFooter detail={multi} />)
   expect(html).toContain('1 changed plate · rev 4')
   expect(html).toContain('title="AK"')
-  const approve = state.buttons.get('Approve revision 4')!
-    .onClick as () => Promise<void>
-  await approve()
-  expect(state.approve).toHaveBeenCalledWith('one', 4)
+
 })
 
 test('the compact comparison and footer switch with the URL Batch', () => {
@@ -253,7 +230,7 @@ test('the compact comparison and footer switch with the URL Batch', () => {
   }
   const named = render(detail)
   expect(named).toContain('Updates')
-  expect(named).toContain('Approve revision 4')
+  expect(named).toContain('1 changed plate · rev 4')
   expect(named).not.toContain('Updates · by Alex')
   const older = render({
     ...detail,
@@ -267,7 +244,7 @@ test('the compact comparison and footer switch with the URL Batch', () => {
   })
   expect(older).toContain('Older batch')
   expect(older).not.toContain('Older batch · by a curator')
-  expect(older).toContain('Approve revision 8')
+  expect(older).toContain('1 changed plate · rev 8')
   expect(older).not.toContain('by Alex')
 })
 

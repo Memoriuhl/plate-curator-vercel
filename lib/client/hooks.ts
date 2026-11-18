@@ -12,7 +12,7 @@ import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate, StoryFields } from '../catalog/types'
-import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
+import type { Actor, BatchState, DraftChangeTarget, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
 import type { FamilyMerge } from '../review/family-merge'
 import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
@@ -57,11 +57,13 @@ export function useInviteMember() {
   }
 }
 
-export function useBatches(states?: BatchState[], opts?: { mine?: boolean; enabled?: boolean }) {
+export function useBatches(states?: BatchState[], opts?: { mine?: boolean; enabled?: boolean; refreshInterval?: number }) {
   const { user, api } = useSession()
-  return useSWR<ReviewBatch[]>(user && opts?.enabled !== false ? batchesKey(states, opts) : null, api.get, states?.length === 1 && states[0] === 'open' && opts?.mine
-    ? { revalidateIfStale: false, dedupingInterval: 30000 }
-    : undefined)
+  const reuse = states?.length === 1 && states[0] === 'open' && opts?.mine && !opts.refreshInterval
+  return useSWR<ReviewBatch[]>(user && opts?.enabled !== false ? batchesKey(states, opts) : null, api.get, {
+    refreshInterval: opts?.refreshInterval,
+    ...(reuse && { revalidateIfStale: false, dedupingInterval: 30000 }),
+  })
 }
 
 async function fetchBatchDetail(api: ApiClient, key: string): Promise<BatchDetail> {
@@ -149,10 +151,10 @@ export type PublishBaselineStatus = { batchRevision: number; destination: string
 export function usePublishControl() {
   const { user, api } = useSession()
   const { mutate } = useSWRConfig()
-  const status = useSWR<{ control: PublishControlState | null }>(user ? '/api/publish/control' : null, api.get, { refreshInterval: 30000 })
+  const status = useSWR<{ control: PublishControlState | null; enabledHere: boolean }>(user ? '/api/publish/control' : null, api.get, { refreshInterval: 30000 })
   return { ...status, async change(paused: boolean) {
     const result = await api.send<{ control: PublishControlState }>('POST', '/api/publish/control', { paused })
-    await status.mutate(result, { revalidate: false })
+    await status.mutate({ ...result, enabledHere: true }, { revalidate: false })
     await mutate(key => typeof key === 'string' && key.startsWith('/api/batches/') && key.endsWith('/publish')).catch(() => undefined)
   } }
 }
@@ -229,6 +231,13 @@ export function useReviewActions() {
         await refresh(batchId).catch(() => undefined)
       }
     },
+    async discardPlateChanges(batchId: string, plateId: string, batchRevision: number, discard: DraftChangeTarget) {
+      try {
+        await api.send<ReviewBatch>('PATCH', `${batchApiPath(batchId)}/plates/${encodeURIComponent(plateId)}`, { batchRevision, discard })
+      } finally {
+        await refresh(batchId).catch(() => undefined)
+      }
+    },
     async submit(batchId: string, revision: number) {
       const batch = await api.send<ReviewBatch>('POST', `${batchApiPath(batchId)}/submit`, { revision })
       await refresh(batchId)
@@ -295,7 +304,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
 export type EditResult<T = Plate | void> =
   | ({ ok: true; revision?: string; batchId?: string; revisions?: Record<string, string> } & (T extends void ? object : { proposed: T }))
   | { ok: false; error: 'stale_plate'; current: Plate; currentRevision: string; batchId: string; draft: EditableFields }
-  | { ok: false; error: 'forbidden' | 'invalid_state' | 'not_found' | 'superseded_revision' | 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' }
+  | { ok: false; error: 'forbidden' | 'invalid_state' | 'not_found' | 'superseded_revision' | 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template'; message?: string }
 
 const batchCreations = new WeakMap<object, Map<string, Promise<string>>>()
 
@@ -384,10 +393,19 @@ export function useReorderState() {
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
   const { data: personalBatches } = useBatches(['open'], { mine: true })
-  const personal = useBatch(workspace.mode === 'personal' ? mostRecentBatch(personalBatches)?.id ?? null : null, { reuse: true })
+  const personalId = workspace.mode === 'personal' ? mostRecentBatch(personalBatches)?.id ?? null : null
+  const personal = useBatch(personalId, { reuse: true })
   const displayed = workspace.mode === 'selected' ? workspace.detail : personal.data
+  const ready = workspace.mode === 'selected' ? workspace.status === 'ready' : !!personalBatches && (!personalId || personal.data?.batch.id === personalId)
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
+
+  async function refreshMovedBatch(key: string, revision?: number) {
+    let saved = await fetchBatchDetail(api, key)
+    if (revision !== undefined && saved.batch.revision < revision) saved = await fetchBatchDetail(api, key)
+    const cached = await mutate<BatchDetail>(key, detail => detail && detail.batch.revision > saved.batch.revision ? detail : saved, { revalidate: false })
+    return cached ?? saved
+  }
 
   async function save(state: string, order: string[], standard?: StandardChange): Promise<EditResult> {
     if (!order.length) return { ok: false, error: 'invalid_state' }
@@ -440,33 +458,41 @@ export function useReorderState() {
     const promotions = Array.isArray(promotion) ? promotion : [promotion]
     const firstPromotion = promotions[0]
     if (!firstPromotion) { setPendingCount(count => count - 1); return { ok: false, error: 'invalid_state' } }
+    function confirmed(saved: BatchDetail): EditResult | undefined {
+      const savedOrder = saved.batch.stateOrders[state]
+      if (savedOrder?.length !== order.length || savedOrder.some((id, index) => id !== order[index])) return
+      const entries = new Map(saved.plates.map(entry => [entry.proposed.id, entry]))
+      if (!promotions.every(({ plateId, templateFamily }) => {
+        const plate = entries.get(plateId)?.proposed
+        return plate?.templateRole === 'template' && plate.variantOfPlateId == null && plate.templateFamily === templateFamily
+      })) return
+      const entry = entries.get(firstPromotion.plateId)!
+      return { ok: true, proposed: entry.proposed, revision: entry.revision, revisions: Object.fromEntries(saved.plates.map(entry => [entry.proposed.id, entry.revision])), batchId: saved.batch.id }
+    }
     try {
       if (workspace.mode === 'selected' && (workspace.status !== 'ready' || origin.batchId !== workspace.id)) return { ok: false, error: 'not_found' }
       if (origin.batchId && origin.revision === null) return { ok: false, error: 'superseded_revision' }
       const id = origin.batchId ?? await ensureBatch({ id: firstPromotion.plateId, state })
       key = batchApiPath(id)
-      await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, ...(Array.isArray(promotion) ? { promotions } : { promotion }), ...(standard ? { standard } : {}) })
-      const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), { revalidate: false })
+      const savedBatch = await api.send<ReviewBatch>('PUT', key + '/state-order/' + encodeURIComponent(state), { batchRevision: origin.revision ?? 0, order, ...(Array.isArray(promotion) ? { promotions } : { promotion }), ...(standard ? { standard } : {}) })
+      const current = await refreshMovedBatch(key, savedBatch.revision)
       await mutate(key => typeof key === 'string' && (key === batchesKey() || key.startsWith(batchesKey() + '?')))
-      const entry = saved?.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
-      return { ok: true, revisions: Object.fromEntries(saved?.plates.map(entry => [entry.proposed.id, entry.revision]) ?? []), proposed: entry?.proposed, revision: entry?.proposed.templateRole === 'template' && entry.proposed.templateFamily === firstPromotion.templateFamily && entry.proposed.variantOfPlateId === null ? entry.revision : undefined, batchId: id }
+      return confirmed(current) ?? { ok: false, error: 'superseded_revision', message: 'The saved Batch did not contain this template move. Try again from the current order.' }
     } catch (error) {
       if (key) {
-        const saved = await fetchBatchDetail(api, key)
-        await mutate(key, saved, { revalidate: false })
-        const entry = saved.plates.find(entry => entry.proposed.id === firstPromotion.plateId)
-        const plate = entry?.proposed
-        if (!(error instanceof ApiError) && promotions.every(promotion => {
-          const candidate = saved.plates.find(entry => entry.proposed.id === promotion.plateId)?.proposed
-          return candidate?.templateRole === 'template' && candidate.variantOfPlateId === null && candidate.templateFamily === promotion.templateFamily
-        }) && JSON.stringify(saved.batch.stateOrders[state]) === JSON.stringify(order)) return { ok: true, proposed: plate, revision: entry?.revision, revisions: Object.fromEntries(saved.plates.map(entry => [entry.proposed.id, entry.revision])), batchId: saved.batch.id }
+        const saved = await refreshMovedBatch(key)
+        if (!(error instanceof ApiError)) {
+          const result = confirmed(saved)
+          if (result) return result
+        }
       }
       if (error instanceof ApiError) {
+        const message = apiErrorReasons(error)[0]
         if (['standard_change_unconfirmed', 'standard_required', 'standard_invalid_template'].includes(error.code)) return { ok: false, error: error.code as 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' }
-        if (error.status === 409) return { ok: false, error: 'superseded_revision' }
+        if (error.status === 409) return { ok: false, error: 'superseded_revision', ...(message && { message }) }
         if (error.status === 403) return { ok: false, error: 'forbidden' }
         if (error.status === 404) return { ok: false, error: 'not_found' }
-        if (error.status === 422) return { ok: false, error: 'invalid_state' }
+        if (error.status === 422) return { ok: false, error: 'invalid_state', ...(message && { message }) }
       }
       throw error
     } finally { setPendingCount(count => count - 1) }
@@ -484,6 +510,13 @@ export function useReorderState() {
       const id = origin.batchId ?? await ensureBatch({ id: input.members[0].id, state: input.destination.id.split('.')[0] })
       const key = batchApiPath(id)
       const value = await api.send<FamilyMergeResult>('POST', `${key}/family-merge`, { ...input, batchRevision: origin.revision ?? 0 })
+      if (value.moved.length) {
+        const saved = await refreshMovedBatch(key, (origin.revision ?? 0) + 1)
+        const parents = new Map(saved.plates.map(entry => [entry.proposed.id, entry.proposed.variantOfPlateId]))
+        if (value.moved.some(plateId => parents.get(plateId) !== input.destination.id)) {
+          return { ok: false, message: 'The saved Batch did not contain this family move. Drag again from the current families.' }
+        }
+      }
       return { ok: true, value }
     } catch (error) {
       if (!(error instanceof ApiError)) throw error
@@ -500,7 +533,7 @@ export function useReorderState() {
     }
   }
 
-  return { reorder, capture, move, merge, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0 }
+  return { reorder, capture, move, merge, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0, ready }
 }
 
 export function useTaggingModels() {

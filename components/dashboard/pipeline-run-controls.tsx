@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useRef, useState } from 'react'
-import { IoArrowForwardOutline, IoChevronDown, IoListOutline, IoPlay } from 'react-icons/io5'
+import { IoArrowForwardOutline, IoChevronDown, IoListOutline, IoPlay, IoWarningOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/components/utils'
@@ -50,7 +50,6 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const batchName = selectedStates.size > 1 ? 'Cross-state pipeline' : `${firstState && stateCode && firstState !== stateCode ? firstState : stateName} pipeline`
   const posting = queue.action === 'enqueue'
   const active = queue.runs.some(run => run.status === 'queued' || run.status === 'running')
-  const unavailable = newRunStages.some(stage => stages.includes(stage.id) && stageAvailability(stage, true, queue.capabilities))
   const groupSelected = stages.includes('group')
   const groupOutsideBatch = groupSelected && !!queue.selectedBatchName && selected.some(plate => !batchPlates.some(member => member.id === plate.id))
   const invalidGroupSize = groupSelected && (selected.length > groupSelectionLimit || selectedStates.size > 1)
@@ -75,12 +74,40 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const tagModel = needsTagModel ? tagChoice.modelId : undefined
   const researchModel = needsResearchModel ? researchChoice.model : undefined
   const useSavedSources = shouldReuseSavedSources(options.research)
-  const blocked = !!queue.disabledReason || overLimit || !steps.length || needsModel && !modelId ||
-    needsTagModel && !tagModel || needsResearchModel && !researchModel || !!queue.action || unavailable || invalidEnhancement || groupOutsideBatch || invalidGroupSize
+  const stageIssues = new Map<LocalRunStage, string>(newRunStages.flatMap(stage => {
+    const { id } = stage
+    const issue = stageAvailability(stage, true, queue.capabilities)
+      ?? (id === 'enhance-image' && invalidEnhancement ? 'Choose at least one enhancement.'
+        : id === 'group' && invalidGroupSize ? `Group needs up to ${groupSelectionLimit} plates from one state.`
+        : id === 'group' && groupOutsideBatch ? 'Every Group member must already be in this Batch.'
+        : id === 'group' && needsModel && !modelId ? 'Choose a desktop stage model.'
+        : id === 'tag' && needsTagModel && !tagModel ? 'Choose a tagging model.'
+        : id === 'research' && needsResearchModel && !researchModel ? 'Choose a research model.'
+        : undefined)
+    return issue ? [[id, issue] as const] : []
+  }))
+  const stageBlockers = stages.flatMap(id => stageIssues.get(id) ?? [])
+  const runBlockers = [
+    queue.disabledReason,
+    overLimit ? `Select up to ${selectedPlateLimit} plates per run.` : undefined,
+    queue.action && !posting ? 'Wait for the current queue action to finish.' : undefined,
+    !selected.length ? 'Select plates on the dashboard to start a run.'
+      : !stages.length ? 'Choose a pipeline stage to continue.'
+      : !steps.length && !stageBlockers.length ? 'These stages have no work for the selected plates. Check the stage options.'
+      : undefined,
+    ...stageBlockers,
+  ].filter((reason): reason is string => !!reason)
+  const blocked = posting || runBlockers.length > 0
+  const reasonsId = `${optionsId}-run-blockers`
 
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...selected], stages, needsModel ? modelId : tagModel, resolvedOptions, false, tagModel, researchModel?.id, batchName)) setOpen(false)
+    const saved = await queue.enqueue([...selected], stages, needsModel ? modelId : tagModel, resolvedOptions, false, tagModel, researchModel?.id, batchName)
+    if (saved) {
+      setStages([])
+      setExpanded([])
+      setOpen(false)
+    }
   }
 
   function setOption(stage: keyof PipelineOptions, key: string, value: string | boolean) {
@@ -88,10 +115,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   }
 
   return <div className="grid gap-2">
-    <Popover open={open} onOpenChange={nextOpen => {
-      if (nextOpen) { setStages([]); setExpanded([]) }
-      setOpen(nextOpen)
-    }}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild><Button ref={trigger} className="pt-0 [&_svg]:mt-0" data-run-trigger disabled={!!queue.disabledReason} title={queue.disabledReason}>
         <IoPlay aria-hidden="true" />Run pipeline<IoChevronDown aria-hidden="true" className={cn('transition-transform', open && 'rotate-180')} />
       </Button></PopoverTrigger>
@@ -105,7 +129,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
         <div className="grid gap-2" role="group" aria-label="Pipeline stages">
           {newRunStages.map(stage => {
             const { id } = stage
-            const availability = stageAvailability(stage, true, queue.capabilities)
+            const issue = stageIssues.get(id)
             const checked = stages.includes(id)
             const showingOptions = expanded.includes(id)
             const panelId = `${optionsId}-${id}`
@@ -114,16 +138,21 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
             return <div key={id} className={cn('rounded-[var(--radius-md)] border bg-[var(--fill)]', checked ? 'border-primary' : 'border-transparent')}>
               <div className="flex items-stretch">
                 <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 pl-3">
-                  <input type="checkbox" checked={checked} aria-label={stage.label} className="accent-[var(--primary)]"
+                  <input type="checkbox" checked={checked} aria-label={stage.label} aria-describedby={issue ? `${panelId}-issue` : undefined} className="accent-[var(--primary)]"
                     onChange={event => {
                       const next = event.target.checked
                       setStages(current => next ? newRunStages.filter(candidate => candidate.id === id || current.includes(candidate.id)).map(candidate => candidate.id) : current.filter(item => item !== id))
                     }} />
                   <span className="min-w-0 flex-1">
-                    <strong className="flex items-center gap-2">
-                      <stage.icon aria-hidden="true" className="size-4" />
-                      {stage.label}
-                    </strong>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <strong className="inline-flex items-center gap-2">
+                        <stage.icon aria-hidden="true" className="size-4 shrink-0" />{stage.label}
+                      </strong>
+                      {issue ? <span id={`${panelId}-issue`}
+                        className="caption inline-flex items-center gap-1 rounded-md bg-[var(--danger-tint)] px-1.5 py-0.5 font-medium text-[var(--danger)]">
+                        <IoWarningOutline aria-hidden="true" className="size-3.5 shrink-0" />{issue}
+                      </span> : null}
+                    </span>
                     <span className="caption block">{stage.description}</span>
                     {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
                       className="caption mt-2 grid items-center gap-x-3 gap-y-1 overflow-x-auto text-[var(--ink-2)]"
@@ -136,7 +165,6 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                         </span>
                       ))}
                     </span> : null}
-                    {availability ? <span className="caption block text-[var(--ink-2)]">{availability}</span> : null}
                     {id === 'research' && checked && selected.length > 0 && !needsResearchModel
                       ? <span className="caption block">Research fields are filled. Choose Replace existing to run again.</span> : null}
                   </span>
@@ -178,12 +206,13 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
           })}
         </div>
         <footer className="sticky bottom-0 grid gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
-          {invalidEnhancement ? <p role="alert" className="caption">Choose at least one enhancement.</p> : null}
           {!blocked && steps.length > 0 && <p className="caption tabular-nums">{formatEstimate(totalMs)} processing time</p>}
           {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
-          {invalidGroupSize ? <p role="alert" className="caption">Group needs up to {groupSelectionLimit} plates from one state.</p>
-            : groupOutsideBatch ? <p role="alert" className="caption">Every Group member must already be in this Batch.</p> : null}
-          <Button className="justify-self-end pt-0 [&_svg]:mt-0" disabled={blocked} onClick={() => void enqueue()}>
+          {runBlockers.length ? <ul id={reasonsId} aria-live="polite" className="caption grid gap-1 text-[var(--danger)]">
+            {[...new Set(runBlockers)].map(reason => <li key={reason}>{reason}</li>)}
+          </ul> : null}
+          <Button className="justify-self-end pt-0 [&_svg]:mt-0" disabled={blocked}
+            aria-describedby={runBlockers.length ? reasonsId : undefined} onClick={() => void enqueue()}>
             {active ? <IoListOutline aria-hidden="true" /> : <IoPlay aria-hidden="true" />}
             {posting ? 'Saving run…' : active ? 'Queue Run' : 'Start Run'}
           </Button>

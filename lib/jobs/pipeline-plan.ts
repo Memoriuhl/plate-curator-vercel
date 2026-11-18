@@ -18,6 +18,12 @@ export type RunStep = {
   reason?: string
 }
 
+const plateFailureReasons = new Set(['stage_failed', 'no_sources', 'no_supported_fields', 'missing_image', 'missing_wiki_link', 'missing_description'])
+
+export function isPlateFailure(reason: string | undefined): boolean {
+  return reason !== undefined && plateFailureReasons.has(reason)
+}
+
 export function orderedPipelineStages(stages: readonly LocalRunStage[]): LocalRunStage[] {
   const result: LocalRunStage[] = []
   const visit = (stage: LocalRunStage) => {

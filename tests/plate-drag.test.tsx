@@ -615,7 +615,7 @@ test('failed atomic promotion leaves every selected plate and the State order un
   }
   render(<Harness />)
   fireEvent.click(screen.getByRole('button'))
-  await waitFor(() => expect(screen.getByText('Saved 0 of 2; changes undone')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('This batch has a newer revision. Reload and try again.')).toBeTruthy())
   expect(edit).not.toHaveBeenCalled()
   expect(reorder).not.toHaveBeenCalled()
   expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([v.id, w.id])

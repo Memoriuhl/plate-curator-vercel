@@ -6,11 +6,12 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
 import { revealVariantRow, variantListCap, VARIANT_ROW_HEIGHT, VARIANT_ROW_GAP } from '@/components/dashboard/variant-list-layout'
 
-export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
+export function VirtualizedVariants({ plates, renderPlate, familyId, drag, focusPlateId }: {
   plates: PlateCardData[]
   renderPlate: (plate: PlateCardData) => ReactNode
   familyId: string
   drag?: ReturnType<typeof usePlateDrag>
+  focusPlateId?: string
 }) {
   'use no memo'
 
@@ -19,6 +20,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const virtualized = plates.length > 12
   const focusedIndex = plates.findIndex(plate => plate.id === focusedId)
+  const targetIndex = focusPlateId ? plates.findIndex(plate => plate.id === focusPlateId) : -1
   const keyboard = drag?.active?.keyboard && drag.active.target?.kind === 'variant-slot' && drag.active.target.familyId === familyId
   const gapIndex = keyboard ? plates.findIndex(plate => plate.id === drag.active!.item.plate.id) : -1
   const virtualizer = useVirtualizer({
@@ -30,6 +32,7 @@ export function VirtualizedVariants({ plates, renderPlate, familyId, drag }: {
       ...Array.from({ length: Math.min(6, plates.length) }, (_, index) => index),
       focusedIndex,
       gapIndex,
+      targetIndex,
     ])].filter(index => index >= 0).sort((a, b) => a - b),
     initialRect: { width: 240, height: 5.5 * VARIANT_ROW_HEIGHT + 5 * VARIANT_ROW_GAP },
     estimateSize: () => VARIANT_ROW_HEIGHT,

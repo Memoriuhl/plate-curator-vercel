@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { IoChevronForward } from 'react-icons/io5'
 import type { BatchDetail } from '@/lib/client/hooks'
@@ -35,7 +36,9 @@ export function changesByState(plates: Entry[]) {
 function Thumbnail({ entry }: { entry: Entry }) {
   const url = entry.afterImageUrl ?? entry.beforeImageUrl
   return <span className={cn("flex h-12 w-24 shrink-0 items-center justify-center rounded-lg bg-[var(--fill)]", entry.proposed.deleted && "opacity-60")}>
-    {url ? <Image src={url} alt="" width={96} height={48} loading="lazy" unoptimized className="h-12 w-24 object-contain p-1" /> : <span className="text-xs text-muted-foreground">No image</span>}
+    {url ? <PlateImageHover plateId={entry.baseline.id} plateName={entry.proposed.displayName} before={url}>
+      <Image src={url} alt="" width={96} height={48} loading="lazy" unoptimized className="h-12 w-24 object-contain p-1" />
+    </PlateImageHover> : <span className="text-xs text-muted-foreground">No image</span>}
   </span>
 }
 

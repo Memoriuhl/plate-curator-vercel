@@ -13,6 +13,23 @@ import type { TaggingJob } from '@/lib/jobs/types'
 import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 
 export const pipelineQueueKey = '/api/local-pipeline/runs'
+const queueSummaryKey = `${pipelineQueueKey}?detail=none`
+export const gatewayRunsKey = '/api/jobs/runs'
+
+type QueueSnapshot = {
+  runs: QueueRunSummary[]
+  selected?: QueueRunView
+  orphanJobs?: TaggingJob[]
+  observedAt?: number
+  capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
+}
+
+export function PipelineQueueWarmup() {
+  const { user, api } = useSession()
+  const key = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? queueSummaryKey : gatewayRunsKey
+  useSWR(user ? key : null, api.get)
+  return null
+}
 
 function queueError(error: unknown) {
   if (error instanceof ApiError) {
@@ -27,8 +44,8 @@ function queueError(error: unknown) {
   return 'Could not update the queue. Try again; your request will keep the same ID.'
 }
 
-export function usePipelineQueue(existingBatchId?: string | null, existingBatchName?: string) {
-  const { user, api } = useSession()
+export function usePipelineQueue(existingBatchId?: string | null, existingBatchName?: string, detailId?: string) {
+  const { user, api, ready } = useSession()
   const { mutate } = useSWRConfig()
   const workspace = useWorkspaceBatch()
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
@@ -38,9 +55,18 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
   const posting = useRef(false)
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [selectedId, select] = useState<string | undefined>('none')
-  const key = selectedId ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : pipelineQueueKey
-  const list = useSWR<{ runs: QueueRunSummary[]; selected?: QueueRunView; orphanJobs?: TaggingJob[]; observedAt?: number; capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>> }>(local && uid ? key : null, api.get, { refreshInterval: 3000, keepPreviousData: true })
+  const [selectedId, select] = useState<string | undefined>(detailId ?? 'none')
+  const key = selectedId && selectedId !== 'none' ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}` : queueSummaryKey
+  const list = useSWR<QueueSnapshot>(local && uid ? key : null, api.get, { refreshInterval: data => data?.runs.some(run => run.status === 'running') ? 1250 : 3000, keepPreviousData: true })
+  const snapshot = list.data
+  const loaded = !list.isLoading
+  useEffect(() => {
+    if (!uid || key === queueSummaryKey || !loaded || !snapshot || !snapshot.selected) return
+    const summary = { runs: snapshot.runs, orphanJobs: snapshot.orphanJobs, observedAt: snapshot.observedAt, capabilities: snapshot.capabilities }
+    void mutate<QueueSnapshot>(queueSummaryKey, previous =>
+      (previous?.observedAt ?? -Infinity) > (summary.observedAt ?? -Infinity) ? previous : summary,
+    { revalidate: false })
+  }, [uid, key, loaded, snapshot, mutate])
   useEffect(() => {
     if (!uid || !list.data) return
     try {
@@ -101,6 +127,10 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     return perform(`cancel:${id}`, async () => (await api.send<{ run: PipelineRun }>('POST', `${pipelineQueueKey}/${id}/cancel`, {})).run)
   }
 
+  function dismiss(id: string) {
+    return perform(`dismiss:${id}`, async () => (await api.send<{ run: PipelineRun }>('POST', `${pipelineQueueKey}/${id}/dismiss`, {})).run)
+  }
+
   function retry(id: string) {
     return perform(`retry:${id}`, async () => {
       const operation = `retry:${id}`
@@ -131,6 +161,6 @@ export function usePipelineQueue(existingBatchId?: string | null, existingBatchN
     return perform(`recover:${job.id}`, async () => api.send('POST', `/api/jobs/${job.id}/recover`, { claimId: job.claimId, workerStopped: true }))
   }
 
-  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected?.id === selectedId ? list.data?.selected : undefined, capabilities: list.data?.capabilities, observedAt: list.data?.observedAt, select, loading: list.isLoading && !list.data, error: list.error, refresh: list.mutate,
-    action, message, disabledReason, selectedBatchName: workspace.mode === 'selected' ? workspace.detail?.batch.name : undefined, existingBatchName, enqueue, cancel, retry, apply, chooseImage, recover, recoverOrphan }
+  return { runs: list.data?.runs ?? [], orphanJobs: list.data?.orphanJobs ?? [], selected: list.data?.selected?.id === selectedId ? list.data?.selected : undefined, capabilities: list.data?.capabilities, observedAt: list.data?.observedAt, select, loading: local && (ready === false || list.isLoading && !list.data), error: list.error, refresh: list.mutate,
+    action, message, disabledReason, selectedBatchName: workspace.mode === 'selected' ? workspace.detail?.batch.name : undefined, existingBatchName, enqueue, cancel, dismiss, retry, apply, chooseImage, recover, recoverOrphan }
 }

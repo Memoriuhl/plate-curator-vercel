@@ -5,7 +5,7 @@ import { ReviewWorkspace } from '../components/review/workspace'
 import type { BatchDetail } from '../lib/client/hooks'
 import { batch, snapshot } from './publish/fixture'
 
-const state = vi.hoisted(() => ({ detail: undefined as BatchDetail | undefined, old: undefined as BatchDetail | undefined, replace: vi.fn(), params: new URLSearchParams('batch=fresh') }))
+const state = vi.hoisted(() => ({ detail: undefined as BatchDetail | undefined, old: undefined as BatchDetail | undefined, extra: [] as BatchDetail[], revisions: {} as Record<string, number>, mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), params: new URLSearchParams('batch=fresh') }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => state.params, useRouter: () => ({ replace: state.replace }) }))
 vi.mock('../lib/client/live-signal', () => ({ useBatchRevisionSignal: () => 'Live' }))
 vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn(), useRecentReviewPlates: () => ({}) }))
@@ -14,11 +14,17 @@ vi.mock('../components/review/diff', () => ({ changeSummary: () => 'Tags', DiffT
 vi.mock('../lib/client/hooks', () => ({
   useMe: () => ({ data: { uid: 'owner', role: 'owner' } }),
   useBatchRun: () => ({}),
-  useBatches: (states: string[]) => ({ data: states[0] === 'submitted' ? [state.old!.batch] : [] }),
-  useBatch: (id: string | null) => ({ data: id === 'fresh' ? state.detail : id === 'old' ? state.old : undefined, isLoading: id === 'fresh' && !state.detail }),
+  useBatches: (states: string[]) => ({ data: states[0] === 'submitted' ? [state.old?.batch].filter(Boolean) : state.extra.map(({ batch }) => ({ ...batch, revision: state.revisions[batch.id] ?? batch.revision })) }),
+  useBatch: (id: string | null) => ({ data: id === 'fresh' ? state.detail : id === 'old' ? state.old : state.extra.find(detail => detail.batch.id === id), mutate: state.mutate, isLoading: id === 'fresh' && !state.detail }),
   useReviewActions: () => ({}),
 }))
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  state.params = new URLSearchParams('batch=fresh')
+  state.extra = []
+  state.revisions = {}
+  state.mutate.mockClear()
+})
 
 test('a copied Batch link waits for its detail and opens its own fresh before values despite another pending Batch', async () => {
   state.detail = undefined
@@ -60,4 +66,45 @@ test('state-sized Batch review loads more changed Plates and searches the whole 
   expect(screen.getByText('This run has no saved draft changes')).toBeTruthy()
   expect(screen.getAllByRole('link', { name: 'Show all Batch changes' }).map(link => link.getAttribute('href'))).toContain('/review?batch=fresh')
   state.params = new URLSearchParams('batch=fresh')
+})
+
+
+test('default Review shows accumulated changes around a newer empty batch and keeps the list when inspecting a plate', async () => {
+  state.params = new URLSearchParams()
+  state.replace.mockClear()
+  const proposal = (name: string, id: string) => {
+    const baseline = { ...snapshot.plates[0], id, displayName: name }
+    return { baseline, proposed: { ...baseline, tags: [name] }, edit: null, revision: 'saved' }
+  }
+  const empty = { batch: { ...batch, id: 'empty', name: 'Newest pipeline', state: 'open' as const, revision: 0 }, plates: [] }
+  const draft = { batch: { ...batch, id: 'draft', state: 'open' as const }, plates: [proposal('Draft change', 'CA.draft')] }
+  state.old = { batch: { ...batch, id: 'old', state: 'submitted' }, plates: [proposal('Submitted change', 'CA.submitted')] }
+  state.extra = [empty, draft]
+  const props = { states: [{ code: 'CA', name: 'California', plates: [] }, { code: 'AK', name: 'Alaska', plates: [] }] }
+  const view = render(<ReviewWorkspace {...props} />)
+  const draftLink = await screen.findByRole('link', { name: 'Draft change · CA' })
+  expect(screen.getByRole('link', { name: 'Submitted change · CA' })).toBeTruthy()
+  expect(state.replace).not.toHaveBeenCalled()
+  const states = within(screen.getByRole('navigation', { name: 'Review states' }))
+  expect((states.getByRole('radio', { name: 'Changed' }) as HTMLInputElement).checked).toBe(true)
+  expect(states.queryByRole('link', { name: /Alaska/ })).toBeNull()
+  fireEvent.click(states.getByRole('radio', { name: 'All states' }))
+  expect(states.getByRole('link', { name: /Alaska/ })).toBeTruthy()
+  fireEvent.click(states.getByRole('radio', { name: 'Changed' }))
+  expect(states.queryByRole('link', { name: /Alaska/ })).toBeNull()
+  expect(states.getByRole('link', { name: /California/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Submitted change · CA' })).toBeTruthy()
+  fireEvent.click(states.getByRole('radio', { name: 'All states' }))
+  expect(states.getByRole('link', { name: /Alaska/ })).toBeTruthy()
+  expect(draftLink.getAttribute('href')).toBe('/review?plate=CA.draft&focusBatch=draft')
+  state.params = new URLSearchParams(draftLink.getAttribute('href')!.split('?')[1])
+  view.rerender(<ReviewWorkspace {...props} />)
+  expect(screen.getByText(/proposed: Draft change/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Submitted change · CA' })).toBeTruthy()
+  state.revisions.draft = draft.batch.revision + 1
+  view.rerender(<ReviewWorkspace {...props} />)
+  expect(state.mutate).toHaveBeenCalledOnce()
+  state.extra = [empty, { ...draft, batch: { ...draft.batch, revision: state.revisions.draft }, plates: [...draft.plates, proposal('Later pipeline change', 'CA.later')] }]
+  view.rerender(<ReviewWorkspace {...props} />)
+  expect(await screen.findByRole('link', { name: 'Later pipeline change · CA' })).toBeTruthy()
 })

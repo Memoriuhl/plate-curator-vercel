@@ -8,6 +8,16 @@
 .deviceOption [data-slot="dropdown-menu-radio-item-indicator"] { right: calc(var(--space-3) - 1px); }
 .device svg, .deviceOption svg { width: 16px; height: 16px; }
 .rail { display: flex; align-items: center; min-width: 0; gap: var(--space-2); overflow-x: auto; scrollbar-width: thin; padding: var(--space-1); }
+.railSkeleton { display: flex; gap: var(--space-2); min-width: 0; padding: var(--space-1); overflow: hidden; }
+.runSkeleton { display: flex; flex-direction: column; flex: 0 0 min(22rem, 92%); gap: var(--space-4); min-height: 19rem; padding: var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-md); background: var(--card); }
+.railSkeleton[data-compact] .runSkeleton { min-height: 9rem; }
+.runSkeleton > span { width: 38%; height: .75rem; align-self: flex-start; border-radius: var(--radius-pill); background: var(--fill); }
+.runSkeleton > span:last-child { width: 26%; margin-top: auto; align-self: flex-end; }
+.runSkeleton > div { display: flex; gap: var(--space-2); }
+.runSkeleton > div > span { flex: 1; height: 3.5rem; border-radius: var(--radius-sm); background: var(--fill); }
+.runSkeleton > div > span:first-child { flex: 0 0 3.5rem; }
+.runSkeleton > section { display: grid; gap: var(--space-2); }
+.runSkeleton > section > span { height: 2.25rem; border-radius: var(--radius-sm); background: var(--fill); }
 .runList { display: flex; align-items: stretch; flex: 0 0 auto; gap: var(--space-2); margin-inline-start: auto; }
 .runList > li { display: flex; flex: 0 0 auto; }
 .run { display: flex; flex-direction: column; width: max-content; min-width: 240px; max-width: none; border-radius: var(--radius-md); background: rgb(255 255 255 / .64); padding: var(--space-3); }

@@ -5,6 +5,7 @@ import { plateRevision } from '../../lib/review/revision'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewDeps } from '../../lib/review/types'
+import type { Plate } from '../../lib/catalog/types'
 
 const context = vi.hoisted(() => ({ currentActor: vi.fn(), reviewDeps: vi.fn() }))
 vi.mock('server-only', () => ({}))
@@ -18,6 +19,33 @@ beforeEach(() => {
 function put(body: unknown) {
   return PUT(new Request('https://example.com/api/batches/batch/state-order/AK', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
 }
+function patchPlate(plateId: string, body: unknown) {
+  return PATCH(new Request(`https://example.com/api/batches/batch/plates/${plateId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    { params: Promise.resolve({ id: 'batch', plateId }) })
+}
+
+test('discard restores one moved plate and preserves the relative order of the other plates', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const baseline: Plate[] = ['one', 'two', 'three', 'four', 'five'].map(id => ({ id, state: 'AK', slug: id, displayName: id, image: '', tags: [], templateRole: 'template', isStandard: id === 'one' }))
+  deps.stateBaseline = async () => baseline
+  deps.baselineAtVersion = async (_, id) => baseline.find(plate => plate.id === id) ?? null
+  expect((await put({ batchRevision: 4, order: ['one', 'three', 'two', 'five', 'four'] })).status).toBe(200)
+  expect((await patchPlate('three', { batchRevision: 4, discard: 'order' })).status).toBe(409)
+  const response = await patchPlate('three', { batchRevision: 5, discard: 'order' })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ revision: 6, stateOrders: { AK: ['one', 'two', 'three', 'five', 'four'] } })
+})
+
+test('clearing a replacement Standard restores the linked Standard and its order', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const baseline = await deps.stateBaseline(7, 'AK')
+  deps.baselineAtVersion = async (_, id) => baseline.find(plate => plate.id === id) ?? null
+  expect((await put({ batchRevision: 4, order: ['two', 'one'], standard: { from: 'one', to: 'two' } })).status).toBe(200)
+  const response = await patchPlate('two', { batchRevision: 5, discard: 'all' })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ revision: 6, plateIds: ['one'], stateOrders: {} })
+  expect(await deps.store.listEdits('batch')).toEqual([])
+})
 test('signed-in creator receives the updated batch', async () => {
   const response = await put({ batchRevision: 4, order: ['two', 'one'], standard: { from: 'one', to: 'two' } })
   expect(response.status).toBe(200)

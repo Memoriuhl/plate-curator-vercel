@@ -17,8 +17,7 @@ import { PublishButton } from './publish-button'
 import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
-import { usePipelineQueue } from './use-pipeline-queue'
-import { PipelineRuns } from './pipeline-runs'
+import { useDashboardPipeline } from './pipeline-runs'
 
 export function BatchActions({
   underTagged,
@@ -42,7 +41,7 @@ export function BatchActions({
   const detail = workspace.mode === 'selected' ? { data: workspace.detail, isLoading: workspace.status === 'loading', error: workspace.status === 'unavailable' } : personalDetail
   const me = useMe()
   const run = useTagRun()
-  const queue = usePipelineQueue(batch?.id, batch?.name)
+  const queue = useDashboardPipeline()
   const batchPlates =
     detail.data?.plates.map(({ proposed, revision }) => {
       const { id, state, displayName, tags, description, wikiUrl, funFacts, firstIssuedYear, readMore } = proposed
@@ -57,46 +56,43 @@ export function BatchActions({
       }
     }) ?? []
   return (
-    <>
-      <PipelineRuns queue={queue} />
-      <header className="state-header">
-        {children}
-        <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
-          {workspace.mode === 'personal' && batch ? (
-            <span className="batch-summary min-w-0 flex-wrap">
-              <Avatar size="sm">
-                <AvatarFallback>{(batch.createdByName || batch.createdBy).slice(0, 1).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <strong>{batch.name}</strong>
-              <BatchLastChanged batch={detail.data?.batch ?? batch} />
-            </span>
-          ) : null}
-          {workspace.mode === 'personal' && batch ? <Link href={batchHref(pathname, batch.id)}>Open / Share</Link> : null}
-          {batch ? <Link href={reviewHref(undefined, undefined, batch.id)}>Review Batch</Link> : null}
-          <RunMenu
-            queue={queue}
-            underTagged={underTagged}
-            allPlates={allPlates}
-            batchPlates={batchPlates}
-            stateName={stateName}
-            disabledReason={run.disabledReason}
-            disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
-            modelError={run.modelError}
-            start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
-          />
-          <PublishButton batchId={workspace.mode === 'selected' ? workspace.id : batch?.id} owner={me.data?.role === 'owner'} />
-          {workspace.mode === 'personal' && batches.isLoading && !batch ? <span role="status">Loading your Batch…</span> : null}
-          {workspace.mode === 'personal' && !batches.isLoading && !batches.error && !batch ? <span>No open Batch yet</span> : null}
-          {(workspace.mode === 'personal' && batches.error) || detail.error ? <span role="alert">Could not load this Batch.</span> : null}
-        </div>
-        <TagRunBanner
-          entries={run.entries}
-          starting={run.starting}
-          batchId={run.batchId}
-          dismiss={run.dismiss}
-          retry={(plate) => void run.start([plate], true)}
+    <header className="state-header">
+      {children}
+      <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
+        {workspace.mode === 'personal' && batch ? (
+          <span className="batch-summary min-w-0 flex-wrap">
+            <Avatar size="sm">
+              <AvatarFallback>{(batch.createdByName || batch.createdBy).slice(0, 1).toUpperCase()}</AvatarFallback>
+            </Avatar>
+            <strong>{batch.name}</strong>
+            <BatchLastChanged batch={detail.data?.batch ?? batch} />
+          </span>
+        ) : null}
+        {workspace.mode === 'personal' && batch ? <Link href={batchHref(pathname, batch.id)}>Open / Share</Link> : null}
+        {batch ? <Link href={reviewHref(undefined, undefined, batch.id)}>Review Batch</Link> : null}
+        <RunMenu
+          queue={queue}
+          underTagged={underTagged}
+          allPlates={allPlates}
+          batchPlates={batchPlates}
+          stateName={stateName}
+          disabledReason={run.disabledReason}
+          disabled={!!run.disabledReason || run.entries.length > 0 || run.starting}
+          modelError={run.modelError}
+          start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
         />
-      </header>
-    </>
+        <PublishButton batchId={workspace.mode === 'selected' ? workspace.id : batch?.id} owner={me.data?.role === 'owner'} />
+        {workspace.mode === 'personal' && batches.isLoading && !batch ? <span role="status">Loading your Batch…</span> : null}
+        {workspace.mode === 'personal' && !batches.isLoading && !batches.error && !batch ? <span>No open Batch yet</span> : null}
+        {(workspace.mode === 'personal' && batches.error) || detail.error ? <span role="alert">Could not load this Batch.</span> : null}
+      </div>
+      <TagRunBanner
+        entries={run.entries}
+        starting={run.starting}
+        batchId={run.batchId}
+        dismiss={run.dismiss}
+        retry={(plate) => void run.start([plate], true)}
+      />
+    </header>
   )
 }

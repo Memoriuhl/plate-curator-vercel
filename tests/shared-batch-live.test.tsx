@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { PlatePage } from '../components/plate-page/plate-page'
 import { slimPlate } from '../components/plate-page/types'
 import { BatchActions } from '../components/dashboard/batch-actions'
+import { DashboardPipelineProvider } from '../components/dashboard/pipeline-runs'
 import { useDraftOverlay } from '../lib/client/hooks'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
@@ -119,7 +120,7 @@ function session(actor: Actor, id: string | null = 'shared') {
 }
 function TagActions() {
   const overlaid = useDraftOverlay(cards)
-  return <><BatchActions underTagged={overlaid.filter(p => p.id === 'AK.v')} stateCode="AK" stateName="Alaska" /><output>{overlaid.find(p => p.id === 'AK.v')?.tags.join(', ')}</output></>
+  return <><DashboardPipelineProvider><BatchActions underTagged={overlaid.filter(p => p.id === 'AK.v')} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider><output>{overlaid.find(p => p.id === 'AK.v')?.tags.join(', ')}</output></>
 }
 function EditTwice() {
   const [plate] = useDraftOverlay([cards[1]])

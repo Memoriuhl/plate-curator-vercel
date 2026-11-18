@@ -212,6 +212,10 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   expect((await saved()).proposed).toMatchObject({ templateRole: 'template', templateFamily: 'ak_v', variantOfPlateId: null })
   expect(await deps.store.getBatch('shared')).toMatchObject({ revision: 1, stateOrders: { AK: ['AK.a', 'AK.b', 'AK.v'] } })
   for (const view of [first, second]) expect(Array.from(view.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
+  first.unmount()
+  const reloaded = render(<Workspace actor={editor} />)
+  await ready(reloaded)
+  expect(Array.from(reloaded.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
 })
 function input(view: ReturnType<typeof render>, value: string, label = 'Description') {
   fireEvent.change(box(view, label), { target: { value } })

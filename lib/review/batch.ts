@@ -3,13 +3,12 @@ import { canEdit, editableStates } from './access'
 import { familyRole } from '../catalog/families'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
-import { editableKeys, limits } from './fields'
+import { draftGroupingFields, editableKeys, limits } from './fields'
 import { sameEditableValue } from './story'
 import { hasPipelineHistory, pipelineImageFields, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
-const groupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId']
 const groupRevertReason = 'Reverting this field would leave a Template family or Variant link inconsistent. Edit the related grouping together.'
 export const imageRevertReason = 'The image or its source changed after this run. Review the current image and source together before making another change.'
 
@@ -98,7 +97,7 @@ async function updatePlate(
       .map(key => [key, requested[key]]))
     const plate = { ...current, ...changes }
     for (const field of revertedFields) if (plate[field] === undefined) delete plate[field]
-    if (i.revert && groupingFields.some(field => Object.hasOwn(changes, field)) && !await regroupRemainsValid(d, batch, current, plate))
+    if (i.revert && draftGroupingFields.some(field => Object.hasOwn(changes, field)) && !await regroupRemainsValid(d, batch, current, plate))
       return { ok: false, error: 'invalid_state', reasons: [groupRevertReason] }
     if (current.isStandard && (
       Object.hasOwn(changes, 'isStandard') && !plate.isStandard ||
