@@ -54,16 +54,18 @@ export function BatchActions({
   const run = useTagRun()
   const queue = usePipelineQueue(batch?.id, batch?.name)
   const batchPlates =
-    detail.data?.plates
-      .map((entry) => ({ ...entry.proposed, revision: entry.revision }))
-      .map(({ id, state, displayName, revision, tags, funFacts }) => ({
+    detail.data?.plates.map(({ proposed, revision }) => {
+      const { id, state, displayName, tags, description, wikiUrl, funFacts, firstIssuedYear, readMore } = proposed
+      return {
         id,
         state,
         displayName,
         revision,
         tags,
         hasStory: Array.isArray(funFacts) && funFacts.length > 0,
-      })) ?? []
+        description, wikiUrl, funFacts, firstIssuedYear, readMore,
+      }
+    }) ?? []
   const edits =
     detail.data?.plates.filter((plate) => plate.order !== undefined || plate.edit && Object.keys(plate.edit.fields).length > 0).length ?? 0
   const pipelineBusy = queue.runs.some(run => run.batchId === batch?.id && run.incrementalDrafts && ['queued', 'running'].includes(run.status))

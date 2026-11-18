@@ -13,6 +13,7 @@ import { imageGroupCapabilities } from '../../lib/jobs/image-options'
 import { PipelineRunCard } from '../../components/dashboard/pipeline-run-card'
 import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
 import { queueProgress } from '../../lib/jobs/run-progress'
+import { RESEARCH_MODELS } from '../../lib/research/models'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
   modelId: 'desktop-gemma4-12b',
@@ -21,7 +22,6 @@ vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: '
 vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
 vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: mocks.modelId }), TaggingModelPicker: () => <span>Local model</span> }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
-vi.mock('../../components/dashboard/research-model-picker', () => ({ useResearchModelChoice: () => ({ models: [], modelId: 'eve-gemini-2-5-flash-lite' }), ResearchModelPicker: () => <span>Research model</span> }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
   return { id: 'saved-run', requestId: 'request', fingerprint: 'input', batchId: 'batch', requestedBy: 'editor', env: 'preview:local-pipeline-test', localScope: 'test',
@@ -100,17 +100,17 @@ test('history exposes coherent Apply, cancel/retry, durable hide, and explicit v
   fireEvent.click(button); expect(controls.recover).toHaveBeenCalledWith('saved-run', 'job', 'claim')
 })
 
-test('local controls select multiple stages, keep options snapshot, and permit Queue while Start is busy', async () => {
+test('local controls combine desktop stages and permit Queue while Start is busy', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   render(<PipelineRunControls underTagged={[plate]} batchPlates={[]} allPlates={[plate]} stateName="Alaska" queue={{ runs: [saved({ status: 'running' })], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Describe' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Story' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Only under-tagged plates' }))
   expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
   expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: true } }, true, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
 })
 
 test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
@@ -123,18 +123,34 @@ test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
 })
 
-test('bulk Research offers Fill missing by default, explicit Replace existing and a separate model', async () => {
-  const enqueue = vi.fn().mockResolvedValue(saved())
+test('the combined Research control enqueues its selected hosted model and policy once', async () => {
   const plates = [plate, { ...plate, id: 'AK.two' }]
-  render(<PipelineRunControls underTagged={plates} batchPlates={plates} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  mocks.api.get.mockImplementation(async path => path === '/api/research/models'
+    ? { models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id } : { runs: [] })
+  function Controls() {
+    const queue = usePipelineQueue()
+    return <PipelineRunControls underTagged={plates} batchPlates={plates} stateName="Alaska" queue={queue} />
+  }
+  render(<Controls />, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  for (const name of ['Wiki link', 'Describe', 'Story']) expect(screen.queryByRole('checkbox', { name })).toBeNull()
   const policy = screen.getByRole('combobox', { name: 'Research edits' }) as HTMLSelectElement
   expect(policy.value).toBe('fill-missing')
+  const picker = await screen.findByRole('combobox', { name: 'Research model' })
+  expect(picker.textContent).toContain('On-device worker (Ollama)')
+  fireEvent.keyDown(picker, { key: 'ArrowDown' })
+  const hosted = await screen.findByRole('option', { name: /Hosted research \(Eve\).*Gemini/ })
+  fireEvent.click(hosted)
+  expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
+  expect(screen.getByText(/Research will use Hosted research \(Eve\).*Gemini/)).toBeTruthy()
   fireEvent.change(policy, { target: { value: 'replace' } })
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith(plates, ['research'], undefined, { research: { policy: 'replace' } }, false, undefined, 'eve-gemini-2-5-flash-lite', 'Alaska pipeline'))
+  await waitFor(() => expect(mocks.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/local-pipeline/runs/selection', {
+    requestId: expect.any(String), batchName: 'Alaska pipeline', plateIds: ['AK.one', 'AK.two'], stages: ['research'],
+    options: { research: { policy: 'replace' } }, previewOnly: false, researchModelId: RESEARCH_MODELS[2].id,
+  }))
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
@@ -158,19 +174,39 @@ test('each specialized image result names its plate in a multi-plate completed P
   expect(screen.queryByRole('button', { name: /^Apply/ })).toBeNull()
 })
 
-test('model-free Wiki plus skipped Story can start without any desktop model', async () => {
-  mocks.models = TAGGING_MODELS.filter(model => model.runsOn === 'gateway')
+test('research model discovery distinguishes loading, failure, empty, and desktop-only catalogs', async () => {
+  localStorage.setItem('research-model:v1', RESEARCH_MODELS[2].id)
+  let failDiscovery!: (error: Error) => void
+  mocks.api.get.mockImplementationOnce(() => new Promise((_, reject) => { failDiscovery = reject }))
+    .mockResolvedValueOnce({ models: [], default: RESEARCH_MODELS[2].id })
   const enqueue = vi.fn().mockResolvedValue(saved())
-  const existing = { ...plate, hasStory: true }
-  render(<PipelineRunControls underTagged={[existing]} batchPlates={[existing]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  const controls = <PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />
+  const initial = render(controls, { wrapper })
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Wiki link' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Story' }))
-  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(false)
-  expect(screen.queryByText('Local model')).toBeNull()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  expect(screen.getByRole('status').textContent).toBe('Loading research models…')
+  expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(true)
+  failDiscovery(new Error('Offline'))
+  await screen.findByRole('alert')
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await screen.findByText('No research models are available.')
+  expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(enqueue).not.toHaveBeenCalled()
+  initial.unmount()
+
+  mocks.api.get.mockResolvedValueOnce({ models: RESEARCH_MODELS.slice(0, 2), default: RESEARCH_MODELS[2].id })
+  render(controls, { wrapper })
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Research model' }), { key: 'ArrowDown' })
+  expect(screen.getAllByRole('option')).toHaveLength(2)
+  expect(screen.queryByRole('option', { name: /Hosted research/ })).toBeNull()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined, undefined, 'Alaska pipeline'))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['research'], undefined, { research: { policy: 'fill-missing' } }, false, undefined, RESEARCH_MODELS[0].id, 'Alaska pipeline'))
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
