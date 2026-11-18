@@ -192,9 +192,10 @@ test('a stopped approval run starts a new command run instead of resuming its en
     expect.any(Function),
     ['batch', 2, expect.objectContaining({ commandId: 'fresh-click' })],
     expect.objectContaining({
-      experimental_hook: expect.objectContaining({
+      experimental_hook: {
         token: 'publish-command:fresh-click',
-      }),
+        experimental_minRetention: '30d',
+      },
     })
   )
 })

@@ -63,7 +63,8 @@ async function dispatchRetry(
               { ownerUid, ...accepted.command },
             ],
             {
-              experimental_hook: { token, experimental_minRetention: '36500d' },
+              // Vercel Workflow caps start-hook retention at 30 days.
+              experimental_hook: { token, experimental_minRetention: '30d' },
             }
           )
         ).runId
