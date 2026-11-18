@@ -4,7 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { useSession } from '@/lib/client/session'
 import type { ResearchModel } from '@/lib/research/models'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ModelSelect } from './model-select'
 
 const storageKey = 'research-model:v1'
 const catalogUrl = '/api/research/models'
@@ -32,11 +32,8 @@ export function ResearchModelPicker({ choice }: { choice: ReturnType<typeof useR
     {choice.error ? <p role="alert" className="caption">Could not load research models. <button type="button" className="underline" onClick={() => void choice.reload().catch(() => undefined)}>Retry</button></p>
       : choice.isLoading ? <p role="status" className="caption">Loading research models…</p>
       : !choice.model ? <p role="status" className="caption">No research models are available.</p>
-      : <Select value={choice.model.id} onValueChange={choice.choose}>
-        <SelectTrigger size="sm" aria-label="Research model" className="min-w-0 max-w-full"><SelectValue /></SelectTrigger>
-        <SelectContent position="popper" align="start" sideOffset={4}>
-          {choice.models.map(model => <SelectItem key={model.id} value={model.id}>{researchModelLabel(model)}</SelectItem>)}
-        </SelectContent>
-      </Select>}
+      : <ModelSelect aria-label="Research model" value={choice.model.id} onChange={event => choice.choose(event.target.value)}>
+        {choice.models.map(model => <option key={model.id} value={model.id}>{researchModelLabel(model)}</option>)}
+      </ModelSelect>}
   </div>
 }

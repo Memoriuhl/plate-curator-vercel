@@ -30,7 +30,6 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const researchChoice = useResearchModelChoice()
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
-  const menu = useRef<HTMLDivElement>(null)
   const [scope, setScope] = useState('under')
   const [limit, setLimit] = useState('')
   const [stages, setStages] = useState<LocalRunStage[]>(['tag'])
@@ -76,12 +75,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
       <PopoverTrigger asChild><Button ref={trigger} data-run-trigger disabled={!!reason} title={reason} onClick={() => { if (selected.length) setScope('selected') }}>
         <IoPlay aria-hidden="true" />Run pipeline<IoChevronDown aria-hidden="true" className={cn('transition-transform', open && 'rotate-180')} />
       </Button></PopoverTrigger>
-      <PopoverContent ref={menu} align="end" collisionPadding={0} data-run-menu="" aria-label="Run pipeline"
+      <PopoverContent align="end" collisionPadding={0} data-run-menu="" aria-label="Run pipeline"
         onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }}
-        onInteractOutside={event => {
-          const list = event.target instanceof Element && event.target.closest('[data-slot="select-content"]')
-          if (list && menu.current?.querySelector(`[aria-controls="${CSS.escape(list.id)}"]`)) event.preventDefault()
-        }}
         className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-[var(--stack-gap)] overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0 [&_fieldset]:min-w-0 max-[420px]:w-screen max-[420px]:rounded-none">
         <fieldset className="grid gap-2"><legend className="label mb-2">Run on</legend>
           <div className="flex flex-wrap gap-2">{[
@@ -126,8 +121,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
             </fieldset>
           })}
         </section>
-        {needsTagModel ? <div className="grid gap-1"><p className="label">Tag model</p><TaggingModelPicker choice={choice} /></div> : null}
-        {needsModel ? <div className="grid gap-1"><p className="label">Desktop stage model</p><TaggingModelPicker choice={localChoice} /></div> : null}
+        {needsTagModel ? <div className="grid gap-1"><p className="label">Tag model</p><TaggingModelPicker choice={choice} nativeLabel="Tagging model" /></div> : null}
+        {needsModel ? <div className="grid gap-1"><p className="label">Desktop stage model</p><TaggingModelPicker choice={localChoice} nativeLabel="Desktop stage model" /></div> : null}
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
           <p className="caption">{destination ? `Batch · ${destination}` : previewOnly ? 'Preview requires an existing open Batch.' : `New draft · ${newBatchName}`}</p>

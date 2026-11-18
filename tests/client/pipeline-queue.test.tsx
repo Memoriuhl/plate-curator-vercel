@@ -20,8 +20,7 @@ const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: 
   modelId: 'desktop-gemma4-12b',
   models: [] as (typeof TAGGING_MODELS)[number][], workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
-vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
-vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: mocks.modelId }), TaggingModelPicker: () => <span>Local model</span> }))
+vi.mock('../../lib/client/hooks', () => ({ useTaggingModels: () => ({ data: { models: mocks.models, default: mocks.modelId } }), useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
@@ -115,11 +114,14 @@ test('local controls combine desktop stages and permit Queue while Start is busy
 })
 
 test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
-  mocks.modelId = 'gateway-gemma4-26b'
   const enqueue = vi.fn().mockResolvedValue(saved())
   render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
+  const picker = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Tagging model' })
+  expect(picker).toBeInstanceOf(HTMLSelectElement)
+  fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
+  fireEvent.change(picker, { target: { value: 'gateway-gemma4-26b' } })
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
 })
@@ -139,11 +141,12 @@ test('the combined Research control enqueues its selected hosted model and polic
   for (const name of ['Wiki link', 'Describe', 'Story']) expect(screen.queryByRole('checkbox', { name })).toBeNull()
   const policy = screen.getByRole('combobox', { name: 'Research edits' }) as HTMLSelectElement
   expect(policy.value).toBe('fill-missing')
-  const picker = await screen.findByRole('combobox', { name: 'Research model' })
-  expect(picker.textContent).toContain('On-device worker (Ollama)')
-  fireEvent.keyDown(picker, { key: 'ArrowDown' })
-  const hosted = await screen.findByRole('option', { name: /Hosted research \(Eve\).*Gemini/ })
-  fireEvent.click(hosted)
+  const picker = await screen.findByRole<HTMLSelectElement>('combobox', { name: 'Research model' })
+  expect(picker).toBeInstanceOf(HTMLSelectElement)
+  expect(picker.selectedOptions[0].textContent).toContain('On-device worker (Ollama)')
+  fireEvent.pointerDown(picker, { button: 0, pointerType: 'mouse' })
+  expect(screen.getByRole('dialog', { name: 'Run pipeline' }).contains(picker)).toBe(true)
+  fireEvent.change(picker, { target: { value: RESEARCH_MODELS[2].id } })
   expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
   expect(screen.getByText(/Research will use Hosted research \(Eve\).*Gemini/)).toBeTruthy()
   fireEvent.change(policy, { target: { value: 'replace' } })
@@ -201,10 +204,9 @@ test('research model discovery distinguishes loading, failure, empty, and deskto
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
-  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Research model' }), { key: 'ArrowDown' })
-  expect(screen.getAllByRole('option')).toHaveLength(2)
+  const picker = await screen.findByRole<HTMLSelectElement>('combobox', { name: 'Research model' })
+  expect(picker.options).toHaveLength(2)
   expect(screen.queryByRole('option', { name: /Hosted research/ })).toBeNull()
-  fireEvent.keyDown(document, { key: 'Escape' })
   expect(screen.getByRole('dialog', { name: 'Run pipeline' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['research'], undefined, { research: { policy: 'fill-missing' } }, false, undefined, RESEARCH_MODELS[0].id, 'Alaska pipeline'))
