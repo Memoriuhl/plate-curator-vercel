@@ -17,6 +17,7 @@ import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
 import { LOCAL_STAGE_DEFINITIONS } from '@/lib/jobs/stages'
 import { PipelineRunControls } from './pipeline-run-controls'
+import { onlyUnderTaggedLabel } from './pipeline-stages'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import type { ComponentProps } from 'react'
 
@@ -43,7 +44,7 @@ const stages = [
     'Tag',
     'Suggest tags with the selected model',
     '0:40',
-    'Only under-tagged plates',
+    onlyUnderTaggedLabel,
     'Escalate ambiguous plates',
   ],
   [
@@ -217,14 +218,14 @@ function LegacyRunMenu({
                 >
                   <input
                     type="checkbox"
-                    disabled={!local || !['Only under-tagged plates', 'Redo plates that already have a story'].includes(option)}
-                    checked={local ? option === 'Only under-tagged plates' ? onlyUnderTagged : option === 'Redo plates that already have a story' ? redoStory : false : false}
-                    onChange={event => option === 'Only under-tagged plates' ? setOnlyUnderTagged(event.target.checked) : setRedoStory(event.target.checked)}
-                    aria-label={local && ['Only under-tagged plates', 'Redo plates that already have a story'].includes(option) ? option : `${option}: ${local ? enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}`}
+                    disabled={!local || ![onlyUnderTaggedLabel, 'Redo plates that already have a story'].includes(option)}
+                    checked={local ? option === onlyUnderTaggedLabel ? onlyUnderTagged : option === 'Redo plates that already have a story' ? redoStory : false : false}
+                    onChange={event => option === onlyUnderTaggedLabel ? setOnlyUnderTagged(event.target.checked) : setRedoStory(event.target.checked)}
+                    aria-label={local && [onlyUnderTaggedLabel, 'Redo plates that already have a story'].includes(option) ? option : `${option}: ${local ? enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}`}
                   />
                   {option}
                   <span className="ml-auto text-[var(--ink-2)]">
-                    {local ? ['Only under-tagged plates', 'Redo plates that already have a story'].includes(option) ? '' : enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}
+                    {local ? [onlyUnderTaggedLabel, 'Redo plates that already have a story'].includes(option) ? '' : enabled(name) ? 'Needs confidence-based escalation' : localStageReasons[name] : 'Coming soon'}
                   </span>
                 </label>
               ))}

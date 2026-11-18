@@ -1,3 +1,4 @@
+import { minimumPlateTagCount } from '../catalog/plate-checks'
 import type { Plate } from '../catalog/types'
 import type { PipelineOptions } from './pipeline-options'
 import type { LocalRunStage, ResourceClass } from './queue-types'
@@ -37,7 +38,7 @@ export function planPipeline(plates: PlanningPlate[], stages: LocalRunStage[], o
   const steps: Omit<RunStep, 'index'>[] = []
   for (const plate of plates) for (const stage of selected) {
     if (stage === 'group' || stage === 'research' && !enrichmentTargets(plate, options.research?.policy ?? 'fill-missing').length || stage === 'find-image' && options['find-image']?.onlyMissingImage && (plate.image || plate.imageUrl) ||
-      stage === 'tag' && options.tag?.onlyUnderTagged && plate.tags.length >= 3 ||
+      stage === 'tag' && options.tag?.onlyUnderTagged && plate.tags.length >= minimumPlateTagCount ||
       stage === 'story' && options.story?.redoExisting === false && (plate.hasStory ?? !!plate.funFacts?.length)) continue
     steps.push({ plateId: plate.id, stage, resourceClass: ['tag', 'describe', 'story', 'colors'].includes(stage) ? 'gpu' : 'io' })
   }

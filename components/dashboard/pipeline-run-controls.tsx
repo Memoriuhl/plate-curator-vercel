@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useRef, useState } from 'react'
-import { IoChevronDown, IoListOutline, IoPlay } from 'react-icons/io5'
+import { IoArrowForwardOutline, IoChevronDown, IoListOutline, IoPlay } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/components/utils'
@@ -109,8 +109,21 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                       setStages(current => next ? newRunStages.filter(candidate => candidate.id === id || current.includes(candidate.id)).map(candidate => candidate.id) : current.filter(item => item !== id))
                     }} />
                   <span className="min-w-0 flex-1">
-                    <strong className="block">{stage.label}</strong>
+                    <strong className="flex items-center gap-2">
+                      <stage.icon aria-hidden="true" className="size-4" />
+                      {stage.label}
+                    </strong>
                     <span className="caption block">{stage.description}</span>
+                    {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
+                      className="caption mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--ink-2)]">
+                      {stage.flow.map(({ label, icon: StepIcon }, index) => (
+                        <span key={label} role="listitem" className="inline-flex items-center gap-1.5">
+                          {index > 0 ? <IoArrowForwardOutline aria-hidden="true" className="mr-0.5 size-3" /> : null}
+                          <StepIcon aria-hidden="true" className="size-3.5" />
+                          {label}
+                        </span>
+                      ))}
+                    </span> : null}
                     {availability ? <span className="caption block text-[var(--ink-2)]">{availability}</span> : null}
                     {id === 'research' && checked && selected.length > 0 && !needsResearchModel
                       ? <span className="caption block">Research fields are filled. Choose Replace existing to run again.</span> : null}

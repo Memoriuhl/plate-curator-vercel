@@ -714,17 +714,24 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.inline-select-trigger span {
+.inline-select-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.inline-select-trigger .inline-select-choice span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.inline-select-trigger svg {
+.inline-select-trigger svg,
+.inline-select-choice svg {
   flex: none;
   width: 14px;
   height: 14px;
 }
-.inline-select-trigger[data-state='open'] svg { transform: rotate(180deg); }
+.inline-select-trigger[data-state='open'] > svg { transform: rotate(180deg); }
 .inline-select-trigger:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;

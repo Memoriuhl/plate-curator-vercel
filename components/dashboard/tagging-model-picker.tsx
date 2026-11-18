@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { IoCloudOutline, IoLaptopOutline } from 'react-icons/io5'
 import { useTaggingModels } from '@/lib/client/hooks'
 import { formatTaggingModel } from '@/lib/client/tagging-models'
 import { InlineSelect } from '@/components/ui/inline-select'
@@ -29,7 +30,10 @@ export function TaggingModelPicker({ choice, error, inlineLabel }: {
   return <div className="grid min-w-0 gap-1">
     {models.length > 1 && (inlineLabel
       ? <InlineSelect label={inlineLabel} value={choice.modelId} onChange={choice.choose}
-        options={models.map(model => ({ value: model.id, label: formatTaggingModel(model) }))} />
+        options={models.map(model => ({
+          value: model.id, label: formatTaggingModel(model),
+          icon: model.runsOn === 'desktop' ? IoLaptopOutline : IoCloudOutline,
+        }))} />
       : <Select value={choice.modelId} onValueChange={choice.choose}>
       <SelectTrigger size="sm" aria-label="Tagging model" className="min-w-0 max-w-full whitespace-nowrap [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate"><SelectValue /></SelectTrigger>
       <SelectContent>{models.map(model => <SelectItem key={model.id} value={model.id}>{formatTaggingModel(model)}</SelectItem>)}</SelectContent>

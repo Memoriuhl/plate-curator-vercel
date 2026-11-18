@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SWRConfig } from 'swr'
+import { IoAddCircleOutline, IoPencilOutline } from 'react-icons/io5'
 import { TooltipProvider } from '../../components/ui/tooltip'
 import type { ReactNode } from 'react'
 import { usePipelineQueue } from '../../components/dashboard/use-pipeline-queue'
@@ -140,12 +141,31 @@ test('the form uses selected plates only and starts with no stages on every open
   expect(plateSelection.snapshot()).toEqual([])
 })
 
+test('the stage cards show icons and diagrams before the editable options', () => {
+  const enqueue = vi.fn()
+  render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  for (const stage of ['Research / enrich', 'Find image', 'Tag', 'Group']) {
+    expect(screen.getByText(stage).querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+  }
+  const flows = screen.getAllByRole('list')
+  expect(flows.map(flow => Array.from(flow.querySelectorAll('[role="listitem"]'), node => node.textContent))).toEqual([
+    ['Find sources', 'Draft description & story'],
+    ['Search Commons', 'Check images', 'Offer candidates'],
+    ['Embed images', 'Compare', 'Propose families'],
+  ])
+  const researchFlow = screen.getByRole('list', { name: 'Research / enrich steps' })
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
+  const options = screen.getByRole('button', { name: 'Research edits' })
+  expect(researchFlow.compareDocumentPosition(options) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
 test.each(['queued', 'running'] as const)('only Queue Run appears when existing work is %s', async status => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [saved({ status })], action: null, message: '', disabledReason: undefined, enqueue }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('button', { name: 'More options for Tag' }))
-  const only = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Only under-tagged plates' })
+  const only = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Only under-tagged plates (fewer than 3 tags)' })
   expect(only.disabled).toBe(false)
   fireEvent.click(only)
   const tag = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Tag' })
@@ -320,12 +340,14 @@ test('Group explains an unavailable method and cannot queue after the worker los
 })
 
 test('a method control with multiple available choices exposes a selector', () => {
-  const choices = [{ value: 'fixture-one', label: 'Fixture one' }, { value: 'fixture-two', label: 'Fixture two' }]
+  const choices = [{ value: 'fixture-one', label: 'Fixture one', icon: IoAddCircleOutline }, { value: 'fixture-two', label: 'Fixture two', icon: IoPencilOutline }]
   const onChange = vi.fn()
   render(<PipelineOptionSelect label="Method" choices={choices} value={choices[0].value} onChange={onChange} />)
   const method = screen.getByRole('button', { name: 'Method' })
   fireEvent.keyDown(method, { key: 'Enter' })
-  expect(screen.getAllByRole('menuitemradio').map(option => option.textContent)).toEqual(['Fixture one', 'Fixture two'])
+  const menuOptions = screen.getAllByRole('menuitemradio')
+  expect(menuOptions.map(option => option.textContent)).toEqual(['Fixture one', 'Fixture two'])
+  expect(menuOptions.every(option => option.querySelector('svg')?.getAttribute('aria-hidden') === 'true')).toBe(true)
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fixture two' }))
   expect(onChange).toHaveBeenCalledWith(choices[1].value)
 })

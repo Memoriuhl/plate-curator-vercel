@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { IoCloudOutline, IoLaptopOutline } from 'react-icons/io5'
 import useSWR from 'swr'
 import { useSession } from '@/lib/client/session'
 import type { ResearchModel } from '@/lib/research/models'
@@ -33,6 +34,9 @@ export function ResearchModelPicker({ choice }: { choice: ReturnType<typeof useR
       : choice.isLoading ? <p role="status" className="caption">Loading research models…</p>
       : !choice.model ? <p role="status" className="caption">No research models are available.</p>
       : <InlineSelect label="Research model" value={choice.model.id} onChange={choice.choose}
-          options={choice.models.map(model => ({ value: model.id, label: researchModelLabel(model) }))} />}
+          options={choice.models.map(model => ({
+            value: model.id, label: researchModelLabel(model),
+            icon: model.executor === 'desktop' ? IoLaptopOutline : IoCloudOutline,
+          }))} />}
   </div>
 }
