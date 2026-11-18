@@ -1,76 +1,31 @@
-# Research stage demo candidate
+# Eve pipeline rehearsal
 
-This is a local integration candidate based on `90855e6`. Gateway compatibility
-is retained separately at `c5ef64d` (delivery `4449e34`); queued enrichment is
-`540ccb4` (delivery `5f964d3`). The Gateway dispatch conflict retained the newer
-missing-Wiki/missing-Description checks, their imports, and their existing
-projected input. Prerequisite `08c5e59` and optional clears `2527dd5` were skipped.
-The queue redesign remains a separate lane. Do not push this combined lineage or
-open a PR from it. Real merge order remains #182 → #185, then independently
-reviewed Gateway compatibility and #178 according to their prerequisites and
-Owner walkthrough, followed by this stage integration.
+**Run Pipeline → Research / enrich** proposes a Wikipedia link, description, and
+story fields in a single queued stage. Select Desktop / Ollama or Vercel / Eve and
+choose Fill missing or Replace existing. A normal run saves a draft only after
+explicit Apply. Preview runs are for inspection.
 
-## Verified locally
-
-- 1,642 unit tests and 57 hygiene tests passed; focused queue/research/client
-  run passed 236 tests. Typecheck passed. Lint passed with the two existing
-  TanStack/React Compiler warnings.
-- Isolated Firestore emulator: 38 tests passed across queue, research, jobs store
-  and image/group suites. Projects were `demo-*`, Firestore port 8088, hub 4418,
-  logging 4518; the emulator was shut down afterward.
-- Installed Workflow 5.5 compiled 36 steps and 9 workflows. The authored Eve 1.0.2
-  build passed. Eve warned that no default sandbox provider was available locally;
-  captured research exposes only `submit_draft` and requires no sandbox.
-- The env-free webpack production build exposed a missing request boundary on
-  `/api/research/models`. Added `connection()` before authentication, matching
-  `/api/tagging/models`; a regression failed before this fix and all five route
-  tests then passed. Production compilation and prerendering subsequently passed.
-- Installed SDK execution of the compiled coordinator passed normal completion,
-  scoped service-token verification, explicit source-backed Apply, Preview Apply
-  refusal, and persisted `no_result` without another delivery when sources were
-  absent. Evidence capture and Eve transport/output/usage were stubbed. Workflow
-  data used a fresh temporary directory, never another service's storage/auth key.
-- Rendered on owned localhost:3293 with an isolated Firestore emulator: selected
-  one `AK.standard_gold`, chose **Research / enrich → Gemini 2.5 Flash Lite ·
-  Vercel / Eve**, and started a normal Fill missing run. Reload while claimed
-  restored the same run and session receipt as Running 0/1. Completion showed
-  Completed 1/1; View results exposed a sourced fact and read-more link. There
-  were zero draft edits until explicit Apply saved exactly one edit at revision 1.
-  Browser storage retained the research model choice. SDK status was completed.
-  Fixture identity, captured source and Eve delivery were substitutes for live
-  authentication/retrieval/inference. Temporary routes and two test-only export/
-  import changes were removed; both owned processes stopped.
-
-The rendered run reference was
-`c24a5d93187a8b5986f3d5adf37a40ca562b8801f99c17a5d1f5066b142d27a6`.
-Ignored local evidence is under `.eve/browser-proof/`: in-flight/completed/applied
-JSON, the reloaded and completed accessibility snapshots, a completed screenshot,
-and the temporary harness sources. The standalone SDK proof is retained at
-`.eve/verify-research-queue.mjs`, runnable with
-`node --import tsx .eve/verify-research-queue.mjs` from this checkout.
-Fixtures are deliberately excluded from the delivery diff.
-
-Existing 3290, its queue scope, local Workflow storage/auth key, tunnels, workers,
-hosted Preview and deployed campaign settings were untouched. Production tagging,
-hosted tagging and approval workflow files have no diff from the starting pin.
-No paid inference, deployment, external push, Publish or Resume occurred.
+An isolated browser rehearsal with the installed Workflow SDK restored the same
+run after reload, displayed a sourced Alaska fact and link, and saved one draft
+through explicit Apply. The Eve response and source capture were fixtures. SDK
+tests also verify that a source-empty run stops without dispatch and that Preview
+cannot Apply. A live hosted rehearsal is still required.
 
 ## Matching runtime and configuration gate
 
-There is **no verified matching deployed Preview for this candidate**. The old
+There is **no verified matching deployed Preview for the queued Eve stage**. The old
 #178 Preview at `e39ac92` predates queue session binding and scoped queue tokens.
-Its health alone cannot establish compatibility. Root must arrange a protected
+Its health alone cannot establish compatibility. Use a protected
 Eve Preview carrying the exact candidate code (or independently reviewed equivalent
-runtime modules), recording the immutable deployment URL/id and source SHA, before
-enabling a live run. Pair the local coordinator with that same source pin. This
-lane has no deployment or spend authorization.
+runtime modules). Record the immutable deployment URL, deployment ID, and source
+SHA. Pair the local coordinator with that same source pin.
 
 Provision the new matching pair with `RESEARCH_ENABLE_MODEL_CALLS=false` first.
 With paid calls off, verify build/deployment metadata, health, unauthenticated
 session refusal and the paired environment/scope/project, then sign in and verify
 the model-list endpoint's Owner response. Hosted selection remains hidden while
-calls are disabled. Verify budget readiness separately before Root enables calls
-only for this pair and starts the one-plate run. Do not modify the frozen Preview.
+calls are disabled. Verify budget readiness separately before enabling calls for
+this pair and starting the one-plate run. Do not modify the frozen Preview.
 
 Use a local coordinator on localhost:3293 with its own absolute
 `WORKFLOW_LOCAL_DATA_DIR` outside `.next`, `WORKFLOW_TARGET_WORLD=local`, and
@@ -87,7 +42,7 @@ cannot replace it without a separate design change.
 | `RESEARCH_EVE_URL` | Local coordinator targets the immutable matching protected Preview, not the old alias. |
 | `RESEARCH_SERVICE_SECRET` | Same existing authorized secret on both sides, at least 32 characters; provision securely, never in prompts or commands. |
 | `VERCEL_AUTOMATION_BYPASS_SECRET` | Existing authorized protection bypass on the local caller for the cross-deployment request. Same-deployment trusted OIDC does not cover this localhost-to-Preview hop. |
-| `RESEARCH_ENABLE_MODEL_CALLS` | Enable only in these dedicated processes after Root confirms the live allowance and readiness. Keep production and unrelated Preview settings unchanged. |
+| `RESEARCH_ENABLE_MODEL_CALLS` | Enable only in these dedicated processes after confirming the live allowance and readiness. Keep production and unrelated Preview settings unchanged. |
 | `RESEARCH_BUDGET_ID`, `RESEARCH_BUDGET_USD` | Executing Eve runtime uses a reconciled allocation from the existing authorized campaign; see below. |
 | `AI_GATEWAY_API_KEY` or Vercel Gateway OIDC | Existing authorized Gateway access on the executing Eve runtime. Local coordinator does no synthesis. |
 | `GCP_PROJECT_NUMBER`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`, `GCP_SERVICE_ACCOUNT_EMAIL` | Existing staging Workload Identity setup; local linked-project OIDC and Preview identity must both read the paired jobs/research state. |
@@ -100,8 +55,8 @@ research needs no Serper/Brave credentials or nested search calls.
 
 Budget is an actual readiness gate. The documented prior authorization is USD 2
 total, with a USD 0.50 Preview allocation inside that total, not an ongoing/new
-allowance. Root must verify the existing allowance still covers this run and read
-the current campaign/Gateway accounting. Each physical synthesis reserves USD 0.20
+allowance. Verify that the existing allowance covers this run and read the current campaign
+and Gateway accounting. Each physical synthesis reserves USD 0.20
 before calling; fewer than USD 0.20 of available headroom refuses the attempt.
 Do not reset the limit to the USD 2 default or create a fresh funded campaign.
 `researchState` budgets are namespaced by environment as well as campaign id:
@@ -111,11 +66,11 @@ One plate is restricted to one physical synthesis call, with context/output caps
 unknown cost retains conservative reservation accounting.
 The USD 0.20 is an application reservation, not a verified provider-enforced
 Gateway spending ceiling. No provider-side ceiling or current balance was
-independently verified in this lane. Existing Gateway ceiling/balance, remaining
+verified in the fixture rehearsal. Existing Gateway ceiling/balance, remaining
 campaign allowance and any dedicated allocation remain explicit live preflight
 checks. No new key, funding or cap change is part of this recipe.
 
-## One live plate, after Root's gate
+## One-plate hosted rehearsal
 
 1. Record both exact build pins and the matching Preview's immutable deployment
    metadata. Verify ready health, unauthenticated session rejection, paired staging
