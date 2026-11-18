@@ -91,6 +91,18 @@ test('local workers enforce localhost and concurrency 1 before polling', () => {
   expect(() => assertLocalWorker('https://example.org', 1)).toThrow('localhost')
 })
 
+test('workers accept only the configured hosted HTTPS origin', () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  vi.stubEnv('LOCAL_PIPELINE_SCOPE', 'scope-a')
+  vi.stubEnv('LOCAL_PIPELINE_HOSTED_ORIGIN', 'https://curator.example.org')
+  expect(() => assertLocalWorker('https://curator.example.org/', 1)).not.toThrow()
+  for (const apiBase of [
+    'http://curator.example.org', 'https://other.example.org',
+    'https://worker:secret@curator.example.org', 'https://curator.example.org/redirect',
+  ]) expect(() => assertLocalWorker(apiBase, 1)).toThrow('localhost')
+  expect(() => assertLocalWorker('https://curator.example.org', 2)).toThrow('concurrency 1')
+})
+
 test('legacy workers cannot even see jobs isolated in a local environment', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const s = setup()

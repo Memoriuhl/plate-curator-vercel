@@ -7,7 +7,10 @@ export async function GET(request: Request, ctx: RouteContext<'/api/jobs/[id]'>)
   if (!auth.ok) return auth.response
 
   const { id } = await ctx.params
-  const outcome = await getJobForActor(jobsDeps(), auth.actor, id)
+  const deps = jobsDeps()
+  const scoped = await getJobForActor(deps, auth.actor, id)
+  const outcome = !scoped.ok && scoped.error === 'not_found' && deps.localScope
+    ? await getJobForActor(jobsDeps({ unscoped: true }), auth.actor, id) : scoped
   if (!outcome.ok) return respond(outcome)
   const job = outcome.value
   return json({ id: job.id, batchId: job.batchId, plateId: job.plateId, requestedBy: job.requestedBy, state: job.state, inputHash: job.inputHash, suggestions: job.result?.suggestions ?? [], model: job.result?.model ?? null, modelId: job.modelId ?? null,

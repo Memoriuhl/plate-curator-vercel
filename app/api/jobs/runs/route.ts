@@ -8,5 +8,6 @@ export async function GET(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const deps = jobsDeps()
-  return json({ runs: await listGatewayRuns(deps, auth.actor), observedAt: deps.now() })
+  const unscoped = deps.localScope ? jobsDeps({ unscoped: true }) : undefined
+  return json({ runs: await listGatewayRuns(deps, auth.actor, unscoped), observedAt: deps.now() })
 }

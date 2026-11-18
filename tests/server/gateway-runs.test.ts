@@ -2,6 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { listGatewayRuns } from '../../lib/jobs/gateway-runs'
+import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import { GET } from '../../app/api/jobs/runs/route'
 
@@ -47,6 +48,19 @@ test('history endpoint rejects unauthenticated access before reading storage', a
 test('history restores saved results and the exact Workflow Visibility URL', async () => {
   const result = await (await GET(new Request('https://example.org/api/jobs/runs'))).json()
   expect(result).toMatchObject({ observedAt: 400, runs: [{ id: 'wrun_one', progress: { workflowUrl: expect.stringContaining('/workflows/runs/wrun_one?environment=preview') } }] })
+})
+
+test('enabling the scoped queue keeps existing Gateway history visible', async () => {
+  const localScope = 'hosted-rehearsal'
+  const store = createMemoryJobsStore(createMemoryStore([]), localJobsEnvironment(localScope))
+  const base = await deps.store.transaction(tx => tx.get('one'))
+  await store.transaction(async tx => {
+    tx.create({ ...base!, id: 'scoped-job', workflowId: 'wrun_scoped', localScope, env: store.env, state: 'queued', createdAt: 350 })
+  })
+  mocks.jobs.mockReturnValueOnce({ ...deps, store, localScope })
+
+  const result = await (await GET(new Request('https://example.org/api/jobs/runs'))).json()
+  expect(result.runs.map((run: { id: string }) => run.id)).toEqual(['wrun_scoped', 'wrun_one'])
 })
 
 test('Gateway stages from one connected run use its review identity and count each Plate once', async () => {
