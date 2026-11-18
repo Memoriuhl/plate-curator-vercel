@@ -130,15 +130,33 @@ test('an explicit handler failure still stops downstream stages', async () => {
   expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, error: 'no_handler' }] })
 })
 
-test('a research run with no usable sources finishes with no suggestions', async () => {
+test('a missing Wiki result stops the research run before any model job is dispatched', async () => {
   const s = setup()
-  const run = await s.run('no-sources', ['describe', 'story'])
+  const run = await s.run('no-sources', ['wiki-link', 'describe', 'story'])
   await s.complete('worker', { ...base, stageError: 'no_sources' })
-  await dispatchQueueStage(s.deps, run.id, 1, 1, 'story-hook')
-  await s.complete('worker', { ...base, stageError: 'no_sources' })
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'describe-hook')).toBeNull()
+  expect(await claimNext(s.deps, 'worker')).toBeNull()
   const [saved] = await s.deps.store.transaction(tx => tx.runs())
-  expect(saved).toMatchObject({ status: 'completed', attempts: [{ cursor: 2, outcome: 'no_result', noResultCount: 2 }] })
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, outcome: 'no_result', error: 'no_sources' }] })
   expect(await s.review.listEdits('batch')).toEqual([])
+})
+
+test('dispatch refuses a persisted run that advanced without its selected Wiki prerequisite', async () => {
+  const s = setup()
+  const run = await s.run('legacy-empty', ['wiki-link', 'describe'])
+  const wikiJobId = `${run.id}-1-0`
+  await s.deps.store.transaction(async tx => {
+    const [saved] = await tx.runs()
+    const wiki = (await tx.get(wikiJobId))!
+    tx.set({ ...wiki, state: 'completed', result: { ...base, suggestions: [], stageError: 'no_sources' } })
+    saved.attempts[0].cursor = 1
+    saved.attempts[0].completedJobIds.push(wikiJobId)
+    tx.setRun(saved)
+  })
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'describe-hook')).toBeNull()
+  expect(await claimNext(s.deps, 'worker')).toBeNull()
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ error: 'missing_wiki_link' }] })
 })
 
 test('cancellation is immediate before claim but remains requested until active worker acknowledges safe end', async () => {
