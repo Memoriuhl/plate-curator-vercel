@@ -32,7 +32,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
   const [limit, setLimit] = useState('')
-  const [stages, setStages] = useState<LocalRunStage[]>(['tag'])
+  const [stages, setStages] = useState<LocalRunStage[]>([])
   const [options, setOptions] = useState<PipelineOptions>({})
   const [previewOnly, setPreviewOnly] = useState(false)
   const desktop = choice.data?.models.filter(model => model.runsOn === 'desktop') ?? []
@@ -71,7 +71,10 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
   }
   return <div className="grid gap-2">
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={nextOpen => {
+      if (nextOpen) setStages([])
+      setOpen(nextOpen)
+    }}>
       <PopoverTrigger asChild><Button ref={trigger} data-run-trigger disabled={!!reason} title={reason} onClick={() => { if (selected.length) setScope('selected') }}>
         <IoPlay aria-hidden="true" />Run pipeline<IoChevronDown aria-hidden="true" className={cn('transition-transform', open && 'rotate-180')} />
       </Button></PopoverTrigger>
