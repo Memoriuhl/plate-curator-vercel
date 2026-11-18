@@ -3,8 +3,28 @@ import { buildDashboard, buildJurisdiction, buildPlate } from '../../lib/catalog
 import { plateRevision } from '../../lib/review/revision'
 import type { Plate } from '../../lib/catalog/types'
 import { fixtureSource } from '../../lib/catalog/fixture-source'
+import { groupFamilies } from '../../lib/catalog/families'
 
 const source = fixtureSource()
+
+test('Arizona snapshot v11 matches the game family key even with a missing Variant link', async () => {
+  const { snapshot, curator } = await fixture()
+  const ids = ['AZ.standard', 'AZ.amateur_radio', 'AZ.choose_life']
+  const plates = snapshot.plates.filter(plate => ids.includes(plate.id))
+  const standard = plates.find(plate => plate.id === 'AZ.standard')!
+  expect(standard.templateFamily).toBe('az_grand_canyon_state')
+  expect(plates.every(plate => plate.templateFamily === standard.templateFamily)).toBe(true)
+  expect(plates.every(plate => plate.templateRole === undefined)).toBe(true)
+  const chooseLife = plates.find(plate => plate.id === 'AZ.choose_life')!
+  delete chooseLife.variantOfPlateId
+  const result = buildJurisdiction({ ...snapshot, plates }, curator, source.imageUrl, 'AZ')!
+  expect(result.catalogVersion).toBe(11)
+  const [{ template, variants }] = groupFamilies(result.plates)
+  expect(template.id).toBe(ids[0])
+  expect(variants.map(plate => plate.id)).toEqual(ids.slice(1))
+  expect(variants.map(plate => plate.templateRole)).toEqual(['variant', 'variant'])
+  expect(variants[1].revision).toBe(plateRevision(chooseLife))
+})
 
 async function fixture() {
   return { snapshot: await source.readSnapshot(), curator: await source.readCuratorState() }
@@ -66,7 +86,7 @@ async function detail(overrides: Partial<Plate> = {}) {
   const { snapshot, curator } = await fixture()
   const plate: Plate = {
     ...snapshot.plates[0], description: undefined, sourceUrl: undefined, wikiUrl: undefined,
-    tags: [], templateFamily: undefined, templateRole: undefined, isStandard: undefined,
+    tags: [], templateFamily: undefined, templateRole: undefined, isTemplate: undefined, isStandard: undefined,
     variantOfPlateId: undefined, sortOrder: undefined, ...overrides,
   }
   return buildPlate({ ...snapshot, plates: [plate] }, curator, source.imageUrl, plate.id)!

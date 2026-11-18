@@ -24,8 +24,12 @@ export function collectDragTargets(root: HTMLElement | null, families: DragFamil
   for (const element of root.querySelectorAll<HTMLElement>('[data-drag-family]')) {
     const familyId = element.dataset.dragFamily
     const index = families.findIndex(family => family.template.id === familyId)
-    if (index < 0 || families[index].template.deleted) continue
+    if (index < 0) continue
     const rect = element.getBoundingClientRect()
+    if (families[index].template.deleted) {
+      targets.push({ target: { kind: 'merge', familyId: families[index].template.id }, rect })
+      continue
+    }
     const edge = Math.min(28, rect.width / 5)
     targets.push(
       { target: { kind: 'family-slot', index }, rect: { left: rect.left - 8, right: rect.left + edge, top: rect.top, bottom: rect.bottom } },

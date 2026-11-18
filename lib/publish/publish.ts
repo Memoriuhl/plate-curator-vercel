@@ -94,6 +94,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       const next = { version: toVersion, plates: baseline.plates.filter(plate => !deleted.has(plate.id)).map(plate => {
         const edited = { ...plate, ...fields.get(plate.id) }
         delete edited.deleted
+        if (fields.get(plate.id)?.templateRole) edited.isTemplate = edited.templateRole === 'template'
         if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
         for (const key of ['firstIssuedYear', 'wikiUrl', 'colorDetail', 'lineageColor'] as const) {
           if (fields.get(plate.id)?.[key] === null) delete edited[key]

@@ -1,4 +1,5 @@
 import { orderedStatePlates } from '../catalog/order'
+import { familyRole } from '../catalog/families'
 import type { Plate } from '../catalog/types'
 import { editableKeys, limits } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
@@ -14,7 +15,7 @@ export async function standardEdits(
   const before = baseline.map(plate => ({ ...plate, ...byId.get(plate.id)?.fields }))
   const effective = before.map(plate => ({ ...plate, ...changes.get(plate.id) }))
   const first = effective.find(plate => plate.id === order[0])
-  if (!first || first.deleted || first.templateRole !== 'template') return { ok: false, error: 'standard_invalid_template' }
+  if (!first || first.deleted || familyRole(first) !== 'template') return { ok: false, error: 'standard_invalid_template' }
   const standards = before.filter(plate => plate.isStandard && !plate.deleted)
   const confirmedFrom = standards.length ? standards.some(plate => plate.id === acknowledgement?.from) : acknowledgement?.from === null
   if ((standards.length !== 1 || standards[0].id !== first.id) && (!confirmedFrom || acknowledgement?.to !== first.id)) {
@@ -55,7 +56,7 @@ export function standardOrderProblems(plates: Plate[], edits: ProposedEdit[], or
     const members = effective.filter(plate => plate.state === state && !plate.deleted)
     const standards = members.filter(plate => plate.isStandard)
     const first = members.find(plate => plate.id === order[0])
-    return first?.templateRole === 'template' && standards.length === 1 && standards[0].id === first.id ? []
+    return first && familyRole(first) === 'template' && standards.length === 1 && standards[0].id === first.id ? []
       : [state + ': use Standard plate issues to make ' + (first?.displayName ?? 'the first Template') + ' the Standard before submitting.']
   })
 }

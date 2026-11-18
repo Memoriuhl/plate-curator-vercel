@@ -1,3 +1,4 @@
+import { familyRole } from './families'
 import { plateRevision } from '../review/revision'
 import { PLATE_IMAGE_SIZE } from './dashboard-types'
 import type { DashboardData, JurisdictionData, PlateCardData, PlateDetail } from './dashboard-types'
@@ -13,7 +14,7 @@ const text = (value: unknown): string | null => typeof value === 'string' && val
 function plateCard(plate: Plate, index: number, imageUrl: ImageUrl): PlateCardData {
   const url = imageUrl(plate)
   const family = text(plate.templateFamily)
-  const role = plate.templateRole ?? null
+  const role = familyRole(plate)
   const checks = plateChecks(plate, url)
   return {
     id: plate.id, state: plate.state, slug: plate.slug, displayName: plate.displayName,
@@ -45,7 +46,7 @@ export function buildDashboard(snapshot: Snapshot, curator: CuratorState, imageU
 export function buildJurisdiction(snapshot: Snapshot, curator: CuratorState, imageUrl: ImageUrl, code: string): JurisdictionData | null {
   const plates = orderedStatePlates(snapshot, code, curator)
   if (plates.length === 0) return null
-  return { ...jurisdiction(code), plates: plates.map((plate, index) => plateCard(plate, index, imageUrl)) }
+  return { ...jurisdiction(code), catalogVersion: snapshot.version, plates: plates.map((plate, index) => plateCard(plate, index, imageUrl)) }
 }
 
 export function buildPlate(snapshot: Snapshot, curator: CuratorState, imageUrl: ImageUrl, id: string): PlateDetail | null {

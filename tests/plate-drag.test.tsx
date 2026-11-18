@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, test, vi } from 'vitest'
 import { plateCards } from '../fixtures/plate-cards'
 import { plateSelection } from '../components/dashboard/plate-selection'
+import type { FamilyMerge } from '../lib/review/family-merge'
 import { usePlateDrag } from '../components/dashboard/use-plate-drag'
 import { FamilyCard } from '../components/plate/family-card'
 import { familyOrder, moveBlock, nearestFamilySlot, promotionOrder, newFamilySlug, orderForDrop, pastDragThreshold, targetAt, scrollVelocity } from '../components/dashboard/drop-targets'
@@ -21,12 +22,16 @@ vi.mock('@tanstack/react-virtual', async importOriginal => {
   return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) }
 })
 
-const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', templateRole: 'template' as const }
+const a = { ...plateCards[0], id: 'AK.a', displayName: 'Army', isStandard: false, templateRole: 'template' as const }
 const v = { ...a, id: 'AK.v', templateRole: 'variant' as const }
 const w = { ...v, id: 'AK.w' }
 const b = { ...a, id: 'AK.b', displayName: 'Navy' }
 const families = [{ template: a, variants: [v, w] }, { template: b, variants: [] }]
 const success = { ok: true, proposed: {} }
+const ref = ({ id, revision }: { id: string; revision: string }) => ({ id, revision })
+const merged = (moved: string[], skipped = {}) => ({
+  ok: true as const, value: { moved, alreadyInFamily: 0, deleted: 0, standard: 0, ...skipped },
+})
 const { push } = vi.hoisted(() => ({ push: vi.fn() }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ prefetch: vi.fn(), push }) }))
 vi.mock('next/link', () => ({ default: ({ prefetch, ...props }: Record<string, unknown>) => { void prefetch; return <a {...props} /> } }))
@@ -50,7 +55,7 @@ test('threshold, hit targets and scroll edges', () => {
   expect(scrollVelocity(450, 900)).toBe(0)
 })
 
-function setup({ rows = false, moveSave = vi.fn().mockResolvedValue(success), show = 'all', query = '', canEdit = true, error = false, merge = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false, save = vi.fn().mockResolvedValue(success) } = {}) {
+function setup({ rows = false, moveSave = vi.fn().mockResolvedValue(success), show = 'all', query = '', canEdit = true, error = false, merge = false, mergeSave = vi.fn((input: FamilyMerge) => Promise.resolve(merged(input.members.map(plate => plate.id)))), ownFamily = false, variant = false, singleton = false, deletedSource = false, deletedDestination = false, save = vi.fn().mockResolvedValue(success) } = {}) {
   const edit = save
   const reorder = vi.fn().mockResolvedValue(error ? { ok: false, error: 'superseded_revision' } : success)
   const move = moveSave
@@ -59,14 +64,14 @@ function setup({ rows = false, moveSave = vi.fn().mockResolvedValue(success), sh
   const closePreview = vi.fn()
   function Harness() {
     const dragFamilies = families.map(family => ({ ...family, template: family.template.id === b.id ? { ...family.template, deleted: deletedDestination } : family.template }))
-    const drag = usePlateDrag({ families: dragFamilies, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, pending: false }, reload, closePreview,
-      targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
+    const drag = usePlateDrag({ families: dragFamilies, canEdit, show, query, edits: { edit, pending: false }, ordering: { reorder, move, capture, merge: mergeSave, pending: false }, reload, closePreview,
+      targets: () => [{ target: merge ? { kind: 'merge', familyId: singleton || ownFamily ? a.id : b.id } : { kind: 'family-slot', index: 2 }, rect: { left: 0, right: 500, top: 0, bottom: 500 } }],
     })
     const item = { kind: variant ? 'variant' as const : 'family' as const, plate: deletedSource ? { ...(singleton ? b : variant ? v : a), deleted: true } : singleton ? b : variant ? v : a }
     return <>{rows ? <FamilyCard template={a} variants={[v, w]} canEdit={canEdit} drag={drag} /> : null}<button title={drag.handleTitle} onPointerDown={event => drag.onPointerDown(item, event)} onKeyDown={event => drag.onKeyDown(item, event)} onClick={drag.suppressClick}>Handle</button><output aria-live="polite">{drag.announcement}</output><span data-testid="order">{drag.optimisticOrder?.join(',')}</span><span data-testid="gap">{drag.reflow?.order.join(',')}</span></>
   }
   render(<Harness />)
-  return { edit, reorder, move, capture, reload, closePreview, handle: rows ? document.querySelector<HTMLElement>('[data-plate-row="' + (variant ? v.id : a.id) + '"]')! : screen.getByRole('button') }
+  return { edit, reorder, move, mergeSave, capture, reload, closePreview, handle: rows ? document.querySelector<HTMLElement>('[data-plate-row="' + (variant ? v.id : a.id) + '"]')! : screen.getByRole('button') }
 }
 
 test('keyboard lifts, moves, drops once and removes the global cursor', async () => {
@@ -114,8 +119,8 @@ test('failed reorder snaps back, announces the error and reloads', async () => {
   expect(reload).toHaveBeenCalledOnce()
   expect(screen.getByTestId('order').textContent).toBe('')
 })
-test('pointer merge edits the family fields and preserves a subthreshold click', async () => {
-  const { handle, edit, reorder } = setup({ merge: true, variant: true })
+test('pointer merge saves a single Variant and preserves a subthreshold click', async () => {
+  const { handle, mergeSave, reorder } = setup({ merge: true, variant: true })
   const pointer = (type: string, x: number) => {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
@@ -128,7 +133,7 @@ test('pointer merge edits the family fields and preserves a subthreshold click',
   pointer('pointerdown', 100)
   pointer('pointermove', 110)
   pointer('pointerup', 110)
-  await waitFor(() => expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', variantOfPlateId: b.id, templateFamily: b.templateFamily ?? b.id }))
+  await waitFor(() => expect(mergeSave).toHaveBeenCalledExactlyOnceWith({ destination: ref(b), members: [ref(v)] }, { batchId: 'batch', revision: 4 }))
   expect(reorder).not.toHaveBeenCalled()
 })
 
@@ -149,15 +154,13 @@ test('touch lifts only after the long press and unmount cleans the cursor', () =
 })
 
 test('merging a template moves the template and all its variants into the destination family', async () => {
-  const { handle, edit, reorder } = setup({ merge: true })
+  const { handle, mergeSave, reorder } = setup({ merge: true })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
-  await waitFor(() => expect(screen.getByText('3 plates moved')).toBeTruthy())
-  expect(edit).toHaveBeenCalledTimes(3)
-  for (const plate of [a, v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+  await waitFor(() => expect(mergeSave).toHaveBeenCalledExactlyOnceWith({ destination: ref(b), members: [ref(a)] }, { batchId: 'batch', revision: 4 }))
   expect(reorder).not.toHaveBeenCalled()
 })
 
@@ -188,13 +191,13 @@ test('a failed promotion does not send a reorder', async () => {
 })
 
 test('a family without variants can merge back into another family', async () => {
-  const { handle, edit, reorder } = setup({ singleton: true, merge: true })
+  const { handle, mergeSave, reorder } = setup({ singleton: true, merge: true })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
-  await waitFor(() => expect(edit).toHaveBeenCalledExactlyOnceWith(b, { templateRole: 'variant', variantOfPlateId: a.id, templateFamily: a.templateFamily }))
+  await waitFor(() => expect(mergeSave).toHaveBeenCalledExactlyOnceWith({ destination: ref(a), members: [ref(b)] }, { batchId: 'batch', revision: 4 }))
   expect(reorder).not.toHaveBeenCalled()
 })
 
@@ -499,25 +502,25 @@ test.each([false, true])('deleted plates cannot start keyboard or pointer drags,
 })
 
 test('deleted Templates cannot receive a merge', async () => {
-  const { handle, edit, reorder } = setup({ deletedDestination: true, merge: true, variant: true })
+  const { handle, mergeSave, reorder } = setup({ deletedDestination: true, merge: true, variant: true })
   for (const [type, x] of [['pointerdown', 100], ['pointermove', 200], ['pointerup', 200]] as const) {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
     Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
     act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
   }
-  await waitFor(() => expect(screen.getByText('Cancelled')).toBeTruthy())
-  expect(edit).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('Drop onto an active Template family.')).toBeTruthy())
+  expect(mergeSave).not.toHaveBeenCalled()
   expect(reorder).not.toHaveBeenCalled()
 })
 
-test('deleted cards and Variants expose disabled handles and no drop targets', () => {
+test('deleted cards and Variants expose disabled handles and reject drops without starting a promotion', () => {
   const deleted = { ...b, deleted: true }
   const deletedVariant = { ...v, deleted: true }
   const view = render(<section><FamilyCard template={a} variants={[deletedVariant, w]} canEdit /><FamilyCard template={deleted} variants={[]} canEdit /></section>)
   expect(document.querySelector<HTMLElement>('[data-plate-row="AK.b"]')!.getAttribute('aria-disabled')).toBe('true')
   expect(view.container.querySelector('[data-drag-handle-id="AK.v"]')?.getAttribute('aria-disabled')).toBe('true')
   const targets = collectDragTargets(view.container, [{ template: a, variants: [deletedVariant, w] }, { template: deleted, variants: [] }])
-  expect(targets.some(({ target }) => target.kind === 'merge' && target.familyId === b.id)).toBe(false)
+  expect(targets.some(({ target }) => target.kind === 'merge' && target.familyId === b.id)).toBe(true)
   expect(targets.some(({ target }) => target.kind === 'variant-slot' && target.index === 0)).toBe(false)
 })
 
@@ -541,12 +544,21 @@ test('background drop promotes selected variants and ignores selected templates'
   await waitFor(() => expect(screen.getByText('2 plates are now Templates')).toBeTruthy())
 })
 
-test('multi-drag edits each selected plate into the destination family', async () => {
-  plateSelection.add([v, w])
-  const { handle, edit } = setup({ variant: true, merge: true })
-  pointerDrag(handle, 110)
-  await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
-  for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+test('Shift selection from rendered rows is captured at pointer-down and sent as one merge', async () => {
+  plateSelection.visible([a, v, w])
+  const { handle, mergeSave, edit } = setup({ rows: true, variant: true, merge: true })
+  fireEvent.click(handle)
+  fireEvent.click(document.querySelector('[data-plate-row="AK.w"] [data-plate-image]')!, { shiftKey: true })
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([v.id, w.id])
+  for (const [type, x] of [['pointerdown', 100], ['pointermove', 110], ['pointerup', 110]] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0 })
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
+    act(() => { (type === 'pointerdown' ? handle : window).dispatchEvent(event) })
+    if (type === 'pointerdown') act(() => plateSelection.replace([v]))
+  }
+  await waitFor(() => expect(screen.getByText('2 plates moved')).toBeTruthy())
+  expect(mergeSave).toHaveBeenCalledExactlyOnceWith({ destination: ref(b), members: [ref(v), ref(w)] }, { batchId: 'batch', revision: 4 })
+  expect(edit).not.toHaveBeenCalled()
 })
 
 test('selected family-slot drags retain the family reorder path', async () => {
@@ -558,31 +570,24 @@ test('selected family-slot drags retain the family reorder path', async () => {
   expect(move).not.toHaveBeenCalled()
 })
 
-test('multi-merge includes a selected template and its unselected variants exactly once', async () => {
-  plateSelection.add([a, v])
-  const { handle, edit } = setup({ variant: true, merge: true })
+test('a stale merge reloads and retains the selection for a fresh gesture', async () => {
+  plateSelection.add([v, w])
+  const mergeSave = vi.fn().mockResolvedValue({ ok: false, message: 'The Batch changed. Drag again using the latest selection.' })
+  const { handle, reload, edit } = setup({ variant: true, merge: true, mergeSave })
   pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText('3 plates moved')).toBeTruthy())
-  expect(edit).toHaveBeenCalledTimes(3)
-  for (const plate of [a, v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+  await waitFor(() => expect(screen.getByText('The Batch changed. Drag again using the latest selection.')).toBeTruthy())
+  expect(mergeSave).toHaveBeenCalledOnce()
+  expect(edit).not.toHaveBeenCalled()
+  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([v.id, w.id])
+  expect(reload).toHaveBeenCalledOnce()
 })
 
-test.each([false, true])('partial merge stops after its first failed chunk and compensates saved edits (revert failure: %s)', async revertFails => {
-  const x = { ...v, id: 'AK.x' }, y = { ...v, id: 'AK.y' }
-  plateSelection.add([v, w, x, y])
-  const save = vi.fn()
-    .mockResolvedValueOnce({ ok: true, revision: 'new-v', batchId: 'batch', proposed: {} })
-    .mockResolvedValueOnce({ ok: false, error: 'forbidden' })
-    .mockResolvedValueOnce({ ok: true, revision: 'new-x', batchId: 'batch', proposed: {} })
-    .mockResolvedValue({ ok: !revertFails })
-  const { handle, reload } = setup({ variant: true, merge: true, save })
+test('dropping wholly within the current family explains the no-op without writing', async () => {
+  plateSelection.add([v, w])
+  const { handle, mergeSave } = setup({ variant: true, merge: true, ownFamily: true })
   pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText(revertFails ? '2 of 4 saved' : 'Saved 2 of 4; changes undone')).toBeTruthy())
-  expect(save).toHaveBeenCalledTimes(5)
-  expect(save).not.toHaveBeenCalledWith(y, expect.anything())
-  expect(save).toHaveBeenCalledWith({ ...v, revision: 'new-v' }, { templateRole: v.templateRole, templateFamily: v.templateFamily, variantOfPlateId: v.variantOfPlateId }, { batchId: 'batch', baseRevision: 'new-v' })
-  expect(plateSelection.snapshot().map(plate => plate.id)).toEqual(revertFails ? [v.id, w.id, x.id, y.id] : [w.id, y.id])
-  expect(reload).toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('The selected plates are already in this family')).toBeTruthy())
+  expect(mergeSave).not.toHaveBeenCalled()
 })
 
 test('promotion de-duplicates slugs across the selection and advances full State orders', async () => {
@@ -648,10 +653,10 @@ test('multi-merge displays a valid target for selected templates with variants',
 test('multi-merge skips selected plates from other States', async () => {
   const foreign = { ...w, id: 'NY.foreign', state: 'NY' }
   plateSelection.add([v, foreign])
-  const { handle, edit } = setup({ variant: true, merge: true })
+  const { handle, mergeSave } = setup({ variant: true, merge: true })
   pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText(/Skipped 1 plates from other states/)).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
+  await waitFor(() => expect(screen.getByText(/Skipped 1 plate from another state/)).toBeTruthy())
+  expect(mergeSave).toHaveBeenCalledExactlyOnceWith({ destination: ref(b), members: [ref(v)] }, { batchId: 'batch', revision: 4 })
   expect(plateSelection.snapshot().map(plate => plate.id)).toEqual([foreign.id])
 })
 
@@ -667,10 +672,10 @@ test('background drop with only Templates selected reports No Variants selected'
 
 test('deleted destinations are checked before multi-merge and never promote the selection', async () => {
   plateSelection.add([v, w])
-  const { handle, edit, move } = setup({ variant: true, merge: true, deletedDestination: true })
+  const { handle, mergeSave, move } = setup({ variant: true, merge: true, deletedDestination: true })
   pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText('Cancelled')).toBeTruthy())
-  expect(edit).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('Drop onto an active Template family.')).toBeTruthy())
+  expect(mergeSave).not.toHaveBeenCalled()
   expect(move).not.toHaveBeenCalled()
 })
 
@@ -681,16 +686,6 @@ test('deleted plate row and modifier selection are disabled', () => {
   expect(view.container.querySelector('[data-plate-row="AK.v"]')?.getAttribute('aria-disabled')).toBe('true')
   fireEvent.click(view.container.querySelector('h3[title$="' + v.id + '"] a')!, { ctrlKey: true })
   expect(plateSelection.snapshot()).toEqual([])
-})
-
-test('bulk moves exclude plates deleted after selection was captured', async () => {
-  const deleted = { ...w, deleted: false }
-  plateSelection.add([v, deleted])
-  deleted.deleted = true
-  const { handle, edit } = setup({ variant: true, merge: true })
-  pointerDrag(handle, 110)
-  await waitFor(() => expect(screen.getByText('1 plate moved')).toBeTruthy())
-  expect(edit).toHaveBeenCalledExactlyOnceWith(v, { templateRole: 'variant', templateFamily: b.templateFamily || b.id, variantOfPlateId: b.id })
 })
 
 test('titles and checks share the details container beside each image', () => {
@@ -928,10 +923,10 @@ test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget 
   vi.stubGlobal('scrollBy', scrollBy)
   vi.stubGlobal('innerHeight', 900)
   plateSelection.add([v, w])
-  const edit = vi.fn().mockResolvedValue(success)
+  const merge = vi.fn().mockResolvedValue(merged([v.id, w.id]))
   try {
     function Harness() {
-      const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit, pending: false }, ordering: { reorder: vi.fn(), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 50, right: 250, top: 1200 - window.scrollY, bottom: 1400 - window.scrollY } }], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
+      const drag = usePlateDrag({ families, canEdit: true, show: 'all', query: '', edits: { edit: vi.fn(), pending: false }, ordering: { reorder: vi.fn(), merge, capture: () => ({ batchId: 'batch', revision: 4 }), pending: false }, targets: () => [{ target: { kind: 'merge', familyId: b.id }, rect: { left: 50, right: 250, top: 1200 - window.scrollY, bottom: 1400 - window.scrollY } }], closePreview: vi.fn(), reload: vi.fn().mockResolvedValue(undefined) })
       return <><button onPointerDown={event => drag.onPointerDown({ kind: 'variant', plate: v }, event)}>Handle</button><output>{drag.announcement}</output>{drag.active ? <DragPreview {...drag.active} /> : null}</>
     }
     render(<Harness />)
@@ -955,8 +950,7 @@ test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget 
     expect(document.body.classList.contains('plate-dragging')).toBe(true)
     expect(lifted.style.transform).toBe(position)
     pointer('pointerup', 110, 350)
-    await waitFor(() => expect(edit).toHaveBeenCalledTimes(2))
-    for (const plate of [v, w]) expect(edit).toHaveBeenCalledWith(plate, { templateRole: 'variant', variantOfPlateId: b.id, templateFamily: b.templateFamily || b.id })
+    await waitFor(() => expect(merge).toHaveBeenCalledExactlyOnceWith({ destination: ref(b), members: [ref(v), ref(w)] }, { batchId: 'batch', revision: 4 }))
   } finally { cleanup(); vi.unstubAllGlobals() }
 })
 

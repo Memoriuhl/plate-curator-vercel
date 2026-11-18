@@ -1,5 +1,6 @@
 import { standardEdits, standardOrderProblems } from './standard'
 import { canEdit, editableStates } from './access'
+import { familyRole } from '../catalog/families'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
 import { editableKeys, limits } from './fields'
@@ -21,18 +22,22 @@ async function regroupRemainsValid(d: ReviewDeps, batch: ReviewBatch, current: P
   const state = new Map(baseline.map(plate => [plate.id, { ...plate, ...byId.get(plate.id) }]))
   state.set(target.id, target)
   const affectedFamilies = new Set([current.templateFamily, target.templateFamily].filter(Boolean))
+  return validRegroup(state, affectedFamilies, new Set([target.id]))
+}
+
+export function validRegroup(state: ReadonlyMap<string, Plate>, affectedFamilies: ReadonlySet<string | undefined>, changedIds: ReadonlySet<string>) {
   const counts = new Map<string, { plates: number; templates: number }>()
   for (const member of state.values()) {
     if (member.deleted) continue
     if (member.templateFamily && affectedFamilies.has(member.templateFamily)) {
       const count = counts.get(member.templateFamily) ?? { plates: 0, templates: 0 }
       count.plates += 1
-      if (member.templateRole === 'template') count.templates += 1
+      if (familyRole(member) === 'template') count.templates += 1
       counts.set(member.templateFamily, count)
     }
-    if (member.variantOfPlateId && (member.id === target.id || member.variantOfPlateId === target.id)) {
+    if (member.variantOfPlateId && (changedIds.has(member.id) || changedIds.has(member.variantOfPlateId))) {
       const parent = state.get(member.variantOfPlateId)
-      if (!parent || parent.deleted || parent.templateRole !== 'template' || parent.id === member.id || parent.templateFamily !== member.templateFamily || member.templateRole !== 'variant')
+      if (!parent || parent.deleted || familyRole(parent) !== 'template' || parent.id === member.id || parent.templateFamily !== member.templateFamily || familyRole(member) !== 'variant')
         return false
     }
   }
@@ -97,7 +102,7 @@ async function updatePlate(
       return { ok: false, error: 'invalid_state', reasons: [groupRevertReason] }
     if (current.isStandard && (
       Object.hasOwn(changes, 'isStandard') && !plate.isStandard ||
-      Object.hasOwn(changes, 'templateRole') && plate.templateRole !== 'template'
+      Object.hasOwn(changes, 'templateRole') && familyRole(plate) !== 'template'
     )) return { ok: false, error: 'standard_required' }
     if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
       const edits = await d.store.listEdits(batch.id)
@@ -107,7 +112,7 @@ async function updatePlate(
         const parents = await Promise.all(deleted.map(async edit => ({
           ...await d.baselineAtVersion(batch.baselineVersion, edit.plateId), ...edit.fields,
         })))
-        if (parents.some(parent => parent.templateRole === 'template' && parent.templateFamily === plate.templateFamily)) return { ok: false, error: 'invalid_state' }
+        if (parents.some(parent => familyRole(parent) === 'template' && parent.templateFamily === plate.templateFamily)) return { ok: false, error: 'invalid_state' }
       }
     }
     if (plate.deleted) {
@@ -120,7 +125,7 @@ async function updatePlate(
       const hasLinkedPlates = plates.some(baseline => {
         const member = { ...baseline, ...fieldsById.get(baseline.id) }
         return member.id !== plate.id && !member.deleted
-          && (member.variantOfPlateId === plate.id || plate.templateRole === 'template' && member.templateRole !== 'template'
+          && (member.variantOfPlateId === plate.id || familyRole(plate) === 'template' && familyRole(member) !== 'template'
             && !!plate.templateFamily && member.templateFamily === plate.templateFamily)
       })
       if (hasLinkedPlates) return { ok: false, error: 'invalid_state' }
@@ -154,7 +159,7 @@ async function updatePlate(
       const baselinePlates = await d.stateBaseline(batch.baselineVersion, plate.state)
       let order = batch.stateOrders[plate.state] ?? baselinePlates.map(member => member.id)
       if (requested.isStandard === true) {
-        if (plate.deleted || plate.templateRole !== 'template') return { ok: false, error: 'standard_invalid_template' }
+        if (plate.deleted || familyRole(plate) !== 'template') return { ok: false, error: 'standard_invalid_template' }
         const existingEdits = await d.store.listEdits(batch.id)
         const effectiveFields = new Map(existingEdits.map(edit => [edit.plateId, edit.fields]))
         const familyIds = new Set(baselinePlates.filter(member => {
@@ -249,7 +254,7 @@ export async function reorderState(
   for (const { plateId, templateFamily } of promotions) {
     const baseline = plates.find(plate => plate.id === plateId)
     const current = baseline && { ...baseline, ...editsById.get(plateId)?.fields }
-    if (!current || current.deleted || current.templateRole !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
+      if (!current || current.deleted || familyRole(current) !== 'variant' || !templateFamily.trim() || templateFamily.length > limits.text) return { ok: false, error: 'invalid_state' }
     if (plates.some(plate => plate.id !== plateId && (changes.get(plate.id)?.templateFamily ?? editsById.get(plate.id)?.fields.templateFamily ?? plate.templateFamily) === templateFamily)) return { ok: false, error: 'invalid_state' }
     protectedPromotion ||= plateId === input.order[0] || !!current.isStandard
     changes.set(plateId, { templateRole: 'template', variantOfPlateId: null, templateFamily })

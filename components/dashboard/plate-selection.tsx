@@ -84,7 +84,7 @@ export function SelectionPlate({ id, children, disabled = false, highlight = tru
   const statusId = useId()
   function select(event: MouseEvent) {
     const target = event.target as Element
-    if (target.closest('button, input, [data-plate-open]')) return
+    if (target.closest('button, input')) return
     if (target.closest('a') && !event.ctrlKey && !event.metaKey && !event.shiftKey) return
     event.preventDefault()
     event.stopPropagation()
