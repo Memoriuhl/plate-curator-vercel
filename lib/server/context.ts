@@ -132,8 +132,8 @@ export function reviewDeps(): ReviewDeps {
   }
 }
 
-export function jobsDeps(): JobsDeps {
-  const localScope = localPipelineScope()
+export function jobsDeps({ unscoped = false } = {}): JobsDeps {
+  const localScope = unscoped ? undefined : localPipelineScope()
   return {
     ...(localScope ? { localScope } : {}),
     store: firestoreJobsStore(stagingFirestore(), localScope ? localJobsEnvironment(localScope) : reviewEnv() as Environment, reviewEnv()),
