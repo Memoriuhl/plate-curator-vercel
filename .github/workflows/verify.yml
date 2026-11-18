@@ -23,3 +23,52 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: npm run build
+
+  firestore-emulator:
+    if: ${{ github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.id == github.repository_id) }}
+    runs-on: [self-hosted, linux, arm64, plate-curator-device]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          java-package: jre
+          settings-path: ${{ runner.temp }}
+      - run: npm ci
+      - name: Run Firestore emulator tests
+        shell: bash
+        run: |
+          emulator_dir=$(mktemp -d "$RUNNER_TEMP/firestore.XXXXXX")
+          config=$(mktemp "$PWD/firebase-ci.XXXXXX.json")
+          trap 'rm -f -- "$config" firestore-debug.log' EXIT
+          node --input-type=module - "$config" <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const config = JSON.parse(readFileSync('firebase.json', 'utf8'))
+          // The repository runner executes one job at a time. Use distinct
+          // loopback ports so CI can coexist with a developer emulator.
+          config.emulators.firestore = { host: 'localhost', port: 18080, websocketPort: 19150 }
+          config.emulators.hub = { host: 'localhost', port: 14400 }
+          config.emulators.logging = { host: 'localhost', port: 14500 }
+          config.emulators.singleProjectMode = false
+          writeFileSync(process.argv[2], JSON.stringify(config))
+          NODE
+
+          node --version
+          java -version
+          status=0
+          env -i PATH="$PATH" JAVA_HOME="$JAVA_HOME" HOME="$emulator_dir" TMPDIR="$emulator_dir" \
+            CI=true METADATA_SERVER_DETECTION=none RUNNER_TRACKING_ID="$RUNNER_TRACKING_ID" \
+            npm_config_cache="$HOME/.npm" FIREBASE_EMULATORS_PATH="$HOME/.cache/firebase/emulators" \
+            JAVA_TOOL_OPTIONS='-Xmx1g -XX:ActiveProcessorCount=2' \
+            timeout --signal=INT --kill-after=30s 8m npm run test:emulator -- --config "$config" || status=$?
+          if (( status != 0 )) && [[ -f firestore-debug.log ]]; then
+            tail -n 80 firestore-debug.log
+          fi
+          exit "$status"
