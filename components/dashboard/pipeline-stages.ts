@@ -37,12 +37,12 @@ export const pipelineStages: readonly StageDefinition[] = [
   { id: 'tag', label: 'Tag', description: 'Suggest tags with the selected model', duration: '0:40', jobKind: 'tag', localEnabled: true,
     options: [{ id: 'onlyUnderTagged', label: 'Only under-tagged plates', kind: 'boolean', default: false }] },
   { id: 'group', label: 'Group', description: 'Propose template families', duration: '1:00', jobKind: 'group', localEnabled: true, options: [
-      { id: 'colorSignal', label: 'Use colour signal', kind: 'boolean', default: true },
-      { id: 'backgroundMask', label: 'Background mask', kind: 'boolean', default: false },
-      { id: 'visionTiebreak', label: 'Vision tiebreak', kind: 'boolean', default: false },
       { id: 'method', label: 'Method', kind: 'select', default: 'embeddings', choices: [
         { value: 'embeddings', label: 'Embeddings' },
       ] },
+      { id: 'colorSignal', label: 'Use colour signal', kind: 'boolean', default: true },
+      { id: 'backgroundMask', label: 'Background mask', kind: 'boolean', default: false },
+      { id: 'visionTiebreak', label: 'Vision tiebreak', kind: 'boolean', default: false },
     ] },
   { id: 'order', label: 'Order', description: 'No automatic step yet', duration: '—', jobKind: null, localEnabled: false,
     disabledReason: 'Order is manual: drag families to reorder', options: [] },
@@ -54,8 +54,13 @@ export type PipelineCapabilities = Awaited<ReturnType<typeof readLocalWorkerCapa
 
 export function stageAvailability(stage: StageDefinition, local: boolean, capabilities?: PipelineCapabilities) {
   if (local && (stage.id === 'group' || stage.id === 'find-image')) {
-    const capability = capabilities?.[stage.id]
-    if (!capability?.available) return capability && 'reason' in capability ? capability.reason : 'Local worker not reporting'
+    if (!capabilities) return 'Local worker not reporting'
+    if (stage.id === 'group') {
+      if (!capabilities.group.available) return capabilities.group.reason ?? 'Grouping is unavailable'
+      if (!capabilities.embeddings.available) return capabilities.embeddings.reason ?? 'No grouping methods are available'
+    } else if (!capabilities['find-image'].available) {
+      return 'reason' in capabilities['find-image'] ? capabilities['find-image'].reason : 'Image search is unavailable'
+    }
   }
   return stage.id === 'tag' || local && stage.localEnabled ? undefined : local ? stage.disabledReason : 'Coming soon'
 }

@@ -7,6 +7,7 @@ import { usePipelineQueue } from '../../components/dashboard/use-pipeline-queue'
 import { PipelineQueuePanel } from '../../components/dashboard/pipeline-queue-panel'
 import type { QueueRunView } from '../../lib/jobs/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
+import { PipelineOptionSelect } from '../../components/dashboard/pipeline-option-select'
 import { TAGGING_MODELS } from '../../lib/tagging/models'
 import { PipelineFieldValue, pipelineFieldLabel } from '../../components/dashboard/pipeline-field-value'
 import { imageGroupCapabilities } from '../../lib/jobs/image-options'
@@ -209,12 +210,32 @@ test('research model discovery distinguishes loading, failure, empty, and deskto
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['research'], undefined, { research: { policy: 'fill-missing' } }, false, undefined, RESEARCH_MODELS[0].id, 'Alaska pipeline'))
 })
 
+test('Fill missing explains why a complete Batch selection has no research to run', async () => {
+  const complete = { ...plate, description: 'Existing description', wikiUrl: 'https://example.org/wiki', firstIssuedYear: 1976,
+    funFacts: [{ text: 'Existing fact', sourceUrl: 'https://example.org/fact' }],
+    readMore: [{ site: 'Museum', title: 'Existing source', url: 'https://example.org/history' }] }
+  const enqueue = vi.fn()
+  mocks.api.get.mockResolvedValue({ models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id })
+  render(<PipelineRunControls underTagged={[plate]} batchPlates={[complete]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />, { wrapper })
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Plates in your batch 1' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Tag' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  expect(screen.getByText(/The selected plates already have research fields/)).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' }).disabled).toBe(true)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Research edits' }), { target: { value: 'replace' } })
+  await screen.findByRole('combobox', { name: 'Research model' })
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' }).disabled).toBe(false)
+})
+
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: false, visionTiebreak: false, maskReason: 'Mask unavailable' }), reportedAt: 100, pollIntervalMs: 1000 }
   render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+  expect(screen.getByText('Method · Embeddings')).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
   const colour = screen.getByLabelText(/Use colour signal/) as HTMLInputElement
   expect(colour.checked).toBe(false)
   expect(colour.disabled).toBe(true)
@@ -223,6 +244,39 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag', 'group'], 'desktop-gemma4-12b', {
     tag: { onlyUnderTagged: false }, group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
   }, false, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
+})
+
+test('Group explains an unavailable method and cannot queue after the worker loses it', () => {
+  const enqueue = vi.fn()
+  const capabilities = { ...imageGroupCapabilities({ embeddings: true, backgroundMask: true, visionTiebreak: true }), reportedAt: 100, pollIntervalMs: 1000 }
+  const queue = { runs: [], action: null, message: '', disabledReason: undefined, enqueue, capabilities }
+  const view = (capabilities: typeof queue.capabilities) => <PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ ...queue, capabilities }} />
+  const result = render(view(capabilities))
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
+
+  result.rerender(view({ ...capabilities, embeddings: { available: false, reason: 'Embedding model offline' } }))
+  expect(screen.getByText('Method · Embedding model offline')).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
+  const group = screen.getByRole<HTMLInputElement>('checkbox', { name: /Group: Embedding model offline/ })
+  expect(group.checked).toBe(true)
+  const start = screen.getByRole<HTMLButtonElement>('button', { name: 'Start run' })
+  expect(start.disabled).toBe(true)
+  fireEvent.click(start)
+  expect(enqueue).not.toHaveBeenCalled()
+  fireEvent.click(group)
+  expect(group.disabled).toBe(true)
+  expect(start.disabled).toBe(false)
+})
+
+test('a method control with multiple available choices exposes a selector', () => {
+  const choices = [{ value: 'fixture-one', label: 'Fixture one' }, { value: 'fixture-two', label: 'Fixture two' }]
+  const onChange = vi.fn()
+  render(<PipelineOptionSelect label="Method" choices={choices} value={choices[0].value} onChange={onChange} disabled={false} />)
+  const method = screen.getByRole('combobox', { name: 'Method' })
+  expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['Fixture one', 'Fixture two'])
+  fireEvent.change(method, { target: { value: choices[1].value } })
+  expect(onChange).toHaveBeenCalledWith(choices[1].value)
 })
 
 test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {

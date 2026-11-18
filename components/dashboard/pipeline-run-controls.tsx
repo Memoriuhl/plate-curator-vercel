@@ -11,6 +11,7 @@ import { useSelectedPlates } from './plate-selection'
 import { pipelineSelectionLimit } from '@/lib/jobs/pipeline-selection'
 import { groupSelectionLimit } from '@/lib/review/group-context'
 import { newRunStages, stageAvailability } from './pipeline-stages'
+import { PipelineOptionSelect } from './pipeline-option-select'
 import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
 import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
@@ -99,18 +100,22 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
               <label className="flex items-center gap-3"><input type="checkbox" disabled={!!unavailable && !checked} checked={checked} aria-label={unavailable ? `${stage.label}: ${unavailable}` : stage.label}
                 onChange={event => setStages(current => event.target.checked ? newRunStages.filter(candidate => candidate.id !== 'order' && (candidate.id === stage.id || current.includes(candidate.id))).map(candidate => candidate.id as LocalRunStage) : current.filter(id => id !== stage.id))} />
                 <span className="flex-1"><strong>{stage.label}</strong><span className="caption block">{stage.description}</span></span><span className="id">{stage.duration}</span></label>
-              {unavailable ? <p className="caption">{unavailable}</p> : null}
+              {unavailable && stage.id !== 'group' ? <p className="caption">{unavailable}</p> : null}
               {stage.options.map(setting => {
-                const values = { ...defaultPipelineOptions[stage.id as keyof PipelineOptions], ...resolvedOptions[stage.id as keyof PipelineOptions] } as Record<string, string | boolean>
-                const capability = stage.id === 'group' ? queue.capabilities?.[setting.id === 'method' ? 'embeddings' : setting.id as 'colorSignal' | 'backgroundMask' | 'visionTiebreak'] : undefined
-                const disabledReason = setting.disabledReason ?? (stage.id === 'group' && !capability?.available ? capability?.reason ?? 'Local worker not reporting' : undefined)
-                const value = stage.id === 'group' && setting.kind === 'boolean' && disabledReason ? false : values[setting.id] ?? setting.default
+                const optionStage = stage.id as keyof PipelineOptions
+                const values = { ...defaultPipelineOptions[optionStage], ...resolvedOptions[optionStage] } as Record<string, string | boolean>
+                const value = values[setting.id] ?? setting.default
+                if (setting.kind === 'select') {
+                  return <PipelineOptionSelect key={setting.id} label={setting.label}
+                    choices={unavailable ? [] : setting.choices ?? []} unavailableReason={unavailable}
+                    value={String(value)} disabled={!checked} onChange={next => option(optionStage, setting.id, next)} />
+                }
+                if (stage.id === 'group' && unavailable) return null
+                const capability = stage.id === 'group' ? queue.capabilities?.[setting.id as 'colorSignal' | 'backgroundMask' | 'visionTiebreak'] : undefined
+                const disabledReason = stage.id === 'group' && !capability?.available ? capability?.reason ?? 'Unavailable on the local worker' : undefined
                 return <label key={setting.id} className="caption flex items-center gap-2 pl-7">
-                  {setting.kind === 'boolean' ? <input type="checkbox" checked={value === true} disabled={!checked || !!unavailable || !!disabledReason} onChange={event => option(stage.id as keyof PipelineOptions, setting.id, event.target.checked)} /> : null}
+                  <input type="checkbox" checked={value === true && !disabledReason} disabled={!checked || !!unavailable || !!disabledReason} onChange={event => option(optionStage, setting.id, event.target.checked)} />
                   {setting.label}
-                  {setting.kind === 'select' ? <select value={String(value)} disabled={!checked || !!unavailable || !!disabledReason} onChange={event => option(stage.id as keyof PipelineOptions, setting.id, event.target.value)} className="rounded-[var(--radius-sm)] bg-[var(--card)] p-2">
-                    {setting.choices?.map(choice => <option key={choice.value} value={choice.value} disabled={!!choice.disabledReason}>{choice.label}{choice.disabledReason ? ` · ${choice.disabledReason}` : ''}</option>)}
-                  </select> : null}
                   {disabledReason ? <span className="text-[var(--ink-2)]">{disabledReason}</span> : null}
                 </label>
               })}
