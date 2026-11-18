@@ -122,6 +122,12 @@ export function reviewError(error: unknown, revision: number) {
 export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const me = useMe()
   const batch = detail.batch
+  const actions = useReviewActions()
+  const latest = useBatch(batch.id, { reuse: true })
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const canSubmit = batch.state === 'open' && batch.createdBy === me.data?.uid
+  const canApprove = batch.state === 'submitted' && me.data?.role === 'owner'
   const run = useBatchRun(batch.state === 'published' ? batch.id : null)
   const approvedBy =
     batch.approval?.by === me.data?.uid
@@ -131,6 +137,19 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
         : null
   const changed = detail.plates.filter(plate => changeSummary(plate.baseline, plate.proposed, plate.order) !== 'No changes')
   const affectedStates = [...new Set(changed.map(plate => plate.baseline.state))].sort()
+  async function saveReviewDecision() {
+    if (busy || (!canSubmit && !canApprove)) return
+    setBusy(true)
+    setMessage('')
+    try {
+      await (canSubmit ? actions.submit : actions.approve)(batch.id, batch.revision)
+    } catch (error) {
+      const current = await latest.mutate().catch(() => undefined)
+      setMessage(reviewError(error, current?.batch.revision ?? batch.revision))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
       {batch.source && <p className="w-full">Copied from <Link className="underline" href={reviewHref(undefined, undefined, batch.source.batchId)}>original Batch revision {batch.source.revision}</Link>. Review against Catalog v{batch.baselineVersion}.</p>}
@@ -139,6 +158,13 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
       ) : (
         <p className="min-w-0 flex-1" title={affectedStates.join(', ')}>{changed.length} changed {changed.length === 1 ? 'plate' : 'plates'} · rev {batch.revision}</p>
       )}
+      {(canSubmit || canApprove) && (
+        <Button size="sm" disabled={busy} onClick={saveReviewDecision}>
+          {canSubmit ? 'Submit for review' : `Approve revision ${batch.revision}`}
+        </Button>
+      )}
+      {batch.state === 'submitted' && !canApprove && <p>Waiting for an Owner to approve</p>}
+      {message && <p role="alert" className="w-full">{message}</p>}
     </footer>
   )
 }
