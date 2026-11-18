@@ -2,15 +2,16 @@ import { queueLimits } from './queue'
 import type { PipelineRun, ResourceClass } from './queue-types'
 import type { JobsDeps, TaggingJob } from './types'
 
-export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[]) {
+export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local') {
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter(job => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
-  for (const job of scoped) if (job.state === 'claimed' && job.route !== 'hosted') occupied[job.resourceClass ?? 'gpu']++
+  for (const job of scoped) if (job.state === 'claimed' && (job.route !== 'hosted' || job.queueRunId)) occupied[job.resourceClass ?? 'gpu']++
   const lastByUser = new Map<string, number>()
   for (const run of runs) if (run.localScope === d.localScope) lastByUser.set(run.requestedBy, Math.max(lastByUser.get(run.requestedBy) ?? 0, run.lastDispatchedAt ?? 0))
   return scoped.filter(job => {
-    if (job.route === 'hosted' || occupied[job.resourceClass ?? 'gpu'] >= queueLimits[job.resourceClass ?? 'gpu']) return false
+    if ((job.route === 'hosted') !== (route === 'hosted') || occupied[job.resourceClass ?? 'gpu'] >= queueLimits[job.resourceClass ?? 'gpu']) return false
+    if (route === 'hosted' && !job.queueRunId) return false
     if (!job.queueRunId) return job.state === 'queued'
     const run = runs.find(run => run.id === job.queueRunId && run.localScope === d.localScope)
     const attempt = run?.attempts.at(-1)

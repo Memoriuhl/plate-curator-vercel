@@ -1,5 +1,5 @@
 import type { ModelAdapter } from '../../worker/model'
-import { claimJob, getJob, reportResult } from './jobs'
+import { claimJob, claimHostedQueueJob, getJob, reportResult } from './jobs'
 import type { JobsDeps, TaggingJob } from './types'
 
 export const HOSTED_WORKER = 'hosted'
@@ -14,7 +14,7 @@ export type HostedDeps = {
   image(plate: HostedPlate): Promise<string | null>
 }
 export type FinalOutcome = 'completed' | 'stale' | 'failed'
-export type PlateOutcome = FinalOutcome | 'retry'
+export type PlateOutcome = FinalOutcome | 'retry' | 'waiting'
 export type ChunkResult = { outcomes: Record<string, PlateOutcome>; retryAfterMs: number | null }
 
 function errorStatus(error: unknown) {
@@ -31,7 +31,9 @@ export async function tagHostedJob(d: HostedDeps, jobId: string): Promise<{ outc
   if (!existing || existing.state === 'expired') return { outcome: 'failed' }
   if (existing.state === 'completed') return { outcome: 'completed' }
 
-  const claim = await claimJob(d.jobs, HOSTED_WORKER, jobId)
+  const reserved = existing.queueRunId ? await claimHostedQueueJob(d.jobs, jobId) : undefined
+  if (existing.queueRunId && !reserved) return { outcome: 'waiting' }
+  const claim = reserved ? { ok: true as const, value: reserved } : await claimJob(d.jobs, HOSTED_WORKER, jobId)
   if (!claim.ok) return { outcome: 'failed' }
   if (claim.value.job.state === 'completed') return { outcome: 'completed' }
 
@@ -81,7 +83,7 @@ export function retryDelayMs(result: ChunkResult, attempt: number) {
 }
 
 export function finalOutcomes(result: ChunkResult): Record<string, FinalOutcome> {
-  return Object.fromEntries(Object.entries(result.outcomes).map(([id, outcome]) => [id, outcome === 'retry' ? 'failed' : outcome]))
+  return Object.fromEntries(Object.entries(result.outcomes).map(([id, outcome]) => [id, outcome === 'retry' || outcome === 'waiting' ? 'failed' : outcome]))
 }
 
 export function chunks<T>(items: T[], size = CHUNK_SIZE): T[][] {

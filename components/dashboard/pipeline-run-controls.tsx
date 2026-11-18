@@ -23,6 +23,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
 }) {
   const selected = useSelectedPlates()
   const choice = useTaggingModelChoice()
+  const desktopChoice = useTaggingModelChoice('pipeline-desktop-model:v1')
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
@@ -31,8 +32,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const [options, setOptions] = useState<PipelineOptions>({})
   const [previewOnly, setPreviewOnly] = useState(false)
   const desktop = choice.data?.models.filter(model => model.runsOn === 'desktop') ?? []
-  const modelId = (desktop.find(model => model.id === choice.modelId)?.id ?? desktop[0]?.id) as TaggingModelId | undefined
-  const localChoice = { ...choice, modelId, data: choice.data ? { ...choice.data, models: desktop } : undefined }
+  const modelId = (desktop.find(model => model.id === desktopChoice.modelId)?.id ?? desktop[0]?.id) as TaggingModelId | undefined
+  const localChoice = { ...desktopChoice, modelId, data: choice.data ? { ...choice.data, models: desktop } : undefined }
   const plates = scope === 'selected' ? selected : scope === 'batch' ? batchPlates : scope === 'all' ? allPlates : underTagged
   const planned = useMemo(() => planTagRun(plates, false, Number(limit)), [plates, limit])
   const validLimit = Number.isInteger(Number(limit)) && Number(limit) > 0 && Number(limit) <= 25
@@ -46,11 +47,12 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
     if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
   }
   const steps = planPipeline(planned.map(plate => ({ ...plate, hasStory: plate.hasStory ?? plate.checks?.funFacts.status === 'good' })), stages, resolvedOptions)
-  const needsModel = pipelineNeedsModel(steps, resolvedOptions)
-  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
+  const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), resolvedOptions)
+  const needsTagModel = steps.some(step => step.stage === 'tag')
+  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...planned], stages, needsModel ? modelId : undefined, resolvedOptions, previewOnly)) setOpen(false)
+    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined)) setOpen(false)
   }
   function option(stage: keyof PipelineOptions, key: string, value: string | boolean) {
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
@@ -97,7 +99,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
             </fieldset>
           })}
         </section>
-        {needsModel ? <TaggingModelPicker choice={localChoice} /> : null}
+        {needsTagModel ? <div className="grid gap-1"><p className="label">Tag model</p><TaggingModelPicker choice={choice} /></div> : null}
+        {needsModel ? <div className="grid gap-1"><p className="label">Desktop stage model</p><TaggingModelPicker choice={localChoice} /></div> : null}
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
           <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>

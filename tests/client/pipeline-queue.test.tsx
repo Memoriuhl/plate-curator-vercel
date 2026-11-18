@@ -14,10 +14,11 @@ import { PipelineRuns } from '../../components/dashboard/pipeline-runs'
 import { queueProgress } from '../../lib/jobs/run-progress'
 
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), send: vi.fn() }, ensure: vi.fn(),
+  modelId: 'desktop-gemma4-12b',
   models: [] as (typeof TAGGING_MODELS)[number][], workspace: { mode: 'personal' } as { mode: string; id?: string; status?: string; detail?: { batch: { state: string } } } }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => ({ user: { uid: 'editor' }, api: mocks.api }) }))
 vi.mock('../../lib/client/hooks', () => ({ useEnsureBatch: () => mocks.ensure, useWorkspaceBatch: () => mocks.workspace, useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }) }))
-vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: 'desktop-gemma4-12b' }), TaggingModelPicker: () => <span>Local model</span> }))
+vi.mock('../../components/dashboard/tagging-model-picker', () => ({ useTaggingModelChoice: () => ({ data: { models: mocks.models }, modelId: mocks.modelId }), TaggingModelPicker: () => <span>Local model</span> }))
 vi.mock('../../components/dashboard/plate-selection', () => ({ useSelectedPlates: () => [] }))
 
 function saved(overrides: Partial<QueueRunView> = {}): QueueRunView {
@@ -34,6 +35,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1'); localStorage.clear(); mocks.workspace = { mode: 'personal' }
   mocks.ensure.mockReset().mockResolvedValue('batch')
   mocks.models = [...TAGGING_MODELS]
+  mocks.modelId = 'desktop-gemma4-12b'
   mocks.api.get.mockReset().mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
 })
@@ -104,7 +106,17 @@ test('local controls select multiple stages, keep options snapshot, and permit Q
   expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b'))
+})
+
+test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
+  mocks.modelId = 'gateway-gemma4-26b'
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  render(<PipelineRunControls underTagged={[plate]} batchPlates={[plate]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b'))
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
@@ -140,7 +152,7 @@ test('model-free Wiki plus skipped Story can start without any desktop model', a
   expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(false)
   expect(screen.queryByText('Local model')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined))
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
@@ -156,7 +168,7 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag', 'group'], 'desktop-gemma4-12b', {
     tag: { onlyUnderTagged: false }, group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
-  }, false))
+  }, false, 'desktop-gemma4-12b'))
 })
 
 test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {

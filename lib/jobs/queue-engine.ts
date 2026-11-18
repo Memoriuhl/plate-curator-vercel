@@ -7,6 +7,7 @@ import type { JobsDeps, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
 import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { storyUrl } from '../review/fields'
+import { taggingModel } from '../tagging/models'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
@@ -73,11 +74,13 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
       finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), error)
       tx.setRun(run); return null
     }
+    const modelId = step.stage === 'tag' ? run.tagModelId ?? run.modelId : run.modelId
+    const hosted = step.stage === 'tag' && taggingModel(modelId)?.runsOn === 'gateway'
     const job: TaggingJob = { id: jobId, batchId: run.batchId, plateId: step.plateId, requestedBy: run.requestedBy, enqueuedBy: run.requestedBy,
       env: d.store.env, localScope: d.localScope!, queueRunId: id, previewOnly: run.previewOnly, queueAttempt: number, queueStep: index, resourceClass: step.resourceClass,
       queueOrder: run.enqueueSequence,
       createdAt: d.now(), state: 'queued', inputPlate: projected.executionPlate, inputHash: projected.batchInputHash, executionHash: projected.executionHash,
-      completionHook, ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(run.modelId && pipelineNeedsModel([step], run.options) ? { modelId: run.modelId } : {}),
+      completionHook, ...(hosted ? { route: 'hosted' as const } : {}), ...(step.stage === 'tag' ? {} : { stage: step.stage }), ...(modelId && pipelineNeedsModel([step], run.options) ? { modelId } : {}),
       ...(run.options[step.stage as keyof typeof run.options] ? { stageOptions: run.options[step.stage as keyof typeof run.options] } : {}),
       ...(step.stage === 'group' ? { groupScope: Object.values(attempt.projection!.plates).map(entry => ({ plate: entry.executionPlate, baseRevision: entry.batchInputHash })), ...(groupContext?.standardId ? { standardId: groupContext.standardId } : {}) } : {}),
     }

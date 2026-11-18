@@ -27,16 +27,16 @@ export function parseEnqueue(input: unknown): EnqueueInput | null {
   const value = input as Record<string, unknown>
   const options = parsePipelineOptions(value.options)
   if (!options || value.previewOnly !== undefined && typeof value.previewOnly !== 'boolean' ||
-    Object.keys(value).some(key => !['requestId', 'batchId', 'plateIds', 'stages', 'modelId', 'options', 'previewOnly'].includes(key)) ||
+    Object.keys(value).some(key => !['requestId', 'batchId', 'plateIds', 'stages', 'modelId', 'tagModelId', 'options', 'previewOnly'].includes(key)) ||
     typeof value.requestId !== 'string' || !requestPattern.test(value.requestId) || typeof value.batchId !== 'string' || !requestPattern.test(value.batchId) ||
     !Array.isArray(value.plateIds) || !value.plateIds.length || value.plateIds.length > 25 ||
     value.plateIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9._-]{1,180}$/.test(id)) || new Set(value.plateIds).size !== value.plateIds.length ||
     !Array.isArray(value.stages) || !value.stages.length || value.stages.length > 7 ||
     value.stages.some(stage => stage !== 'tag' && (!isPipelineStage(stage) || stage === 'order')) || new Set(value.stages).size !== value.stages.length ||
-    value.modelId !== undefined && (typeof value.modelId !== 'string' || !requestPattern.test(value.modelId))) return null
+    ['modelId', 'tagModelId'].some(key => value[key] !== undefined && (typeof value[key] !== 'string' || !requestPattern.test(value[key] as string)))) return null
   return { requestId: value.requestId, batchId: value.batchId, plateIds: value.plateIds as string[],
     stages: canonicalStages.filter(stage => (value.stages as unknown[]).includes(stage)), options: snapshotPipelineOptions(value.stages as string[], options), previewOnly: value.previewOnly === true,
-    ...(value.modelId ? { modelId: value.modelId as string } : {}) }
+    ...(value.modelId ? { modelId: value.modelId as string } : {}), ...(value.tagModelId ? { tagModelId: value.tagModelId as string } : {}) }
 }
 
 export function queueRecordFits(run: PipelineRun) { return Buffer.byteLength(JSON.stringify(run), 'utf8') <= maxQueueRecordBytes }
@@ -76,7 +76,8 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   const parsed = parseEnqueue(input)
   if (!parsed) return { ok: false, error: 'bad_request' }
-  const fingerprint = JSON.stringify({ batchId: parsed.batchId, plateIds: parsed.plateIds, stages: parsed.stages, modelId: parsed.modelId ?? null, options: parsed.options, previewOnly: parsed.previewOnly })
+  const fingerprint = JSON.stringify({ batchId: parsed.batchId, plateIds: parsed.plateIds, stages: parsed.stages, modelId: parsed.modelId ?? null,
+    ...(parsed.tagModelId ? { tagModelId: parsed.tagModelId } : {}), options: parsed.options, previewOnly: parsed.previewOnly })
   const id = createHash('sha256').update(JSON.stringify([d.store.env, actor.uid, parsed.requestId])).digest('hex')
   return d.store.transaction(async tx => {
     const runs = await tx.runs()
@@ -94,13 +95,18 @@ export async function enqueueRun(d: JobsDeps, actor: Actor, input: EnqueueInput)
     if (parsed.stages.includes('group') && !await queueGroupContext(d, tx, batch!, plates)) return { ok: false, error: 'invalid_state' }
     const steps = planPipeline(plates, parsed.stages, parsed.options!)
     if (!steps.length) return { ok: false, error: 'invalid_state' }
-    const needsModel = pipelineNeedsModel(steps, parsed.options!)
+    const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), parsed.options!)
     const choice = needsModel ? chooseTaggingModel(parsed.modelId, enabledTaggingModels(process.env.TAGGING_MODELS).filter(model => model.runsOn === 'desktop'), process.env.TAGGING_DEFAULT_MODEL) : undefined
     if (choice && !choice.ok) return { ok: false, error: choice.error === 'bad_request' ? 'bad_request' : 'invalid_state' }
+    const tagChoice = steps.some(step => step.stage === 'tag') ? chooseTaggingModel(parsed.tagModelId ?? parsed.modelId, enabledTaggingModels(process.env.TAGGING_MODELS), process.env.TAGGING_DEFAULT_MODEL) : undefined
+    if (tagChoice && !tagChoice.ok) return { ok: false, error: tagChoice.error === 'bad_request' ? 'bad_request' : 'invalid_state' }
+    if (tagChoice?.ok && tagChoice.model.runsOn === 'gateway') for (const step of steps) if (step.stage === 'tag') step.resourceClass = 'io'
     const savedInput = { ...parsed }
     delete savedInput.modelId
+    delete savedInput.tagModelId
     const now = d.now()
-    const run: PipelineRun = { ...savedInput, ...(needsModel && choice?.ok ? { modelId: choice.model.id } : {}), id, fingerprint, env: d.store.env, localScope: d.localScope!, requestedBy: actor.uid,
+    const run: PipelineRun = { ...savedInput, ...(needsModel && choice?.ok ? { modelId: choice.model.id } : tagChoice?.ok ? { modelId: tagChoice.model.id } : {}),
+      ...(tagChoice?.ok ? { tagModelId: tagChoice.model.id } : {}), id, fingerprint, env: d.store.env, localScope: d.localScope!, requestedBy: actor.uid,
       resourceClass: steps.some(step => step.resourceClass === 'gpu') ? 'gpu' : 'io', options: parsed.options!, previewOnly: parsed.previewOnly!,
       createdAt: now, queuedAt: now, enqueueSequence: Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1, updatedAt: now, status: 'queued', waitReason: 'worker',
       attempts: [{ number: 1, requestId: parsed.requestId, createdAt: now, jobIds: [], status: 'queued', cursor: 0, completedJobIds: [], steps, choices: {}, projection: snapshotProjection(batch!.baselineVersion, plates) }] }

@@ -35,6 +35,7 @@ export type PipelineRun = {
   plateIds: string[]
   stages: LocalRunStage[]
   modelId?: string
+  tagModelId?: string
   resourceClass: ResourceClass
   options: PipelineOptions
   previewOnly: boolean
@@ -59,6 +60,6 @@ export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   batchName?: string
   progress?: import('./run-progress').PipelineProgress
 }
-export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; options?: PipelineOptions; previewOnly?: boolean }
+export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; tagModelId?: string; options?: PipelineOptions; previewOnly?: boolean }
 export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit'
 export type QueueOutcome<T> = { ok: true; value: T } | { ok: false; error: QueueError }
