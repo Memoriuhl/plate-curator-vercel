@@ -139,7 +139,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                 </button>
               </div>
               <div id={panelId} hidden={!showingOptions}>
-                {showingOptions ? <div className="grid gap-3 border-t border-[var(--hairline)] px-3 py-3">
+                {showingOptions ? <div className="grid gap-3 rounded-b-[var(--radius-md)] border-t border-[var(--hairline)] bg-[color-mix(in_srgb,var(--fill)_94%,black)] px-3 py-3">
                   {stage.options.map(setting => {
                     const value = values[setting.id] ?? setting.default
                     if (setting.kind === 'select') {
