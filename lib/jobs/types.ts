@@ -1,8 +1,10 @@
 import type { Plate } from '../catalog/types'
 import type { EditableFields, ReviewBatch } from '../review/types'
 import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
-import type { ImageGroupOptions } from './image-options'
+
 import type { WorkerCapabilityRecord } from './capabilities'
+import type { PipelineRun, ResourceClass } from './queue-types'
+import type { ImageGroupOptions } from './image-options'
 
 export type Environment = 'production' | 'development' | `preview:${string}`
 export type PipelineStage = 'describe' | 'story' | 'wiki-link' | 'colors' | 'find-image' | 'group' | 'order'
@@ -18,6 +20,7 @@ export type TaggingJob = {
   requestedBy: string
   inputPlate?: Plate
   inputHash: string
+  executionHash?: string
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
@@ -26,9 +29,20 @@ export type TaggingJob = {
   previewOnly?: boolean
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions
+  queueRunId?: string
+  queueAttempt?: number
+  enqueuedBy?: string
+  queueStep?: number
+  queueOrder?: number
+  completionHook?: string
+  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean }
+  resourceClass?: ResourceClass
+  failure?: string
   createdAt: number
-  state: 'queued' | 'claimed' | 'completed' | 'expired'
+  state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
+  endedAt?: number
+  recoveryNeededAt?: number
+  recoveredBy?: string
   claimId?: string
   workerId?: string
   leaseExpiresAt?: number
@@ -39,6 +53,8 @@ export type TaggingJob = {
 export type WorkerToken = { hash: string; workerId: string; env: Environment; createdAt: number; revokedAt: number | null }
 export interface JobsTransaction {
   batch(id: string): Promise<ReviewBatch | null>
+  runs(): Promise<PipelineRun[]>
+  setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
   list(): Promise<TaggingJob[]>
   review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number } | null>
@@ -54,6 +70,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string): Promise<Plate[]>; now(): number; id(): string; leaseMs: number; localScope?: string }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; now(): number; id(): string; leaseMs: number; localScope?: string }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

@@ -4,6 +4,8 @@ import { json } from '../../../../lib/server/respond'
 import { taggingModel } from '../../../../lib/tagging/models'
 import { reportLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { readJson, badRequest } from '../../../../lib/server/respond'
+import { wakeLocalJob } from '../../../../lib/server/local-queue'
+import type { Plate } from '../../../../lib/catalog/types'
 
 export async function POST(request: Request) {
   const worker = await currentWorker(request)
@@ -18,11 +20,14 @@ export async function POST(request: Request) {
   if (!claim) return new Response(null, { status: 204, headers: { 'Cache-Control': 'private, no-store' } })
 
   const plate = claim.job.inputPlate ?? await legacyInput(claim.job.batchId, claim.job.plateId)
+  if (claim.job.queueRunId) await wakeLocalJob(claim.job)
   return json({
     job: { id: claim.job.id, batchId: claim.job.batchId, plateId: claim.job.plateId, inputHash: claim.job.inputHash },
     ...(claim.job.stage ? { stage: claim.job.stage } : {}),
     ...(claim.job.groupScope ? { groupScope: claim.job.groupScope } : {}),
     ...(claim.job.standardId ? { standardId: claim.job.standardId } : {}),
+    ...(claim.job.localScope ? { local: true } : {}),
+    ...(claim.job.queueRunId ? { queueRunId: claim.job.queueRunId } : {}),
     ...(claim.job.stageOptions ? { stageOptions: claim.job.stageOptions } : {}),
     claimId: claim.claimId,
     leaseExpiresAt: new Date(claim.leaseExpiresAt).toISOString(),
@@ -34,9 +39,10 @@ export async function POST(request: Request) {
   })
 }
 
-async function legacyInput(batchId: string, plateId: string) {
+async function legacyInput(batchId: string, plateId: string): Promise<Plate> {
   const review = reviewDeps()
   const baseline = await review.baseline(plateId)
+  if (!baseline) throw Error('Job input is unavailable')
   const edit = await review.store.getEdit(batchId, plateId)
   return { ...baseline, ...edit?.fields }
 }

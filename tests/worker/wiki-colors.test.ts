@@ -29,6 +29,18 @@ test('Wiki link does not mistake a generic shared subject word for the named org
   expect(suggestedFields(result)?.wikiUrl).toBe('https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Maryland')
 })
 
+test('the Florida Standard - Sunshine plate uses the state registration page over unrelated name hits', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+    const params = new URL(String(input)).searchParams
+    return params.has('srsearch')
+      ? Response.json({ query: { search: [{ title: 'Sunshine State Standards' }] } })
+      : Response.json({ query: { pages: [{ title: 'Vehicle registration plates of Florida' }] } })
+  })
+  const result = await findWikipediaLink({ displayName: 'Standard - Sunshine', state: 'FL', image: '', tags: [] }, fetch)
+  expect(suggestedFields(result)).toEqual({ wikiUrl: 'https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Florida' })
+})
+
 test('Colors proposes legacy color fields and text-color tags while preserving unrelated tags', async () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ message: { content: JSON.stringify({ primaryColor: 'white', textColors: ['black', 'invalid'], colors: ['white'], subjects: [], themes: [], motifs: [] }) } }))

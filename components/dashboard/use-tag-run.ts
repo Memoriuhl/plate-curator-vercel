@@ -19,7 +19,7 @@ export type RunPlate = {
 }
 export type TagJob = {
   previewOnly?: boolean
-  state: 'queued' | 'claimed' | 'completed' | 'expired'
+  state: 'queued' | 'claimed' | 'completed' | 'expired' | 'failed' | 'cancelled'
   suggestions: string[]
   inputHash?: string
   stage?: PipelineStage

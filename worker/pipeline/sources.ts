@@ -4,6 +4,11 @@ import type { WorkerPlate } from '../run'
 export type Source = { id: string; kind: 'wikipedia' | 'web'; title: string; url: string; text: string }
 const api = 'https://en.wikipedia.org/w/api.php'
 
+export function standardPlateReference(plate: Pick<WorkerPlate, 'displayName' | 'state'>): string | undefined {
+  const state = JURISDICTIONS[plate.state]
+  if (state && /^\s*standard(?:\s*[-–—:]|\s*$)/i.test(plate.displayName)) return `Vehicle registration plates of ${state}`
+}
+
 function wikiTitle(value?: string | null) {
   try {
     const url = new URL(value ?? '')
@@ -31,15 +36,20 @@ export function relevantText(lines: string[], name: string) {
 export async function gatherWikipedia(plate: WorkerPlate, request: typeof fetch = fetch): Promise<Source[]> {
   const query = (params: Record<string, string>) => wikipediaQuery(params, request)
   const titles = new Set<string>()
-  const existing = wikiTitle(plate.wikiUrl)
-  if (existing) titles.add(existing)
   const stateName = JURISDICTIONS[plate.state]
-  if (stateName) titles.add(`Vehicle registration plates of ${stateName}`)
-  const search = await query({ action: 'query', list: 'search', srsearch: `${plate.displayName} ${stateName ?? plate.state} license plate`, srlimit: '3' })
-  const subjectWords = plate.displayName.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 2 && !['plate', 'plates', 'standard', 'special', 'license', ...(stateName?.toLowerCase().split(' ') ?? [])].includes(word))
-  for (const hit of search.query?.search ?? []) {
-    if (typeof hit.title === 'string' && !/^(File|Category|Template|Special):|\((film|song|album|disambiguation|video game|novel)\)/i.test(hit.title) && subjectWords.some(word => hit.title.toLowerCase().includes(word))) titles.add(hit.title)
-    if (titles.size >= 3) break
+  const standardReference = standardPlateReference(plate)
+  if (standardReference) {
+    titles.add(standardReference)
+  } else {
+    const existing = wikiTitle(plate.wikiUrl)
+    if (existing) titles.add(existing)
+    if (stateName) titles.add(`Vehicle registration plates of ${stateName}`)
+    const search = await query({ action: 'query', list: 'search', srsearch: `${plate.displayName} ${stateName ?? plate.state} license plate`, srlimit: '3' })
+    const subjectWords = plate.displayName.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 2 && !['plate', 'plates', 'standard', 'special', 'license', ...(stateName?.toLowerCase().split(' ') ?? [])].includes(word))
+    for (const hit of search.query?.search ?? []) {
+      if (typeof hit.title === 'string' && !/^(File|Category|Template|Special):|\((film|song|album|disambiguation|video game|novel)\)/i.test(hit.title) && subjectWords.some(word => hit.title.toLowerCase().includes(word))) titles.add(hit.title)
+      if (titles.size >= 3) break
+    }
   }
   const sources: Source[] = []
   for (const title of [...titles].slice(0, 3)) {

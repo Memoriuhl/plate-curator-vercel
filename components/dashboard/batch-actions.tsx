@@ -18,6 +18,8 @@ import { PublishButton } from './publish-button'
 import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
 import { useTagRun, type RunPlate } from './use-tag-run'
+import { usePipelineQueue } from './use-pipeline-queue'
+import { PipelineQueuePanel } from './pipeline-queue-panel'
 
 export function BatchActions({
   underTagged,
@@ -48,6 +50,7 @@ export function BatchActions({
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const run = useTagRun()
+  const queue = usePipelineQueue(batch?.id)
   const batchPlates =
     detail.data?.plates
       .map((entry) => ({ ...entry.proposed, revision: entry.revision }))
@@ -107,6 +110,7 @@ export function BatchActions({
           {pending ? 'Submitting…' : 'Submit for review'}
         </Button>
         <RunMenu
+          queue={queue}
           underTagged={underTagged}
           allPlates={allPlates}
           batchPlates={batchPlates}
@@ -129,6 +133,7 @@ export function BatchActions({
         dismiss={run.dismiss}
         retry={(plate) => void run.start([plate], true)}
       />
+      {process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? <PipelineQueuePanel queue={queue} /> : null}
     </>
   )
 }

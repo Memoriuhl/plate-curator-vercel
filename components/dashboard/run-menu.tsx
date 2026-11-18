@@ -16,6 +16,9 @@ import type { RunPlate } from './use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
 import { LOCAL_STAGE_DEFINITIONS } from '@/lib/jobs/stages'
+import { PipelineRunControls } from './pipeline-run-controls'
+import type { usePipelineQueue } from './use-pipeline-queue'
+import type { ComponentProps } from 'react'
 
 const stages = [
   [
@@ -55,7 +58,12 @@ const stages = [
   ['Order', 'No automatic step yet', '—'],
 ]
 
-export function RunMenu({
+export function RunMenu(props: ComponentProps<typeof LegacyRunMenu> & { queue?: ReturnType<typeof usePipelineQueue> }) {
+  if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && props.queue) return <PipelineRunControls underTagged={props.underTagged} allPlates={props.allPlates} batchPlates={props.batchPlates} stateName={props.stateName} queue={props.queue} />
+  return <LegacyRunMenu {...props} />
+}
+
+function LegacyRunMenu({
   underTagged,
   allPlates = [],
   batchPlates,

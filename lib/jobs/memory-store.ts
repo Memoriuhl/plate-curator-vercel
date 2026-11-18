@@ -1,11 +1,13 @@
 import type { ReviewStore } from '../review/types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import { shouldWriteCapabilities, type WorkerCapabilityRecord } from './capabilities'
+import type { PipelineRun } from './queue-types'
 
 export function createMemoryJobsStore(review: ReviewStore, environment: Environment) {
   const jobs = new Map<string, TaggingJob>()
   const tokens = new Map<string, WorkerToken>()
   const capabilities = new Map<string, WorkerCapabilityRecord>()
+  const runs = new Map<string, PipelineRun>()
   let pending: Promise<unknown> = Promise.resolve()
   function forEnvironment(env: Environment, scopedReview = env === environment ? review : undefined): JobsStore {
     return {
@@ -18,8 +20,11 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
       transaction(run) {
         const next = pending.then(async () => {
           const writes = new Map<string, TaggingJob>()
+          const runWrites = new Map<string, PipelineRun>()
           const value = await run({
             async batch(id) { return await scopedReview?.getBatch(id) ?? null },
+            async runs() { return structuredClone([...runs.values()].filter(run => run.env === env)) },
+            setRun(run) { runWrites.set(run.id, structuredClone(run)) },
             async get(id) {
               const job = jobs.get(id)
               return job?.env === env ? structuredClone(job) : null
@@ -37,6 +42,7 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
             set(job) { writes.set(job.id, structuredClone(job)) },
           })
           for (const [id, job] of writes) jobs.set(id, job)
+          for (const [id, run] of runWrites) runs.set(id, run)
           return value
         })
         pending = next.catch(() => {})

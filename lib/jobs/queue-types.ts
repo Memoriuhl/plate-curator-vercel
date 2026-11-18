@@ -1,0 +1,62 @@
+import type { Environment, PipelineStage, TaggingJob } from './types'
+import type { PipelineOptions } from './pipeline-options'
+import type { RunProjection } from './queue-projection'
+import type { RunStep } from './pipeline-plan'
+
+export type LocalRunStage = Exclude<PipelineStage, 'order'> | 'tag'
+export type ResourceClass = 'gpu' | 'io'
+export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type RunAttempt = {
+  number: number
+  requestId: string
+  createdAt: number
+  jobIds: string[]
+  status: RunStatus
+  endedAt?: number
+  error?: string
+  outcome?: 'no_result' | 'partial'
+  noResultCount?: number
+  projection?: RunProjection
+  workflowId?: string
+  cursor: number
+  completedJobIds: string[]
+  steps: RunStep[]
+  choices: Record<string, string>
+}
+export type PipelineRun = {
+  id: string
+  requestId: string
+  fingerprint: string
+  batchId: string
+  requestedBy: string
+  env: Environment
+  localScope: string
+  plateIds: string[]
+  stages: LocalRunStage[]
+  modelId?: string
+  resourceClass: ResourceClass
+  options: PipelineOptions
+  previewOnly: boolean
+  createdAt: number
+  queuedAt: number
+  enqueueSequence: number
+  updatedAt: number
+  lastDispatchedAt?: number
+  waitReason?: 'worker' | 'resource' | 'inference' | 'image_choice' | 'recovery'
+  status: RunStatus
+  cancelRequestedAt?: number
+  attempts: RunAttempt[]
+}
+export type QueueRunView = PipelineRun & { jobs: TaggingJob[]; editable: boolean; applied: boolean; batchName?: string }
+export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
+  attempts: (Omit<RunAttempt, 'projection' | 'steps' | 'completedJobIds' | 'jobIds' | 'choices'> & {
+    stepCount?: number; completedCount?: number; steps?: RunStep[]; completedJobIds?: string[]
+  })[]
+  jobs: TaggingJob[]
+  editable: boolean
+  applied: boolean
+  batchName?: string
+}
+export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; options?: PipelineOptions; previewOnly?: boolean }
+export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit'
+export type QueueOutcome<T> = { ok: true; value: T } | { ok: false; error: QueueError }
