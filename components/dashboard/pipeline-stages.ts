@@ -41,6 +41,7 @@ export const pipelineStages: readonly StageDefinition[] = [
     flow: [{ label: 'Find sources', icon: IoLinkOutline }, { label: 'Draft description & story', icon: IoDocumentTextOutline }],
     options: [
     { id: 'policy', label: 'Research edits', kind: 'select', default: 'fill-missing', choices: [{ value: 'fill-missing', label: 'Fill missing', icon: IoAddCircleOutline }, { value: 'replace', label: 'Replace existing', icon: IoPencilOutline }] },
+    { id: 'reuseSavedSources', label: 'Reuse saved sources', kind: 'boolean', default: false },
   ] },
   { id: 'find-image', icon: IoImagesOutline, label: 'Find image', description: 'Search for a clean plate photo', duration: '0:20', jobKind: 'find-image', localEnabled: true,
     flow: [{ label: 'Search Commons', icon: IoSearchOutline }, { label: 'Check images', icon: IoCheckmarkCircleOutline }, { label: 'Offer candidates', icon: IoImagesOutline }],

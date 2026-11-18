@@ -38,7 +38,7 @@ export type TaggingJob = {
   queueStep?: number
   queueOrder?: number
   completionHook?: string
-  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean; policy?: 'fill-missing' | 'replace' }
+  stageOptions?: ImageGroupOptions & { redoExisting?: boolean; onlyUnderTagged?: boolean; policy?: 'fill-missing' | 'replace'; reuseSavedSources?: boolean }
   resourceClass?: ResourceClass
   failure?: string
   createdAt: number

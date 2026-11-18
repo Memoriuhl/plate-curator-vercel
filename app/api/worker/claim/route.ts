@@ -1,3 +1,4 @@
+import { savedResearchSourcesHeader } from '../../../../lib/research/enrichment'
 import { claimNext } from '../../../../lib/jobs/jobs'
 import { currentWorker, jobsDeps, reviewDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     const body = await readJson(request)
     if (body?.capabilities !== undefined && !await reportLocalWorkerCapabilities(dependencies, worker.workerId, body.capabilities)) return badRequest()
   }
-  const claim = await claimNext(dependencies, worker.workerId)
+  const claim = await claimNext(dependencies, worker.workerId, request.headers.get(savedResearchSourcesHeader) === '1')
   if (!claim) return new Response(null, { status: 204, headers: { 'Cache-Control': 'private, no-store' } })
 
   const plate = claim.job.inputPlate ?? await legacyInput(claim.job.batchId, claim.job.plateId)

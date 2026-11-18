@@ -229,6 +229,26 @@ test('the combined Research control enqueues its selected hosted model and polic
   }))
 })
 
+test('saved-source research is visible in the diagram and reaches the queued options', async () => {
+  mocks.api.get.mockResolvedValue({ models: RESEARCH_MODELS, default: RESEARCH_MODELS[0].id })
+  const enqueue = vi.fn().mockResolvedValue(saved())
+  render(<PipelineRunControls batchPlates={[]} stateName="Alaska" queue={{ runs: [], action: null, message: '', disabledReason: undefined, enqueue }} />, { wrapper })
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More options for Research / enrich' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reuse saved sources' }))
+  expect(screen.getByText('Use saved sources')).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), { key: 'Enter' })
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Replace existing' }))
+  expect(screen.getByText('Find sources')).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), { key: 'Enter' })
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fill missing' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
+  await screen.findByRole('button', { name: 'Research model' })
+  fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['research'], undefined,
+    { research: { policy: 'fill-missing', reuseSavedSources: true } }, false, undefined, RESEARCH_MODELS[0].id, 'Alaska pipeline'))
+})
+
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
   const run = saved({ status: 'completed', previewOnly: true })
   render(<PipelineQueuePanel queue={{ runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(), action: null,

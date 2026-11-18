@@ -4,6 +4,7 @@ import type { GroupInput } from '../lib/jobs/specialized-suggestions'
 import type { ImageGroupOptions } from '../lib/jobs/image-options'
 import type { LocalWorkerCapabilities } from '../lib/jobs/capabilities'
 import { localCapabilityReport, withCapabilityHeartbeat } from './capability-heartbeat'
+import { savedResearchSourcesHeader, type EnrichmentOptions } from '../lib/research/enrichment'
 import type { StoryFields } from '../lib/catalog/types'
 
 export type WorkerPlate = StoryFields & { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
@@ -17,7 +18,7 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & { policy?: 'fill-missing' | 'replace' } }) => Promise<StageResult>
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & EnrichmentOptions }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -32,7 +33,7 @@ interface Claim {
   stage?: PipelineStage
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions & { policy?: 'fill-missing' | 'replace' }
+  stageOptions?: ImageGroupOptions & EnrichmentOptions
   plate: WorkerPlate
   local?: boolean
   queueRunId?: string
@@ -43,6 +44,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   if (deps.protectionBypass) headers['x-vercel-protection-bypass'] = deps.protectionBypass
   const base = deps.apiBase.replace(/\/+$/, '')
   const capabilities = localCapabilityReport(deps)
+  if (deps.suggestFields) headers[savedResearchSourcesHeader] = '1'
   const response = await deps.fetch(`${base}/api/worker/claim`, { method: 'POST', headers: capabilities ? { ...headers, 'Content-Type': 'application/json' } : headers, ...(capabilities ? { body: JSON.stringify({ capabilities }) } : {}) })
   if (response.status === 401) return 'stopped'
   if (response.status === 204) return 'idle'

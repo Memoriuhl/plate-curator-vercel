@@ -1,5 +1,7 @@
+import { shouldReuseSavedSources, type EnrichmentOptions } from '../research/enrichment'
+
 export type PipelineOptions = {
-  research?: { policy: 'fill-missing' | 'replace' }
+  research?: EnrichmentOptions & Required<Pick<EnrichmentOptions, 'policy'>>
   'find-image'?: { onlyMissingImage: boolean }
   story?: { redoExisting: boolean }
   tag?: { onlyUnderTagged: boolean }
@@ -22,7 +24,7 @@ export function parsePipelineOptions(input: unknown): PipelineOptions | null {
   for (const [stage, options] of Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) {
     if (!Object.hasOwn(defaultPipelineOptions, stage) || !options || typeof options !== 'object' || Array.isArray(options)) return null
     const defaults = defaultPipelineOptions[stage as keyof PipelineOptions]
-    if (Object.entries(options).some(([key, entry]) => !Object.hasOwn(defaults, key) ||
+    if (Object.entries(options).some(([key, entry]) => (!Object.hasOwn(defaults, key) && !(stage === 'research' && key === 'reuseSavedSources')) ||
       (key === 'method' ? entry !== 'embeddings' : key === 'policy' ? entry !== 'fill-missing' && entry !== 'replace' : typeof entry !== 'boolean'))) return null
     result[stage] = { ...defaults, ...options }
   }
@@ -30,6 +32,8 @@ export function parsePipelineOptions(input: unknown): PipelineOptions | null {
 }
 
 export function snapshotPipelineOptions(stages: readonly string[], options: PipelineOptions): PipelineOptions {
-  return Object.fromEntries(Object.keys(defaultPipelineOptions).sort().filter(stage => stages.includes(stage)).map(stage =>
+  const selected: PipelineOptions = Object.fromEntries(Object.keys(defaultPipelineOptions).sort().filter(stage => stages.includes(stage)).map(stage =>
     [stage, { ...defaultPipelineOptions[stage as keyof PipelineOptions], ...options[stage as keyof PipelineOptions] }]))
+  if (selected.research && !shouldReuseSavedSources(selected.research)) delete selected.research.reuseSavedSources
+  return selected
 }

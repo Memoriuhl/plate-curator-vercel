@@ -1,8 +1,9 @@
+import { shouldReuseSavedSources } from '../research/enrichment'
 import { queueLimits } from './queue'
 import type { PipelineRun, ResourceClass } from './queue-types'
 import type { JobsDeps, TaggingJob } from './types'
 
-export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local') {
+export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: PipelineRun[], route: 'local' | 'hosted' = 'local', supportsSavedSources = false) {
   if (!localClaimsEnabled(d)) return null
   const scoped = jobs.filter(job => job.localScope === d.localScope)
   const occupied: Record<ResourceClass, number> = { gpu: 0, io: 0 }
@@ -12,6 +13,7 @@ export function localClaimCandidate(d: JobsDeps, jobs: TaggingJob[], runs: Pipel
   return scoped.filter(job => {
     if ((job.route === 'hosted') !== (route === 'hosted') || occupied[job.resourceClass ?? 'gpu'] >= queueLimits[job.resourceClass ?? 'gpu']) return false
     if (route === 'hosted' && !job.queueRunId) return false
+    if (route === 'local' && !supportsSavedSources && job.stage === 'research' && shouldReuseSavedSources(job.stageOptions)) return false
     if (!job.queueRunId) return job.state === 'queued'
     const run = runs.find(run => run.id === job.queueRunId && run.localScope === d.localScope)
     const attempt = run?.attempts.at(-1)

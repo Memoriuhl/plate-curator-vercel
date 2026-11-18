@@ -10,6 +10,7 @@ import { storyUrl } from '../review/fields'
 import { taggingModel } from '../tagging/models'
 import { verifiedImageFields } from '../review/image'
 import { saveQueueDraft } from './queue-draft'
+import { shouldReuseSavedSources } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
@@ -19,9 +20,10 @@ async function scopedRun(tx: JobsTransaction, id: string, scope: string | undefi
   return run && run.localScope === scope ? run : null
 }
 
-function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number) {
+function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number, skipReason?: string) {
   attempt.completedJobIds.push(jobId)
-  Object.assign(attempt.steps[attempt.cursor], { status: 'completed', endedAt: now })
+  Object.assign(attempt.steps[attempt.cursor], { status: skipReason ? 'skipped' : 'completed', endedAt: now, ...(skipReason ? { reason: skipReason } : {}) })
+  if (skipReason) attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
   attempt.cursor++
   delete attempt.error
   if (attempt.cursor === attempt.steps.length) {
@@ -140,7 +142,10 @@ async function settleQueueStage(
   if (cancelled && (!shouldSave || job.state !== 'completed' || job.result?.stageError ||
     job.result?.fieldSuggestion?.kind === 'image' && !attempt.choices[job.id])) finishRun(run, 'cancelled', d.now())
   else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
-  else if (job.result?.stageError) {
+  else if (job.stage === 'research' && job.result?.stageError === 'no_sources' &&
+    shouldReuseSavedSources({ ...job.stageOptions, policy: job.researchPolicy })) {
+    advanceStage(run, attempt, job.id, d.now(), 'no_saved_sources')
+  } else if (job.result?.stageError) {
     if (job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields') {
       attempt.outcome = shouldSave && run.draftPlateIds?.length ? 'partial' : 'no_result'
     }

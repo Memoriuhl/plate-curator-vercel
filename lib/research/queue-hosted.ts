@@ -2,9 +2,9 @@ import type { JobsDeps, TaggingJob } from '../jobs/types'
 import { expireJob, getJob, reportResult } from '../jobs/jobs'
 import type { ResearchStateStore } from './state'
 import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
-import { enrichmentTargets } from './enrichment'
+import { enrichmentTargets, shouldReuseSavedSources } from './enrichment'
 import { enrichmentPrompt, enrichmentSuggestion, needsEnrichmentSynthesis, wikiOnlyDraft } from './enrichment-result'
-import { captureEnrichment } from '../../worker/pipeline/research'
+import { captureEnrichment, captureSavedEnrichment } from '../../worker/pipeline/research'
 import { researchModelCosts } from './model-attempt'
 
 type Prepared = { sources: EvidenceSource[]; wikiUrl: string | null }
@@ -12,6 +12,7 @@ export type QueueResearchDeps = {
   state: ResearchStateStore
   activeOwner(uid: string): Promise<boolean>
   capture?: typeof captureEnrichment
+  captureSaved?: typeof captureSavedEnrichment
   deliver(job: TaggingJob, input: ResearchInput, message: string): Promise<{ sessionId: string; deliveryId: string }>
 }
 
@@ -34,7 +35,9 @@ export async function executeQueueResearch(jobs: JobsDeps, job: TaggingJob, deps
   if (!fields.length) return report(null, [], { modelCalls: 0 })
   let prepared = await deps.state.read<Prepared>(`pipeline-evidence/${job.id}`)
   if (!prepared) {
-    prepared = await (deps.capture ?? captureEnrichment)(plate)
+    prepared = shouldReuseSavedSources({ ...job.stageOptions, policy })
+      ? await (deps.captureSaved ?? captureSavedEnrichment)(plate)
+      : await (deps.capture ?? captureEnrichment)(plate)
     await deps.state.update(`pipeline-evidence/${job.id}`, () => ({ value: prepared, result: null }))
     await deps.state.update(`evidence/${job.id}`, () => ({ value: prepared!.sources, result: null }))
   }

@@ -73,7 +73,7 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
   })
 }
 
-export async function claimNext(d: JobsDeps, workerId: string) {
+export async function claimNext(d: JobsDeps, workerId: string, supportsSavedSources = false) {
   if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
   const claimId = d.id()
   return d.store.transaction(async tx => {
@@ -81,7 +81,7 @@ export async function claimNext(d: JobsDeps, workerId: string) {
     const jobs = await tx.list()
     const local = localClaimsEnabled(d)
     const runs = local ? await tx.runs() : []
-    const job = local ? localClaimCandidate(d, jobs, runs) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
+    const job = local ? localClaimCandidate(d, jobs, runs, 'local', supportsSavedSources) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)

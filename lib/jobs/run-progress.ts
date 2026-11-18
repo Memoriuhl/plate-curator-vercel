@@ -25,7 +25,7 @@ export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProg
   const steps = (attempt.steps ?? []).map(step => {
     const completedId = attempt.completedJobIds?.[step.index]
     const job = run.jobs.find(job => job.id === completedId) ?? run.jobs.find(job => job.queueAttempt === attempt.number && job.queueStep === step.index)
-    const status = step.status === 'cancelled' ? 'cancelled'
+    const status = step.status === 'cancelled' || step.status === 'skipped' ? step.status
       : job?.result?.stageError || job?.state === 'failed' || job?.state === 'expired' ? 'failed'
         : step.status === 'failed' ? 'failed'
           : completedId || step.index < attempt.cursor ? 'completed'
@@ -52,7 +52,7 @@ export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProg
 export function stageStatus(steps: StepProgress[]): StepProgress['status'] {
   if (!steps.length) return 'skipped'
   for (const status of ['failed', 'running', 'waiting', 'queued', 'cancelled'] as const) if (steps.some(step => step.status === status)) return status
-  return 'completed'
+  return steps.every(step => step.status === 'skipped') ? 'skipped' : 'completed'
 }
 
 export function formatDuration(ms: number | undefined): string {

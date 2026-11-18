@@ -8,6 +8,7 @@ import { cn } from '@/components/utils'
 import { defaultPipelineOptions, snapshotPipelineOptions, type PipelineOptions } from '@/lib/jobs/pipeline-options'
 import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
+import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
 import { useSelectedPlates } from './plate-selection'
 import { newRunStages, stageAvailability } from './pipeline-stages'
@@ -65,6 +66,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
   const needsResearchModel = steps.some(step => step.stage === 'research')
   const tagModel = needsTagModel ? tagChoice.modelId : undefined
   const researchModel = needsResearchModel ? researchChoice.model : undefined
+  const useSavedSources = shouldReuseSavedSources(options.research)
   const blocked = !!queue.disabledReason || overLimit || !steps.length || needsModel && !modelId ||
     needsTagModel && !tagModel || needsResearchModel && !researchModel || !!queue.action || unavailable || groupOutsideBatch || invalidGroupSize
 
@@ -82,7 +84,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
       if (nextOpen) { setStages([]); setExpanded([]) }
       setOpen(nextOpen)
     }}>
-      <PopoverTrigger asChild><Button ref={trigger} data-run-trigger disabled={!!queue.disabledReason} title={queue.disabledReason}>
+      <PopoverTrigger asChild><Button ref={trigger} className="pt-0 [&_svg]:mt-0" data-run-trigger disabled={!!queue.disabledReason} title={queue.disabledReason}>
         <IoPlay aria-hidden="true" />Run pipeline<IoChevronDown aria-hidden="true" className={cn('transition-transform', open && 'rotate-180')} />
       </Button></PopoverTrigger>
       <PopoverContent align="end" collisionPadding={8} data-run-menu="" aria-label="Run pipeline"
@@ -116,13 +118,13 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                     </strong>
                     <span className="caption block">{stage.description}</span>
                     {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
-                      className="caption mt-2 grid items-start gap-x-3 gap-y-1 overflow-x-auto text-[var(--ink-2)]"
+                      className="caption mt-2 grid items-center gap-x-3 gap-y-1 overflow-x-auto text-[var(--ink-2)]"
                       style={{ gridTemplateColumns: `repeat(${Math.min(stage.flow.length, flowStepsPerRow)}, max-content)` }}>
                       {stage.flow.map(({ label, icon: StepIcon }, index) => (
-                        <span key={label} role="listitem" className="flex min-w-0 items-start gap-1">
-                          {index % flowStepsPerRow !== 0 ? <IoArrowForwardOutline aria-hidden="true" className="mt-0.5 size-3 shrink-0" /> : null}
-                          <StepIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                          <span className="whitespace-nowrap">{label}</span>
+                        <span key={label} role="listitem" className="flex min-w-0 items-center gap-1">
+                          {index % flowStepsPerRow !== 0 ? <IoArrowForwardOutline aria-hidden="true" className="size-3 shrink-0" /> : null}
+                          <StepIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                          <span className="whitespace-nowrap">{id === 'research' && index === 0 && useSavedSources ? 'Use saved sources' : label}</span>
                         </span>
                       ))}
                     </span> : null}
@@ -155,6 +157,9 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
                       {setting.label}
                     </label>
                   })}
+                  {id === 'research' && values.reuseSavedSources === true ? <p className="caption">
+                    {values.policy === 'replace' ? 'Replace existing searches for sources again.' : 'Skips plates without a usable saved source.'}
+                  </p> : null}
                   {id === 'research' ? <ResearchModelPicker choice={researchChoice} /> : null}
                   {id === 'tag' ? <TaggingModelPicker choice={tagChoice} inlineLabel="Tagging model" /> : null}
                   {id === 'group' && values.visionTiebreak === true && queue.capabilities?.visionTiebreak.available
@@ -168,7 +173,7 @@ export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }
           {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
           {invalidGroupSize ? <p role="alert" className="caption">Group needs up to {groupSelectionLimit} plates from one state.</p>
             : groupOutsideBatch ? <p role="alert" className="caption">Every Group member must already be in this Batch.</p> : null}
-          <Button className="justify-self-end" disabled={blocked} onClick={() => void enqueue()}>
+          <Button className="justify-self-end pt-0 [&_svg]:mt-0" disabled={blocked} onClick={() => void enqueue()}>
             {active ? <IoListOutline aria-hidden="true" /> : <IoPlay aria-hidden="true" />}
             {posting ? 'Saving run…' : active ? 'Queue Run' : 'Start Run'}
           </Button>

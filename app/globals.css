@@ -751,5 +751,6 @@ body {
   outline: none;
   cursor: pointer;
 }
+.inline-select-option .inline-select-choice { display: flex; }
 .inline-select-option[data-highlighted] { background: var(--fill); }
 .inline-select-option[data-state='checked'] { font-weight: 800; }

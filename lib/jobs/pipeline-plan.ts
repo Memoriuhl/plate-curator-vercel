@@ -10,7 +10,7 @@ export const stageDependencies: Record<LocalRunStage, readonly LocalRunStage[]> 
 }
 export type RunStep = {
   index: number; plateId: string; stage: LocalRunStage; resourceClass: ResourceClass
-  status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped'
   startedAt?: number
   endedAt?: number
   reason?: string
