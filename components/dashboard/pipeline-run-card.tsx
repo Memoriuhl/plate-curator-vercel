@@ -89,10 +89,18 @@ export function PipelineRunCard({
     progress.steps.some(
       (step) => step.status === 'failed' || step.status === 'skipped'
     )
-  const stopped = run.status === 'failed' || run.status === 'cancelled'
+  const allSkipped =
+    run.status === 'completed' &&
+    progress.steps.length > 0 &&
+    progress.steps.every((step) => step.status === 'skipped')
+  const runOutcome =
+    run.status === 'cancelled' ? 'Canceled' : allSkipped ? 'Skipped' : undefined
+  const stopped =
+    run.status === 'failed' || run.status === 'cancelled' || allSkipped
   const name = requester || run.requestedBy
   const clock = progress.endedAt ?? observedAt
-  const runStatus = partial ? 'Finished with issues' : statusLabels[run.status]
+  const runStatus =
+    runOutcome ?? (partial ? 'Finished with issues' : statusLabels[run.status])
   const reference = run.id.length > 12 ? run.id.slice(-8) : run.id
   const inspector = progress.workflowUrl ?? progress.gatewayUrl
   const inspectorLabel = progress.workflowUrl
@@ -253,28 +261,38 @@ export function PipelineRunCard({
                 : status === 'running'
                   ? ` · ${done}/${steps.length}`
                   : ''
+          const showStatus =
+            status === 'running' || status === 'waiting' || status === 'queued'
           const stageContent = (
-            <>
-              <span className={styles.mark} aria-hidden="true">
-                {status === 'completed' ? (
-                  <IoCheckmark />
-                ) : status === 'failed' ? (
-                  <IoClose />
-                ) : status === 'cancelled' || status === 'skipped' ? (
-                  <IoRemove />
-                ) : status === 'running' ? (
-                  <span className={styles.spinner} />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <span className={styles.stageCopy}>
+            <span className={styles.stageCopy}>
+              <span className={styles.stageTitle}>
+                <span className={styles.mark} aria-hidden="true">
+                  {status === 'completed' ? (
+                    <IoCheckmark />
+                  ) : status === 'failed' ? (
+                    <IoClose />
+                  ) : status === 'cancelled' || status === 'skipped' ? (
+                    <IoRemove />
+                  ) : status === 'running' ? (
+                    <span className={styles.spinner} />
+                  ) : (
+                    index + 1
+                  )}
+                </span>
                 <strong>{label}</strong>
-                {status !== 'completed' && status !== 'failed' && (
-                  <span>{statusLabels[status]}</span>
+                {outcomeHref && (
+                  <IoEyeOutline
+                    className={styles.stageResultIcon}
+                    aria-hidden="true"
+                  />
                 )}
               </span>
-            </>
+              {showStatus && (
+                <span className={styles.stageState}>
+                  {statusLabels[status]}
+                </span>
+              )}
+            </span>
           )
           return (
             <div className={styles.stageWrap} key={stage}>
@@ -290,10 +308,6 @@ export function PipelineRunCard({
                       prefetch={false}
                     >
                       {stageContent}
-                      <IoEyeOutline
-                        className={styles.stageResultIcon}
-                        aria-hidden="true"
-                      />
                     </Link>
                   ) : (
                     <button
@@ -352,7 +366,14 @@ export function PipelineRunCard({
           {waitLabel}
         </p>
       )}
-      {children && <footer className={styles.actions}>{children}</footer>}
+      {(runOutcome || children) && (
+        <footer className={styles.actions}>
+          {runOutcome && (
+            <span className={styles.runOutcome}>{runOutcome}</span>
+          )}
+          {children}
+        </footer>
+      )}
     </article>
   )
 }

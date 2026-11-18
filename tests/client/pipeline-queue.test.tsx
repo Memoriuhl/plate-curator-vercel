@@ -534,7 +534,7 @@ test('the run rail keeps completed cards in order and follows a new run to the r
   expect(rail.scrollLeft).toBe(25)
 })
 
-test('one rail control reveals and collapses every visible run timeline', () => {
+test('the header display selector switches all visible cards between runs and plate steps', () => {
   const queued = saved({ id: 'queued' })
   const running = saved({ id: 'running', status: 'running' })
   const queue = {
@@ -552,17 +552,23 @@ test('one rail control reveals and collapses every visible run timeline', () => 
   const rail = screen.getByRole('region', {
     name: 'Plate Pipeline runs, scroll horizontally',
   })
-  const toggle = screen.getByRole('button', { name: 'Watch steps' })
+  const display = within(
+    screen.getByRole('group', { name: 'Pipeline display' })
+  )
+  const runs = display.getByRole('button', { name: 'Runs' })
+  const toggle = display.getByRole('button', { name: 'Plate steps' })
+  expect(toggle.closest('header')).toBeTruthy()
   const timelines = () =>
     within(rail).queryAllByRole('region', { name: 'Pipeline steps by plate' })
   expect(rail.contains(toggle)).toBe(false)
   expect(
     document.getElementById(toggle.getAttribute('aria-controls') ?? '')
   ).toBe(rail)
-  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(runs.getAttribute('aria-pressed')).toBe('true')
+  expect(toggle.getAttribute('aria-pressed')).toBe('false')
   expect(timelines()).toHaveLength(0)
   fireEvent.click(toggle)
-  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
   expect(timelines()).toHaveLength(2)
   view.rerender(
     <PipelineQueuePanel
@@ -570,7 +576,7 @@ test('one rail control reveals and collapses every visible run timeline', () => 
     />
   )
   expect(timelines()).toHaveLength(2)
-  fireEvent.click(toggle)
+  fireEvent.click(runs)
   expect(timelines()).toHaveLength(0)
 })
 
@@ -614,7 +620,7 @@ test('the vertical wheel scrolls the rail except over a watch timeline or at a r
   expect(wheel(stage, { deltaX: 60, deltaY: 20 })).toBe(false)
   expect(wheel(stage, { deltaY: 60, ctrlKey: true })).toBe(false)
   expect(scrollLeft).toBe(132)
-  fireEvent.click(screen.getByRole('button', { name: 'Watch steps' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Plate steps' }))
   const watch = within(rail).getByRole('list', {
     name: 'AK.one pipeline steps',
   })
@@ -697,9 +703,82 @@ test('the requester, workflow, and activity appear in that order in the card hea
   expect(
     within(card).queryByRole('link', { name: 'View Tag results' })
   ).toBeNull()
-  expect(within(card).queryByRole('button', { name: 'Watch steps' })).toBeNull()
+  expect(within(card).queryByRole('button', { name: 'Plate steps' })).toBeNull()
   expect(within(card.querySelector('footer')!).queryByRole('button')).toBeNull()
   expect(within(card.querySelector('footer')!).queryByRole('link')).toBeNull()
+})
+
+test('footer status applies to whole canceled or skipped runs only', () => {
+  const step = {
+    index: 0,
+    plateId: plate.id,
+    plateName: 'One',
+    stage: 'enhance-image' as const,
+    status: 'skipped' as const,
+  }
+  const skipped = saved({
+    id: 'skipped',
+    status: 'completed',
+    stages: ['enhance-image'],
+    progress: { workerIds: [], steps: [step] },
+  })
+  const mixed = saved({
+    id: 'mixed',
+    status: 'completed',
+    stages: ['enhance-image', 'tag'],
+    plateIds: [plate.id, 'AK.two'],
+    progress: {
+      workerIds: [],
+      steps: [
+        step,
+        {
+          ...step,
+          index: 1,
+          plateId: 'AK.two',
+          plateName: 'Two',
+          stage: 'tag',
+          status: 'completed',
+        },
+      ],
+    },
+  })
+  const canceled = saved({
+    id: 'canceled',
+    status: 'cancelled',
+    stages: ['enhance-image'],
+    progress: { workerIds: [], steps: [{ ...step, status: 'cancelled' }] },
+  })
+  const queue = {
+    runs: [skipped, mixed, canceled],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    action: null,
+    message: '',
+    cancel: vi.fn(),
+    dismiss: vi.fn(),
+    retry: vi.fn(),
+  }
+  render(<PipelineQueuePanel queue={queue} />)
+  const card = (id: string) =>
+    screen.getByRole('article', { name: `Pipeline run ${id}` })
+  expect(
+    within(card('skipped').querySelector('footer')!).getByText('Skipped')
+  ).toBeTruthy()
+  expect(
+    within(card('canceled').querySelector('footer')!).getByText('Canceled')
+  ).toBeTruthy()
+  expect(within(card('mixed')).queryByText(/^(Skipped|Canceled)$/)).toBeNull()
+  expect(
+    within(card('skipped')).getByRole('link', {
+      name: 'View Enhance image results',
+    }).textContent
+  ).toBe('Enhance image')
+  expect(
+    within(card('canceled')).getByRole('link', {
+      name: 'View Enhance image results',
+    }).textContent
+  ).toBe('Enhance image')
 })
 
 test('the form preserves selected stages while selecting plates and resets after a confirmed run', async () => {
@@ -1691,7 +1770,7 @@ test('execution dropdown switches local and gateway views without mutating or re
   expect(
     screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })
   ).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Watch steps' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Plate steps' }))
   expect(
     screen.getByRole('list', { name: 'One pipeline steps' }).textContent
   ).toContain('Tag Complete')

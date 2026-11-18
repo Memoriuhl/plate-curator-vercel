@@ -97,13 +97,14 @@ export function PipelineRuns({
   const device = view === 'local' ? devices[0] : devices[1]
   const canSwitch =
     local && (view === 'local' ? gatewayRuns.length > 0 : queue.runs.length > 0)
-  function header(history: ReactNode) {
+  function header(history: ReactNode, display: ReactNode = null) {
     return (
       <header className={styles.header}>
         <div className={styles.heading}>
           <h2 className="page-title">Plate Pipeline</h2>
           {history}
         </div>
+        {display}
         {canSwitch ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -191,46 +192,44 @@ export function PipelineRuns({
           queue={queue}
           header={header}
         />
-      ) : (
+      ) : gatewayPending ? (
         <>
-          {header(history)}
-          {gatewayPending ? (
-            <PipelineRailSkeleton />
-          ) : (
-            <>
-              {gateway.error ? (
-                <p role="alert">
-                  Could not load gateway runs.{' '}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void gateway.mutate()}
-                  >
-                    Refresh runs
-                  </Button>
-                </p>
-              ) : !gatewayRuns.length ? (
-                <p className="caption">No gateway runs yet.</p>
-              ) : null}
-              <PipelineRunRail
-                runs={gatewayRuns}
-                progress={(run) => run.progress}
-                renderRun={(run, progress, stepsOpen) => (
-                  <PipelineRunCard
-                    run={run}
-                    progress={progress}
-                    stepsOpen={stepsOpen}
-                    stages={run.stages ?? ['tag']}
-                    observedAt={gateway.data?.observedAt}
-                    requester={requester(run.requestedBy)}
-                    plates={run.plates}
-                    device="Vercel Gateway"
-                  />
-                )}
-              />
-            </>
-          )}
+          {header(null)}
+          <PipelineRailSkeleton />
         </>
+      ) : (
+        <PipelineRunRail
+          runs={gatewayRuns}
+          progress={(run) => run.progress}
+          renderHeader={(display) => header(history, display)}
+          renderRun={(run, progress, stepsOpen) => (
+            <PipelineRunCard
+              run={run}
+              progress={progress}
+              stepsOpen={stepsOpen}
+              stages={run.stages ?? ['tag']}
+              observedAt={gateway.data?.observedAt}
+              requester={requester(run.requestedBy)}
+              plates={run.plates}
+              device="Vercel Gateway"
+            />
+          )}
+        >
+          {gateway.error ? (
+            <p role="alert">
+              Could not load gateway runs.{' '}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void gateway.mutate()}
+              >
+                Refresh runs
+              </Button>
+            </p>
+          ) : !gatewayRuns.length ? (
+            <p className="caption">No gateway runs yet.</p>
+          ) : null}
+        </PipelineRunRail>
       )}
     </section>
   )

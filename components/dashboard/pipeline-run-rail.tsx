@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import Link from 'next/link'
-import { IoChevronDown, IoTimeOutline } from 'react-icons/io5'
+import { IoTimeOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -17,6 +17,8 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { tabsListVariants } from '@/components/ui/tabs'
+import { Toggle } from '@/components/ui/toggle'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { RunStatus } from '@/lib/jobs/queue-types'
 import { formatDuration, type PipelineProgress } from '@/lib/jobs/run-progress'
@@ -153,15 +155,19 @@ export function PipelineRunHistory<T extends RailRun>({
 export function PipelineRunRail<T extends RailRun>({
   runs,
   progress,
+  renderHeader,
   renderRun,
+  children,
 }: {
   runs: T[]
   progress: (run: T) => PipelineProgress
+  renderHeader: (display: ReactNode) => ReactNode
   renderRun: (
     run: T,
     progress: PipelineProgress,
     stepsOpen: boolean
   ) => ReactNode
+  children?: ReactNode
 }) {
   const rail = runs
     .filter((run) => run.dismissedAt === undefined)
@@ -172,7 +178,7 @@ export function PipelineRunRail<T extends RailRun>({
         a.id.localeCompare(b.id)
     )
     .map((run) => ({ run, progress: progress(run) }))
-  const canWatch = rail.some((item) =>
+  const hasPlateSteps = rail.some((item) =>
     item.progress.steps.some((step) => step.stage !== 'group')
   )
   const [stepsOpen, setStepsOpen] = useState(false)
@@ -218,44 +224,56 @@ export function PipelineRunRail<T extends RailRun>({
       return count ? [`${count} ${historyLabels[status].toLowerCase()}`] : []
     })
     .join(', ')
+  const display = hasPlateSteps && (
+    <div
+      role="group"
+      aria-label="Pipeline display"
+      className={tabsListVariants({ className: styles.display })}
+    >
+      <Toggle
+        type="button"
+        variant="inset"
+        pressed={!stepsOpen}
+        aria-controls={railId}
+        onPressedChange={() => setStepsOpen(false)}
+      >
+        Runs
+      </Toggle>
+      <Toggle
+        type="button"
+        variant="inset"
+        pressed={stepsOpen}
+        aria-controls={railId}
+        onPressedChange={() => setStepsOpen(true)}
+      >
+        Plate steps
+      </Toggle>
+    </div>
+  )
   return (
     <TooltipProvider delayDuration={250}>
+      {renderHeader(display)}
+      {children}
       <p className="sr-only" role="status">
         {summary ? `Plate Pipeline: ${summary}` : ''}
       </p>
-      <div className={styles.railArea}>
-        {canWatch && (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className={styles.railWatch}
-            aria-controls={railId}
-            aria-expanded={stepsOpen}
-            onClick={() => setStepsOpen((open) => !open)}
-          >
-            Watch steps
-            <IoChevronDown aria-hidden="true" />
-          </Button>
-        )}
-        <div
-          ref={viewport}
-          id={railId}
-          className={styles.rail}
-          role="region"
-          aria-label="Plate Pipeline runs, scroll horizontally"
-          tabIndex={0}
-        >
-          {rail.length ? (
-            <ol className={styles.runList}>
-              {rail.map(({ run, progress }) => (
-                <li key={run.id}>{renderRun(run, progress, stepsOpen)}</li>
-              ))}
-            </ol>
-          ) : runs.length ? (
-            <p className="caption">No active runs</p>
-          ) : null}
-        </div>
+      <div
+        ref={viewport}
+        id={railId}
+        className={styles.rail}
+        role="region"
+        aria-label="Plate Pipeline runs, scroll horizontally"
+        tabIndex={0}
+      >
+        {rail.length ? (
+          <ol className={styles.runList}>
+            {rail.map(({ run, progress }) => (
+              <li key={run.id}>{renderRun(run, progress, stepsOpen)}</li>
+            ))}
+          </ol>
+        ) : runs.length ? (
+          <p className="caption">No active runs</p>
+        ) : null}
       </div>
     </TooltipProvider>
   )

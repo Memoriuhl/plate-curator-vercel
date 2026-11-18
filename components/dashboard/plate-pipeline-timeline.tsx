@@ -3,7 +3,6 @@ import Link from 'next/link'
 import {
   IoArrowForward,
   IoCheckmark,
-  IoChevronForward,
   IoClose,
   IoImageOutline,
   IoRemove,
@@ -81,7 +80,7 @@ export function PlatePipelineTimeline({
           const image = images?.[plateId]
           return (
             <div key={plateId} className={styles.timelineRow}>
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className={styles.timelineIdentity}>
                 {image ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -131,9 +130,9 @@ export function PlatePipelineTimeline({
               </div>
               <ol
                 aria-label={`${plateSteps[0].plateName} pipeline steps`}
-                className="flex w-max items-center gap-1.5"
+                className={styles.phaseList}
               >
-                {plateSteps.flatMap((step, stageIndex) => {
+                {plateSteps.flatMap((step) => {
                   const stage = pipelineStages.find(
                     (item) => item.id === step.stage
                   )
@@ -147,16 +146,7 @@ export function PlatePipelineTimeline({
                         ? step.reason
                         : undefined
                     return (
-                      <li
-                        key={`${step.index}-${index}`}
-                        className="inline-flex items-center gap-1.5"
-                      >
-                        {stageIndex || index ? (
-                          <IoChevronForward
-                            aria-hidden="true"
-                            className="size-3 text-[var(--ink-2)]"
-                          />
-                        ) : null}
+                      <li key={`${step.index}-${index}`}>
                         <span
                           className={styles.phase}
                           data-status={status}

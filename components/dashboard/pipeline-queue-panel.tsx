@@ -89,7 +89,7 @@ export function PipelineQueuePanel({
   requester,
 }: {
   queue: QueueControls
-  header?: (history: ReactNode) => ReactNode
+  header?: (history: ReactNode, display: ReactNode) => ReactNode
   requester?(uid: string): string | undefined
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
@@ -137,16 +137,18 @@ export function PipelineQueuePanel({
       }}
     />
   )
-  return (
-    <section aria-label="Pipeline queue and history" className={styles.panel}>
-      {header ? (
-        header(history)
-      ) : (
-        <header>
-          <h2 className="sr-only">Pipeline queue and history</h2>
-          {history}
-        </header>
-      )}
+  const renderHeader = (display: ReactNode = null) =>
+    header ? (
+      header(history, display)
+    ) : (
+      <header className={styles.header}>
+        <h2 className="sr-only">Pipeline queue and history</h2>
+        {history}
+        {display}
+      </header>
+    )
+  const notices = (
+    <>
       {queue.error ? (
         <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>
           Refresh queue
@@ -203,12 +205,21 @@ export function PipelineQueuePanel({
           ) : null}
         </div>
       ))}
+    </>
+  )
+  return (
+    <section aria-label="Pipeline queue and history" className={styles.panel}>
       {queue.loading ? (
-        <PipelineRailSkeleton />
+        <>
+          {renderHeader()}
+          {notices}
+          <PipelineRailSkeleton />
+        </>
       ) : (
         <PipelineRunRail
           runs={queue.runs}
           progress={(run) => run.progress ?? queueProgress(run)}
+          renderHeader={renderHeader}
           renderRun={(run, progress, stepsOpen) => {
             const attempt = run.attempts.at(-1)!
             const status =
@@ -340,7 +351,9 @@ export function PipelineQueuePanel({
               </PipelineRunCard>
             )
           }}
-        />
+        >
+          {notices}
+        </PipelineRunRail>
       )}
     </section>
   )
