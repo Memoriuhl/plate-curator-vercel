@@ -18,12 +18,16 @@ import {
   useReviewActions,
 } from '@/lib/client/hooks'
 import type { BatchDetail } from '@/lib/client/hooks'
-import type { ReviewBatch } from '@/lib/review/types'
+import { canEdit, editableStates } from '@/lib/review/access'
+import type { EditableFields, ReviewBatch } from '@/lib/review/types'
+import { useRecentReviewPlates, useReviewCheckpoint } from '@/lib/client/review-checkpoint'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/components/utils'
 import { changeSummary, DiffTable } from './diff'
 import { RunStatus } from './run-status'
+import { useBatchRevisionSignal } from '@/lib/client/live-signal'
+import { reviewHref } from '@/lib/review/href'
 import { localPipelineReason } from '@/lib/local-pipeline'
 import { useBatchRun } from '@/lib/client/hooks'
 
@@ -33,14 +37,11 @@ type State = {
   plateCount?: number
   plates: { id: string; displayName: string; imageUrl: string | null }[]
 }
+const reviewPageSize = 40
+
 type Entry = BatchDetail['plates'][number] & { batch: ReviewBatch }
 
-export function reviewHref(state: string, plate?: string, batch?: string) {
-  const query = new URLSearchParams({ state })
-  if (plate) query.set('plate', plate)
-  if (batch) query.set('batch', batch)
-  return `/review?${query}`
-}
+export { reviewHref } from '@/lib/review/href'
 
 function Author({ uid, name }: { uid: string; name?: string | null }) {
   const me = useMe()
@@ -180,9 +181,27 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const router = useRouter()
   const review = useBatches(['submitted', 'conflict'])
   const mine = useBatches(['open'], { mine: true })
-  const selected = useBatch(params.get('batch'))
+  const batchId = params.get('batch')
+  const selected = useBatch(batchId)
+  const me = useMe()
+  const actions = useReviewActions()
+  const live = useBatchRevisionSignal(batchId, selected.data?.batch.revision ?? -1)
+  const filters = { run: params.get('run'), since: params.get('since'), scope: params.get('scope') }
+  const since = filters.since !== null && /^\d+$/.test(filters.since) && Number.isSafeInteger(Number(filters.since)) ? Number(filters.since) : null
+  const selectedRevision = selected.data?.batch.revision
+  const code = params.get('state')
+  const plateId = params.get('plate')
+  const scope = batchId ? filters.scope ?? (plateId ? null : code) : code
+  const recent = useRecentReviewPlates(batchId, since ?? undefined, selectedRevision)
+  const reviewedRevision = !filters.run && !scope && (since === null || recent.data) ? selectedRevision : undefined
+  useReviewCheckpoint(batchId, reviewedRevision, me.data?.role === 'owner')
+  const recentPlates = recent.data ? new Set(recent.data.plateIds) : null
   const [details, setDetails] = useState<Record<string, BatchDetail>>({})
+  const [reverting, setReverting] = useState(false)
+  const [revertFeedback, setRevertFeedback] = useState<{ plateId: string; message: string; error: boolean } | null>(null)
   const [all, setAll] = useState(false)
+  const [search, setSearch] = useState('')
+  const [pagination, setPagination] = useState({ scope: '', count: reviewPageSize })
   const [now] = useState(() => Date.now())
   const loaded = useCallback(
     (id: string, detail: BatchDetail) =>
@@ -193,77 +212,74 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   )
   const batches = [
     ...new Map(
-      [...(review.data ?? []), ...(mine.data ?? [])].map((batch) => [
-        batch.id,
-        batch,
-      ]),
+      [...(review.data ?? []), ...(mine.data ?? [])].map((batch) => [batch.id, batch]),
     ).values(),
   ]
-  if (
-    selected.data &&
-    !batches.some((batch) => batch.id === selected.data!.batch.id)
-  )
+  if (selected.data && !batches.some((batch) => batch.id === selected.data?.batch.id))
     batches.push(selected.data.batch)
   const currentDetails = {
     ...details,
     ...(selected.data ? { [selected.data.batch.id]: selected.data } : {}),
   }
-  const entries: Entry[] = batches.flatMap((batch) =>
-    (currentDetails[batch.id]?.plates ?? []).map((plate) => ({
-      ...plate,
-      batch: currentDetails[batch.id].batch,
-    })),
-  )
-  const pending = entries.filter((entry) =>
-    ['submitted', 'conflict'].includes(entry.batch.state),
-  )
-  const visible = pending.length
-    ? entries.filter(
-        (entry) =>
-          ['submitted', 'conflict'].includes(entry.batch.state) ||
-          entry.batch.id === params.get('batch'),
-      )
-    : entries
-  const first =
-    entries.find((entry) => entry.batch.id === params.get('batch')) ??
-    pending[0] ??
-    entries[0]
-  const code = params.get('state') ?? first?.baseline.state
-  const state = states.find((state) => state.code === code)
-  const inState = visible.filter((entry) => entry.baseline.state === code)
-  const entry =
-    inState.find(
-      (entry) =>
-        entry.baseline.id === params.get('plate') &&
-        (!params.get('batch') || entry.batch.id === params.get('batch')),
-    ) ?? (!params.get('plate') ? inState.find(entry => !params.get('batch') || entry.batch.id === params.get('batch')) : undefined)
+  const entries: Entry[] = (batchId ? batches.filter(batch => batch.id === batchId) : batches).flatMap(batch => {
+    const detail = currentDetails[batch.id]
+    return (detail?.plates ?? [])
+      .filter(plate => changeSummary(plate.baseline, plate.proposed, plate.order) !== 'No changes')
+      .map(plate => ({ ...plate, batch: detail.batch }))
+  })
+  const pending = entries.filter(({ batch }) => ['submitted', 'conflict'].includes(batch.state))
+  const visible = batchId ? entries.filter(entry => {
+    const inRun = !filters.run || entry.edit?.pipelineRunIds?.includes(filters.run) ||
+      Object.values(entry.edit?.pipelineChanges ?? {}).some(change => change.runId === filters.run)
+    return inRun && (since === null || recentPlates?.has(entry.baseline.id) === true)
+  }) : pending.length ? pending : entries
+  const first = visible[0]
+  const state = states.find(state => state.code === code)
+  const inState = scope ? visible.filter(entry => entry.baseline.state === scope) : visible
+  const term = search.trim().toLowerCase()
+  const listed = inState.filter(({ proposed }) => !batchId || !term ||
+    [proposed.displayName, proposed.id, proposed.state, ...proposed.tags].some(value => value.toLowerCase().includes(term)))
+  const pageScope = JSON.stringify([batchId, filters.run, filters.since, scope, search])
+  const pageEnd = pagination.scope === pageScope ? pagination.count : reviewPageSize
+  const entry = plateId
+    ? visible.find(entry => entry.baseline.id === plateId && (!code || entry.baseline.state === code))
+    : listed[0]
   useEffect(() => {
-    if (first && (!params.get('batch') || first.batch.id === params.get('batch')) && !params.has('view') && !params.get('state'))
-      router.replace(
-        reviewHref(first.baseline.state, first.baseline.id, first.batch.id),
-      )
-  }, [first, params, router])
-  const changedStates = states.filter((state) =>
-    pending.some((entry) => entry.baseline.state === state.code),
-  )
-  const orderedStates = [
-    ...changedStates,
-    ...states.filter((state) => !changedStates.includes(state)),
-  ]
+    if (first && !batchId && !params.has('view') && !code)
+      router.replace(reviewHref(undefined, undefined, first.batch.id))
+  }, [first, batchId, code, params, router])
+  const stateCounts = new Map<string, number>()
+  for (const { baseline } of batchId ? visible : pending)
+    stateCounts.set(baseline.state, (stateCounts.get(baseline.state) ?? 0) + 1)
+  const orderedStates = [...states].sort((a, b) => Number(stateCounts.has(b.code)) - Number(stateCounts.has(a.code)))
   const mobile =
-    !entries.length && !review.isLoading && !mine.isLoading
+    (batchId ? !visible.length || recent.isLoading : !entries.length && !review.isLoading && !mine.isLoading) || plateId
       ? 'detail'
-      : params.get('plate')
-        ? 'detail'
-        : params.get('state')
-          ? 'plates'
-          : 'states'
-  const plateImage = (id: string) =>
-    states.flatMap((state) => state.plates).find((plate) => plate.id === id)
-      ?.imageUrl
+      : batchId || code
+        ? 'plates'
+        : 'states'
+  const images = new Map(states.flatMap(state => state.plates.map(plate => [plate.id, plate.imageUrl])))
+  const plateImage = (id: string) => images.get(id)
+  async function revert(field: keyof EditableFields, jobId: string) {
+    if (!entry) return
+    const plateId = entry.baseline.id
+    setReverting(true)
+    setRevertFeedback(null)
+    try {
+      await actions.revertPipelineField(entry.batch.id, plateId, field, jobId)
+      setRevertFeedback({ plateId, message: 'Pipeline field reverted.', error: false })
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : null
+      setRevertFeedback({ plateId, message: code === 'superseded_revision' || code === 'stale_plate'
+        ? 'This field changed while you were reviewing. Check its latest value.'
+        : reviewError(error, entry.batch.revision), error: true })
+    } finally {
+      setReverting(false)
+    }
+  }
   return (
     <div className="grid min-h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] min-w-0 grid-cols-1 gap-4 md:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] md:grid-cols-[200px_290px_minmax(0,1fr)]">
-      {batches.map((batch) => (
+      {(!batchId ? batches : []).map((batch) => (
         <BatchLoader key={batch.id} batch={batch} onLoad={loaded} />
       ))}
       <aside
@@ -273,27 +289,38 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
         )}
       >
         <h1 className="p-2 text-xs font-extrabold">
-          States with changes first
+          {batchId ? selected.data?.batch.name ?? 'Batch' : 'States with changes first'}
         </h1>
-        {orderedStates.map((item) => {
-          const changes = pending.filter(
-            (entry) => entry.baseline.state === item.code,
-          )
+        {batchId && (
+          <>
+            <Link className="block px-2 pb-2 text-xs underline" href="/review?view=states">All batches</Link>
+            <p className="px-2 pb-2 text-xs text-muted-foreground" role="status">{live}</p>
+            {live === 'Live updates unavailable' && <Button size="sm" variant="outline" onClick={() => void selected.mutate()}>Refresh Batch</Button>}
+            <Link className={cn('block rounded-xl p-2 text-sm', !scope && 'bg-primary text-primary-foreground')} href={reviewHref(undefined, undefined, batchId, { ...filters, scope: null })}>
+              All states <span className="ml-1">{visible.length}</span>
+            </Link>
+          </>
+        )}
+        {!batchId && batches.length > 0 && (
+          <nav aria-label="Batches" className="mb-2 border-b border-[var(--hairline)] pb-2">
+            {batches.map(batch => <Link className="block rounded-xl p-2 text-sm underline" href={reviewHref(undefined, undefined, batch.id)} key={batch.id}>{batch.name}</Link>)}
+          </nav>
+        )}
+        {orderedStates.filter(item => !batchId || stateCounts.has(item.code)).map(item => {
+          const count = stateCounts.get(item.code)
           return (
             <Link
               key={item.code}
-              href={reviewHref(item.code)}
+              href={reviewHref(item.code, undefined, batchId ?? undefined, { ...filters, scope: null })}
               className={cn(
                 'flex min-h-10 items-center gap-3 rounded-xl px-2 text-sm',
-                code === item.code && 'bg-primary text-primary-foreground',
+                scope === item.code && 'bg-primary text-primary-foreground',
               )}
             >
               <strong>{item.code}</strong>
               <span className="flex-1">{item.name}</span>
-              {changes.length > 0 && (
-                <span className="rounded-full bg-[var(--info-tint)] px-2 text-[var(--ink)]">
-                  {changes.length}
-                </span>
+              {count !== undefined && (
+                <span className="rounded-full bg-[var(--info-tint)] px-2 text-[var(--ink)]">{count}</span>
               )}
               <IoChevronForward aria-hidden="true" />
             </Link>
@@ -303,8 +330,8 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       <section
         aria-label="Plates"
         className={cn(
-          'min-w-0 rounded-3xl bg-card p-3 md:block',
-          mobile !== 'plates' && 'hidden',
+          'min-h-0 min-w-0 flex-col rounded-3xl bg-card p-3 md:flex',
+          mobile === 'plates' ? 'flex' : 'hidden',
         )}
       >
         <Link
@@ -312,10 +339,11 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           className="mb-3 flex items-center text-xs md:hidden"
         >
           <IoChevronBack />
-          States
+          {batchId ? 'Batches' : 'States'}
         </Link>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-extrabold">{state?.name ?? 'Plates'}</h2>
+          <h2 className="font-extrabold">{batchId ? selected.data?.batch.name ?? 'Batch' : state?.name ?? 'Plates'}</h2>
+          {batchId ? <span className="text-xs">{visible.length} changed {visible.length === 1 ? 'Plate' : 'Plates'}</span> : (
           <div className="flex rounded-full bg-muted p-1 text-xs">
             <button
               className={cn(
@@ -324,7 +352,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               )}
               onClick={() => setAll(false)}
             >
-              Changed {inState.length}
+              Changed {listed.length}
             </button>
             <button
               className={cn(
@@ -335,15 +363,33 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             >
               All {state?.plateCount ?? state?.plates.length ?? 0}
             </button>
-          </div>
+          </div>)}
         </div>
-        <div className="max-h-[75dvh] overflow-y-auto">
-          {(all
+        {batchId && (
+          <div className="grid gap-2 pb-3 text-sm">
+            {(filters.run || since !== null) && visible.length > 0 && (
+              <div className="flex flex-wrap justify-between gap-2 text-xs">
+                <span>{filters.run ? 'Run changes' : 'New changes'}</span>
+                <Link className="underline" href={reviewHref(undefined, undefined, batchId)}>Show all Batch changes</Link>
+              </div>
+            )}
+            <label className="md:hidden">
+              <span className="sr-only">Filter by state</span>
+              <select className="w-full rounded-xl border border-[var(--hairline)] bg-card p-2" value={scope ?? ''} onChange={event => router.push(reviewHref(event.target.value, undefined, batchId, { ...filters, scope: null }))}>
+                <option value="">All states</option>
+                {orderedStates.filter(item => stateCounts.has(item.code)).map(item => <option key={item.code} value={item.code}>{item.name}</option>)}
+              </select>
+            </label>
+            <input className="rounded-xl border border-[var(--hairline)] bg-card p-2" type="search" aria-label="Search changed plates" placeholder="Search plates" value={search} onChange={event => setSearch(event.target.value)} />
+          </div>
+        )}
+        <div className="max-h-[75dvh] min-h-0 flex-1 overflow-y-auto md:max-h-full">
+          {((!batchId && all)
             ? (state?.plates ?? [])
-            : inState.map((entry) => ({
+            : listed.slice(0, pageEnd).map((entry) => ({
                 id: entry.baseline.id,
                 displayName: entry.proposed.displayName,
-                imageUrl: plateImage(entry.baseline.id),
+                imageUrl: entry.afterImageUrl ?? plateImage(entry.baseline.id),
                 entry,
               }))
           ).map((plate, index) => {
@@ -353,14 +399,14 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                 : inState.find((entry) => entry.baseline.id === plate.id)
             return (
               <Link
-                key={`${plate.id}-${index}`}
-                href={reviewHref(code!, plate.id, item?.batch.id)}
+                key={`${plate.id}-${item?.batch.id ?? index}`}
+                aria-label={`${plate.displayName} · ${item?.baseline.state ?? code ?? ''}`}
+                aria-current={entry?.baseline.id === plate.id && entry.batch.id === item?.batch.id ? 'true' : undefined}
+                prefetch={false}
+                href={reviewHref(item?.baseline.state ?? code ?? undefined, plate.id, item?.batch.id, { ...filters, scope: batchId ? scope : null })}
                 className={cn(
                   'flex min-h-14 items-center gap-3 rounded-2xl p-2',
-                  params.get('plate') === plate.id &&
-                    (!params.get('batch') ||
-                      params.get('batch') === item?.batch.id) &&
-                    'bg-muted',
+                  entry?.baseline.id === plate.id && entry.batch.id === item?.batch.id && 'bg-muted',
                 )}
               >
                 {plate.imageUrl ? (
@@ -376,7 +422,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   <span className="h-9 w-[72px] shrink-0 rounded bg-muted" />
                 )}
                 <span className="min-w-0 flex-1">
-                  <strong className="block text-sm">{plate.displayName}</strong>
+                  <strong className="block text-sm">{plate.displayName}{batchId && item && <span className="ml-1 font-normal text-muted-foreground">{item.baseline.state}</span>}</strong>
                   <span className="block truncate text-xs text-muted-foreground">
                     {item
                       ? changeSummary(item.baseline, item.proposed, item.order)
@@ -401,6 +447,8 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               </Link>
             )
           })}
+          {batchId && pageEnd < listed.length && <Button variant="outline" size="sm" className="mx-2 my-3" onClick={() => setPagination({ scope: pageScope, count: pageEnd + reviewPageSize })}>Load more plates</Button>}
+          {batchId && term && !listed.length && <p className="p-2 text-sm">No plates match your search.</p>}
         </div>
       </section>
       <section
@@ -411,13 +459,21 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
         )}
       >
         <Link
-          href={reviewHref(code ?? '')}
+          href={reviewHref(scope ?? undefined, undefined, batchId ?? undefined, { ...filters, scope: null })}
           className="flex items-center text-xs md:hidden"
         >
           <IoChevronBack />
           Plates
         </Link>
-        {entry ? (
+        {revertFeedback && (revertFeedback.plateId === entry?.baseline.id || revertFeedback.plateId === plateId) && (
+          <p role={revertFeedback.error ? 'alert' : 'status'}>{revertFeedback.message}</p>
+        )}
+        {recent.error ? (
+          <div role="alert">
+            <p>Could not load new changes.</p>
+            <Button variant="outline" size="sm" onClick={() => void recent.mutate()}>Retry</Button>
+          </div>
+        ) : recent.isLoading ? <p role="status">Loading new changes…</p> : entry ? (
           <>
             <header className="flex flex-wrap items-center gap-3">
               {plateImage(entry.baseline.id) && (
@@ -462,12 +518,16 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             </header>
             <DiffTable
               before={entry.baseline}
-              beforeImageUrl={plateImage(entry.baseline.id)}
+              beforeImageUrl={entry.beforeImageUrl ?? plateImage(entry.baseline.id)}
+              afterImageUrl={entry.afterImageUrl}
               after={entry.proposed}
               version={entry.batch.baselineVersion}
               revision={entry.batch.revision}
               positions={entry.order}
-              order={state?.plates.map((plate) => plate.id) ?? []}
+              order={state?.code === entry.baseline.state ? state.plates.map(plate => plate.id) : []}
+              pipelineChanges={entry.edit?.pipelineChanges}
+              reverting={reverting}
+              onRevert={me.data && canEdit(entry.batch, me.data) && editableStates.includes(entry.batch.state) ? revert : undefined}
             />
             <RunStatus batchId={entry.batch.id} />
             <ReviewFooter
@@ -477,19 +537,19 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           </>
         ) : review.error || mine.error || selected.error ? (
           <p role="alert">Could not load review batches. Please refresh.</p>
-        ) : review.isLoading ||
-          mine.isLoading ||
-          batches.some((batch) => !currentDetails[batch.id]) ? (
+        ) : (batchId ? selected.isLoading : review.isLoading || mine.isLoading || batches.some(batch => !currentDetails[batch.id])) ? (
           <p role="status">Loading review batches…</p>
         ) : (
           <div className="m-auto text-center">
             <h2 className="text-lg font-extrabold">
-              {params.get('plate')
-                ? 'No changes for this plate'
-                : 'Nothing waiting for review'}
+              {filters.run ? 'This run has no saved draft changes'
+                : since !== null ? 'No new changes in this Batch'
+                  : plateId ? 'No changes for this plate'
+                    : batchId ? 'No draft changes in this Batch'
+                      : 'Nothing waiting for review'}
             </h2>
-            <Link href="/" className="underline">
-              Dashboard
+            <Link href={batchId && (filters.run || since !== null) ? reviewHref(undefined, undefined, batchId) : '/'} className="underline">
+              {batchId && (filters.run || since !== null) ? 'Show all Batch changes' : 'Dashboard'}
             </Link>
           </div>
         )}

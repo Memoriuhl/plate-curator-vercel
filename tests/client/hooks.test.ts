@@ -624,14 +624,14 @@ test('shared preview consumes the preloaded session API response and draft overl
 
 test.each([
   ['publish_disabled_here', 'Publishing is disabled in this environment.'],
-  ['superseded_revision', 'This Batch changed since approval and must be re-approved.'],
+  ['superseded_revision', 'This Batch changed. Confirm the current revision.'],
   ['not_waiting', 'This run is no longer waiting for Publish. Refresh to see its status.'],
   ['forbidden', 'Only the Owner can Publish.'],
   ['not_found', 'This Batch could not be found.'],
 ])('Publish maps %s and posts the approved revision', async (code, message) => {
   session.api.send.mockRejectedValue(new ApiError(409, code, {}))
   const { result } = renderHook(() => useReviewActions(), harness())
-  await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message }))
+  await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message, ...(code === 'superseded_revision' ? { code } : {}) }))
   expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7, commandId: expect.any(String) })
 })
 
@@ -696,7 +696,7 @@ test('Publish keeps the click identity after an ambiguous response and clears it
   expect(session.api.send.mock.calls[2][2].commandId).not.toBe(first.commandId)
 })
 
-test('Publish confirmation shows the approved revision, sends the current batch revision and retains its result when lists refresh', async () => {
+test('Publish confirmation sends the displayed revision and retains its result when lists refresh', async () => {
   let published = false
   const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 8, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
   const other = { ...approved, id: 'other', name: 'Other release', approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' } }
@@ -711,17 +711,17 @@ test('Publish confirmation shows the approved revision, sends the current batch 
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open') } })
   try {
     render(createElement(PublishWorkspace), harness())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish revision 7' })).toBeDefined())
-    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 7' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish revision 8' })).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 8' }))
     const dialog = screen.getByRole('dialog')
     expect(dialog.textContent).toContain('Publish Veterans release?')
     expect(dialog.textContent).toContain('This creates the next Catalog Snapshot.')
     expect(dialog.textContent).toContain('edited')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 8' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
     expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
     expect(within(screen.getByRole('region', { name: 'Approval run' })).getByText('v12')).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish revision 8' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
   } finally { Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
 })

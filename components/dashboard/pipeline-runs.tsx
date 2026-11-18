@@ -1,5 +1,7 @@
 'use client'
 
+import { reviewHref } from '@/lib/review/href'
+
 import { useState } from 'react'
 import useSWR from 'swr'
 import { IoChevronDown, IoDesktopOutline } from 'react-icons/io5'
@@ -53,7 +55,8 @@ export function PipelineRuns({ queue }: { queue: ReturnType<typeof usePipelineQu
     {view === 'local' ? <PipelineQueuePanel requester={requester} queue={queue} /> : <>
       {gateway.isLoading ? <p role="status" className="caption">Loading gateway runs…</p> : gateway.error ? <p role="alert">Could not load gateway runs. <Button size="sm" variant="ghost" onClick={() => void gateway.mutate()}>Refresh runs</Button></p> : !gatewayRuns.length ? <p className="caption">No gateway runs yet.</p> : null}
       <PipelineRunRail runs={gatewayRuns} observedAt={gateway.data?.observedAt} progress={run => run.progress}
-        renderRun={run => <PipelineRunCard run={run} progress={run.progress} stages={['tag']} observedAt={gateway.data?.observedAt} requester={requester(run.requestedBy)} plates={run.plates} device="Vercel Gateway" />}
+        historyHref={run => reviewHref(undefined, undefined, run.batchId, { run: run.id })}
+        renderRun={run => <PipelineRunCard run={run} progress={run.progress} stages={run.stages ?? ['tag']} observedAt={gateway.data?.observedAt} requester={requester(run.requestedBy)} plates={run.plates} device="Vercel Gateway" />}
         renderHistory={run => <>
           <p className="caption">{taggingModel(run.modelId)?.label ?? run.modelId}</p>
           <PipelinePlateList plateIds={run.plateIds} steps={run.progress.steps} plates={run.plates} />

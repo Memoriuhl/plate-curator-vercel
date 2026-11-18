@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { IoArrowForward } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
@@ -13,12 +14,13 @@ type RailRun = { id: string; createdAt: number; queuedAt?: number; status: RunSt
 const railOrder = { failed: 0, queued: 1, completed: 2, running: 3, cancelled: 4 }
 const historyLabels = { completed: 'Finished', failed: 'Failed', cancelled: 'Cancelled', queued: 'Queued', running: 'Running' }
 
-export function PipelineRunRail<T extends RailRun>({ runs, observedAt, progress, renderRun, renderHistory }: {
+export function PipelineRunRail<T extends RailRun>({ runs, observedAt, progress, renderRun, renderHistory, historyHref }: {
   runs: T[]
   observedAt?: number
   progress: (run: T) => PipelineProgress
   renderRun: (run: T) => ReactNode
   renderHistory: (run: T) => ReactNode
+  historyHref: (run: T) => string
 }) {
   const recent = (run: T) => {
     const end = progress(run).endedAt
@@ -43,7 +45,7 @@ export function PipelineRunRail<T extends RailRun>({ runs, observedAt, progress,
           {history.length ? <ul className={styles.historyList}>{history.map(run => {
             const end = progress(run).endedAt
             return <li key={run.id}><details><summary>
-              <strong>Run {run.id.slice(-8)}</strong>
+              <Link className="font-bold underline-offset-2 hover:underline focus-visible:underline" href={historyHref(run)} prefetch={false}>Run {run.id.slice(-8)}</Link>
               <span data-status={run.status}>{historyLabels[run.status]} · {formatDuration(end === undefined ? undefined : end - run.createdAt)}</span>
             </summary>{renderHistory(run)}</details></li>
           })}</ul> : <p className="caption">No finished runs yet.</p>}

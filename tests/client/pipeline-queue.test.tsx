@@ -49,7 +49,7 @@ test('reload restores saved run via one list, and an active run does not block e
   await waitFor(() => expect(first.result.current.runs[0]?.id).toBe('saved-run'))
   expect(mocks.api.get.mock.calls.every(args => args[0].startsWith('/api/local-pipeline/runs'))).toBe(true)
   await act(async () => { await first.result.current.enqueue([plate], ['tag']) })
-  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ plateIds: ['AK.one'], stages: ['tag'], requestId: expect.any(String) }))
+  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs/selection', expect.objectContaining({ batchName: 'AK pipeline', plateIds: ['AK.one'], stages: ['tag'], requestId: expect.any(String) }))
   first.unmount()
   const restored = renderHook(usePipelineQueue, { wrapper })
   act(() => restored.result.current.select('saved-run'))
@@ -110,7 +110,7 @@ test('local controls select multiple stages, keep options snapshot, and permit Q
   expect((screen.getByRole('button', { name: 'Queue run' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByLabelText(/Preview only/))
   fireEvent.click(screen.getByRole('button', { name: 'Queue run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b', undefined))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['describe', 'story', 'tag'], 'desktop-gemma4-12b', { story: { redoExisting: false }, tag: { onlyUnderTagged: false } }, true, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
 })
 
 test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run pipeline', async () => {
@@ -120,7 +120,7 @@ test('Gateway Tag remains selectable alongside Desktop Colors in the durable Run
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Colors' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['colors', 'tag'], 'desktop-gemma4-12b', { tag: { onlyUnderTagged: false } }, false, 'gateway-gemma4-26b', undefined, 'Alaska pipeline'))
 })
 
 test('bulk Research offers Fill missing by default, explicit Replace existing and a separate model', async () => {
@@ -134,7 +134,7 @@ test('bulk Research offers Fill missing by default, explicit Replace existing an
   expect(policy.value).toBe('fill-missing')
   fireEvent.change(policy, { target: { value: 'replace' } })
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith(plates, ['research'], undefined, { research: { policy: 'replace' } }, false, undefined, 'eve-gemini-2-5-flash-lite'))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith(plates, ['research'], undefined, { research: { policy: 'replace' } }, false, undefined, 'eve-gemini-2-5-flash-lite', 'Alaska pipeline'))
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {
@@ -170,7 +170,7 @@ test('model-free Wiki plus skipped Story can start without any desktop model', a
   expect((screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement).disabled).toBe(false)
   expect(screen.queryByText('Local model')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
-  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined, undefined))
+  await waitFor(() => expect(enqueue).toHaveBeenCalledWith([existing], ['wiki-link', 'story'], undefined, { story: { redoExisting: false } }, false, undefined, undefined, 'Alaska pipeline'))
 })
 
 test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
@@ -186,7 +186,7 @@ test('worker capabilities enable Group and normalize unsupported default colour 
   fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
   await waitFor(() => expect(enqueue).toHaveBeenCalledWith([plate], ['tag', 'group'], 'desktop-gemma4-12b', {
     tag: { onlyUnderTagged: false }, group: { method: 'embeddings', colorSignal: false, backgroundMask: false, visionTiebreak: false },
-  }, false, 'desktop-gemma4-12b', undefined))
+  }, false, 'desktop-gemma4-12b', undefined, 'Alaska pipeline'))
 })
 
 test('Preview never bootstraps or changes Batch metadata; it uses an existing Batch context', async () => {
@@ -199,7 +199,7 @@ test('Preview never bootstraps or changes Batch metadata; it uses an existing Ba
   const existing = renderHook(() => usePipelineQueue('existing-batch'), { wrapper })
   await act(async () => { await existing.result.current.enqueue([plate], ['tag'], undefined, {}, true) })
   expect(mocks.ensure).not.toHaveBeenCalled()
-  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs', expect.objectContaining({ batchId: 'existing-batch', previewOnly: true }))
+  expect(mocks.api.send).toHaveBeenCalledWith('POST', '/api/local-pipeline/runs/selection', expect.objectContaining({ batchId: 'existing-batch', previewOnly: true }))
 })
 
 test('run cards describe cancelled dependencies and share the real workflow link after deliberate hover', async () => {
@@ -265,4 +265,17 @@ test('coherent facts and read-more links use readable text and cited links inste
   expect(screen.getByRole('link', { name: 'Design history' }).getAttribute('href')).toBe('https://example.org/history')
   expect(screen.getByText('Museum')).toBeTruthy()
   expect(screen.queryByText(/"sourceUrl"/)).toBeNull()
+})
+
+test('incremental History links to saved changes and preserves visibility of a conflicting stage', () => {
+  const run = saved({ id: 'run-chunk', batchId: 'pipeline-draft', batchName: 'Coastal Batch', status: 'failed', incrementalDrafts: true, previewOnly: false, draftPlateIds: ['AK.one'] })
+  run.attempts[0].steps[0] = { ...run.attempts[0].steps[0], status: 'failed', reason: 'draft_conflict' }
+  const controls = { runs: [run], selected: run, select: vi.fn(), loading: false, error: null, refresh: vi.fn(), action: null, message: '', cancel: vi.fn(), retry: vi.fn(), apply: vi.fn(), chooseImage: vi.fn(), recover: vi.fn() }
+  render(<PipelineQueuePanel queue={controls} />)
+  expect(screen.getByText(/1 Plate saved to Coastal Batch/)).toBeTruthy()
+  expect(screen.getByRole('alert').textContent).toContain('Your edits were kept')
+  expect(screen.queryByRole('button', { name: 'Apply coherent run to your Batch' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  expect(screen.getByRole('link', { name: 'Run un-chunk' }).getAttribute('href')).toBe('/review?batch=pipeline-draft&run=run-chunk')
+  expect(screen.getByRole('link', { name: 'Review run changes' }).getAttribute('href')).toBe('/review?batch=pipeline-draft&run=run-chunk')
 })

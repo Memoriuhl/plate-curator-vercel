@@ -1,7 +1,8 @@
 import { standardScenarios } from '../tests/review/standard-scenarios'
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
-import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
+import { approveBatch, proposeEdit, reorderState, revertPipelineField, submitBatch } from '../lib/review/batch'
+import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
 import { seedDemo } from '../lib/review/demo-seed'
 import { liveEnvKey, signalPath } from '../lib/review/live-signal'
@@ -321,4 +322,45 @@ test('multi-edit failure rolls back every edit, order, approval and signal', asy
     edits: [edit, { ...edit, plateId: 'two', fields: { templateFamily: undefined } }],
   })).rejects.toThrow()
   expect(await lifecycleSnapshot()).toEqual(before)
+})
+
+test('reverts the selected pipeline field to its earlier draft while preserving newer edits', async () => {
+  const baseline = snapshot.plates[0]
+  const draft = { ...baseline, tags: ['pipeline'], description: 'Existing draft description' }
+  const deps = { ...fixture().deps, store }
+  const applied: ProposedEdit = {
+    ...edit, fields: { tags: draft.tags, description: draft.description }, resultRevision: plateRevision(draft),
+    pipelineRunIds: ['run'],
+    pipelineChanges: { tags: { runId: 'run', jobId: 'tag-job', by: 'editor', byName: 'Editor', at: edit.updatedAt, value: ['pipeline'], previous: ['earlier draft'] } },
+  }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edit: applied })).toBe('ok')
+  const newerDraft = await proposeEdit(deps, owner, { batchId: batch.id, plateId: baseline.id, baseRevision: plateRevision(draft), fields: { description: 'Newer draft description' } })
+  expect(newerDraft).toMatchObject({ ok: true })
+
+  const revert = { batchId: batch.id, plateId: baseline.id, field: 'tags', jobId: 'tag-job' } as const
+  expect(await revertPipelineField(deps, { uid: 'other', name: 'Other', role: 'editor' }, revert)).toMatchObject({ ok: false, error: 'forbidden' })
+  expect(await revertPipelineField(deps, owner, revert)).toMatchObject({ ok: true, value: { plate: { tags: ['earlier draft'], description: 'Newer draft description' } } })
+  expect(await revertPipelineField(deps, owner, revert)).toMatchObject({ ok: false, error: 'superseded_revision' })
+  const reloaded = await batchDetail(deps, batch.id)
+  expect(reloaded).toMatchObject({ ok: true, value: { plates: [{ proposed: { tags: ['earlier draft'], description: 'Newer draft description' } }, {}] } })
+})
+
+test('a reset to the published value uses the saved field identity and cannot erase a newer edit', async () => {
+  const baseline = snapshot.plates[0]
+  const draft = { ...baseline, tags: ['pipeline'], description: 'Pipeline description' }
+  const deps = { ...fixture().deps, store }
+  const saved = { runId: 'run', jobId: 'tag-job', by: 'editor', byName: 'Editor', at: edit.updatedAt }
+  const applied: ProposedEdit = {
+    ...edit, fields: { tags: draft.tags, description: draft.description }, resultRevision: plateRevision(draft),
+    pipelineRunIds: ['run'],
+    pipelineChanges: {
+      tags: { ...saved, value: draft.tags },
+      description: { ...saved, value: draft.description },
+    },
+  }
+  expect(await store.commit(batch.id, 4, { batch: { ...batch, revision: 5 }, edit: applied })).toBe('ok')
+  expect(await proposeEdit(deps, owner, { batchId: batch.id, plateId: baseline.id, baseRevision: plateRevision(draft), fields: { description: 'Editor description' } })).toMatchObject({ ok: true })
+  const revert = { batchId: batch.id, plateId: baseline.id, jobId: 'tag-job' }
+  expect(await revertPipelineField(deps, owner, { ...revert, field: 'description' })).toMatchObject({ ok: false, error: 'superseded_revision' })
+  expect(await revertPipelineField(deps, owner, { ...revert, field: 'tags' })).toMatchObject({ ok: true, value: { plate: { tags: baseline.tags, description: 'Editor description' } } })
 })

@@ -1,4 +1,5 @@
 import type { Actor, Outcome as ReviewOutcome } from '../review/types'
+import { sortedJsonValue } from '../review/canonical-value'
 import { plateRevision } from '../review/revision'
 import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob, PipelineStage } from './types'
 import { isPipelineStage, parseFieldSuggestion } from './suggestions'
@@ -34,13 +35,14 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob> | { ok: false; error: 'publish_in_progress' }> {
   if (input.stage === 'research') return { ok: false, error: 'forbidden' } // Research requires the persisted queue model/policy contract.
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
   if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
+    if (await tx.canQueue?.() === false) return { ok: false, error: 'publish_in_progress' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
     if (!inputPlate) return { ok: false, error: 'not_found' }
     let groupScope: GroupInput | undefined
@@ -156,7 +158,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
         if (!Object.keys(result.fieldSuggestion.fields).length) { delete result.fieldSuggestion; result.stageError = 'no_supported_fields' }
       }
     }
-    if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
+    if (job.state === 'completed') return JSON.stringify(sortedJsonValue(job.result)) === JSON.stringify(sortedJsonValue(result))
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
     if (result.fieldSuggestion?.kind === 'group') {
       const expected = job.groupScope?.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })).sort((a, b) => a.plateId.localeCompare(b.plateId))
@@ -166,13 +168,16 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
         if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
       }
     }
+    let checksDraftAtApply = false
     if (job.queueRunId) {
-      const run = (await tx.runs()).find(run => run.id === job.queueRunId && run.localScope === d.localScope)
+      const run = await tx.getRun(job.queueRunId)
       const attempt = run?.attempts.at(-1)
       const projected = attempt?.projection?.plates[job.plateId]
-      if (!run || !attempt || attempt.number !== job.queueAttempt || attempt.cursor !== job.queueStep || !projected ||
+      if (!run || run.localScope !== d.localScope || !attempt || run.batchId !== job.batchId || run.requestedBy !== job.requestedBy ||
+        attempt.number !== job.queueAttempt || attempt.cursor !== job.queueStep || !projected ||
         job.inputHash !== projected.batchInputHash || job.executionHash !== projected.executionHash || !job.inputPlate ||
         plateRevision(job.inputPlate) !== projected.executionHash) return { ok: false, error: 'stale_input' }
+      checksDraftAtApply = Boolean(run.incrementalDrafts && !run.previewOnly && job.stage !== 'group')
       if (job.stage === 'group') {
         const entries = Object.values(attempt.projection!.plates)
         if (!job.groupScope || job.groupScope.length !== entries.length || new Set(job.groupScope.map(member => member.plate.id)).size !== entries.length ||
@@ -187,8 +192,10 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
           !validGroupContext(result.fieldSuggestion, entries.map(entry => entry.executionPlate), context.statePlates, context.standardId)) return { ok: false, error: 'invalid_result' }
       }
     }
-    const current = await currentPlate(d, tx, job.batchId, job.plateId)
-    if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
+    if (!checksDraftAtApply) {
+      const current = await currentPlate(d, tx, job.batchId, job.plateId)
+      if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
+    }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
     tx.set(completed)
     return { ok: true, value: completed }

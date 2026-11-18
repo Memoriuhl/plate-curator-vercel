@@ -1,6 +1,6 @@
 'use client'
 
-import { isPublishStop, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
+import { isPublishStop, PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useEffect, useState } from 'react'
 import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
@@ -24,6 +24,7 @@ const phases = [
 ]
 const failures: Record<string, string> = {
   ...PUBLISH_STOP_MESSAGES,
+  [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
   [BASELINE_ERRORS.stale]: 'The Catalog changed since this Batch was reviewed.',
   [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
   pointer_moved: 'The Catalog moved during Publish.',
@@ -102,7 +103,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               ))}
             </ul>
             {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
-            <p>{isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
+            <p>{run.outcome?.error === PIPELINE_BUSY ? 'Confirm Publish again when the pipeline clears.' : isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (

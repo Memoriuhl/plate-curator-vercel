@@ -4,11 +4,16 @@ import { useId, useState } from 'react'
 import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
+import { Button } from '@/components/ui/button'
+import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
+import { sameEditableValue } from '@/lib/review/story'
+import type { EditableFields, ProposedEdit } from '@/lib/review/types'
 import type { Plate } from '@/lib/catalog/types'
 
 const changeFields = {
   Edited: [
     'image',
+    'imageUrl',
     'displayName',
     'description',
     'tags',
@@ -31,12 +36,14 @@ export function changeSummary(
   order?: BatchDetail['plates'][number]['order'],
   group?: keyof typeof changeFields,
 ) {
-  if (after.deleted) return 'Deleted at next Publish'
+  if (after.deleted && !before.deleted) return 'Deleted at next Publish'
+  if (before.deleted && !after.deleted) return 'Restored at next Publish'
   const story = storyKeys
   const groupKeys = group ? [...changeFields[group], ...(group === 'Edited' ? story : [])] : null
   return (
     [
       'image',
+      'imageUrl',
       'displayName',
       'description',
       'tags',
@@ -51,7 +58,7 @@ export function changeSummary(
     ]
       .filter((key) => !groupKeys || groupKeys.includes(key))
       .flatMap((key) => {
-        if (JSON.stringify(before[key]) === JSON.stringify(after[key]))
+        if (sameEditableValue(key, before[key], after[key]) || key === 'imageUrl' && before.image !== after.image)
           return []
         if (key === 'templateFamily')
           return [`moved to ${after.templateFamily ?? 'no family'}`]
@@ -65,6 +72,7 @@ export function changeSummary(
           return [after.isStandard ? 'now Standard' : 'no longer Standard']
         return [
           {
+            imageUrl: 'image',
             displayName: 'name',
             templateRole: 'role',
             sortOrder: 'order',
@@ -82,6 +90,23 @@ export function changeSummary(
   )
 }
 
+const fieldsByRow: Record<string, (keyof EditableFields)[]> = {
+  Status: ['deleted'],
+  Image: ['imageUrl'],
+  Description: ['description'],
+  Tags: ['tags'],
+  Family: ['templateFamily'],
+  Role: ['templateRole'],
+  'Variant of': ['variantOfPlateId'],
+  Standard: ['isStandard'],
+  'Fun facts': ['funFacts'],
+  'First issued': ['firstIssuedYear'],
+  'Read more': ['readMore'],
+  'Background color': ['colorDetail'],
+  'Broad color': ['lineageColor'],
+  Links: ['sourceUrl', 'wikiUrl'],
+}
+
 export function DiffTable({
   before,
   after,
@@ -91,6 +116,9 @@ export function DiffTable({
   positions,
   beforeImageUrl,
   afterImageUrl,
+  pipelineChanges,
+  onRevert,
+  reverting,
 }: {
   before: Plate
   after: Plate
@@ -100,13 +128,16 @@ export function DiffTable({
   revision: number
   positions?: BatchDetail['plates'][number]['order']
   order: string[]
+  pipelineChanges?: ProposedEdit['pipelineChanges']
+  onRevert?(field: keyof EditableFields, jobId: string): void
+  reverting?: boolean
 }) {
   const [visibleSide, setVisibleSide] = useState<'before' | 'after'>('before')
   const comparisonId = useId()
   const hasStory = ['funFacts', 'firstIssuedYear', 'readMore'].some(key => before[key] != null || after[key] != null)
   const hasColors = ['colorDetail', 'lineageColor'].some(key => before[key] != null || after[key] != null)
   const position = (plate: Plate) =>
-    `${order.indexOf(plate.id) + 1} of ${order.length}`
+    order.includes(plate.id) ? `${order.indexOf(plate.id) + 1} of ${order.length}` : '—'
   const rows = [
     ['Status', 'In catalog', after.deleted ? 'Deleted at next Publish' : 'In catalog'],
     ['Image', before.image, after.image],
@@ -154,7 +185,7 @@ export function DiffTable({
       [after.sourceUrl, after.wikiUrl].filter(Boolean).join(', '),
     ],
   ]
-  const imageChanged = before.image !== after.image
+  const imageChanged = before.image !== after.image || before.imageUrl !== after.imageUrl
   return (
     <div className="grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-2">
       <div role="group" aria-label="Comparison view" className="flex rounded-full bg-muted p-1 md:hidden">
@@ -211,6 +242,18 @@ export function DiffTable({
                       {String(value || 'none')}
                     </span>
                   )}
+                  {side === 'after' && fieldsByRow[String(label)]?.map(field => {
+                    const change = pipelineChanges?.[field]
+                    if (!change || !sameEditableValue(field, change.value, after[field]) || sameEditableValue(field, before[field], after[field])) return null
+                    return (
+                      <div className="mt-2 flex flex-wrap items-center gap-2" key={field}>
+                        {change.byName && <span className="caption">Pipeline · {change.byName}</span>}
+                        {onRevert && <Button variant="outline" size="sm" disabled={reverting} title={Object.hasOwn(change, 'previous') ? 'Restore the earlier draft value' : 'Restore the published value'} onClick={() => onRevert(field, change.jobId)}>
+                          Revert {pipelineFieldLabel(field).toLowerCase()}
+                        </Button>}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}

@@ -27,6 +27,7 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
   useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
 }))
+vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn(), useRecentReviewPlates: () => ({}) }))
 vi.mock('../lib/client/session', () => ({
   useSession: () => ({ user: { displayName: 'Author' } }),
 }))
@@ -336,4 +337,24 @@ test('review submission errors show every affected state', async () => {
   const { ApiError } = await import('../lib/client/api')
   const reasons = ['AK: make Gold the Standard.', 'NY: make Blue the Standard.']
   expect(reviewError(new ApiError(409, 'standard_change_unconfirmed', { reasons }), 1)).toBe(reasons.join(' '))
+})
+
+test('a run History link lists just the changed plates from that run across states', () => {
+  const kansas = { ...before, id: 'KS.sesquicentennial', state: 'KS', displayName: 'Sesquicentennial' }
+  const virginia = { ...before, id: 'VA.dogwood', state: 'VA', displayName: 'Dogwood' }
+  state.query = 'batch=one&run=mountain'
+  state.detail = {
+    ...detail,
+    plates: [
+      ...detail.plates.map(plate => ({ ...plate, edit: { plateId: before.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['service'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] } })),
+      { baseline: kansas, proposed: { ...kansas, tags: ['prairie'] }, edit: { plateId: kansas.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['prairie'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] }, revision: 'ks' },
+      { baseline: virginia, proposed: { ...virginia, tags: ['flower'] }, edit: { plateId: virginia.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['flower'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['coastal'] }, revision: 'va' },
+    ],
+  }
+  const html = renderToStaticMarkup(<ReviewWorkspace states={[
+    { code: 'AK', name: 'Alaska', plates: [] }, { code: 'KS', name: 'Kansas', plates: [] }, { code: 'VA', name: 'Virginia', plates: [] },
+  ]} />)
+  expect(html).toContain('Sesquicentennial')
+  expect(html).toContain('state=KS&amp;plate=KS.sesquicentennial&amp;batch=one&amp;run=mountain')
+  expect(html).not.toContain('Dogwood')
 })

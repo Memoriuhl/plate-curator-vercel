@@ -1,5 +1,5 @@
 import type { Plate } from '../catalog/types'
-import type { EditableFields, ReviewBatch } from '../review/types'
+import type { EditableFields, ProposedEdit, ReviewBatch, ReviewStore, Role } from '../review/types'
 import type { GroupInput, GroupSuggestion, ImageSuggestion } from './specialized-suggestions'
 
 import type { WorkerCapabilityRecord } from './capabilities'
@@ -58,12 +58,17 @@ export type TaggingJob = {
 }
 export type WorkerToken = { hash: string; workerId: string; env: Environment; createdAt: number; revokedAt: number | null }
 export interface JobsTransaction {
+  canQueue?(): Promise<boolean>
+  createDraftBatch?(batch: ReviewBatch): Promise<void>
+  reviewFields?(batchId: string, plateIds: string[]): Promise<Map<string, EditableFields>>
   batch(id: string): Promise<ReviewBatch | null>
   runs(): Promise<PipelineRun[]>
+  getRun(id: string): Promise<PipelineRun | null>
   setRun(run: PipelineRun): void
   get(id: string): Promise<TaggingJob | null>
   list(): Promise<TaggingJob[]>
-  review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number } | null>
+  review(batchId: string, plateId: string): Promise<{ fields: EditableFields; baselineVersion: number; edit?: ProposedEdit } | null>
+  commitDraft: ReviewStore['commit']
   create(job: TaggingJob): void
   set(job: TaggingJob): void
 }
@@ -76,6 +81,6 @@ export interface JobsStore {
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
 }
-export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; now(): number; id(): string; leaseMs: number; localScope?: string }
+export type JobsDeps = { store: JobsStore; baseline(plateId: string): Promise<Plate | null>; baselineAtVersion?(version: number, plateId: string): Promise<Plate | null>; stateBaseline?(version: number, state: string, order?: 'snapshot'): Promise<Plate[]>; pipelineRequesterRole?(uid: string): Promise<Role | null>; now(): number; id(): string; leaseMs: number; localScope?: string }
 export type JobsError = 'not_found' | 'already_exists' | 'claim_expired' | 'claim_mismatch' | 'stale_input' | 'result_mismatch' | 'invalid_result' | 'forbidden'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: JobsError }

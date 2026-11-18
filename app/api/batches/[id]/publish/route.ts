@@ -1,13 +1,14 @@
 import type { PublishCommand, PublishDeps } from '../../../../../lib/publish/types'
 import { validCommandId } from '../../../../../lib/publish/types'
 import { sameRequester } from '../../../../../lib/publish/authority'
-import { PUBLISH_ERRORS } from '../../../../../lib/publish/stop'
-import { publishStartToken, receiptId } from '../../../../../lib/publish/command'
+import { PIPELINE_BUSY, PUBLISH_ERRORS } from '../../../../../lib/publish/stop'
+import { draftCanBeConfirmed, publishStartToken, receiptId } from '../../../../../lib/publish/command'
 import { randomUUID } from 'node:crypto'
 import { publishCommandKey, publishControlStop } from '../../../../../lib/publish/control'
 import { getHookByToken, resumeHook, start } from 'workflow/api'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import { currentActiveOwner, requesterAuthority, publishAllowed, publishDeps, reviewDeps } from '../../../../../lib/server/context'
+import { reviewApprovalProblems } from '../../../../../lib/review/batch'
 import { publishBaselineStatus } from '../../../../../lib/publish/baseline-status'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 
@@ -53,23 +54,39 @@ export async function POST(request: Request, ctx: RouteContext<'/api/batches/[id
     if (body.commandId) {
       const accepted = await publishing.records.command(body.commandId)
       if (accepted) {
-        if (accepted.command.batchId !== id || accepted.command.revision !== body.revision || !sameRequester(accepted.command.requestedBy, requestedBy)) return json({ error: PUBLISH_ERRORS.superseded }, 409)
+        if (accepted.command.batchId !== id || (accepted.command.confirmedDraftRevision ?? accepted.command.revision) !== body.revision || !sameRequester(accepted.command.requestedBy, requestedBy)) return json({ error: PUBLISH_ERRORS.superseded }, 409)
         return await dispatchRetry(publishing, accepted, auth.actor.uid, deps.now())
       }
     }
+    if (await publishing.records.pipelineBusy?.()) return json({ error: PIPELINE_BUSY }, 409)
     const batch = await deps.store.getBatch(id)
     if (!batch) return json({ error: 'not_found' }, 404)
-    if (batch.state !== 'approved' || batch.revision !== body.revision) return json({ error: 'superseded_revision' }, 409)
+    const confirmDraft = draftCanBeConfirmed(batch)
+    if ((!confirmDraft && batch.state !== 'approved') || batch.revision !== body.revision) {
+      const confirmation = await deps.store.changesSinceReview?.(id, auth.actor.uid, batch.revision)
+      return json({ error: 'superseded_revision', confirmation }, 409)
+    }
     const control = await publishing.control.read()
     const stop = publishControlStop(control)
     if (stop) return json({ error: stop }, 409)
     const baseline = await publishBaselineStatus(publishing, batch)
     if (baseline.error) return json(baseline, 409)
-    const command: PublishCommand = { batchId: id, revision: body.revision, requestedBy, generation: control!.generation, commandId: body.commandId ?? randomUUID() }
+    if (confirmDraft) {
+      const reasons = await reviewApprovalProblems(deps, batch)
+      if (reasons.length) return json({ error: 'standard_change_unconfirmed', reasons }, 409)
+    }
+    const command: PublishCommand = { batchId: id, revision: confirmDraft ? body.revision + 1 : body.revision,
+      ...(confirmDraft ? { confirmedDraftRevision: body.revision } : {}), requestedBy, generation: control!.generation, commandId: body.commandId ?? randomUUID() }
     const eligibility = await publishing.records.eligibility(command, deps.now())
     if (eligibility.canRetry) {
       const accepted = await publishing.records.accept(command, deps.now())
-      if (!accepted.ok) return json({ error: accepted.error }, 409)
+      if (!accepted.ok) {
+        if (accepted.error !== 'superseded_revision') return json({ error: accepted.error }, 409)
+        const latest = await deps.store.getBatch(id)
+        const confirmation = latest ? await deps.store.changesSinceReview?.(id, auth.actor.uid, latest.revision) : null
+        return json({ error: accepted.error, confirmation }, 409)
+      }
+      if (confirmDraft && batch.state === 'submitted') await deps.supersedeRun?.(batch)
       return await dispatchRetry(publishing, accepted, auth.actor.uid, deps.now())
     }
     if (eligibility.reason !== PUBLISH_ERRORS.notWaiting) return json({ error: eligibility.reason, reviewedVersion: eligibility.reviewedVersion, liveVersion: eligibility.liveVersion }, 409)
@@ -90,7 +107,9 @@ export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]
   try {
     const publishing = publishDeps()
     const control = await publishing.control.read()
-    const command = { batchId: id, revision: batch.revision, commandId: randomUUID(), requestedBy: requesterAuthority(auth.actor), generation: control?.generation }
+    const confirmDraft = draftCanBeConfirmed(batch)
+    const command = { batchId: id, revision: confirmDraft ? batch.revision + 1 : batch.revision,
+      ...(confirmDraft ? { confirmedDraftRevision: batch.revision } : {}), commandId: randomUUID(), requestedBy: requesterAuthority(auth.actor), generation: control?.generation }
     const eligibility = await publishing.records.eligibility(command, deps.now())
     const receipt = await publishing.records.get(receiptId(id, batch.revision))
     const abandonReason = receipt && !receipt.committedAt ? await publishing.records.abandonmentEligibility(receipt, deps.now()) : 'version_taken'
@@ -99,6 +118,10 @@ export async function GET(request: Request, ctx: RouteContext<'/api/batches/[id]
     const reason = receipt && !receipt.committedAt ? await publishing.records.stopped(receipt) : null
     const stop = publishControlStop(control)
     const baseline = stop ? { error: stop } : await publishBaselineStatus(publishing, batch)
-    return json({ ...baseline, canAbandon: publishAllowed() && !!prepared && !abandonReason, abandonReason, ...(prepared ? { prepared } : {}), ...(abandonment ? { abandonment } : {}), canRetry: publishAllowed() && eligibility.canRetry, retryReason: eligibility.reason, ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}) })
+    const [pipelineBusy, confirmation] = await Promise.all([
+      publishing.records.pipelineBusy?.(),
+      deps.store.changesSinceReview?.(id, auth.actor.uid, batch.revision),
+    ])
+    return json({ ...baseline, pipelineBusy, confirmation, canConfirmDraft: confirmDraft && publishAllowed() && !pipelineBusy && eligibility.canRetry, canAbandon: publishAllowed() && !!prepared && !abandonReason, abandonReason, ...(prepared ? { prepared } : {}), ...(abandonment ? { abandonment } : {}), canRetry: !confirmDraft && publishAllowed() && !pipelineBusy && eligibility.canRetry, retryReason: eligibility.reason, ...(reason ? { stopped: { reason, ...(receipt?.requestedBy ? { requestedBy: receipt.requestedBy } : {}) } } : {}) })
   } catch { return json({ error: PUBLISH_ERRORS.unavailable }, 503) }
 }

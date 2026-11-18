@@ -1,6 +1,7 @@
 import type { Environment, PipelineStage, TaggingJob } from './types'
 import type { PipelineOptions } from './pipeline-options'
 import type { RunProjection } from './queue-projection'
+import type { Role } from '../review/types'
 import type { RunStep } from './pipeline-plan'
 
 export type LocalRunStage = Exclude<PipelineStage, 'order'> | 'tag'
@@ -28,8 +29,14 @@ export type PipelineRun = {
   id: string
   requestId: string
   fingerprint: string
+  selectionId?: string
+  selectionIndex?: number
   batchId: string
   requestedBy: string
+  requestedByName?: string | null
+  requestedByRole?: Role
+  incrementalDrafts?: boolean
+  draftPlateIds?: string[]
   env: Environment
   localScope: string
   plateIds: string[]
@@ -62,5 +69,5 @@ export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
   progress?: import('./run-progress').PipelineProgress
 }
 export type EnqueueInput = { requestId: string; batchId: string; plateIds: string[]; stages: LocalRunStage[]; modelId?: string; tagModelId?: string; researchModelId?: string; options?: PipelineOptions; previewOnly?: boolean }
-export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit'
+export type QueueError = 'forbidden' | 'not_found' | 'invalid_state' | 'bad_request' | 'request_mismatch' | 'stale_input' | 'payload_too_large' | 'attempt_limit' | 'publish_in_progress'
 export type QueueOutcome<T> = { ok: true; value: T } | { ok: false; error: QueueError }

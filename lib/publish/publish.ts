@@ -1,4 +1,4 @@
-import { isPublishStop, PUBLISH_ERRORS } from './stop'
+import { isPublishStop, PIPELINE_BUSY, PUBLISH_ERRORS } from './stop'
 import { claimSupersedes, isSuperseded, receiptId } from './command'
 import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
@@ -37,7 +37,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   const leaseMs = d.leaseMs ?? 60000
   const expiry = () => new Date(Date.parse(d.now()) + leaseMs).toISOString()
   const lease: PublishLease = { ...command, token: randomUUID(), expiresAt: expiry() }
-  if (!await d.lock.claim(lease, d.now())) return { ok: false, error: 'locked' }
+  if (!await d.lock.claim(lease, d.now())) return { ok: false, error: await d.records.pipelineBusy?.() ? PIPELINE_BUSY : 'locked' }
   let keepFrozen = true
   const renew = async () => {
     lease.expiresAt = expiry()

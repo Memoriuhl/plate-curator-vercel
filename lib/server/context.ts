@@ -86,6 +86,7 @@ export function liveAccessDeps(): LiveAccessDeps {
 }
 
 export function reviewDeps(): ReviewDeps {
+  const jurisdictionIndexes = new Map<string, Promise<Map<string, Plate>>>()
   return {
     store: firestoreReviewStore(stagingFirestore(), reviewEnv()),
     async baseline(plateId) {
@@ -99,9 +100,17 @@ export function reviewDeps(): ReviewDeps {
     },
     async baselineAtVersion(version, plateId) {
       const kind = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV })
-      const snapshot = await cachedJurisdiction(version, plateId.split('.')[0], kind)
-      if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
-      return snapshot.plates.find(plate => plate.id === plateId) ?? null
+      const state = plateId.split('.')[0]
+      const key = `${version}:${state}`
+      let index = jurisdictionIndexes.get(key)
+      if (!index) {
+        index = cachedJurisdiction(version, state, kind).then(snapshot => {
+          if (snapshot.version !== version) throw new Error('Baseline catalog version unavailable')
+          return new Map(snapshot.plates.map(plate => [plate.id, plate]))
+        })
+        jurisdictionIndexes.set(key, index)
+      }
+      return (await index).get(plateId) ?? null
     },
     async stateBaseline(version, state, order) {
       const source = catalog()
@@ -131,6 +140,12 @@ export function jobsDeps(): JobsDeps {
     baseline: reviewDeps().baseline,
     baselineAtVersion: reviewDeps().baselineAtVersion,
     stateBaseline: reviewDeps().stateBaseline,
+    async pipelineRequesterRole(uid) {
+      if (parseOwnerUids(process.env.OWNER_UIDS).includes(uid)) return 'owner'
+      const fixture = catalogSourceKind({ CATALOG_SOURCE: process.env.CATALOG_SOURCE, VERCEL_ENV: process.env.VERCEL_ENV }) === 'fixture'
+      const member = await (fixture ? fixtureMembers : membersStore()).getByUid(uid)
+      return member?.uid === uid && member.status === 'active' ? member.role : null
+    },
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     leaseMs: 5 * 60_000,

@@ -1,4 +1,5 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
+import type { ReviewChanges } from './checkpoint'
 import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
@@ -26,18 +27,33 @@ export type ReviewBatch = {
   pipelineApplications?: Record<string, { by: string; at: string }>
 }
 export type EditableFields = Partial<Pick<Plate, 'tags' | 'templateFamily' | 'templateRole' | 'isStandard' | 'description' | 'colorDetail' | 'lineageColor'>> & StoryFields & { imageUrl?: string | null; sourceUrl?: string | null; variantOfPlateId?: string | null; deleted?: boolean }
+export type PipelineFieldChange = {
+  runId: string
+  jobId: string
+  by: string
+  byName: string | null
+  at: string
+  previous?: EditableFields[keyof EditableFields]
+  value?: EditableFields[keyof EditableFields]
+}
 export type ProposedEdit = {
   plateId: string
   baseRevision: string
   fields: EditableFields
   authorId: string
+  authorName?: string | null
+  pipelineChanges?: Partial<Record<keyof EditableFields, PipelineFieldChange>>
+  pipelineRunIds?: string[]
   updatedAt: string
   resultRevision: string
 }
 export type StandardChange = { from: string | null; to: string }
-export type ReviewError = 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' | 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
+export type ReviewError = 'pipeline_busy' | 'standard_change_unconfirmed' | 'standard_required' | 'standard_invalid_template' | 'forbidden' | 'not_found' | 'stale_plate' | 'superseded_revision' | 'invalid_state'
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
 export interface ReviewStore {
+  markViewed?(batchId: string, uid: string, revision: number, viewedAt: string): Promise<boolean>
+  recentPlateIds?(batchId: string, since: number): Promise<string[] | null>
+  changesSinceReview?(batchId: string, uid: string, revision: number): Promise<ReviewChanges | null>
   updatePublishMetadata(batchId: string, revision: number, fields: PublishMetadata): Promise<boolean>
   copy(input: { sourceId: string; sourceRevision: number; targetVersion: number; batch: ReviewBatch; edits: ProposedEdit[] }): Promise<CopyCommitResult>
   create(batch: ReviewBatch): Promise<'ok' | 'exists'>
@@ -48,7 +64,7 @@ export interface ReviewStore {
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
   recordRun(batchId: string, revision: number, runId: string): Promise<boolean>
   requestPublish(batchId: string, revision: number, at: string, requestedBy?: RequesterAuthority): Promise<boolean>
-  commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; edit?: ProposedEdit; edits?: ProposedEdit[]; deleteEditsFor?: string[]; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch'>
+  commit(batchId: string, expectedRevision: number, next: { batch: ReviewBatch; by?: Pick<Actor, 'uid' | 'name'>; edit?: ProposedEdit; edits?: ProposedEdit[]; deleteEditsFor?: string[]; deleteEditFor?: string; publishToken?: string }): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
 }
 export type PublishMetadata = Partial<Pick<ReviewBatch, 'publishAbandonment' | 'publishCommand' | 'approvalRun' | 'publishRequestedAt' | 'publishRequestedBy'>>
 export type CopyCommitResult = { ok: true; value: ReviewBatch } | { ok: false; error: 'not_found' | 'superseded_revision' | 'invalid_state' | 'head_moved'; liveVersion?: number }

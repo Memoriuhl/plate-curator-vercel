@@ -29,6 +29,7 @@ export type PlateCardData = StoryFields & {
   colorDetail?: string | null
   lineageColor?: string | null
   deleted?: boolean
+  pipelineBatchId?: string
   id: string
   state: string
   slug: string

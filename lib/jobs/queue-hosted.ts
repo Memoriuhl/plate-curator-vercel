@@ -9,9 +9,9 @@ export async function executeHostedQueueStage(jobs: JobsDeps, id: string, deps: 
   if (!job?.queueRunId || job.route !== 'hosted' || job.state === 'completed' || ['failed', 'cancelled', 'expired'].includes(job.state)) return 'settled'
   // A previous call has returned before this coordinator retries. The bounded
   // inference lease may expire, unlike time spent queued without a reservation.
-  const run = (await jobs.store.transaction(tx => tx.runs())).find(run => run.id === job.queueRunId)
+  const run = await jobs.store.transaction(tx => tx.getRun(job.queueRunId!))
   const asynchronousResearch = job.stage === 'research' && job.state === 'claimed' && !!job.eve
-  if (!run || !['queued', 'running'].includes(run.status) || !asynchronousResearch && (run.cancelRequestedAt !== undefined || job.state === 'claimed' && job.leaseExpiresAt! <= jobs.now())) {
+  if (!run || run.localScope !== jobs.localScope || !['queued', 'running'].includes(run.status) || !asynchronousResearch && (run.cancelRequestedAt !== undefined || job.state === 'claimed' && job.leaseExpiresAt! <= jobs.now())) {
     await expireJob(jobs, id)
     return 'settled'
   }

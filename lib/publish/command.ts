@@ -8,6 +8,8 @@ export function claimSupersedes(batch: Partial<ReviewBatch> | null | undefined, 
   return batch?.publishCommand?.revision === command.revision && batch.publishCommand.commandId !== command.commandId
 }
 
+export const draftCanBeConfirmed = (batch: { state: string }) => batch.state === 'open' || batch.state === 'submitted'
+
 export function batchApprovedFor(batch: Partial<ReviewBatch> | null | undefined, command: PublishCommand): boolean {
   return batch?.state === 'approved' && batch.revision === command.revision && batch.approval?.revision === command.revision - 1
 }

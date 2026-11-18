@@ -8,7 +8,7 @@ import { cn } from '@/components/utils'
 import { defaultPipelineOptions, snapshotPipelineOptions, type PipelineOptions } from '@/lib/jobs/pipeline-options'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { useSelectedPlates } from './plate-selection'
-import { planTagRun } from './local-pipeline'
+import { pipelineSelectionLimit } from '@/lib/jobs/pipeline-selection'
 import { pipelineStages, stageAvailability } from './pipeline-stages'
 import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
 import type { RunPlate } from './use-tag-run'
@@ -17,7 +17,7 @@ import type { TaggingModelId } from '@/lib/tagging/models'
 import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 import { ResearchModelPicker, useResearchModelChoice } from './research-model-picker'
 
-type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> & Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities'>>
+type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> & Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities' | 'selectedBatchName' | 'existingBatchName'>>
 
 export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, stateName, queue, disabledReason }: {
   underTagged: RunPlate[]; allPlates?: RunPlate[]; batchPlates: RunPlate[]; stateName: string; queue: Controls; disabledReason?: string
@@ -29,21 +29,27 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const [scope, setScope] = useState('under')
-  const [limit, setLimit] = useState('25')
+  const [limit, setLimit] = useState('')
   const [stages, setStages] = useState<LocalRunStage[]>(['tag'])
   const [options, setOptions] = useState<PipelineOptions>({})
   const [previewOnly, setPreviewOnly] = useState(false)
   const desktop = choice.data?.models.filter(model => model.runsOn === 'desktop') ?? []
   const modelId = (desktop.find(model => model.id === desktopChoice.modelId)?.id ?? desktop[0]?.id) as TaggingModelId | undefined
   const localChoice = { ...desktopChoice, modelId, data: choice.data ? { ...choice.data, models: desktop } : undefined }
-  const plates = scope === 'selected' ? selected : scope === 'batch' ? batchPlates : scope === 'all' ? allPlates : underTagged
-  const planned = useMemo(() => planTagRun(plates, false, Number(limit)), [plates, limit])
-  const validLimit = Number.isInteger(Number(limit)) && Number(limit) > 0 && Number(limit) <= 25
+  const plates: readonly RunPlate[] = scope === 'selected' ? selected : scope === 'batch' ? batchPlates : scope === 'all' ? allPlates : underTagged
+  const count = limit ? Number(limit) : plates.length
+  const validLimit = Number.isInteger(count) && count > 0 && count <= pipelineSelectionLimit
+  const planned = useMemo(() => validLimit ? plates.slice(0, count) : [], [plates, count, validLimit])
+  const destination = queue.selectedBatchName ?? (previewOnly ? queue.existingBatchName : undefined)
+  const selectedStates = new Set(planned.map(plate => plate.state))
+  const firstState = planned[0]?.state
+  const currentState = allPlates[0]?.state ?? underTagged[0]?.state
+  const newBatchName = selectedStates.size > 1 ? 'Cross-state pipeline' : `${firstState && currentState && firstState !== currentState ? firstState : stateName} pipeline`
   const reason = disabledReason ?? queue.disabledReason
   const posting = queue.action === 'enqueue'
   const active = queue.runs.some(run => ['queued', 'running'].includes(run.status))
   const unavailableStage = stages.map(id => pipelineStages.find(stage => stage.id === id)!).find(stage => stageAvailability(stage, true, queue.capabilities))
-  const groupOutsideBatch = stages.includes('group') && planned.some(plate => !batchPlates.some(member => member.id === plate.id))
+  const groupOutsideBatch = stages.includes('group') && !!destination && planned.some(plate => !batchPlates.some(member => member.id === plate.id))
   const resolvedOptions = snapshotPipelineOptions(stages, options)
   if (resolvedOptions.group) for (const key of ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const) {
     if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
@@ -55,7 +61,7 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
   const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || needsResearchModel && !researchChoice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined, needsResearchModel ? researchChoice.modelId : undefined)) setOpen(false)
+    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined, needsResearchModel ? researchChoice.modelId : undefined, newBatchName)) setOpen(false)
   }
   function option(stage: keyof PipelineOptions, key: string, value: string | boolean) {
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
@@ -73,8 +79,9 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
             ['selected', `Selected plates ${selected.length}`, selected.length], ['batch', `Plates in your batch ${batchPlates.length}`, batchPlates.length],
             ['under', `Under-tagged plates ${underTagged.length}`, underTagged.length], ['all', `All plates in ${stateName} ${allPlates.length}`, allPlates.length],
           ].map(([id, label, count]) => <Button key={id} size="sm" variant={scope === id ? 'primary' : 'outline'} aria-pressed={scope === id} disabled={!count} onClick={() => setScope(String(id))}>{label}</Button>)}</div>
-          <label className="caption flex items-center gap-2">Plate limit<input type="number" min={1} max={25} value={limit} onChange={event => setLimit(event.target.value)} className="w-20 rounded-[var(--radius-sm)] bg-[var(--fill)] p-2" /></label>
-          <p className="caption">First {planned.length} of {plates.length}</p>
+          <label className="caption flex items-center gap-2">Plate limit<input type="number" min={1} max={pipelineSelectionLimit} placeholder="All" value={limit} onChange={event => setLimit(event.target.value)} className="w-20 rounded-[var(--radius-sm)] bg-[var(--fill)] p-2" /></label>
+          <p className="caption">{planned.length} of {plates.length} plates</p>
+          {count > pipelineSelectionLimit ? <p role="alert" className="caption">Select up to {pipelineSelectionLimit.toLocaleString()} plates per Batch.</p> : null}
         </fieldset>
         <section className="grid gap-[var(--stack-gap)]"><h2 className="label">Stages and their options</h2>
           {pipelineStages.map(stage => {
@@ -107,7 +114,8 @@ export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, 
         {needsResearchModel ? <ResearchModelPicker choice={researchChoice} /> : null}
         <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
           <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
-          <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>
+          <p className="caption">{destination ? `Batch · ${destination}` : previewOnly ? 'Preview requires an existing open Batch.' : `New draft · ${newBatchName}`}</p>
+          <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Validated results save to the draft as they arrive.'}</p>
           {active ? <p className="caption">A run is already active. You can queue these plates and stages; each resource slot is shared fairly between requesters.</p> : null}
           {queue.message ? <p role="alert">{queue.message}</p> : null}
           {groupOutsideBatch ? <p role="alert">Every Group member must already be in this Batch. Choose a complete family scope from plates in your Batch.</p> : null}

@@ -52,7 +52,7 @@ export function BatchActions({
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const run = useTagRun()
-  const queue = usePipelineQueue(batch?.id)
+  const queue = usePipelineQueue(batch?.id, batch?.name)
   const batchPlates =
     detail.data?.plates
       .map((entry) => ({ ...entry.proposed, revision: entry.revision }))
@@ -66,6 +66,7 @@ export function BatchActions({
       })) ?? []
   const edits =
     detail.data?.plates.filter((plate) => plate.edit !== null || plate.order !== undefined).length ?? 0
+  const pipelineBusy = queue.runs.some(run => run.batchId === batch?.id && run.incrementalDrafts && ['queued', 'running'].includes(run.status))
   return (
     <>
       <PipelineRuns queue={queue} />
@@ -92,8 +93,9 @@ export function BatchActions({
           <Button
             variant="outline"
             disabled={
-              (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending
+              (workspace.mode === 'selected' && workspace.status !== 'ready') || !batch || batch.state !== 'open' || !detail.data || !!detail.error || !edits || pending || pipelineBusy
             }
+            title={pipelineBusy ? 'Wait for this Batch’s pipeline work to finish.' : undefined}
             onClick={async () => {
               if (!detail.data || (workspace.mode === 'selected' && workspace.status !== 'ready')) return
               setPending(true)
@@ -105,7 +107,10 @@ export function BatchActions({
                 )
                 setMessage('Submitted for review.')
               } catch (error) {
-                setMessage(error instanceof ApiError && error.code === 'standard_change_unconfirmed' ? apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.' : 'Could not submit your batch. Please try again.')
+                const code = error instanceof ApiError ? error.code : null
+                if (code === 'standard_change_unconfirmed') setMessage(apiErrorReasons(error).join(' ') || 'Use Standard plate issues to make the first Template the Standard, then submit again.')
+                else if (code === 'pipeline_busy') setMessage('Submit after the Plate Pipeline finishes this Batch.')
+                else setMessage('Could not submit your batch. Please try again.')
               } finally {
                 setPending(false)
               }
@@ -125,7 +130,7 @@ export function BatchActions({
             modelError={run.modelError}
             start={(plates, retry, modelId, stage) => void run.start(plates, retry, modelId, stage)}
           />
-          <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} approved={batch?.state === 'approved'} />
+          <PublishButton batchId={batch?.id} owner={me.data?.role === 'owner'} draft={edits > 0 && (batch?.state === 'open' || batch?.state === 'submitted')} approved={batch?.state === 'approved'} />
           {batches.error || detail.error ? (
             <span role="alert">Could not load your batch.</span>
           ) : null}

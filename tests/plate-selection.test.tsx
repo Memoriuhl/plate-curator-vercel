@@ -242,3 +242,15 @@ it('clears selection on an unmodified background click, preserving modified clic
   fireEvent.click(screen.getByText('Background'))
   expect(plateSelection.snapshot()).toHaveLength(0)
 })
+
+it('adds an entire state to a mixed selection and preserves other states on an ordinary plate click', () => {
+  const store = createPlateSelection()
+  store.register(plates)
+  store.visible(plates.slice(0, 1))
+  store.selectState('NY')
+  const alaska = [{ id: 'd', state: 'AK' }, { id: 'e', state: 'AK' }] as PlateCardData[]
+  store.register(alaska)
+  store.visible(alaska)
+  store.select('e')
+  expect(store.snapshot().map(plate => plate.id)).toEqual(['a', 'b', 'c', 'e'])
+})

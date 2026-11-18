@@ -3,14 +3,21 @@ import { plateRevision } from '../review/revision'
 import { projectJob, type ProjectedPlate } from './queue-projection'
 import type { Actor } from '../review/types'
 import { canEdit } from '../review/access'
-import type { JobsDeps, TaggingJob } from './types'
+import type { JobsDeps, JobsTransaction, TaggingJob } from './types'
 import type { PipelineRun, QueueOutcome, RunAttempt } from './queue-types'
 import { pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { storyUrl } from '../review/fields'
 import { taggingModel } from '../tagging/models'
+import { verifiedImageFields } from '../review/image'
+import { saveQueueDraft } from './queue-draft'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
 export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
+
+async function scopedRun(tx: JobsTransaction, id: string, scope: string | undefined) {
+  const run = await tx.getRun(id)
+  return run && run.localScope === scope ? run : null
+}
 
 function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number) {
   attempt.completedJobIds.push(jobId)
@@ -42,7 +49,7 @@ function missingResearchInput(attempt: RunAttempt, step: RunStep, plate: Project
 export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number, workflowId: string): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status) || attempt.workflowId && attempt.workflowId !== workflowId) return false
     attempt.workflowId = workflowId
@@ -55,7 +62,7 @@ export async function bindQueueWorkflow(d: JobsDeps, id: string, number: number,
 export async function dispatchQueueStage(d: JobsDeps, id: string, number: number, index: number, completionHook: string): Promise<string | null> {
   if (!localQueueEnabled(d)) return null
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || attempt.cursor !== index || !['queued', 'running'].includes(run.status)) return null
     const step = attempt.steps[index]
@@ -66,7 +73,7 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     const projected = attempt.projection?.plates[step.plateId]
     let error: string | undefined
     if (!batch || batch.state !== 'open') error = 'batch_read_only'
-    else if (!projected || !await currentProjectionMatches(d, tx, run, batch)) error = 'stale_input'
+    else if (!projected || batch.baselineVersion !== attempt.projection?.baselineVersion || ((!run.incrementalDrafts || run.previewOnly || step.stage === 'group') && !await currentProjectionMatches(d, tx, run, batch))) error = 'stale_input'
     else error = missingResearchInput(attempt, step, projected)
     const groupContext = step.stage === 'group' && batch ? await queueGroupContext(d, tx, batch, Object.values(attempt.projection!.plates).map(entry => entry.batchInput)) : null
     if (step.stage === 'group' && !groupContext) error = 'invalid_group_scope'
@@ -93,15 +100,18 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
   })
 }
 
-export async function observeQueueStage(d: JobsDeps, id: string, number: number, index: number): Promise<StageObservation> {
+export async function observeQueueStage(d: JobsDeps, id: string, number: number, index: number, readImage?: Parameters<typeof verifiedImageFields>[1]): Promise<StageObservation> {
   if (!localQueueEnabled(d)) return { phase: 'done' }
+  let imageVerification: ReturnType<typeof verifiedImageFields> | undefined
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status)) return { phase: 'done' }
-    if (attempt.cursor > index) return { phase: 'next' }
+    if (attempt.cursor !== index) return { phase: attempt.cursor > index ? 'next' : 'done' }
     const job = await tx.get(`${id}-${number}-${index}`)
-    if (!job) { finishRun(run, 'failed', d.now(), 'job_missing'); tx.setRun(run); return { phase: 'done' } }
+    if (!job || job.queueRunId !== run.id || job.queueAttempt !== number || job.queueStep !== index ||
+      job.batchId !== run.batchId || job.localScope !== d.localScope || job.requestedBy !== run.requestedBy ||
+      job.plateId !== attempt.steps[index]?.plateId) { finishRun(run, 'failed', d.now(), 'job_missing'); tx.setRun(run); return { phase: 'done' } }
     if (job.state === 'queued') return { phase: 'waiting' }
     if (job.state === 'claimed') {
       if (job.leaseExpiresAt! <= d.now()) {
@@ -114,47 +124,73 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
       if (run.waitReason !== 'inference') { run.waitReason = 'inference'; run.updatedAt = d.now(); tx.setRun(run) }
       return { phase: 'claimed', deadline: job.leaseExpiresAt }
     }
-    let error = job.failure
-    if (run.cancelRequestedAt !== undefined) finishRun(run, 'cancelled', d.now())
-    else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
-    else if (job.result?.stageError) {
-      if (job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields') attempt.outcome = 'no_result'
-      finishRun(run, 'failed', d.now(), job.result.stageError)
-    } else {
-      const raw = job.result?.fieldSuggestion
-      const candidateId = attempt.choices[job.id]
-      if (raw?.kind === 'image' && !candidateId) {
-        if (run.waitReason !== 'image_choice') { run.status = 'running'; run.waitReason = 'image_choice'; run.updatedAt = d.now(); tx.setRun(run) }
-        return { phase: 'waiting' }
+    const observation = await settleQueueStage(d, tx, run, attempt, job, candidate => imageVerification ??= verifiedImageFields(candidate, readImage))
+    tx.setRun(run)
+    return observation
+  })
+}
+
+async function settleQueueStage(
+  d: JobsDeps, tx: JobsTransaction, run: PipelineRun, attempt: RunAttempt, job: TaggingJob,
+  verifyImage: typeof verifiedImageFields,
+): Promise<StageObservation> {
+  let error = job.failure
+  const cancelled = run.cancelRequestedAt !== undefined
+  const shouldSave = run.incrementalDrafts && !run.previewOnly
+  if (cancelled && (!shouldSave || job.state !== 'completed' || job.result?.stageError ||
+    job.result?.fieldSuggestion?.kind === 'image' && !attempt.choices[job.id])) finishRun(run, 'cancelled', d.now())
+  else if (job.state !== 'completed') finishRun(run, 'failed', d.now(), error ?? 'stage_failed')
+  else if (job.result?.stageError) {
+    if (job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields') {
+      attempt.outcome = shouldSave && run.draftPlateIds?.length ? 'partial' : 'no_result'
+    }
+    finishRun(run, 'failed', d.now(), job.result.stageError)
+  } else {
+    const raw = job.result?.fieldSuggestion
+    const candidateId = attempt.choices[job.id]
+    if (raw?.kind === 'image' && !candidateId) {
+      if (run.waitReason !== 'image_choice') { run.status = 'running'; run.waitReason = 'image_choice'; run.updatedAt = d.now() }
+      return { phase: 'waiting' }
+    }
+    const original = attempt.projection!
+    let projected = projectJob(original, job)
+    const candidate = raw?.kind === 'image' ? raw.candidates?.find(candidate => candidate.id === candidateId) : undefined
+    if (raw?.kind === 'image' && candidateId) {
+      const entry = original.plates[job.plateId]
+      if (candidate && entry.batchInputHash === job.inputHash && entry.executionHash === job.executionHash) {
+        const executionPlate = { ...entry.executionPlate, imageUrl: candidate.imageUrl, sourceUrl: candidate.sourceUrl }
+        projected = { ok: true, value: { ...original, plates: { ...original.plates, [job.plateId]: { ...entry, executionPlate,
+          executionHash: plateRevision(executionPlate), sourceJobIds: [...entry.sourceJobIds, job.id] } } } }
       }
-      const original = attempt.projection!
-      let projected = projectJob(original, job)
-      if (raw?.kind === 'image' && candidateId) {
-        const candidate = raw.candidates?.find(candidate => candidate.id === candidateId)
-        const entry = original.plates[job.plateId]
-        if (candidate && entry.batchInputHash === job.inputHash && entry.executionHash === job.executionHash) {
-          const executionPlate = { ...entry.executionPlate, imageUrl: candidate.imageUrl, sourceUrl: candidate.sourceUrl }
-          projected = { ok: true, value: { ...original, plates: { ...original.plates, [job.plateId]: { ...entry, executionPlate,
-            executionHash: plateRevision(executionPlate), sourceJobIds: [...entry.sourceJobIds, job.id] } } } }
+    }
+    if (!projected.ok) error = projected.error
+    else if (shouldSave) {
+      if (candidate && !await verifyImage(candidate)) error = 'invalid_result'
+      else {
+        const saved = await saveQueueDraft(d, tx, run, job, original, projected.value, candidate)
+        if ('error' in saved) error = saved.error
+        else {
+          attempt.projection = saved.projection
+          if (saved.changedPlateIds.length) run.draftPlateIds = [...new Set([...(run.draftPlateIds ?? []), ...saved.changedPlateIds])]
+          if (saved.conflict) error = 'draft_conflict'
+          else advanceStage(run, attempt, job.id, d.now())
         }
       }
-      if (!projected.ok) error = projected.error
-      else {
-        attempt.projection = projected.value
-        if (!queueRecordFits(run)) { attempt.projection = original; error = 'payload_too_large' }
-        else advanceStage(run, attempt, job.id, d.now())
-      }
-      if (error) finishRun(run, 'failed', d.now(), error)
+    } else {
+      attempt.projection = projected.value
+      if (!queueRecordFits(run)) { attempt.projection = original; error = 'payload_too_large' }
+      else advanceStage(run, attempt, job.id, d.now())
     }
-    tx.setRun(run)
-    return { phase: run.status === 'queued' ? 'next' : 'done' }
-  })
+    if (cancelled) finishRun(run, 'cancelled', d.now(), error)
+    else if (error) finishRun(run, 'failed', d.now(), error)
+  }
+  return { phase: run.status === 'queued' ? 'next' : 'done' }
 }
 
 export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jobId: string, candidateId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     if (!run) return { ok: false, error: 'not_found' }
     const batch = await tx.batch(run.batchId)
     const error = queuePermission(batch, actor)
@@ -164,7 +200,8 @@ export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jo
     const raw = job?.result?.fieldSuggestion
     if (!job || job.queueRunId !== run.id || job.queueAttempt !== attempt.number || job.queueStep !== attempt.cursor || job.state !== 'completed' ||
       raw?.kind !== 'image' || !raw.candidates?.some(candidate => candidate.id === candidateId) || run.cancelRequestedAt !== undefined) return { ok: false, error: 'invalid_state' }
-    if (!await currentProjectionMatches(d, tx, run, batch!)) return { ok: false, error: 'stale_input' }
+    if (batch!.baselineVersion !== attempt.projection?.baselineVersion ||
+      ((!run.incrementalDrafts || run.previewOnly) && !await currentProjectionMatches(d, tx, run, batch!))) return { ok: false, error: 'stale_input' }
     if (attempt.choices[job.id] && attempt.choices[job.id] !== candidateId) return { ok: false, error: 'invalid_state' }
     attempt.choices[job.id] = candidateId; run.updatedAt = d.now(); tx.setRun(run)
     return { ok: true, value: run }
@@ -174,7 +211,7 @@ export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jo
 export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string, jobId: string, claimId: string): Promise<QueueOutcome<PipelineRun>> {
   if (!localQueueEnabled(d)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     if (!run) return { ok: false, error: 'not_found' }
     const batch = await tx.batch(run.batchId)
     if (!batch) return { ok: false, error: 'not_found' }
@@ -190,8 +227,9 @@ export async function confirmStoppedWorker(d: JobsDeps, actor: Actor, id: string
 
 export async function recordQueueWorkflowFailure(d: JobsDeps, id: string, number: number, workflowId: string, status: 'failed' | 'cancelled' | 'completed'): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
+  let imageVerification: ReturnType<typeof verifiedImageFields> | undefined
   return d.store.transaction(async tx => {
-    const run = (await tx.runs()).find(run => run.id === id && run.localScope === d.localScope)
+    const run = await scopedRun(tx, id, d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || attempt.workflowId !== workflowId || !['queued', 'running'].includes(run.status)) return false
     const currentId = attempt.jobIds.at(-1)
@@ -203,7 +241,12 @@ export async function recordQueueWorkflowFailure(d: JobsDeps, id: string, number
       tx.set({ ...current, recoveryNeededAt: current.recoveryNeededAt ?? d.now() })
     } else {
       if (current?.state === 'queued') tx.set({ ...current, state: 'failed', endedAt: d.now(), failure: reason })
-      finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), reason)
+      if (run.incrementalDrafts && !run.previewOnly && current?.state === 'completed' && current.queueRunId === run.id &&
+        current.queueAttempt === number && current.queueStep === attempt.cursor && current.batchId === run.batchId &&
+        current.localScope === d.localScope && current.requestedBy === run.requestedBy && current.plateId === attempt.steps[attempt.cursor]?.plateId) {
+        await settleQueueStage(d, tx, run, attempt, current, candidate => imageVerification ??= verifiedImageFields(candidate))
+      }
+      if (['queued', 'running'].includes(run.status)) finishRun(run, run.cancelRequestedAt !== undefined || status === 'cancelled' ? 'cancelled' : 'failed', d.now(), reason)
     }
     tx.setRun(run)
     return true

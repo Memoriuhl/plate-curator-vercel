@@ -1,8 +1,9 @@
 'use client'
 
+import type { ReviewChanges } from '../review/checkpoint'
 import type { RunStatus } from '../review/run-status'
 
-import { PUBLISH_ERRORS, PUBLISH_STOP_MESSAGES } from '../publish/stop'
+import { PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_ERRORS, PUBLISH_STOP_MESSAGES } from '../publish/stop'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
@@ -10,6 +11,7 @@ import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate, StoryFields } from '../catalog/types'
 import type { Actor, BatchState, EditableFields, ProposedEdit, ReviewBatch, StandardChange } from '../review/types'
+import { sameEditableValue } from '../review/story'
 import { canEdit, editableStates } from '../review/access'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type { Abandonment, PublishControlState, PublishStop, RequesterAuthority } from '../publish/types'
@@ -111,7 +113,7 @@ export function usePreloadPlateDetail() {
   }
 }
 
-export type PublishBaselineStatus = { canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
+export type PublishBaselineStatus = { pipelineBusy?: boolean; canConfirmDraft?: boolean; confirmation?: ReviewChanges | null; canAbandon?: boolean; abandonReason?: string | null; prepared?: { commandId: string; toVersion: number }; abandonment?: Abandonment; canRetry?: boolean; retryReason?: string | null; stopped?: { reason: PublishStop; requestedBy?: RequesterAuthority } } & (
   | { error: BaselineError | null; reviewedVersion: number; liveVersion: number }
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
@@ -127,9 +129,9 @@ export function usePublishControl() {
   } }
 }
 
-export function usePublishBaseline(id: string) {
+export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
-  return useSWR<PublishBaselineStatus>(user ? `/api/batches/${id}/publish` : null, api.get)
+  return useSWR<PublishBaselineStatus>(user && id ? `/api/batches/${id}/publish` : null, api.get, { refreshInterval: data => data?.pipelineBusy ? 5000 : 0 })
 }
 
 export function useReviewActions() {
@@ -146,7 +148,7 @@ export function useReviewActions() {
         await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
       }
     },
-    async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; reviewedVersion?: number; liveVersion?: number }> {
+    async publish(batchId: string, revision: number): Promise<{ ok: true } | { ok: false; message: string; code?: string; confirmation?: ReviewChanges | null; reviewedVersion?: number; liveVersion?: number }> {
       const key = `${batchId}@${revision}`
       const commandId = publishIntents.current.get(key) ?? crypto.randomUUID()
       publishIntents.current.set(key, commandId)
@@ -163,14 +165,17 @@ export function useReviewActions() {
           [BASELINE_ERRORS.stale]: 'The Catalog changed since review. Copy to a new Batch for fresh review.',
           [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
           ...PUBLISH_STOP_MESSAGES,
+          [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
+          standard_change_unconfirmed: 'Resolve the Standard plate changes before publishing.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
-          superseded_revision: 'This Batch changed since approval and must be re-approved.',
+          superseded_revision: 'This Batch changed. Confirm the current revision.',
           [PUBLISH_ERRORS.notWaiting]: 'This run is no longer waiting for Publish. Refresh to see its status.',
           forbidden: 'Only the Owner can Publish.',
           not_found: 'This Batch could not be found.',
         }
         await Promise.all([refresh(batchId), mutate(`/api/batches/${batchId}/run`), mutate(`/api/batches/${batchId}/publish`)]).catch(() => undefined)
-        return { ok: false, ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
+        const code = error instanceof ApiError ? error.code : undefined
+        return { ok: false, ...(code === 'superseded_revision' || code === PIPELINE_BUSY ? { code } : {}), ...(error instanceof ApiError && error.body.confirmation ? { confirmation: error.body.confirmation as ReviewChanges } : {}), ...(error instanceof ApiError && typeof error.body.liveVersion === 'number' ? { reviewedVersion: error.body.reviewedVersion as number, liveVersion: error.body.liveVersion } : {}), message: error instanceof ApiError ? messages[error.code] ?? 'Could not Publish. Please try again.' : 'Could not Publish. Please try again.' }
       }
     },
     async copy(batchId: string, revision: number, targetVersion: number) {
@@ -187,6 +192,13 @@ export function useReviewActions() {
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `/api/batches/${batchId}/plates/${plateId}`, { baseRevision, fields })
       await refresh(batchId)
       return result
+    },
+    async revertPipelineField(batchId: string, plateId: string, field: keyof EditableFields, jobId: string) {
+      try {
+        return await api.send<{ batch: ReviewBatch; plate: Plate }>('PATCH', `/api/batches/${encodeURIComponent(batchId)}/plates/${encodeURIComponent(plateId)}`, { revert: field, jobId })
+      } finally {
+        await refresh(batchId).catch(() => undefined)
+      }
     },
     async submit(batchId: string, revision: number) {
       const batch = await api.send<ReviewBatch>('POST', `/api/batches/${batchId}/submit`, { revision })
@@ -239,14 +251,18 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
       const reordered = position >= 0 && position !== card.sortOrder
       if (!entry) return { ...ordered, changedInBatch: reordered }
       const { proposed } = entry
-      const checks = plateChecks(proposed, card.imageUrl)
+      const imageUrl = entry.edit?.fields.imageUrl ?? card.imageUrl
+      const checks = plateChecks(proposed, imageUrl)
       return {
-        ...ordered, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
+        ...ordered, imageUrl, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
         templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
         funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [], wikiUrl: proposed.wikiUrl ?? null,
         ...('firstIssuedYear' in card ? { firstIssuedYear: proposed.firstIssuedYear ?? null } : {}),
         complete: isComplete(checks), changedInBatch: entry.edit !== null || reordered,
+        ...(detail && Object.entries(entry.edit?.pipelineChanges ?? {}).some(([field, change]) =>
+          sameEditableValue(field, change.value, proposed[field]) && !sameEditableValue(field, entry.baseline[field], proposed[field]))
+          ? { pipelineBatchId: detail.batch.id } : {}),
       }
     })
   }, [plates, detail])

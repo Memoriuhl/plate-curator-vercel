@@ -297,3 +297,15 @@ test('image tooltip shows the file name, strips URL suffixes and shortens long n
   expect(html).not.toContain('320 px')
   expect(renderToStaticMarkup(<CheckValue plate={{ ...plateCards[0], imageUrl: null }} checkKey="image" />)).toBe('Missing')
 })
+
+test('a pipeline-changed Plate exposes the blue Review link beside its title and can receive keyboard focus', () => {
+  const plate = { ...plateCards[0], pipelineBatchId: 'pipeline-batch' }
+  const view = render(<FamilyCard template={plate} variants={[plateCards[1]]} />)
+  const link = view.getByRole('link', { name: 'Review ' + plate.displayName })
+  expect(link.parentElement?.querySelector('h3')?.textContent).toBe(plate.displayName)
+  expect(link.getAttribute('data-variant')).toBe('publish')
+  link.focus()
+  expect(document.activeElement).toBe(link)
+  expect(link.getAttribute('href')).toBe(`/review?state=${plate.state}&plate=${plate.id}&batch=pipeline-batch`)
+  expect(view.queryByRole('link', { name: 'Review ' + plateCards[1].displayName })).toBeNull()
+})

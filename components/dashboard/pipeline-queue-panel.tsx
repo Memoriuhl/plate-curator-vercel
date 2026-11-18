@@ -1,5 +1,8 @@
 'use client'
 
+import Link from 'next/link'
+import { reviewHref } from '@/lib/review/href'
+
 import { useState, type ReactNode } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Button } from '@/components/ui/button'
@@ -17,6 +20,11 @@ import { SpecializedSuggestion } from './specialized-suggestion'
 
 type QueueControls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'selected' | 'select' | 'loading' | 'error' | 'refresh' | 'action' | 'message' | 'cancel' | 'retry' | 'apply' | 'chooseImage' | 'recover'> &
   Partial<Pick<ReturnType<typeof usePipelineQueue>, 'orphanJobs' | 'recoverOrphan' | 'observedAt'>>
+
+function savedPlates(run: QueueRunSummary) {
+  const count = run.draftPlateIds?.length ?? 0
+  return `${count} ${count === 1 ? 'Plate' : 'Plates'} saved to`
+}
 
 function label(run: QueueRunSummary) {
   const attempt = run.attempts.at(-1)!
@@ -37,6 +45,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
   const plateNames = Object.fromEntries(entries.map(entry => [entry.batchInput.id, entry.batchInput.displayName]))
   const currentJob = selected?.jobs.find(job => job.queueAttempt === attempt?.number && job.queueStep === attempt?.cursor)
   const leaseActive = currentJob?.leaseExpiresAt !== undefined && (queue.observedAt === undefined || currentJob.leaseExpiresAt > queue.observedAt)
+  const conflicts = (selected?.progress?.steps ?? (selected ? queueProgress(selected).steps : [])).filter(step => step.reason === 'draft_conflict')
   return <section aria-label="Pipeline queue and history" className={styles.panel}>
     {header ?? <h2 className="sr-only">Pipeline queue and history</h2>}
     {queue.error ? <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>Refresh queue</Button> : null}
@@ -53,8 +62,10 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
       </details> : null}
     </div>)}
     <PipelineRunRail runs={queue.runs} observedAt={queue.observedAt} progress={run => run.progress ?? queueProgress(run)}
+      historyHref={run => reviewHref(undefined, undefined, run.batchId, { run: run.id })}
       renderHistory={run => <>
         <p className="caption">{run.batchName ?? 'Batch'} · {requester?.(run.requestedBy) ?? run.requestedBy}</p>
+        {run.incrementalDrafts && <p className="caption">{savedPlates(run)} draft</p>}
         <PipelineRunPlates runId={run.id} plateIds={run.plateIds} steps={(run.progress ?? queueProgress(run)).steps} local />
         <PopoverPrimitive.Close asChild><Button size="sm" variant="ghost" onClick={() => queue.select(run.id)}>View saved results</Button></PopoverPrimitive.Close>
         {run.status === 'cancelled' && !run.jobs.some(job => job.state === 'claimed')
@@ -74,9 +85,13 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
         </PipelineRunCard>
       }} />
     {selected ? <div className="grid gap-[var(--stack-gap)]">
-      <div className="flex flex-wrap justify-between gap-2"><h3 className="label">Coherent run result</h3>
+      <div className="flex flex-wrap justify-between gap-2"><h3 className="label">{selected.incrementalDrafts ? 'Run results' : 'Coherent run result'}</h3>
         <Button size="sm" variant="ghost" onClick={() => queue.select('none')}>Hide results</Button></div>
-      <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>
+      <p className="caption">{selected.previewOnly ? 'Preview only: inspect these results. Run again without Preview only to apply changes.' : selected.incrementalDrafts
+        ? `${savedPlates(selected)} ${selected.batchName ?? 'your Batch'}. Valid changes are saved as each stage finishes.`
+        : 'Review the connected changes together. Apply saves one draft edit bundle and checks the original Batch revisions.'}</p>
+      {selected.incrementalDrafts && <Button asChild size="sm" variant="publish" className="justify-self-start"><Link href={reviewHref(undefined, undefined, selected.batchId, { run: selected.id })}>Review run changes</Link></Button>}
+      {conflicts.map(step => <p role="alert" key={step.index}>{step.plateName} · {step.stage}: saved draft changed during the run. Your edits were kept.</p>)}
       {selected.jobs.filter(job => job.result?.fieldSuggestion?.kind === 'image' || job.result?.fieldSuggestion?.kind === 'group').map(job => {
         const suggestion = job.result!.fieldSuggestion!
         if (suggestion.kind === 'fields') return null
@@ -95,7 +110,7 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
               <div><span className="caption">Run suggestion</span><PipelineFieldValue field={key} value={entry.executionPlate[key]} plateNames={plateNames} /></div></dd></div>)}</dl>
         </details> : null
       })}
-      {selected.status === 'completed' && attempt?.outcome !== 'no_result' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
+      {!selected.incrementalDrafts && selected.status === 'completed' && attempt?.outcome !== 'no_result' && !selected.previewOnly ? <Button disabled={!selected.editable || selected.applied || !!queue.action} onClick={() => void queue.apply(selected.id)}>{selected.applied ? 'Saved to your Batch' : 'Apply coherent run to your Batch'}</Button> : null}
       {selected.waitReason === 'recovery' && currentJob?.claimId ? <details className="grid gap-2"><summary className="cursor-pointer">Recover a stopped worker</summary>
         <p className="caption">Verify that worker {currentJob.workerId} has stopped executing this stage. Releasing its slot cannot stop the worker.</p>
         <label className="caption flex items-center gap-2"><input type="checkbox" checked={verifiedClaim === currentJob.claimId} onChange={event => setVerifiedClaim(event.target.checked ? currentJob.claimId! : null)} />I verified this worker has stopped</label>

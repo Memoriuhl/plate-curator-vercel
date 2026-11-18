@@ -1,7 +1,9 @@
 'use client'
 
 import { ApiError } from '@/lib/client/api'
-import { isPublishStop, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
+import { isPublishStop, PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_STOPS, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
+import { draftCanBeConfirmed } from '@/lib/publish/command'
+import type { ReviewChanges } from '@/lib/review/checkpoint'
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -45,7 +47,7 @@ function BatchItem({
         selected ? 'border-primary bg-muted' : 'border-transparent bg-card',
       )}
     >
-      {batch.state === 'published' ? (version == null ? <strong className="mb-2 block">Published</strong> : <span className="mb-2 block text-4xl font-extrabold tracking-tight">v{version}</span>) : <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">Approved &middot; waiting</span>}
+      {batch.state === 'published' ? (version == null ? <strong className="mb-2 block">Published</strong> : <span className="mb-2 block text-4xl font-extrabold tracking-tight">v{version}</span>) : <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">{batch.state === 'approved' ? 'Approved · waiting' : 'Draft'}</span>}
       <strong className="block">{batch.name}</strong>
       <span className="block text-sm text-muted-foreground">
         {batch.createdByName || 'Curator'} · revision{' '}
@@ -72,6 +74,8 @@ function BatchSelection({
   const dialog = useRef<HTMLDialogElement>(null)
   const [abandonReason, setAbandonReason] = useState('')
   const [abandonMessage, setAbandonMessage] = useState('')
+  const [openedConfirmation, setConfirmation] = useState<ReviewChanges | null>(null)
+  const [confirmationMessage, setConfirmationMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [requestedFrom, setRequestedFrom] = useState<string | null | undefined>(undefined)
@@ -80,11 +84,18 @@ function BatchSelection({
   if (detail.error) return <p role="alert">Could not load this Batch.</p>
   if (!detail.data) return <p role="status">Loading Batch…</p>
   const { batch, plates } = detail.data
+  const nextConfirmation = baseline.data?.confirmation
+  const confirmation = openedConfirmation && nextConfirmation?.revision === batch.revision && nextConfirmation.revision > openedConfirmation.revision
+    ? nextConfirmation
+    : openedConfirmation
+  const revisionChanged = !!confirmation && confirmation.revision !== openedConfirmation?.revision
   const counts = Object.entries(groups)
     .filter(([, entries]) => entries.length > 0)
     .map(([name, entries]) => `${entries.length} ${name.toLowerCase()}`)
     .join(', ')
-  const revision = batch.approval?.revision
+  const revision = batch.approval?.revision ?? (draftCanBeConfirmed(batch) ? batch.revision : undefined)
+  const canConfirmDraft = baseline.data?.canConfirmDraft === true
+  const pipelineBusy = baseline.data?.pipelineBusy === true
   const failed = run.data?.outcome
   const stopped = isPublishStop(failed?.error) || !!baseline.data?.stopped
   const canRetry = baseline.data?.canRetry === true
@@ -94,9 +105,9 @@ function BatchSelection({
   const liveVersion = rejectedLiveVersion ?? (baseline.data?.error ? baseline.data.liveVersion : failed?.liveVersion)
   const canPublish =
     !requested &&
-    !busy &&
+    !busy && !pipelineBusy && baseline.data?.confirmation !== null &&
     !!baseline.data && !baseline.error &&
-    (canRetry || (!stopped && !blocked && batch.state === 'approved' && revision === batch.revision - 1 && !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(run.data?.phase ?? '')))
+    (canConfirmDraft || canRetry || (!stopped && !blocked && batch.state === 'approved' && revision === batch.revision - 1 && !['publishing', 'published', 'failed', 'superseded', 'timed-out'].includes(run.data?.phase ?? '')))
   async function abandon() {
     const prepared = baseline.data?.prepared
     if (!prepared) return
@@ -115,15 +126,30 @@ function BatchSelection({
       setAbandonMessage(messages[code] ?? 'Could not abandon this Snapshot. Refresh and try again.')
     } finally { setBusy(false) }
   }
+  function openConfirmation() {
+    const next = baseline.data?.confirmation
+    setConfirmation(next ?? { revision: batch.revision, since: null, plateCount: 0, contributors: [] })
+    setConfirmationMessage('')
+    dialog.current?.showModal()
+    void baseline.mutate?.().catch(() => undefined)
+    if (next?.revision !== batch.revision) void detail.mutate?.().catch(() => undefined)
+  }
   async function publish() {
-    if (revision === undefined) return
+    if (!confirmation || confirmation.revision !== batch.revision || pipelineBusy) return
     onPublish()
     setBusy(true)
     try {
-      const result = await actions.publish(id, batch.revision)
+      const result = await actions.publish(id, confirmation.revision)
       if (result.ok) {
         setRequestedFrom(run.data?.runId ?? null)
         setMessage('Publish requested. Waiting for the run…')
+      } else if (result.code === 'superseded_revision' || result.code === PIPELINE_BUSY) {
+        if (result.code === 'superseded_revision') {
+          setConfirmationMessage(result.message)
+          const next = result.confirmation ?? (await baseline.mutate())?.confirmation
+          if (next) setConfirmation(next)
+        }
+        return
       } else {
         setMessage(result.message)
         if (result.liveVersion !== undefined) setRejectedLiveVersion(result.liveVersion)
@@ -142,13 +168,14 @@ function BatchSelection({
           <p className="text-sm">{counts}</p>
         </div>
         {canPublish && (
-          <Button variant="publish" onClick={() => dialog.current?.showModal()}>
-            {canRetry ? 'Publish again' : `Publish revision ${revision}`}
+          <Button variant="publish" onClick={openConfirmation}>
+            {canRetry ? 'Publish again' : `Publish revision ${batch.revision}`}
           </Button>
         )}
       </header>
       <RunStatus batchId={id} />
-      {batch.state !== 'published' && !canRetry && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
+      {pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
+      {batch.state !== 'published' && !draftCanBeConfirmed(batch) && !canRetry && (batch.state !== 'approved' || revision !== batch.revision - 1) && <p role="alert">This Batch needs current approval. Review and approve it before publishing.</p>}
       {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
       {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
         <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
@@ -179,10 +206,19 @@ function BatchSelection({
           Publish {batch.name}?
         </h2>
         <p>
-          Revision {revision} · {counts}
+          Revision {confirmation?.revision ?? revision} {counts && `· ${counts}`}
         </p>
+        {confirmation?.since === null && <p>You haven’t viewed this Batch in Review yet.</p>}
+        {confirmation && confirmation.since !== null && confirmation.plateCount > 0 && (
+          <p>
+            {confirmation.plateCount} {confirmation.plateCount === 1 ? 'Plate changed' : 'Plates changed'} since you last viewed this Batch in Review.
+            {confirmation.contributors.length > 0 && ` Changed by ${confirmation.contributors.join(', ')}.`}
+          </p>
+        )}
+        {pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
+        {!pipelineBusy && (confirmationMessage || revisionChanged) && <p role="status">{confirmationMessage || 'This Batch changed. Confirm the current revision.'}</p>}
         <p>This creates the next Catalog Snapshot.</p>
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap justify-end gap-3">
           <Button
             variant="outline"
             disabled={busy}
@@ -190,8 +226,13 @@ function BatchSelection({
           >
             Cancel
           </Button>
-          <Button variant="publish" disabled={busy} onClick={publish}>
-            {busy ? 'Requesting…' : `Publish revision ${revision}`}
+          {confirmation && confirmation.since !== null && confirmation.plateCount > 0 && (
+            <Button asChild variant="outline">
+              <Link href={`/review?batch=${encodeURIComponent(id)}&since=${confirmation.since}`}>Review new changes</Link>
+            </Button>
+          )}
+          <Button variant="publish" disabled={busy || pipelineBusy || !confirmation || confirmation.revision !== batch.revision} onClick={publish}>
+            {busy ? 'Requesting…' : confirmation?.plateCount ? 'Publish anyway' : `Publish revision ${confirmation?.revision ?? revision}`}
           </Button>
         </div>
       </dialog>
@@ -202,7 +243,7 @@ function BatchSelection({
 function OwnerWorkspace() {
   const requestedBatch = useSearchParams().get('batch')
   const control = usePublishControl()
-  const batches = useBatches(['approved', 'published'])
+  const batches = useBatches(['approved', 'published', 'open', 'submitted'])
   const [selection, setSelection] = useState<string | null>(null)
   const sorted = [...(batches.data ?? [])].sort((a, b) =>
     (b.approval?.at ?? b.createdAt).localeCompare(
@@ -211,8 +252,9 @@ function OwnerWorkspace() {
   )
   const approved = sorted.filter((batch) => batch.state === 'approved')
   const published = sorted.filter((batch) => batch.state === 'published')
-  const firstId = approved[0]?.id ?? published[0]?.id
-  const selected = selection ?? (approved.some(batch => batch.id === requestedBatch) ? requestedBatch : firstId)
+  const drafts = sorted.filter(draftCanBeConfirmed)
+  const firstId = approved[0]?.id ?? drafts[0]?.id ?? published[0]?.id
+  const selected = selection ?? ([...approved, ...drafts].some(batch => batch.id === requestedBatch) ? requestedBatch : firstId)
   if (batches.error)
     return <p role="alert">Could not load Batches. Please refresh.</p>
   if (batches.isLoading) return <p role="status">Loading Batches…</p>
@@ -238,6 +280,10 @@ function OwnerWorkspace() {
             onSelect={() => setSelection(batch.id)}
           />
         ))}
+        {drafts.length > 0 && <>
+          <h2 className="pt-4 font-bold">Draft Batches</h2>
+          {drafts.map(batch => <BatchItem key={batch.id} batch={batch} selected={batch.id === selected} onSelect={() => setSelection(batch.id)} />)}
+        </>}
         <h2 className="pt-4 font-bold">Published Batches</h2>
         {!published.length && (
           <p className="text-sm text-muted-foreground">

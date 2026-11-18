@@ -1,6 +1,7 @@
 import { orderedStatePlates } from '../catalog/order'
 import type { Plate } from '../catalog/types'
 import { editableKeys, limits } from './fields'
+import { retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type { Actor, EditableFields, Outcome, ProposedEdit, ReviewBatch, ReviewDeps, StandardChange } from './types'
 
@@ -9,8 +10,8 @@ export async function standardEdits(
   changes: Map<string, EditableFields>, acknowledgement?: StandardChange,
 ): Promise<Outcome<{ edits: ProposedEdit[]; deleteEditsFor: string[]; plateIds: string[] }>> {
   const existing = await d.store.listEdits(batch.id)
-  const fields = new Map(existing.map(edit => [edit.plateId, edit.fields]))
-  const before = baseline.map(plate => ({ ...plate, ...fields.get(plate.id) }))
+  const byId = new Map(existing.map(edit => [edit.plateId, edit]))
+  const before = baseline.map(plate => ({ ...plate, ...byId.get(plate.id)?.fields }))
   const effective = before.map(plate => ({ ...plate, ...changes.get(plate.id) }))
   const first = effective.find(plate => plate.id === order[0])
   if (!first || first.deleted || first.templateRole !== 'template') return { ok: false, error: 'standard_invalid_template' }
@@ -33,7 +34,7 @@ export async function standardEdits(
     if (!Object.keys(delta).length) deleteEditsFor.push(base.id)
     else {
       plateIds.add(base.id)
-      edits.push({ plateId: base.id, baseRevision: plateRevision(base), fields: delta, authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(current) })
+      edits.push({ plateId: base.id, baseRevision: plateRevision(base), fields: delta, ...retainedPipelineChanges(byId.get(base.id), delta, current), authorId: actor.uid, updatedAt: d.now(), resultRevision: plateRevision(current) })
     }
   }
   if (plateIds.size > limits.plates) return { ok: false, error: 'invalid_state' }

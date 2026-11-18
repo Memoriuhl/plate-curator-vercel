@@ -10,6 +10,7 @@ export function createPlateSelection() {
   let anchor: string | null = null
   let visible: PlateCardData[] = []
   let loaded: PlateCardData[] = []
+  const fullStateSelections = new Set<string>()
   const states = new Map<string, PlateCardData[]>()
   let templatesWithVariants = new Set<string>()
   const listeners = new Set<() => void>()
@@ -21,7 +22,7 @@ export function createPlateSelection() {
     loaded: () => loaded,
     hasVariants: (id: string) => templatesWithVariants.has(id),
     statePlates: (state: string) => states.get(state) ?? [],
-    replace(plates: readonly PlateCardData[]) { publish(plates) },
+    replace(plates: readonly PlateCardData[]) { fullStateSelections.clear(); publish(plates) },
     register(plates: PlateCardData[]) {
       if (loaded === plates) return
       loaded = plates
@@ -35,20 +36,36 @@ export function createPlateSelection() {
       visible = plates.filter(plate => !plate.deleted)
       const loadedIds = new Set(loaded.map(plate => plate.id))
       const visibleIds = new Set(plates.map(plate => plate.id))
-      const next = selected.filter(plate => !loadedIds.has(plate.id) || visibleIds.has(plate.id))
+      const next = selected.filter(plate => fullStateSelections.has(plate.state) || !loadedIds.has(plate.id) || visibleIds.has(plate.id))
       if (next.length !== selected.length) publish(next)
     },
-    clear() { anchor = null; publish([]) },
+    clear() { anchor = null; fullStateSelections.clear(); publish([]) },
     add(plates: PlateCardData[]) { publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()]) },
-    all() { publish(visible) },
+    selectState(state: string) {
+      const plates = states.get(state)
+      if (!plates?.length) return
+      fullStateSelections.add(state)
+      publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()])
+    },
+    all() {
+      const visibleStates = new Set(visible.map(plate => plate.state))
+      for (const state of visibleStates) fullStateSelections.delete(state)
+      publish([...selected.filter(plate => !visibleStates.has(plate.state)), ...visible])
+    },
     select(id: string, modifiers: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) {
       const plate = visible.find(plate => plate.id === id)
       if (!plate) return
       const a = visible.findIndex(plate => plate.id === anchor)
       const b = visible.indexOf(plate)
-      if (modifiers.shiftKey && a >= 0) { publish(visible.slice(Math.min(a, b), Math.max(a, b) + 1)); return }
+      const otherStates = selected.filter(selectedPlate => selectedPlate.state !== plate.state)
+      if (modifiers.shiftKey && a >= 0) {
+        fullStateSelections.delete(plate.state)
+        publish([...otherStates, ...visible.slice(Math.min(a, b), Math.max(a, b) + 1)])
+        return
+      }
       const exists = selected.some(plate => plate.id === id)
-      publish(exists ? selected.filter(plate => plate.id !== id) : modifiers.ctrlKey || modifiers.metaKey ? [...selected, plate] : [plate])
+      if (!exists && !modifiers.ctrlKey && !modifiers.metaKey) fullStateSelections.delete(plate.state)
+      publish(exists ? selected.filter(plate => plate.id !== id) : modifiers.ctrlKey || modifiers.metaKey ? [...selected, plate] : [...otherStates, plate])
       anchor = exists && !modifiers.ctrlKey && !modifiers.metaKey ? null : id
     },
   }

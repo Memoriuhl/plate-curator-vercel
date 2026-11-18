@@ -56,7 +56,9 @@ test('server eligibility permits another click after the fresh run ends without 
   mocks.runError = 'paused'
   mocks.baselineError = null
   HTMLDialogElement.prototype.close = vi.fn()
+  HTMLDialogElement.prototype.showModal = vi.fn()
   const view = render(<PublishWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: 'Publish again' }))
   fireEvent.click(view.container.querySelector('dialog button[data-variant="publish"]')!)
   await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(batch.id, batch.revision))
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull())
@@ -82,7 +84,7 @@ test.each([false, true])('Owner sees reviewed and live versions and opens a fres
   mocks.run = failedRun
   render(<PublishWorkspace />)
   expect(screen.getAllByText(/Reviewed Catalog v1; current Catalog v2/).length).toBeGreaterThan(0)
-  expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Publish revision 2' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
   await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh'))
@@ -138,7 +140,7 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
   render(<PublishWorkspace />)
   expect(screen.getAllByText(batch.name).length).toBeGreaterThan(0)
   expect(screen.getByText(/The Batch remains approved. Resume does not restart this command/)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Publish revision 2' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
 })
@@ -147,7 +149,7 @@ test('paused Publish explains the stop; after Resume stale proposals still offer
   mocks.baselineError = 'paused'
   const view = render(<PublishWorkspace />)
   expect(screen.getByText('Catalog publishing is paused. Resume before requesting Publish.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Publish revision 1' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Publish revision 2' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
   mocks.baselineError = 'stale_baseline'
   view.rerender(<PublishWorkspace />)
@@ -178,4 +180,30 @@ test('unavailable Publish stays focusable and cancels clicks with an accessible 
   expect(view.container.querySelector('a')).toBeNull()
   cleanup()
   vi.unstubAllGlobals()
+})
+
+test('an intervening edit refreshes the warning and requires a new explicit confirmation', async () => {
+  mocks.baselineError = null
+  mocks.publish.mockResolvedValueOnce({
+    ok: false, code: 'superseded_revision', message: 'This Batch changed.',
+    confirmation: { revision: batch.revision + 1, since: batch.revision, plateCount: 2, contributors: ['Dana Curator'] },
+  })
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) { this.setAttribute('open', '') })
+  const view = render(<PublishWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: 'Publish again' }))
+  expect(screen.getByText('You haven’t viewed this Batch in Review yet.')).toBeTruthy()
+  fireEvent.click(view.container.querySelector('dialog button[data-variant="publish"]')!)
+  expect(await screen.findByText(/2 Plates changed.*Dana Curator/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Review new changes' }).getAttribute('href')).toBe('/review?batch=batch&since=2')
+  expect(mocks.publish).toHaveBeenCalledTimes(1)
+
+  const previous = batch.revision
+  try {
+    batch.revision += 1
+    view.rerender(<PublishWorkspace />)
+    fireEvent.click(screen.getByRole('button', { name: 'Publish anyway' }))
+    await waitFor(() => expect(mocks.publish).toHaveBeenLastCalledWith(batch.id, previous + 1))
+  } finally {
+    batch.revision = previous
+  }
 })

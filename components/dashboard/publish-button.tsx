@@ -9,14 +9,16 @@ export function PublishButton({
   batchId,
   owner,
   approved,
+  draft = false,
   size = 'default',
 }: {
   batchId?: string
   owner: boolean
   approved: boolean
+  draft?: boolean
   size?: 'default' | 'sm'
 }) {
-  const reason = !owner ? 'Only Owners can publish' : !approved || !batchId ? 'Approve the batch first' : null
+  const reason = !owner ? 'Only Owners can publish' : (!approved && !draft) || !batchId ? 'Approve the batch first' : null
   const content = [<IoArrowUpOutline key="icon" aria-hidden="true" />, 'Publish to players']
   if (!reason && batchId) {
     return <Button asChild variant="publish" size={size}><Link href={`/publish?batch=${encodeURIComponent(batchId)}`}>{content}</Link></Button>

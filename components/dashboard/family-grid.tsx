@@ -284,6 +284,9 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
         plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))
         onSelectGroup?.(key, ids)
       }} /> : null}
+      {code && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && overlaid.some(plate => !plate.deleted) ? (
+        <Button variant="outline" size="sm" className="justify-self-start" onClick={() => plateSelection.selectState(code)}>Select all plates in this state</Button>
+      ) : null}
       {standardRepairs.map(first => <Button key={first.state} variant="outline" disabled={!canEdit || edits.pending || standardConfirmation.pending} onClick={async () => {
         const standard = await standardConfirmation.confirm(overlaid.filter(plate => plate.state === first.state), first.id)
         if (standard === false) return

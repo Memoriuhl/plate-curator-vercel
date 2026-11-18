@@ -1,5 +1,7 @@
 'use client'
 
+import { PipelineReviewLink } from './pipeline-review-link'
+
 import { SelectionPlate, SelectionFamily, plateSelection } from '@/components/dashboard/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
@@ -163,11 +165,11 @@ export function FamilyCard({
         }}
         onPointerDown={event => {
           event.stopPropagation()
-          if ((event.target as Element).closest('button, input')) return
+          if ((event.target as Element).closest('button, input, [data-pipeline-review]')) return
           if (canEdit && !entranceRunning(event.currentTarget)) drag?.onPointerDown(item, event)
         }}
         className={cn(
-          'relative flex items-start gap-3',
+          'group/plate relative flex items-start gap-3',
           small && 'variant-row',
           drag?.enabled && !plate.deleted ? 'cursor-grab!' : 'cursor-pointer',
           plate.deleted && 'opacity-60 [&_h3]:line-through',
@@ -230,6 +232,7 @@ export function FamilyCard({
             <h3 title={plate.displayName + ' · ' + plate.id} className={cn('plate-name min-w-0 flex-1 truncate', small ? 'text-[13px] leading-[18px]' : 'text-[15px] leading-5')}>
               <Link lang="en" prefetch={false} href={href} onPointerEnter={() => prefetch(plate.id)} onFocus={() => prefetch(plate.id)} className="rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{plate.displayName}</Link>
             </h3>
+            <PipelineReviewLink plate={plate} />
             {plate.isStandard ? (
               <span
                 aria-label="Standard plate"

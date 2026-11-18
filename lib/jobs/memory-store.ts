@@ -22,8 +22,15 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
           const writes = new Map<string, TaggingJob>()
           const runWrites = new Map<string, PipelineRun>()
           const value = await run({
+            async createDraftBatch(batch) {
+              if (await scopedReview?.create(batch) !== 'ok') throw Error('Batch already exists')
+            },
             async batch(id) { return await scopedReview?.getBatch(id) ?? null },
             async runs() { return structuredClone([...runs.values()].filter(run => run.env === env)) },
+            async getRun(id) {
+              const run = runs.get(id)
+              return run?.env === env ? structuredClone(run) : null
+            },
             setRun(run) { runWrites.set(run.id, structuredClone(run)) },
             async get(id) {
               const job = jobs.get(id)
@@ -33,8 +40,10 @@ export function createMemoryJobsStore(review: ReviewStore, environment: Environm
             async review(batchId, plateId) {
               const batch = await scopedReview?.getBatch(batchId)
               if (!batch) return null
-              return { baselineVersion: batch.baselineVersion, fields: (await scopedReview!.getEdit(batchId, plateId))?.fields ?? {} }
+              const edit = await scopedReview!.getEdit(batchId, plateId) ?? undefined
+              return { baselineVersion: batch.baselineVersion, fields: edit?.fields ?? {}, edit }
             },
+            async commitDraft(...args) { return await scopedReview?.commit(...args) ?? 'revision_mismatch' },
             create(job) {
               if (jobs.has(job.id)) throw new Error('Job already exists')
               writes.set(job.id, structuredClone(job))

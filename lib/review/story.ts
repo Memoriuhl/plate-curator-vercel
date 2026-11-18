@@ -1,4 +1,5 @@
 import type { StoryFields } from '../catalog/types'
+import { sortedJsonValue } from './canonical-value'
 
 export const storyFieldKeys = ['funFacts', 'firstIssuedYear', 'wikiUrl', 'readMore'] as const
 
@@ -8,7 +9,7 @@ export function sameEditableValue(key: string, before: unknown, after: unknown) 
     if (['firstIssuedYear', 'sourceUrl', 'wikiUrl', 'colorDetail', 'lineageColor'].includes(key)) return value ?? null
     return value
   }
-  return JSON.stringify(normalize(before)) === JSON.stringify(normalize(after))
+  return JSON.stringify(sortedJsonValue(normalize(before))) === JSON.stringify(sortedJsonValue(normalize(after)))
 }
 
 export function changedStoryFields(before: StoryFields, after: StoryFields): StoryFields {
