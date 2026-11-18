@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'bad_request' }, { status: 400 })
   return Response.json(
     await issueResearchWorkerToken((await researchDeps()).store, body.workerId),
+    // The raw worker credential is issued once and must stay out of HTTP caches.
     { headers: { 'Cache-Control': 'no-store' } }
   )
 }

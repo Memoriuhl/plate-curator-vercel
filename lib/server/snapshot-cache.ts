@@ -8,7 +8,7 @@ import type { CatalogSourceKind } from '../catalog/source-kind'
 import type { Snapshot } from '../catalog/types'
 import { loadSnapshot } from '../gcp/storage'
 
-/** Resolve one immutable snapshot from the requested source and reuse it within a render. */
+/** Memoize the versioned source snapshot per server render so projections share the same load. */
 const snapshotForVersion = cache(
   async (version: number, kind: CatalogSourceKind): Promise<Snapshot> => {
     if (kind === 'fixture') {
@@ -21,7 +21,10 @@ const snapshotForVersion = cache(
   }
 )
 
-/** Cache the plates for one jurisdiction by immutable snapshot version. */
+/**
+ * Cache one immutable state slice per version remotely. This keeps entries small
+ * and skips a full catalog scan on repeat reads.
+ */
 export async function cachedJurisdiction(
   version: number,
   code: string,
@@ -36,7 +39,10 @@ export async function cachedJurisdiction(
   }
 }
 
-/** Cache jurisdiction summaries from an immutable snapshot and the configured image base. */
+/**
+ * Cache the compact dashboard summaries by version, source and image base so
+ * navigation can reuse the projection.
+ */
 export async function cachedDashboard(
   version: number,
   kind: CatalogSourceKind,

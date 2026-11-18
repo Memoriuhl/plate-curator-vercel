@@ -232,6 +232,7 @@ export function PlatePage(props: PlatePageProps) {
   const { edit, pending } = useEditPlate()
   const standardConfirmation = useStandardConfirmation()
   const localPipeline = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
+  // Keep both baseline projections stable so the draft overlays can reuse their results.
   const detailCard = useMemo(
     () => [
       {
@@ -289,6 +290,7 @@ export function PlatePage(props: PlatePageProps) {
     : linkedPlateCount > 0
       ? `Move or detach its ${linkedPlateCount} linked plates first.`
       : null
+  // Reuse the eligible family list while filtering within it.
   const others = useMemo(() => {
     const outside = plates.filter((member) =>
       current.templateFamily
@@ -300,6 +302,7 @@ export function PlatePage(props: PlatePageProps) {
       ...outside.filter((member) => member.templateRole === 'template'),
     ]
   }, [plates, current.templateFamily, current.id])
+  // Index variant counts once per overlay so checking different templates is cheap.
   const linkedVariantCounts = useMemo(
     () =>
       new Map(

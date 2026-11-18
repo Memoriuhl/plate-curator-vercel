@@ -72,6 +72,7 @@ export function legacyEmbeddingRunner(options: {
             env: {
               ...process.env,
               LOCAL_GROUP_LEGACY_REPO: options.legacyRepo,
+              // Share the model weights on disk across grouping subprocesses.
               TORCH_HOME: options.cache,
               USE_TIMM: '0',
               PYTHONIOENCODING: 'utf-8',

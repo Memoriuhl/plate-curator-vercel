@@ -149,6 +149,7 @@ function LegacyRunMenu({
         : local && scope === 'all'
           ? allPlates
           : underTagged
+  // Reuse the eligible plate list until the selection, stage or run options change.
   const planned = useMemo(
     () =>
       planTagRun(

@@ -85,6 +85,7 @@ export async function executeQueueResearch(
     return 'settled' as const
   }
   if (!fields.length) return report(null, [], { modelCalls: 0 })
+  // Persist captured evidence by job so later workflow polls can reuse it.
   let prepared = await deps.state.read<Prepared>(`pipeline-evidence/${job.id}`)
   if (!prepared) {
     prepared = shouldReuseSavedSources({ ...job.stageOptions, policy })

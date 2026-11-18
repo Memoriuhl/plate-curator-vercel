@@ -54,6 +54,7 @@ export async function POST(request: Request) {
   if (!claim)
     return new Response(null, {
       status: 204,
+      // Keep leased work and claim IDs from being replayed by an HTTP cache.
       headers: { 'Cache-Control': 'private, no-store' },
     })
 

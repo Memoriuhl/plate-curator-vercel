@@ -1,8 +1,8 @@
 import type { DragFamily, TargetRect } from './drop-targets'
 
 /**
- * Capture stable target rectangles so animated reflow does not move the hit areas under
- * the pointer.
+ * Cache drop rectangles for this drag so reflow animations can't move the hit areas.
+ * Translate the saved bounds by the current scroll position during hit testing.
  */
 export function createStableDragTargets() {
   const rects = new Map<string, TargetRect>()

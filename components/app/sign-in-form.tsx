@@ -112,6 +112,7 @@ export function SignInForm() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email.trim() }),
+          // Recheck invitation eligibility each time sign-in starts.
           cache: 'no-store',
         })
         if (!response.ok) throw new Error('Email check failed')

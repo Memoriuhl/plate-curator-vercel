@@ -23,6 +23,7 @@ export function researchModelLabel(model: ResearchModel) {
  */
 export function useResearchModelChoice() {
   const { api, user } = useSession()
+  // Reuse the allowed model list across pickers for this signed-in user.
   const { data, error, isLoading, mutate } = useSWR<{
     models: ResearchModel[]
     default?: string

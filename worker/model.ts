@@ -371,6 +371,7 @@ export function gatewayAdapter(options: {
 }): ModelAdapter {
   const model = options.model ?? HOSTED_MODEL
   const request = options.fetch ?? fetch
+  // Share one pricing promise per adapter so tagging requests reuse the lookup.
   let pricing: Promise<Pricing> | undefined
   return {
     backend: 'hosted',
@@ -467,6 +468,7 @@ export function gatewayAdapter(options: {
           typeof body.usage?.prompt_tokens === 'number' &&
           typeof body.usage?.completion_tokens === 'number'
         ) {
+          // Apply the provider's cache-read rate to prompt tokens it reports as reused.
           const cached = body.usage.prompt_tokens_details?.cached_tokens ?? 0
           attempt.cost =
             (body.usage.prompt_tokens - cached) * Number(rates.input) +

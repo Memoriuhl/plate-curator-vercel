@@ -98,6 +98,7 @@ async function runPublish(
     { uid: ownerUid, name: null, role: 'owner' },
     { batchId, revision, ...authority }
   )
+  // Expire the catalog head after the release so server reads see the new version.
   if (outcome.ok) catalogChanged()
   if (
     !outcome.ok &&

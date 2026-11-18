@@ -35,8 +35,8 @@ export function gcsSnapshots(
   }
   return {
     /**
-     * Read object identity, size and checksum metadata so publishes can pin the prepared
-     * object.
+     * Bypass caches to check the prepared object's current generation, checksums and
+     * download token before trusting the receipt.
      */
     async metadata(version) {
       const object = encodeURIComponent(objectName(version))
@@ -121,8 +121,7 @@ export function gcsSnapshots(
       return 'created'
     },
     /**
-     * Resolve the download URL from stored object metadata for callers that serve the
-     * snapshot.
+     * Read fresh download metadata so callers get the object's current access token.
      */
     async downloadUrl(version) {
       const object = encodeURIComponent(objectName(version))

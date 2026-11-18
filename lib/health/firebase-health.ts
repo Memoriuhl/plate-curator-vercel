@@ -1,5 +1,6 @@
 export type ReadCatalogVersion = () => Promise<number>
 
+// Probe Firestore on every health request so the result reflects its current availability.
 const headers = { 'Cache-Control': 'private, no-store' }
 
 /**

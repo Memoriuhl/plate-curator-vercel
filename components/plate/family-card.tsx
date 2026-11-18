@@ -87,8 +87,8 @@ export function FamilyCard({
   const prefetched = useRef(new Set<string>())
   const previewBlocked = useRef(new Set<string>())
   /**
-   * Prefetch a plate route once per ID to keep repeated hover events from duplicating
-   * work.
+   * Warm the router cache on hover or focus. Track attempted IDs so images and titles
+   * share the request without eagerly loading every visible plate.
    */
   function prefetch(id: string) {
     const ids = prefetchedIds ?? prefetched.current

@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   if (!worker)
     return Response.json({ error: 'unauthenticated' }, { status: 401 })
   const claim = await claimResearch(deps, worker)
+  // Leases change on each claim. A worker must get the current response from the server.
   return claim
     ? Response.json(claim, { headers: { 'Cache-Control': 'no-store' } })
     : new Response(null, { status: 204 })

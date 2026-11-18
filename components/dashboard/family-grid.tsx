@@ -68,6 +68,7 @@ const ReadyPlatePreview = dynamic(
  * order.
  */
 export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
+  // Keep the expanded baselines stable so the draft overlay can reuse its projection.
   const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])
   return useDraftOverlay(baselines)
 }
@@ -91,6 +92,7 @@ export function FamilyGrid({
   const pathname = usePathname()
   const latestOverlay = useFamilyBatchOverlay(plates)
   const [publishedOnly, setPublishedOnly] = useState(false)
+  // Reuse the published-only cards until the catalog or display mode changes.
   const published = useMemo(
     () =>
       publishedOnly
@@ -105,6 +107,7 @@ export function FamilyGrid({
     null
   )
   const overlaid = published ?? heldOverlay ?? latestOverlay
+  // Reuse grouping, membership and counts while only interactions or search change.
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const attachedIds = useMemo(
     () => attachedFamilyIds(overlaid, baselineFamilies),
@@ -115,6 +118,7 @@ export function FamilyGrid({
     [overlaid, attachedIds]
   )
   const workspace = useWorkspaceBatch()
+  // Index changed IDs once per overlay so each filter check can look up a plate directly.
   const changedIds = useMemo(
     () =>
       new Set(
@@ -128,6 +132,7 @@ export function FamilyGrid({
   const show = publishedOnly && filter === 'changed' ? 'all' : filter
   const query = params.get('q') ?? ''
   const focusPlateId = params.get('plate')
+  // Reuse the state-wide Standard check as search text changes.
   const standardIds = useMemo(
     () =>
       new Set(
@@ -160,6 +165,7 @@ export function FamilyGrid({
   const opened = useRef(false)
   const preload = usePreloadPlateDetail()
   const anchor = useRef<HTMLElement | null>(null)
+  // Share prefetched IDs across virtual rows so a remounted card won't repeat the request.
   const [prefetchedIds] = useState(() => new Set<string>())
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Cancel a pending hover and dismiss the current plate preview. */
@@ -184,6 +190,7 @@ export function FamilyGrid({
   const draftBatch =
     workspace.mode === 'selected' ? workspace.detail?.batch : ordering.batch
   const standardConfirmation = useStandardConfirmation()
+  // Reuse candidate repairs until the affected families or saved state order changes.
   const standardRepairs = useMemo(() => {
     if (show !== 'standardPlate') return []
     const states = new Set(
@@ -295,6 +302,7 @@ export function FamilyGrid({
       setResolving(false)
     }
   }
+  // Reuse the optimistic grouping until the drag order, edits or overlay change.
   const families = useMemo(() => {
     if (
       !drag.optimisticOrder &&

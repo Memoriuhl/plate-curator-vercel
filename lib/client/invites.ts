@@ -7,8 +7,7 @@ export type InviteLookup =
   { status: 'invalid' } | { status: 'valid' | 'expired'; email: string }
 
 /**
- * Look up the invitation afresh so expiration and reissues are visible on the invite
- * page.
+ * Key lookup by token and bypass the browser cache so expiry and reissues are visible.
  */
 export function useInvite(token: string) {
   return useSWR<InviteLookup>(

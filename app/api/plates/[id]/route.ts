@@ -13,6 +13,7 @@ export async function GET(
   const { id } = await ctx.params
   const detail = await loadPlate(id)
   if (!detail) return json({ error: 'not_found' }, 404)
+  // Let the browser reuse plate detail for a minute while excluding shared HTTP caches.
   return Response.json(detail, {
     headers: { 'Cache-Control': 'private, max-age=60' },
   })

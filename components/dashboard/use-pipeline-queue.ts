@@ -93,6 +93,7 @@ export function usePipelineQueue(
     selectedId && selectedId !== 'none'
       ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}`
       : queueSummaryKey
+  // Cache the summary and each run separately, keeping the queue visible while a new key loads.
   const list = useSWR<QueueSnapshot>(local && uid ? key : null, api.get, {
     refreshInterval: (data) =>
       data?.runs.some((run) => run.status === 'running') ? 1250 : 3000,

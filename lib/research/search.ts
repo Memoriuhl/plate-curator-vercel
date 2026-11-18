@@ -42,6 +42,7 @@ export async function searchWeb(
   for (const provider of order) {
     const key = deps.keys[provider]
     if (!key) continue
+    // Reuse hits by provider and normalized query for a day without spending quota.
     const cacheKey = `search/${provider}/${createHash('sha256').update(normalized).digest('hex')}`
     const cached = await deps.store.read<{ at: number; hits: SearchHit[] }>(
       cacheKey

@@ -82,6 +82,7 @@ export function PipelineRuns({
   const [view, setView] = useState(local ? 'local' : 'gateway')
   const { user, api, ready } = useSession()
   const me = useMe()
+  // Keep the last Gateway run list visible between polls and fetch only in that view.
   const gateway = useSWR<{ runs: GatewayRun[]; observedAt: number }>(
     user && view === 'gateway' ? gatewayRunsKey : null,
     api.get,

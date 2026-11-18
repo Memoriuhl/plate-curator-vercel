@@ -28,6 +28,7 @@ export function VirtualizedVariants({
   drag?: ReturnType<typeof usePlateDrag>
   focusPlateId?: string
 }) {
+  // Let TanStack Virtual update its mutable DOM measurements on render.
   'use no memo'
 
   const container = useRef<HTMLDivElement>(null)

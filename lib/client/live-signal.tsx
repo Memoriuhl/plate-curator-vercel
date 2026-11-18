@@ -82,8 +82,8 @@ export function useBatchRevisionSignal(
       if (!disposed) updateStatus('Live updates unavailable')
     }
     /**
-     * Refresh batch data in response to a revision signal and retry when a newer
-     * revision is still pending.
+     * Revalidate SWR's batch detail and list entries on a Firestore revision signal.
+     * Let an active refresh finish before processing a newer signal.
      */
     const refresh = async () => {
       if (disposed || stopped || refreshing) return

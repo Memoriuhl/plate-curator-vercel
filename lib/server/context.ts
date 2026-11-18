@@ -55,6 +55,7 @@ import { createMemoryMembersStore } from '../members/memory-store'
 import { readCommonsImage } from '../../worker/remote-image'
 import { commonsImageUrl } from '../jobs/image-options'
 
+// Keep a plate ID index per immutable version so repeated lookups skip scanning the snapshot.
 const platesByVersion = new Map<number, Map<string, Plate>>()
 const fixtureMembers = createMemoryMembersStore()
 
@@ -156,6 +157,8 @@ export function liveAccessDeps(): LiveAccessDeps {
 
 /** Wire together the review store, baseline readers and clock for route operations. */
 export function reviewDeps(): ReviewDeps {
+  // Share each version/state index promise within this operation so parallel
+  // plate reads build it once.
   const jurisdictionIndexes = new Map<string, Promise<Map<string, Plate>>>()
   return {
     store: firestoreReviewStore(stagingFirestore(), reviewEnv()),

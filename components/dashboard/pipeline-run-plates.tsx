@@ -95,6 +95,7 @@ function LocalPlates({
   ...props
 }: Plates & { runId: string; enabled: boolean }) {
   const { api, user } = useSession()
+  // Use the queue's detail key so expanded cards can share data already fetched for the run.
   const detail = useSWR<{ selected?: QueueRunView }>(
     user && enabled
       ? `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}`

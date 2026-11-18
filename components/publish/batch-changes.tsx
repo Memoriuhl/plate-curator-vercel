@@ -98,6 +98,7 @@ function StatePlates({
   plates: ChangedPlate[]
   batch: BatchDetail['batch']
 }) {
+  // Let TanStack Virtual update its mutable row measurements on render.
   'use no memo'
   const container = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState<string[]>([])
@@ -225,6 +226,7 @@ export function BatchChanges({
   plates: Entry[]
   batch: BatchDetail['batch']
 }) {
+  // Reuse grouped changes when a state or plate panel expands.
   const groups = useMemo(() => changesByState(plates), [plates])
   const [expanded, setExpanded] = useState<string[]>([])
   const id = useId()

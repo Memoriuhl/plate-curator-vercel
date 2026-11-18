@@ -5,7 +5,7 @@ import { gcpAuthClient } from './credentials'
 
 let firestore: Firestore | undefined
 
-/** Reuse the authenticated Firestore client for the configured staging database. */
+/** Keep one Firestore client per process to reuse its connection and auth setup. */
 export function stagingFirestore(): Firestore {
   firestore ??= new Firestore({
     projectId: requireEnv('GCP_PROJECT_ID'),

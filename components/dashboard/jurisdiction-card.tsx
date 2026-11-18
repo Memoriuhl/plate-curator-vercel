@@ -43,6 +43,7 @@ export function JurisdictionCard({
   const batchId = useSelectedBatchId()
   const params = useParams<{ code: string }>()
   const selected = params.code === jurisdiction.code
+  // Fully prefetch nearby or focused links. Other links use Next.js's default.
   const [prefetch, setPrefetch] = useState<true | 'auto'>('auto')
   const ref = useRef<HTMLAnchorElement>(null)
   useEffect(() => {

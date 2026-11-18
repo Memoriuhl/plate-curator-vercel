@@ -329,6 +329,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     !filters.run && !scope && since === null ? selectedRevision : undefined
   useReviewCheckpoint(batchId, reviewedRevision, me.data?.role === 'owner')
   const recentPlates = recent.data ? new Set(recent.data.plateIds) : null
+  // Retain loaded details by batch ID so review rows can reuse them as the list changes.
   const [details, setDetails] = useState<Record<string, BatchDetail | null>>({})
   const [reverting, setReverting] = useState(false)
   const [revertFeedback, setRevertFeedback] = useState<{
@@ -343,6 +344,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
     scope: '',
     count: reviewPageSize,
   })
+  // Keep the loader callback stable so review rerenders don't retrigger its effect.
   const loaded = useCallback(
     (id: string, detail: BatchDetail | null) =>
       setDetails((previous) =>

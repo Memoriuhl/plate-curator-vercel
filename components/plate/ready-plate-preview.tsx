@@ -45,6 +45,7 @@ function PendingPreview(props: ReadyPreviewProps) {
     props.checkKey === 'family' ||
     props.checkKey === 'image'
   const { data } = usePlateDetail(local ? null : props.plate.id)
+  // Keep the overlay input stable while the preview's readiness timers update.
   const baselines = useMemo(() => (data ? [data.plate] : []), [data])
   const [overlaid] = useDraftOverlay(baselines)
   const [intent, setIntent] = useState(props.immediate)

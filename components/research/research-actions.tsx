@@ -94,6 +94,7 @@ function ResearchRun({
   const [pending, setPending] = useState(false)
   const posting = useRef(false)
   const [message, setMessage] = useState('')
+  // Cache the latest job response so status stays visible between active polls.
   const research = useSWR<Reply>(
     intent?.jobId ? `/api/research/${intent.jobId}` : null,
     api.get,
@@ -149,6 +150,7 @@ function ResearchRun({
         }
       )
       remember({ ...next, jobId: reply.value.id })
+      // Fill the job entry from the start response so status can render before the next poll.
       await mutate(`/api/research/${reply.value.id}`, reply, {
         revalidate: false,
       })
@@ -189,6 +191,7 @@ function ResearchRun({
           (key) => typeof key === 'string' && key.startsWith('/api/batches?')
         ),
       ])
+      // Reload the route payload after refreshing the job and draft caches.
       router.refresh()
       setMessage('Saved to the Batch.')
     } catch (error) {

@@ -5,7 +5,10 @@ import { gcpAuthClient } from './credentials'
 
 const snapshots = new Map<number, Promise<Snapshot>>()
 
-/** Share an in-flight versioned snapshot read and allow a failed load to be retried. */
+/**
+ * Keep each immutable snapshot's promise in process memory so concurrent and later
+ * reads share one download. Evict failures so the next read can retry.
+ */
 export function loadSnapshot(version: number): Promise<Snapshot> {
   let snapshot = snapshots.get(version)
   if (!snapshot) {
@@ -28,6 +31,7 @@ async function fetchSnapshot(version: number): Promise<Snapshot> {
     `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${object}?alt=media`,
     {
       headers: { Authorization: `Bearer ${token}` },
+      // The version-keyed promise above controls reuse of these authenticated downloads.
       cache: 'no-store',
     }
   )

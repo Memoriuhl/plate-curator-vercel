@@ -22,7 +22,7 @@ const fallbackSeconds: Record<LocalRunStage, number> = {
   group: 60,
 }
 
-/** Load observed run timings for the signed-in curator's pipeline controls. */
+/** Share timing samples by user so opening multiple controls can reuse a recent fetch. */
 export function useRunTimings(open: boolean) {
   const session = useSession(false)
   const get = session?.api?.get

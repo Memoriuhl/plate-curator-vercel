@@ -38,6 +38,7 @@ export async function detectGroupRuntime(
           join(settings.LOCAL_GROUP_LEGACY_REPO, 'refiner', 'plate_match.py')
         ),
         access(
+          // Advertise embeddings only when the configured Torch cache already has the checkpoint.
           join(
             settings.LOCAL_GROUP_CACHE,
             'hub',

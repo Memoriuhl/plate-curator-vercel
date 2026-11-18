@@ -22,6 +22,7 @@ async function wikiRequest(
     format: 'json',
     formatversion: '2',
   })
+  // Reuse Wikipedia responses by API parameters for a day to save tool calls.
   const key = `wiki/${createHash('sha256').update(query.toString()).digest('hex')}`
   const cached = await deps.store.read<{ at: number; data: unknown }>(key)
   if (cached && deps.now() - cached.at < 86400000)

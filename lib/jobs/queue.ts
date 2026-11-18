@@ -550,6 +550,7 @@ export async function listRuns(
     const claims = worker ? queueResourceClaims(jobs, d.localScope) : []
     const now = d.now()
     const visible: QueueRunView[] = []
+    // Reuse each batch read within this transaction when multiple runs share a batch.
     const batches = new Map<string, ReviewBatch | null>()
     for (const run of runs) {
       if (!batches.has(run.batchId))

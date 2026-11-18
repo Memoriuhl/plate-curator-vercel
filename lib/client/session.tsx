@@ -78,6 +78,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Preserve context identity while the user and session readiness stay the same.
   const session = useMemo<Session>(
     () => ({
       user,
@@ -143,6 +144,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       </main>
     )
 
+  // Changing accounts remounts the keyed SWR provider with a fresh cache.
   return (
     <SessionContext.Provider value={session}>
       <SWRConfig

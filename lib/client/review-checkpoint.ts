@@ -24,7 +24,7 @@ export function useReviewCheckpoint(
 }
 
 /**
- * Load current plate changes since the viewer's saved revision for review highlighting.
+ * Cache changed plate IDs by batch and revisions so highlights follow the checkpoint.
  */
 export function useRecentReviewPlates(
   batchId: string | null | undefined,

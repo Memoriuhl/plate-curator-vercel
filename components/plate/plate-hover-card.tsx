@@ -23,6 +23,7 @@ type HoverCardProps = {
 /** Fetch plate detail on hover and merge its draft values into the preview. */
 export default function PlateHoverCard(props: HoverCardProps) {
   const { data, error } = usePlateDetail(props.plate.id)
+  // Preserve the baseline array so the draft overlay can reuse its calculation.
   const baselines = useMemo(() => (data ? [data.plate] : []), [data])
   const [overlaid] = useDraftOverlay(baselines)
   return (

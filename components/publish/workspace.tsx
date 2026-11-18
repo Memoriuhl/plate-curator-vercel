@@ -128,6 +128,7 @@ function BatchSelection({
   const [rejectedLiveVersion, setRejectedLiveVersion] = useState<number | null>(
     null
   )
+  // Reuse the diff classification while publish status or confirmation state changes.
   const groups = useMemo(
     () => groupChanges(detail.data?.plates ?? []),
     [detail.data]

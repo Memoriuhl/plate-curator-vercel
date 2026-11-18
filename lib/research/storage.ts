@@ -11,7 +11,7 @@ export function researchEnvironment() {
     : (process.env.VERCEL_ENV ?? 'development')
 }
 
-/** Initialize the research Firestore client lazily with the configured credentials. */
+/** Retain one research Firestore client to reuse its connections and credentials. */
 export async function researchDatabase(): Promise<Firestore> {
   if (!database) {
     const { Firestore } = await import('@google-cloud/firestore')
@@ -79,7 +79,10 @@ export function firestoreResearchState(
   }
 }
 
-/** Select file-backed state for local Eve development or Firestore for hosted runs. */
+/**
+ * Store research state and retrieval caches in local files for Eve dev and in
+ * environment-scoped Firestore for hosted runs.
+ */
 export async function researchState(): Promise<ResearchStateStore> {
   if (process.env.EVE_DEV === '1' && !process.env.VERCEL)
     return fileResearchState('.eve/research')

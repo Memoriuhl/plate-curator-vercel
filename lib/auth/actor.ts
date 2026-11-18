@@ -13,7 +13,7 @@ export function parseOwnerUids(raw: string | undefined): string[] {
 
 /**
  * Authenticate a bearer token and resolve the caller's current membership or invitation
- * activation.
+ * activation. Keep auth failures out of HTTP caches so each attempt is checked afresh.
  */
 export async function authenticate(
   request: Request,

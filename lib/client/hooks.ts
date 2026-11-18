@@ -66,6 +66,7 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
 /** Fetch the signed-in user's current membership and environment. */
 export function useMe(enabled = true) {
   const { user, api } = useSession()
+  // Share membership across session consumers and reuse it on remount when cached.
   return useSWR<Actor>(user && enabled ? '/api/me' : null, api.get, {
     revalidateIfStale: false,
     dedupingInterval: 30000,
@@ -76,6 +77,7 @@ export function useMe(enabled = true) {
 export function useMembers() {
   const { user, api } = useSession()
   const me = useMe()
+  // Share the owner-only list across controls and refresh it after member writes.
   return useSWR<MemberSummary[]>(
     user && me.data?.role === 'owner' ? '/api/members' : null,
     api.get
@@ -102,6 +104,7 @@ export function useBatches(
   opts?: { mine?: boolean; enabled?: boolean; refreshInterval?: number }
 ) {
   const { user, api } = useSession()
+  // Keep each filter in its own entry and reuse open drafts across editing views.
   const reuse =
     states?.length === 1 &&
     states[0] === 'open' &&
@@ -156,8 +159,8 @@ async function fetchBatchDetail(
 }
 
 /**
- * Fetch the selected batch and keep refresh behavior consistent with the live updates
- * policy.
+ * Cache the assembled batch by ID. Editing views can reuse it on mount because
+ * mutations and live revision signals refresh the shared entry.
  */
 export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
   const { user, api } = useSession()
@@ -170,6 +173,7 @@ export function useBatch(id: string | null, opts?: { reuse?: boolean }) {
 
 export type BatchRun = RunStatus
 
+// Share the post-submit polling deadline by batch so remounts still watch for startup.
 const publishWindows = new Map<string, number>()
 
 /**
@@ -195,6 +199,7 @@ export function useBatchRun(id: string | null) {
     window.addEventListener('batch-publish-requested', update)
     return () => window.removeEventListener('batch-publish-requested', update)
   }, [id])
+  // Share each batch's run status between review and publish as polling updates it.
   const run = useSWR<BatchRun>(
     user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null,
     api.get,
@@ -214,6 +219,7 @@ export function useBatchRun(id: string | null) {
     const phase = run.data?.phase
     const previous = previousRun.current
     previousRun.current = { id, phase }
+    // Refresh the browser's route payload when the new catalog is published.
     if (
       id &&
       previous.id === id &&
@@ -246,13 +252,13 @@ export function useBatchRun(id: string | null) {
 /** Build the shared cache key for fetching and preloading a plate detail. */
 export const plateDetailKey = (id: string) => `/api/plates/${id}`
 
-/** Load an authenticated plate detail through its shared cache key. */
+/** Share plate detail by endpoint so preview hooks can reuse the same response. */
 export function usePlateDetail(id: string | null) {
   const { user, api } = useSession()
   return useSWR<PlateDetail>(user && id ? plateDetailKey(id) : null, api.get)
 }
 
-/** Warm the plate detail cache before navigation so the next view can render sooner. */
+/** Start the detail request early so SWR can reuse its promise under the same key. */
 export function usePreloadPlateDetail() {
   const { user, api } = useSession()
   return (id: string) => {
@@ -284,7 +290,7 @@ export type PublishBaselineStatus = {
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
 
-/** Read global publish controls and expose the action that updates them. */
+/** Share publish controls between views and poll so external pause changes appear. */
 export function usePublishControl() {
   const { user, api } = useSession()
   const { mutate } = useSWRConfig()
@@ -300,6 +306,7 @@ export function usePublishControl() {
         '/api/publish/control',
         { paused }
       )
+      // Seed the cache from the write response and recheck affected eligibility entries.
       await status.mutate(
         { ...result, enabledHere: true },
         { revalidate: false }
@@ -315,8 +322,7 @@ export function usePublishControl() {
 }
 
 /**
- * Read baseline and publish eligibility so the confirmation can react to pipeline
- * activity.
+ * Share publish eligibility by batch and poll while active pipeline work can change it.
  */
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
@@ -334,6 +340,7 @@ export function usePublishBaseline(id: string | null) {
 export function useReviewActions() {
   const { api } = useSession()
   const { mutate } = useSWRConfig()
+  // Reuse the command ID if the same batch revision must be submitted again.
   const publishIntents = useRef(new Map<string, string>())
   /** Refresh batch lists and, when specified, details for the changed batch. */
   const refresh = (batchId?: string) =>
@@ -589,6 +596,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   )
   const detail =
     workspace.mode === 'selected' ? workspace.detail : personal.data
+  // Reuse projected cards and checks until the catalog plates or batch details change.
   return useMemo(() => {
     const entries = new Map(
       detail?.plates.map((entry) => [entry.proposed.id, entry])
@@ -668,6 +676,7 @@ export type EditResult<T = Plate | void> =
       message?: string
     }
 
+// Share one pending lookup or creation per SWR provider and user to avoid duplicate drafts.
 const batchCreations = new WeakMap<object, Map<string, Promise<string>>>()
 
 /**
@@ -702,6 +711,7 @@ export function useEnsureBatch(): (plate: {
         name: `${plate.state} edits`,
         plateIds: [plate.id],
       })
+      // Cache the returned batch so the next edit can find it without refetching the list.
       await mutate(key, [created, ...current], { revalidate: false })
       return created.id
     })().finally(() => creations.delete(user.uid))
@@ -758,6 +768,7 @@ export function useEditPlate({
           : await ensureBatch(plate))
       batchId = id
       const key = batchApiPath(id)
+      // Reuse the open draft in SWR to pick the edit revision without another read.
       const detail =
         (cache.get(key)?.data as BatchDetail | undefined) ??
         (await fetchBatchDetail(api, key))
@@ -782,6 +793,7 @@ export function useEditPlate({
             : {}),
         }
       )
+      // Store the fresh assembled draft so other editors see the new field revisions.
       const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), {
         revalidate: false,
       })
@@ -925,9 +937,11 @@ export function useReorderState() {
           ? workspace.id
           : await ensureBatch({ id: order[0], state })
       const key = batchApiPath(id)
+      // Reuse the visible revision for the order write when detail is already cached.
       const detail =
         (cache.get(key)?.data as BatchDetail | undefined) ??
         (await fetchBatchDetail(api, key))
+      // Show the proposed order in SWR immediately and restore the entry if the save fails.
       await mutate(
         key,
         async () => {
@@ -1008,7 +1022,7 @@ export function useReorderState() {
     return result.finally(() => setPendingCount((count) => count - 1))
   }
 
-  /** Capture the current batch ID and revision when a reorder interaction starts. */
+  /** Capture the visible SWR revision so a drag saves against its starting batch. */
   function capture(): MoveOrigin {
     const cachedBatches = cache.get(batchesKey(['open'], { mine: true }))
       ?.data as ReviewBatch[] | undefined
@@ -1243,7 +1257,7 @@ export function useReorderState() {
   }
 }
 
-/** Read the enabled tagging models to populate model selection controls. */
+/** Cache the model list so tagging controls share the same server configuration. */
 export function useTaggingModels() {
   const { user, api } = useSession()
   return useSWR<import('./tagging-models').TaggingModels>(

@@ -379,6 +379,7 @@ export async function observeQueueStage(
   readImage?: Parameters<typeof verifiedImageFields>[1]
 ): Promise<StageObservation> {
   if (!localQueueEnabled(d)) return { phase: 'done' }
+  // Keep image verification outside the transaction callback so retries reuse the same download.
   let imageVerification: ReturnType<typeof verifiedImageFields> | undefined
   return d.store.transaction(async (tx) => {
     const run = await scopedRun(tx, id, d.localScope)
@@ -674,6 +675,7 @@ export async function recordQueueWorkflowFailure(
   status: 'failed' | 'cancelled' | 'completed'
 ): Promise<boolean> {
   if (!localQueueEnabled(d)) return false
+  // Reuse the completed stage's image verification if recovery retries its transaction.
   let imageVerification: ReturnType<typeof verifiedImageFields> | undefined
   return d.store.transaction(async (tx) => {
     const run = await scopedRun(tx, id, d.localScope)

@@ -91,6 +91,7 @@ export function useDragFlip(
   identity: unknown,
   enabled: boolean
 ) {
+  // Keep the previous layout measurement so reflow can animate from it on the next render.
   const positions = useRef<FlipSnapshot>(new Map())
   const motions = useRef(new Map<string, Motion>())
   const wasEnabled = useRef(false)

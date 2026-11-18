@@ -126,6 +126,7 @@ export function usePlateDrag(options: Options) {
     !options.ordering.pending &&
     !saving &&
     !standardConfirmation.pending
+  // Reuse the deleted-family index for drop checks until the family data changes.
   const deletedFamilyIds = useMemo(
     () =>
       new Set(
@@ -1072,6 +1073,7 @@ export function usePlateDrag(options: Options) {
   }
   const item = active?.item
   const target = active?.target
+  // Pointer motion within a drop slot can reuse the same reflowed family layout.
   const reflow = useMemo(
     () => (item ? reflowForDrop(options.families, item, target ?? null) : null),
     [options.families, item, target]

@@ -2,8 +2,8 @@ import { getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 
 /**
- * Reuse or initialize the browser Firebase app with the configured public project
- * settings.
+ * Reuse the default Firebase app from the SDK's registry so Auth and live subscriptions
+ * share one browser app.
  */
 export function clientApp() {
   const existing = getApps().find((app) => app.name === '[DEFAULT]')

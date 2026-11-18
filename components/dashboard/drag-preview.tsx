@@ -26,6 +26,7 @@ export function DragPreview({
   selectionCount?: number
 }) {
   const [height, setHeight] = useState(0)
+  // Keep the ref callback stable so moving the preview doesn't reattach and measure it.
   const measurePreview = useCallback((element: HTMLDivElement | null) => {
     if (element) setHeight(element.offsetHeight)
   }, [])

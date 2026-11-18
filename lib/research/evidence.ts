@@ -35,7 +35,7 @@ export function evidenceSource(
   }
 }
 
-/** Save the source for the research run and reuse a previously captured copy of it. */
+/** Keep the first capture per URL so the run's citations retain their IDs and text. */
 export function saveEvidence(
   store: ResearchStateStore,
   runId: string,

@@ -96,6 +96,7 @@ export function researchResponse<T>(
             : 409
   return Response.json(result, {
     status,
+    // Pollers need current, actor-specific job state from the server.
     headers: { 'Cache-Control': 'private, no-store' },
   })
 }

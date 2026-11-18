@@ -5,12 +5,13 @@ import { catalog } from './context'
 export const CATALOG_HEAD_TAG = 'catalog-head'
 
 /**
- * Cache the live catalog version and curator metadata together so dashboard loads share
- * a consistent head.
+ * Share the live version and curator state in Next.js's remote cache so state switches
+ * can skip the Firestore reads.
  */
 export async function cachedCatalogHead() {
   'use cache: remote'
   cacheTag(CATALOG_HEAD_TAG)
+  // Periodic revalidation also picks up changes made outside the tagged writes.
   cacheLife({ stale: 60, revalidate: 300, expire: 3600 })
   const source = catalog()
   const [version, curator] = await Promise.all([
@@ -20,7 +21,7 @@ export async function cachedCatalogHead() {
   return { version, curator }
 }
 
-/** Invalidate the catalog head cache when publishing changes the live pointer. */
+/** Expire the remote head after publish or curator writes so the next server read reloads it. */
 export function catalogChanged() {
   try {
     revalidateTag(CATALOG_HEAD_TAG, { expire: 0 })

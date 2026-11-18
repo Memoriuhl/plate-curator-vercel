@@ -34,6 +34,7 @@ export function JurisdictionNav({
     )
     .map((jurisdiction) => jurisdiction.code)
     .join(',')
+  // Warm the router cache for nearby states, where the next click is most likely.
   useEffect(() => {
     for (const code of nearby.split(',').filter(Boolean))
       router.prefetch(`/states/${code}`)
