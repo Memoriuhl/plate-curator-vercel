@@ -16,4 +16,3 @@ export function researchFixture() {
   const result = (job: ResearchJob): ResearchResult => ({ input: job.input, draft: emptyResearchDraft(), sources: [], rejected: [], provenance: { executor: 'desktop', model: 'gemma4:12b', promptVersion: 'story-v2', codeRevision: 'legacy-r1' }, attempts: [], durationMs: 1, status: 'no_sources', cost: { usd: null, missing: 1 }, counters: {}, cache: 'unknown' })
   return { deps, store, review, owner, plate, start, result, advance: (ms: number) => { now += ms }, remove: () => { active = false } }
 }
-
