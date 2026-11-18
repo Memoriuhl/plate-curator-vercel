@@ -1,7 +1,15 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { IoCheckmark, IoClose, IoRemove } from 'react-icons/io5'
+import Link from 'next/link'
+import {
+  IoCheckmark,
+  IoClose,
+  IoEyeOutline,
+  IoInformationCircleOutline,
+  IoRemove,
+} from 'react-icons/io5'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -42,6 +50,8 @@ export function PipelineRunCard({
   plates,
   device,
   resultsHref,
+  stageResultsHref,
+  attempt,
   runAction,
   waitLabel,
 }: {
@@ -64,27 +74,37 @@ export function PipelineRunCard({
   resultsHref?: string
   runAction?: ReactNode
   waitLabel?: string
+  stageResultsHref?: (stage: LocalRunStage) => string
+  attempt?: { number: number; error?: string }
 }) {
   const settled = progress.steps.filter((step) =>
     ['completed', 'skipped', 'failed', 'cancelled'].includes(step.status)
   ).length
-  const percent = progress.steps.length
-    ? Math.round((settled / progress.steps.length) * 100)
-    : 0
   const summary = plateOutcomeSummary(progress.steps)
   const partial =
     run.status === 'completed' &&
     progress.steps.some(
       (step) => step.status === 'failed' || step.status === 'skipped'
     )
-  const stopped = run.status === 'failed' || run.status === 'cancelled'
+  const allSkipped =
+    run.status === 'completed' &&
+    progress.steps.length > 0 &&
+    progress.steps.every((step) => step.status === 'skipped')
+  const runOutcome =
+    run.status === 'cancelled' ? 'Canceled' : allSkipped ? 'Skipped' : undefined
+  const stopped =
+    run.status === 'failed' || run.status === 'cancelled' || allSkipped
   const name = requester || run.requestedBy
-  const elapsed =
-    (progress.endedAt ?? observedAt) === undefined
-      ? undefined
-      : (progress.endedAt ?? observedAt!) - run.createdAt
+  const clock = progress.endedAt ?? observedAt
+  const runStatus =
+    runOutcome ?? (partial ? 'Finished with issues' : statusLabels[run.status])
   const reference = run.id.length > 12 ? run.id.slice(-8) : run.id
   const inspector = progress.workflowUrl ?? progress.gatewayUrl
+  const inspectorLabel = progress.workflowUrl
+    ? progress.workflowUrl.startsWith('https://vercel.com/')
+      ? 'Show Vercel workflow run'
+      : 'Show workflow run'
+    : 'Show Vercel AI Gateway logs'
   return (
     <article
       className={styles.run}
@@ -92,32 +112,80 @@ export function PipelineRunCard({
       aria-label={`Pipeline run ${reference}`}
     >
       <header className={styles.runHeader}>
-        <span>Started by</span>
-        <span className={styles.avatar} aria-hidden="true">
-          {name.slice(0, 1).toUpperCase()}
-        </span>
-        <span className={styles.requester} title={name}>
-          {name}
-        </span>
-        {inspector ? (
-          <a
-            className={styles.reference}
-            href={inspector}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={run.id}
-          >
-            Run {reference}
-          </a>
-        ) : (
-          <span className={styles.reference} title={run.id}>
-            Run {reference}
-          </span>
-        )}
-        <span className={styles.elapsed}>
-          Elapsed <b>{formatDuration(elapsed)}</b>
-        </span>
-        {runAction}
+        <div className={styles.runIdentity}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={styles.avatar}
+                aria-label={`Started by ${name}`}
+              >
+                <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent collisionPadding={12}>
+              Started by {name}
+            </TooltipContent>
+          </Tooltip>
+          {inspector ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  className={styles.reference}
+                  href={inspector}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Run {reference}
+                </a>
+              </TooltipTrigger>
+              <TooltipContent collisionPadding={12}>
+                {inspectorLabel}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className={styles.reference} title={run.id}>
+              Run {reference}
+            </span>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label="Run activity"
+              >
+                <IoInformationCircleOutline aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              collisionPadding={12}
+              className={styles.stageTooltip}
+            >
+              <strong>Run activity</strong>
+              <span>
+                {runStatus}
+                {attempt && ` · Attempt ${attempt.number}`}
+              </span>
+              <span>Requested {new Date(run.createdAt).toLocaleString()}</span>
+              {progress.endedAt !== undefined && (
+                <span>
+                  Finished {new Date(progress.endedAt).toLocaleString()}
+                </span>
+              )}
+              {clock !== undefined && (
+                <span>Elapsed {formatDuration(clock - run.createdAt)}</span>
+              )}
+              {summary && <span>{summary}</span>}
+              {attempt?.error && (
+                <span>{pipelineStepReason(attempt.error)}</span>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        {runAction && <div className={styles.runTools}>{runAction}</div>}
       </header>
       <div className={styles.flow}>
         <PipelinePlateStack
@@ -165,8 +233,15 @@ export function PipelineRunCard({
               : []
           })
           const breakdown = counts.length > 1 ? counts.join(' · ') : ''
-          const active =
-            status === 'running' || status === 'waiting' || status === 'queued'
+          const canViewResult =
+            steps.length > 0 && status !== 'running' && status !== 'queued'
+          const outcomeHref = canViewResult
+            ? stageResultsHref?.(stage)
+            : undefined
+          const outcomeLabel =
+            status === 'waiting'
+              ? `Choose image for ${label}`
+              : `View ${label} results`
           const timed = steps.filter((step) => step.durationMs !== undefined)
           const duration = timed.length
             ? formatDuration(
@@ -183,39 +258,64 @@ export function PipelineRunCard({
                 : status === 'running'
                   ? ` · ${done}/${steps.length}`
                   : ''
+          const showStatus =
+            status === 'running' || status === 'waiting' || status === 'queued'
+          const stageContent = (
+            <span className={styles.stageCopy}>
+              <span className={styles.stageTitle}>
+                <span className={styles.mark} aria-hidden="true">
+                  {status === 'completed' ? (
+                    <IoCheckmark />
+                  ) : status === 'failed' ? (
+                    <IoClose />
+                  ) : status === 'cancelled' || status === 'skipped' ? (
+                    <IoRemove />
+                  ) : status === 'running' ? (
+                    <span className={styles.spinner} />
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                <strong>{label}</strong>
+                {outcomeHref && (
+                  <IoEyeOutline
+                    className={styles.stageResultIcon}
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+              {showStatus && (
+                <span className={styles.stageState}>
+                  {statusLabels[status]}
+                </span>
+              )}
+            </span>
+          )
           return (
             <div className={styles.stageWrap} key={stage}>
               <span className={styles.connector} aria-hidden="true" />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className={styles.stage}
-                    data-status={status}
-                    aria-label={`${label}: ${statusLabels[status]}${timing}.${breakdown ? ` ${breakdown}.` : ''} Stage details.`}
-                  >
-                    <span className={styles.mark} aria-hidden="true">
-                      {status === 'completed' ? (
-                        <IoCheckmark />
-                      ) : status === 'failed' ? (
-                        <IoClose />
-                      ) : status === 'cancelled' || status === 'skipped' ? (
-                        <IoRemove />
-                      ) : status === 'running' ? (
-                        <span className={styles.spinner} />
-                      ) : (
-                        index + 1
-                      )}
-                    </span>
-                    <span className={styles.stageCopy}>
-                      <strong>{label}</strong>
-                      <span>
-                        {!active && breakdown
-                          ? breakdown
-                          : `${statusLabels[status]}${timing}`}
-                      </span>
-                    </span>
-                  </button>
+                  {outcomeHref ? (
+                    <Link
+                      href={outcomeHref}
+                      className={styles.stage}
+                      data-status={status}
+                      aria-label={outcomeLabel}
+                      prefetch={false}
+                    >
+                      {stageContent}
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.stage}
+                      data-status={status}
+                      aria-label={`${label}: ${statusLabels[status]}. Stage details.`}
+                    >
+                      {stageContent}
+                    </button>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent
                   collisionPadding={12}
@@ -234,31 +334,12 @@ export function PipelineRunCard({
                   {explanations.map((reason) => (
                     <span key={reason}>{reason}</span>
                   ))}
+                  {outcomeHref && <strong>{outcomeLabel}</strong>}
                 </TooltipContent>
               </Tooltip>
             </div>
           )
         })}
-        <div className={styles.finish} data-status={run.status}>
-          <strong>
-            {stopped
-              ? 'Stopped'
-              : run.status === 'completed'
-                ? partial
-                  ? 'Finished with issues'
-                  : 'Finished'
-                : run.status === 'queued'
-                  ? 'Queued'
-                  : `${percent}%`}
-          </strong>
-          <span>
-            {stopped || run.status === 'completed'
-              ? summary || `${run.plateIds.length} plates`
-              : run.status === 'queued'
-                ? 'Waiting'
-                : 'overall'}
-          </span>
-        </div>
       </div>
       {!stopped && progress.steps.length ? (
         <progress
@@ -268,19 +349,25 @@ export function PipelineRunCard({
           aria-label={`Run ${reference} progress`}
         />
       ) : null}
-      {local && progress.steps.length > 0 && (
-        <PlatePipelineTimeline
-          steps={progress.steps}
-          batchId={run.batchId}
-          images={progress.plateImages}
-        />
-      )}
+      <PlatePipelineTimeline
+        steps={progress.steps}
+        batchId={run.batchId}
+        images={progress.plateImages}
+        plates={plates}
+      />
       {waitLabel && (
         <p className="caption" role="status">
           {waitLabel}
         </p>
       )}
-      {children ? <footer className={styles.actions}>{children}</footer> : null}
+      {(runOutcome || children) && (
+        <footer className={styles.actions}>
+          {runOutcome && (
+            <span className={styles.runOutcome}>{runOutcome}</span>
+          )}
+          {children}
+        </footer>
+      )}
     </article>
   )
 }

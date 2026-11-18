@@ -13,7 +13,7 @@ import {
   plateOutcomeSummary,
   queueProgress,
 } from '@/lib/jobs/run-progress'
-import type { QueueRunView } from '@/lib/jobs/queue-types'
+import type { LocalRunStage, QueueRunView } from '@/lib/jobs/queue-types'
 import { pipelineStages, pipelineStepReason } from './pipeline-stages'
 import { PipelineFieldValue, pipelineFieldLabel } from './pipeline-field-value'
 import { EnhancedImageResult } from './enhanced-image-result'
@@ -79,18 +79,26 @@ export function PipelineRunResults({
   run,
   actions,
   observedAt,
+  stage,
 }: {
   run: QueueRunView
   actions: ResultActions
   observedAt?: number
+  stage?: LocalRunStage
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
   const attempt = run.attempts.at(-1)!
-  const { steps } = run.progress ?? queueProgress(run)
+  const progress = run.progress ?? queueProgress(run)
+  const steps = stage
+    ? progress.steps.filter((step) => step.stage === stage)
+    : progress.steps
   const outcomes = plateOutcomes(steps)
   const summary = plateOutcomeSummary(steps)
   const cards = new Map(run.cards?.map((card) => [card.id, card]))
-  const jobsByPlate = Map.groupBy(run.jobs, (job) => job.plateId)
+  const jobs = stage
+    ? run.jobs.filter((job) => (job.stage ?? 'tag') === stage)
+    : run.jobs
+  const jobsByPlate = Map.groupBy(jobs, (job) => job.plateId)
   const entries = attempt.projection?.plates ?? {}
   const plateNames = Object.fromEntries(
     Object.values(entries).map((entry) => [
@@ -100,6 +108,10 @@ export function PipelineRunResults({
   )
   const plateDetails = new Map(run.plates?.map((plate) => [plate.id, plate]))
   const stepsByPlate = Map.groupBy(steps, (step) => step.plateId)
+  const plateIds =
+    stage && stage !== 'group'
+      ? run.plateIds.filter((id) => stepsByPlate.has(id) || jobsByPlate.has(id))
+      : run.plateIds
   const currentJob = run.jobs.find(
     (job) =>
       job.queueAttempt === attempt.number && job.queueStep === attempt.cursor
@@ -114,15 +126,15 @@ export function PipelineRunResults({
     <>
       <div className={styles.summary}>
         <p className="caption">
-          {run.plateIds.length} {run.plateIds.length === 1 ? 'plate' : 'plates'}
+          {plateIds.length} {plateIds.length === 1 ? 'plate' : 'plates'}
           {summary && ` · ${summary}`}
           {run.previewOnly
             ? ' · Preview only'
-            : run.incrementalDrafts && saved > 0
+            : !stage && run.incrementalDrafts && saved > 0
               ? ` · ${saved} saved to ${run.batchName ?? 'your Batch'}`
               : ''}
         </p>
-        {run.incrementalDrafts && !enhancementOnly && (
+        {!stage && run.incrementalDrafts && !enhancementOnly && (
           <Button asChild size="sm" variant="publish">
             <Link
               href={reviewHref(undefined, undefined, run.batchId, {
@@ -133,7 +145,8 @@ export function PipelineRunResults({
             </Link>
           </Button>
         )}
-        {!enhancementOnly &&
+        {!stage &&
+          !enhancementOnly &&
           !run.incrementalDrafts &&
           run.status === 'completed' &&
           attempt.outcome !== 'no_result' &&
@@ -155,7 +168,7 @@ export function PipelineRunResults({
         </p>
       )}
       <ul className={styles.grid} aria-label="Plates in this run">
-        {run.plateIds.map((id) => {
+        {plateIds.map((id) => {
           const card = cards.get(id)
           const entry = entries[id]
           const outcome = outcomes.get(id)
@@ -178,12 +191,19 @@ export function PipelineRunResults({
           const specialized = (jobsByPlate.get(id) ?? []).filter((job) => {
             const suggestion = job.result?.fieldSuggestion
             if (
-              run.incrementalDrafts &&
               job.state === 'completed' &&
-              suggestion?.kind === 'fields'
+              job.result &&
+              !job.result.stageError
             ) {
-              for (const [field, value] of Object.entries(suggestion.fields))
-                reportedFields.set(field, value)
+              if (
+                (stage || run.incrementalDrafts) &&
+                suggestion?.kind === 'fields'
+              ) {
+                for (const [field, value] of Object.entries(suggestion.fields))
+                  reportedFields.set(field, value)
+              }
+              if (stage === 'tag' && job.result.suggestions.length)
+                reportedFields.set('tags', job.result.suggestions)
             }
             return (
               suggestion?.kind === 'image' ||
@@ -194,12 +214,13 @@ export function PipelineRunResults({
           const changed = editableFieldKeys().filter(
             (key) =>
               reportedFields.has(key) ||
-              (entry &&
+              (!stage &&
+                entry &&
                 JSON.stringify(entry.batchInput[key]) !==
                   JSON.stringify(entry.executionPlate[key]))
           )
           const reason = outcome?.step?.reason
-          const stage =
+          const outcomeStage =
             outcome?.step &&
             pipelineStages.find((item) => item.id === outcome.step?.stage)
               ?.label
@@ -230,7 +251,7 @@ export function PipelineRunResults({
                       className="caption"
                       role={reason === 'draft_conflict' ? 'alert' : undefined}
                     >
-                      {stage && `${stage} · `}
+                      {outcomeStage && `${outcomeStage} · `}
                       {reason === 'draft_conflict'
                         ? 'The saved draft changed during the run. Your edits were kept.'
                         : pipelineStepReason(reason)}
@@ -239,13 +260,15 @@ export function PipelineRunResults({
                   {changed.length > 0 && (
                     <dl className={styles.fields}>
                       {changed.map((key) => {
-                        const compare =
-                          entry &&
-                          JSON.stringify(entry.batchInput[key]) !==
-                            JSON.stringify(entry.executionPlate[key])
                         const value = reportedFields.has(key)
                           ? reportedFields.get(key)
                           : entry?.executionPlate[key]
+                        const compare =
+                          entry &&
+                          JSON.stringify(entry.batchInput[key]) !==
+                            JSON.stringify(
+                              stage ? value : entry.executionPlate[key]
+                            )
                         return (
                           <div key={key} className={styles.field}>
                             <dt className="label">{pipelineFieldLabel(key)}</dt>
@@ -365,52 +388,66 @@ export function PipelineRunResults({
           )
         })}
       </ul>
-      {run.waitReason === 'recovery' && currentJob?.claimId && (
-        <details className="grid gap-2">
-          <summary className="caption cursor-pointer">
-            Recover a stopped worker
-          </summary>
-          <p className="caption">
-            Confirm that {currentJob.workerId} has stopped executing this stage.
-          </p>
-          <label className="caption flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={verifiedClaim === currentJob.claimId}
-              onChange={(event) =>
-                setVerifiedClaim(
-                  event.currentTarget.checked ? currentJob.claimId! : null
-                )
+      {run.waitReason === 'recovery' &&
+        currentJob?.claimId &&
+        (!stage || (currentJob.stage ?? 'tag') === stage) && (
+          <details className="grid gap-2">
+            <summary className="caption cursor-pointer">
+              Recover a stopped worker
+            </summary>
+            <p className="caption">
+              Confirm that {currentJob.workerId} has stopped executing this
+              stage.
+            </p>
+            <label className="caption flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={verifiedClaim === currentJob.claimId}
+                onChange={(event) =>
+                  setVerifiedClaim(
+                    event.currentTarget.checked ? currentJob.claimId! : null
+                  )
+                }
+              />
+              I verified this worker has stopped
+            </label>
+            {leaseActive && (
+              <p className="caption">Wait for the active lease to expire.</p>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                !!actions.action ||
+                verifiedClaim !== currentJob.claimId ||
+                leaseActive
               }
-            />
-            I verified this worker has stopped
-          </label>
-          {leaseActive && (
-            <p className="caption">Wait for the active lease to expire.</p>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={
-              !!actions.action ||
-              verifiedClaim !== currentJob.claimId ||
-              leaseActive
-            }
-            onClick={() =>
-              void actions.recover(run.id, currentJob.id, currentJob.claimId!)
-            }
-          >
-            Release verified stopped worker
-          </Button>
-        </details>
-      )}
+              onClick={() =>
+                void actions.recover(run.id, currentJob.id, currentJob.claimId!)
+              }
+            >
+              Release verified stopped worker
+            </Button>
+          </details>
+        )}
     </>
   )
 }
 
-export function PipelineRunResultsPage({ runId }: { runId: string }) {
+export function PipelineRunResultsPage({
+  runId,
+  stage,
+}: {
+  runId: string
+  stage?: string
+}) {
   const queue = usePipelineQueue(undefined, undefined, runId)
   const run = queue.selected
+  const selectedStage = run?.stages.find((value) => value === stage)
+  const stageLabel =
+    selectedStage &&
+    (pipelineStages.find((item) => item.id === selectedStage)?.label ??
+      selectedStage)
   const state = run?.plateIds[0]?.split('.')[0]
   const dashboard =
     state && run
@@ -426,11 +463,25 @@ export function PipelineRunResultsPage({ runId }: { runId: string }) {
           </Link>
         </Button>
         <div>
-          <h1 className="page-title">Run results</h1>
+          <h1 className="page-title">
+            {stageLabel ? `${stageLabel} results` : 'Run results'}
+          </h1>
           <p className="caption">
             {run?.batchName && `${run.batchName} · `}Run {runId.slice(-8)}
           </p>
         </div>
+        {run && selectedStage && (
+          <Button asChild size="sm" variant="ghost">
+            <Link
+              href={batchHref(
+                `/pipeline/runs/${encodeURIComponent(run.id)}`,
+                run.batchId
+              )}
+            >
+              All run results
+            </Link>
+          </Button>
+        )}
       </header>
       {queue.message && (
         <p role="alert" className="caption">
@@ -458,6 +509,7 @@ export function PipelineRunResultsPage({ runId }: { runId: string }) {
           run={run}
           actions={queue}
           observedAt={queue.observedAt}
+          stage={selectedStage}
         />
       )}
     </main>

@@ -5,7 +5,7 @@ import { batchHref } from '@/lib/review/href'
 
 import { useState, type ReactNode } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
-import { IoStopCircleOutline, IoTrashOutline } from 'react-icons/io5'
+import { IoRefresh, IoStopCircleOutline, IoTrashOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -15,7 +15,11 @@ import {
 import type { QueueRunSummary, QueueWait } from '@/lib/jobs/queue-types'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import { PipelineRunCard } from './pipeline-run-card'
-import { PipelineRailSkeleton, PipelineRunRail } from './pipeline-run-rail'
+import {
+  PipelineRailSkeleton,
+  PipelineRunHistory,
+  PipelineRunRail,
+} from './pipeline-run-rail'
 import { plateOutcomeSummary, queueProgress } from '@/lib/jobs/run-progress'
 import styles from './pipeline-runs.module.css'
 
@@ -85,13 +89,64 @@ export function PipelineQueuePanel({
   requester,
 }: {
   queue: QueueControls
-  header?: ReactNode
+  header?: (history: ReactNode) => ReactNode
   requester?(uid: string): string | undefined
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
+  const history = queue.loading ? null : (
+    <PipelineRunHistory
+      runs={queue.runs}
+      progress={(run) => run.progress ?? queueProgress(run)}
+      historyHref={resultsHref}
+      renderHistory={(run) => {
+        const { steps } = run.progress ?? queueProgress(run)
+        const summary = plateOutcomeSummary(steps)
+        return (
+          <>
+            <p className="caption">
+              {run.batchName ?? 'Batch'} ·{' '}
+              {requester?.(run.requestedBy) ??
+                run.requestedByName ??
+                run.requestedBy}
+            </p>
+            {summary && <p className="caption">{summary}</p>}
+            <PopoverPrimitive.Close asChild>
+              <Button asChild size="sm" variant="ghost">
+                <Link href={resultsHref(run)} prefetch={false}>
+                  View saved results
+                </Link>
+              </Button>
+            </PopoverPrimitive.Close>
+            {(run.status === 'cancelled' ||
+              (run.status === 'failed' && run.dismissedAt !== undefined) ||
+              (run.status === 'completed' &&
+                run.attempts.at(-1)?.outcome === 'partial' &&
+                steps.some((step) => step.status === 'failed'))) &&
+            !run.jobs.some((job) => job.state === 'claimed') ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!run.editable || !!queue.action}
+                onClick={() => void queue.retry(run.id)}
+              >
+                Retry pending stages
+              </Button>
+            ) : null}
+          </>
+        )
+      }}
+    />
+  )
   return (
     <section aria-label="Pipeline queue and history" className={styles.panel}>
-      {header ?? <h2 className="sr-only">Pipeline queue and history</h2>}
+      {header ? (
+        header(history)
+      ) : (
+        <header>
+          <h2 className="sr-only">Pipeline queue and history</h2>
+          {history}
+        </header>
+      )}
       {queue.error ? (
         <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>
           Refresh queue
@@ -153,48 +208,30 @@ export function PipelineQueuePanel({
       ) : (
         <PipelineRunRail
           runs={queue.runs}
-          observedAt={queue.observedAt}
-          keepFinished
-          progress={(run) => run.progress ?? queueProgress(run)}
-          historyHref={resultsHref}
-          renderHistory={(run) => {
-            const { steps } = run.progress ?? queueProgress(run)
-            const summary = plateOutcomeSummary(steps)
-            return (
-              <>
-                <p className="caption">
-                  {run.batchName ?? 'Batch'} ·{' '}
-                  {requester?.(run.requestedBy) ?? run.requestedBy}
-                </p>
-                {summary && <p className="caption">{summary}</p>}
-                <PopoverPrimitive.Close asChild>
-                  <Button asChild size="sm" variant="ghost">
-                    <Link href={resultsHref(run)} prefetch={false}>
-                      View saved results
-                    </Link>
-                  </Button>
-                </PopoverPrimitive.Close>
-                {(run.status === 'cancelled' ||
-                  (run.status === 'failed' && run.dismissedAt !== undefined) ||
-                  (run.status === 'completed' &&
-                    run.attempts.at(-1)?.outcome === 'partial' &&
-                    steps.some((step) => step.status === 'failed'))) &&
-                !run.jobs.some((job) => job.state === 'claimed') ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!run.editable || !!queue.action}
-                    onClick={() => void queue.retry(run.id)}
-                  >
-                    Retry pending stages
-                  </Button>
-                ) : null}
-              </>
-            )
-          }}
           renderRun={(run) => {
             const attempt = run.attempts.at(-1)!
+            const progress = run.progress ?? queueProgress(run)
+            const cancellationPending =
+              run.status === 'running' && run.cancelRequestedAt !== undefined
+            const status =
+              cancellationPending ||
+              run.waitReason === 'recovery' ||
+              run.waitReason === 'image_choice'
+                ? label(run)
+                : run.previewOnly
+                  ? 'Preview only'
+                  : !run.editable
+                    ? 'This Batch is read-only.'
+                    : undefined
+            const href = resultsHref(run)
             const unresolved = run.jobs.some((job) => job.state === 'claimed')
+            const canRetry =
+              !unresolved &&
+              (run.status === 'failed' ||
+                run.status === 'cancelled' ||
+                (run.status === 'completed' &&
+                  attempt.outcome === 'partial' &&
+                  progress.steps.some((step) => step.status === 'failed')))
             const canCancel =
               ['queued', 'running'].includes(run.status) &&
               run.cancelRequestedAt === undefined
@@ -243,63 +280,64 @@ export function PipelineQueuePanel({
               <PipelineRunCard
                 run={run}
                 stages={run.stages}
-                progress={run.progress ?? queueProgress(run)}
+                progress={progress}
                 observedAt={queue.observedAt}
-                requester={requester?.(run.requestedBy)}
+                requester={
+                  requester?.(run.requestedBy) ??
+                  run.requestedByName ??
+                  undefined
+                }
                 local
-                runAction={runAction}
+                attempt={attempt}
+                runAction={
+                  <>
+                    {canRetry && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            className="size-8"
+                            variant="ghost"
+                            aria-label="Retry pending stages"
+                            disabled={!run.editable || !!queue.action}
+                            onClick={() => void queue.retry(run.id)}
+                          >
+                            <IoRefresh aria-hidden="true" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Retry pending stages</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {runAction}
+                  </>
+                }
                 waitLabel={
                   run.queueWait ? queueWaitLabels[run.queueWait] : undefined
                 }
                 resultsHref={
                   run.status === 'queued' || run.status === 'running'
-                    ? resultsHref(run)
+                    ? href
                     : undefined
                 }
+                stageResultsHref={(stage) =>
+                  `${href}&stage=${encodeURIComponent(stage)}`
+                }
               >
-                <details className={styles.activity}>
-                  <summary>Run activity</summary>
-                  <p>
-                    {run.status} · attempt {attempt.number} · Requested{' '}
-                    {new Date(run.createdAt).toLocaleString()}
-                  </p>
-                  {attempt.error ? (
-                    <p>{attempt.error.replaceAll('_', ' ')}</p>
-                  ) : null}
-                </details>
-                <span className="caption mr-auto" role="status">
-                  {run.cancelRequestedAt !== undefined ||
-                  run.waitReason === 'recovery' ||
-                  run.waitReason === 'image_choice'
-                    ? label(run)
-                    : run.previewOnly
-                      ? 'Preview only'
-                      : !run.editable
-                        ? 'This Batch is read-only.'
-                        : ''}
-                </span>
-                <Button asChild size="sm" variant="ghost">
-                  <Link href={resultsHref(run)} prefetch={false}>
-                    View results
-                  </Link>
-                </Button>
-                {(run.status === 'failed' ||
-                  run.status === 'cancelled' ||
-                  (run.status === 'completed' &&
-                    attempt.outcome === 'partial' &&
-                    (run.progress ?? queueProgress(run)).steps.some(
-                      (step) => step.status === 'failed'
-                    ))) &&
-                !unresolved ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!run.editable || !!queue.action}
-                    onClick={() => void queue.retry(run.id)}
+                {status && (
+                  <span className="caption" role="status">
+                    {status}
+                  </span>
+                )}
+                {run.waitReason === 'recovery' && (
+                  <Link
+                    className="caption underline"
+                    href={href}
+                    prefetch={false}
                   >
-                    Retry pending stages
-                  </Button>
-                ) : null}
+                    Recover worker
+                  </Link>
+                )}
               </PipelineRunCard>
             )
           }}

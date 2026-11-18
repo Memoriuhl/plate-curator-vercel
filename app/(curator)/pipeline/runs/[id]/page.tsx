@@ -1,12 +1,23 @@
 import { Suspense } from 'react'
 import { PipelineRunResultsPage } from '@/components/dashboard/pipeline-run-results'
 
-async function RunResults({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  return <PipelineRunResultsPage key={id} runId={id} />
+type PageProps = {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ stage?: string | string[] }>
 }
 
-export default function Page({ params }: { params: Promise<{ id: string }> }) {
+async function RunResults({ params, searchParams }: PageProps) {
+  const [{ id }, { stage }] = await Promise.all([params, searchParams])
+  return (
+    <PipelineRunResultsPage
+      key={id}
+      runId={id}
+      stage={typeof stage === 'string' ? stage : undefined}
+    />
+  )
+}
+
+export default function Page(props: PageProps) {
   return (
     <Suspense
       fallback={
@@ -15,7 +26,7 @@ export default function Page({ params }: { params: Promise<{ id: string }> }) {
         </main>
       }
     >
-      <RunResults params={params} />
+      <RunResults {...props} />
     </Suspense>
   )
 }

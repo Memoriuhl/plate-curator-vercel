@@ -3,7 +3,6 @@ import Link from 'next/link'
 import {
   IoArrowForward,
   IoCheckmark,
-  IoChevronForward,
   IoClose,
   IoImageOutline,
   IoRemove,
@@ -15,9 +14,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { dashboardPlateHref } from '@/lib/review/href'
-import { cn } from '@/components/utils'
+import type { RunPlateDetail } from '@/lib/jobs/run-plates'
 import type { StepProgress } from '@/lib/jobs/run-progress'
 import { pipelineStages, pipelineStepReason } from './pipeline-stages'
+import styles from './pipeline-runs.module.css'
 
 const statusLabels = {
   queued: 'Waiting',
@@ -27,16 +27,6 @@ const statusLabels = {
   failed: 'Failed',
   cancelled: 'Cancelled',
   skipped: 'Skipped',
-}
-
-const statusStyle = {
-  queued: 'border-[var(--hairline)] text-[var(--ink-2)]',
-  waiting: 'border-[var(--warning)] text-[var(--warning)]',
-  running: 'border-primary bg-[var(--fill)] text-[var(--ink)]',
-  completed: 'border-[var(--hairline)] bg-[var(--fill)] text-[var(--ink)]',
-  failed: 'border-[var(--danger)] bg-[var(--danger-tint)] text-[var(--danger)]',
-  cancelled: 'border-[var(--hairline)] text-[var(--ink-2)]',
-  skipped: 'border-[var(--hairline)] text-[var(--ink-2)]',
 }
 
 function phaseStatus(
@@ -65,34 +55,37 @@ export function PlatePipelineTimeline({
   steps,
   batchId,
   images,
+  plates,
 }: {
   steps: StepProgress[]
   batchId?: string
   images?: Record<string, string>
+  plates?: RunPlateDetail[]
 }) {
   const rows = Map.groupBy(
     steps.filter((step) => step.stage !== 'group'),
     (step) => step.plateId
   )
   if (!rows.size) return null
+  const plateDetails = new Map(plates?.map((plate) => [plate.id, plate]))
 
   return (
     <section
       aria-label="Pipeline steps by plate"
-      className="grid max-h-64 gap-2 overflow-y-auto"
+      data-pipeline-watch-steps
+      tabIndex={0}
+      className={styles.watchTimeline}
     >
       <TooltipProvider delayDuration={250}>
         {[...rows].map(([plateId, plateSteps]) => {
           const { plateName, plateState } = plateSteps[0]
           const state =
             plateState ?? (plateId.includes('.') ? plateId.split('.')[0] : null)
-          const image = images?.[plateId]
+          const image = images?.[plateId] ?? plateDetails.get(plateId)?.imageUrl
           return (
-            <div
-              key={plateId}
-              className="grid gap-1.5 rounded-md border border-[var(--hairline)] px-2 py-1.5"
-            >
-              <div className="flex min-w-0 items-center gap-1.5">
+            <div key={plateId} className={styles.timelineRow}>
+              <header className={styles.timelineIdentity}>
+                <strong className="caption">{plateName}</strong>
                 {image ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -124,9 +117,6 @@ export function PlatePipelineTimeline({
                     aria-hidden="true"
                   />
                 )}
-                <strong className="caption truncate" title={plateName}>
-                  {plateName}
-                </strong>
                 {state && (
                   <Link
                     href={dashboardPlateHref(state, plateId, batchId)}
@@ -139,12 +129,12 @@ export function PlatePipelineTimeline({
                     <IoArrowForward aria-hidden="true" />
                   </Link>
                 )}
-              </div>
+              </header>
               <ol
                 aria-label={`${plateSteps[0].plateName} pipeline steps`}
-                className="flex flex-wrap items-center gap-1.5"
+                className={styles.phaseList}
               >
-                {plateSteps.flatMap((step, stageIndex) => {
+                {plateSteps.flatMap((step) => {
                   const stage = pipelineStages.find(
                     (item) => item.id === step.stage
                   )
@@ -158,21 +148,9 @@ export function PlatePipelineTimeline({
                         ? step.reason
                         : undefined
                     return (
-                      <li
-                        key={`${step.index}-${index}`}
-                        className="inline-flex items-center gap-1.5"
-                      >
-                        {stageIndex || index ? (
-                          <IoChevronForward
-                            aria-hidden="true"
-                            className="size-3 text-[var(--ink-2)]"
-                          />
-                        ) : null}
+                      <li key={`${step.index}-${index}`}>
                         <span
-                          className={cn(
-                            'caption inline-flex items-center gap-1 rounded-md border px-1.5 py-1 transition-colors motion-reduce:transition-none',
-                            statusStyle[status]
-                          )}
+                          className={styles.phase}
                           data-status={status}
                           aria-current={
                             status === 'running' ? 'step' : undefined
@@ -186,12 +164,12 @@ export function PlatePipelineTimeline({
                           {status === 'running' ? (
                             <span
                               aria-hidden="true"
-                              className="size-2 rounded-full bg-primary motion-safe:animate-pulse"
+                              className="size-3 shrink-0 rounded-full border border-[var(--warning)] border-r-transparent motion-safe:animate-spin"
                             />
                           ) : status === 'completed' ? (
                             <IoCheckmark
                               aria-hidden="true"
-                              className="size-3"
+                              className="size-3 text-[var(--success)]"
                             />
                           ) : status === 'failed' ? (
                             <IoClose aria-hidden="true" className="size-3" />
