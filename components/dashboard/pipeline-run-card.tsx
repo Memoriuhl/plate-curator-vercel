@@ -11,7 +11,7 @@ import { pipelineStages } from './pipeline-stages'
 import styles from './pipeline-runs.module.css'
 
 const statusLabels = { completed: 'Complete', running: 'Running', queued: 'Waiting', waiting: 'Choose image', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }
-const reasons: Record<string, string> = { no_sources: 'No usable source page was found.', no_saved_sources: 'No usable saved source was available.', no_supported_fields: 'The source did not support a suggestion.', missing_wiki_link: 'The required Wiki link was not produced.', missing_description: 'The required description was not produced.', upstream_failed: 'An earlier step failed. This step did not run.', run_cancelled: 'The remaining work was cancelled.', unavailable: 'The worker cannot run this stage.' }
+const reasons: Record<string, string> = { no_sources: 'No usable source page was found.', no_saved_sources: 'No usable saved source was available.', no_supported_fields: 'The source did not support a suggestion.', missing_wiki_link: 'The required Wiki link was not produced.', missing_description: 'The required description was not produced.', upstream_failed: 'An earlier step failed. This step did not run.', group_member_failed: 'Grouping requires the full selection. At least one plate failed an earlier step.', run_cancelled: 'The remaining work was cancelled.', unavailable: 'The worker cannot run this stage.' }
 
 export function PipelineRunCard({ run, progress, stages, observedAt, requester, children, local, plates, device, onWatch }: {
   run: { id: string; requestedBy: string; plateIds: string[]; status: RunStatus; createdAt: number }
@@ -20,6 +20,8 @@ export function PipelineRunCard({ run, progress, stages, observedAt, requester, 
 }) {
   const settled = progress.steps.filter(step => step.status === 'completed' || step.status === 'skipped').length
   const percent = progress.steps.length ? Math.round(settled / progress.steps.length * 100) : 0
+  const failedPlates = new Set(progress.steps.filter(step => step.status === 'failed' && step.stage !== 'group').map(step => step.plateId)).size
+  const partial = run.status === 'completed' && failedPlates > 0
   const stopped = run.status === 'failed' || run.status === 'cancelled'
   const name = requester || run.requestedBy
   const elapsed = (progress.endedAt ?? observedAt) === undefined ? undefined : (progress.endedAt ?? observedAt!) - run.createdAt
@@ -63,7 +65,7 @@ export function PipelineRunCard({ run, progress, stages, observedAt, requester, 
           </TooltipContent></Tooltip>
         </div>
       })}
-      <div className={styles.finish} data-status={run.status}><strong>{stopped ? 'Stopped' : run.status === 'completed' ? 'Finished' : run.status === 'queued' ? 'Queued' : `${percent}%`}</strong><span>{stopped ? `${progress.steps.filter(step => step.status === 'cancelled').length} cancelled` : run.status === 'completed' ? `${run.plateIds.length} plates` : run.status === 'queued' ? 'Waiting' : 'overall'}</span></div>
+      <div className={styles.finish} data-status={run.status}><strong>{stopped ? 'Stopped' : run.status === 'completed' ? partial ? 'Finished with issues' : 'Finished' : run.status === 'queued' ? 'Queued' : `${percent}%`}</strong><span>{stopped ? `${progress.steps.filter(step => step.status === 'cancelled').length} cancelled` : run.status === 'completed' ? partial ? `${failedPlates} of ${run.plateIds.length} plates failed` : `${run.plateIds.length} plates` : run.status === 'queued' ? 'Waiting' : 'overall'}</span></div>
     </div>
     {!stopped && progress.steps.length ? <progress className={styles.progress} max={progress.steps.length} value={settled} aria-label={`Run ${reference} progress`} /> : null}
     {children ? <footer className={styles.actions}>{children}</footer> : null}

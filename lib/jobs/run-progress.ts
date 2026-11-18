@@ -24,7 +24,7 @@ export function queueProgress(run: QueueRunView | QueueRunSummary): PipelineProg
   const attempt = run.attempts.at(-1)!
   const projection = 'projection' in attempt ? attempt.projection : undefined
   const steps = (attempt.steps ?? []).map(step => {
-    const completedId = attempt.completedJobIds?.[step.index]
+    const completedId = step.completedJobId ?? (step.index < attempt.cursor && step.status !== 'failed' && step.status !== 'cancelled' ? attempt.completedJobIds?.[step.index] : undefined)
     const job = run.jobs.find(job => job.id === completedId) ?? run.jobs.find(job => job.queueAttempt === attempt.number && job.queueStep === step.index)
     const status = step.status === 'cancelled' || step.status === 'skipped' ? step.status
       : job?.result?.stageError || job?.state === 'failed' || job?.state === 'expired' ? 'failed'

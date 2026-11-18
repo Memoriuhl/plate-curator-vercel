@@ -11,7 +11,12 @@ export async function localPipelineRun(id: string, attempt: number, startIndex: 
     using hook = createHook<{ jobId?: string }>({ token: `local-pipeline:${id}:${attempt}:${index}` })
     if (await hook.getConflict()) return { outcome: 'hook_conflict' }
     const jobId = await dispatch(id, attempt, index, hook.token)
-    if (!jobId) return { outcome: 'stopped' }
+    if (!jobId) {
+      const state = await observe(id, attempt, index)
+      if (state.phase !== 'next') return { outcome: 'stopped' }
+      index = (state.nextIndex ?? index + 1) - 1
+      continue
+    }
     for (;;) {
       const hosted = await executeHosted(jobId)
       if (hosted === 'settled') break
@@ -22,7 +27,10 @@ export async function localPipelineRun(id: string, attempt: number, startIndex: 
     for (;;) {
       const state = await observe(id, attempt, index)
       if (state.phase === 'done') return { outcome: 'settled' }
-      if (state.phase === 'next') break
+      if (state.phase === 'next') {
+        index = (state.nextIndex ?? index + 1) - 1
+        break
+      }
       const timer = state.phase === 'claimed' && state.deadline ? sleep(new Date(state.deadline)) : sleep('1h')
       const wake = await Promise.race([event.then(() => 'event' as const), timer.then(() => 'timer' as const)])
       if (wake === 'event') event = events.next()

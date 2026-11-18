@@ -29,6 +29,16 @@ test('each unique attempt/stage hook is registered before dispatch and completed
   ])
 })
 
+test('workflow follows persisted skips after a result and after a blocked dispatch', async () => {
+  mocks.dispatch.mockResolvedValueOnce('job').mockResolvedValueOnce(null).mockResolvedValueOnce('other-job')
+  mocks.observe.mockResolvedValueOnce({ phase: 'next', nextIndex: 2 })
+    .mockResolvedValueOnce({ phase: 'next', nextIndex: 4 }).mockResolvedValueOnce({ phase: 'done' })
+
+  expect(await localPipelineRun('run', 1, 0, 5)).toEqual({ outcome: 'settled' })
+  expect(mocks.dispatch.mock.calls.map(args => args[3])).toEqual([0, 2, 4])
+  expect(mocks.observe.mock.calls.map(args => args[3])).toEqual([0, 2, 4])
+})
+
 test('hook conflict or superseded coordinator cannot dispatch a job', async () => {
   mocks.conflict.mockResolvedValue({ runId: 'other' })
   expect(await localPipelineRun('run', 1, 0, 1)).toEqual({ outcome: 'hook_conflict' })

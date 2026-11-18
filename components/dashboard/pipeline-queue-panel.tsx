@@ -69,9 +69,10 @@ export function PipelineQueuePanel({ queue, renderSpecialized, header, requester
       renderHistory={run => <>
         <p className="caption">{run.batchName ?? 'Batch'} · {requester?.(run.requestedBy) ?? run.requestedBy}</p>
         {run.incrementalDrafts && run.stages.some(stage => stage !== 'enhance-image') && <p className="caption">{savedPlates(run)} draft</p>}
+        {run.status === 'completed' && run.attempts.at(-1)?.steps?.some(step => step.status === 'failed') && <p className="caption">Finished with issues</p>}
         <PipelineRunPlates runId={run.id} plateIds={run.plateIds} steps={(run.progress ?? queueProgress(run)).steps} local />
         <PopoverPrimitive.Close asChild><Button size="sm" variant="ghost" onClick={() => queue.select(run.id)}>View saved results</Button></PopoverPrimitive.Close>
-        {run.status === 'cancelled' && !run.jobs.some(job => job.state === 'claimed')
+        {(run.status === 'cancelled' || run.status === 'completed' && run.attempts.at(-1)?.steps?.some(step => step.status === 'failed')) && !run.jobs.some(job => job.state === 'claimed')
           ? <Button size="sm" variant="outline" disabled={!run.editable || !!queue.action} onClick={() => void queue.retry(run.id)}>Retry pending stages</Button>
           : null}
       </>}

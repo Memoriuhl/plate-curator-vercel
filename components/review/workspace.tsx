@@ -4,6 +4,8 @@ import { apiErrorReasons } from '@/lib/client/api'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { HoverCard } from 'radix-ui'
+import { PlateChangeIcons } from './plate-change-icons'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   IoChevronBack,
@@ -108,16 +110,8 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
       : batch.approval?.by === batch.createdBy
         ? batch.createdByName
         : null
-  const counts = new Map<string, number>()
-  for (const plate of detail.plates)
-    counts.set(
-      plate.baseline.state,
-      (counts.get(plate.baseline.state) ?? 0) + 1,
-    )
-  const scope = [...counts]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([code, count]) => `${code} ${count}`)
-    .join(', ')
+  const changed = detail.plates.filter(plate => changeSummary(plate.baseline, plate.proposed, plate.order) !== 'No changes')
+  const affectedStates = [...new Set(changed.map(plate => plate.baseline.state))].sort()
   const submit = batch.state === 'open' && batch.createdBy === me.data?.uid
   const approve =
     me.data?.role === 'owner' && batch.state === 'submitted'
@@ -146,12 +140,7 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
         </p>
       ) : (
         <>
-          <p className="min-w-0 flex-1">
-            Approving &quot;{batch.name}&quot; by{' '}
-            {batch.createdByName || 'a curator'} covers all{' '}
-            {detail.plates.length} changes in revision {batch.revision} ({scope}
-            ). Any later edit asks you to look again.
-          </p>
+          <p className="min-w-0 flex-1" title={affectedStates.join(', ')}>{changed.length} changed {changed.length === 1 ? 'plate' : 'plates'} · rev {batch.revision}</p>
           <div className="flex flex-wrap items-center gap-2">
             {approve || submit ? (
               <Button disabled={busy} onClick={act}>
@@ -199,7 +188,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const [details, setDetails] = useState<Record<string, BatchDetail>>({})
   const [reverting, setReverting] = useState(false)
   const [revertFeedback, setRevertFeedback] = useState<{ plateId: string; message: string; error: boolean } | null>(null)
-  const [all, setAll] = useState(false)
   const [search, setSearch] = useState('')
   const [pagination, setPagination] = useState({ scope: '', count: reviewPageSize })
   const loaded = useCallback(
@@ -237,7 +225,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const term = search.trim().toLowerCase()
   const listed = inState.filter(({ proposed }) => !batchId || !term ||
     [proposed.displayName, proposed.id, proposed.state, ...proposed.tags].some(value => value.toLowerCase().includes(term)))
-  const pageScope = JSON.stringify([batchId, filters.run, filters.since, scope, search])
+  const pageScope = JSON.stringify([batchId, filters.run, filters.since, scope, code, search])
   const pageEnd = pagination.scope === pageScope ? pagination.count : reviewPageSize
   const candidateEntries = batchId && !filters.run && since === null
     ? batchEntries.filter(entry => entry.edit && hasPipelineHistory(entry.edit))
@@ -345,27 +333,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
         </Link>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-extrabold">{batchId ? selected.data?.batch.name ?? 'Batch' : state?.name ?? 'Plates'}</h2>
-          {batchId ? <span className="text-xs">{visible.length} changed {visible.length === 1 ? 'Plate' : 'Plates'}</span> : (
-          <div className="flex rounded-full bg-muted p-1 text-xs">
-            <button
-              className={cn(
-                'rounded-full px-3 py-1',
-                !all && 'bg-primary text-primary-foreground',
-              )}
-              onClick={() => setAll(false)}
-            >
-              Changed {listed.length}
-            </button>
-            <button
-              className={cn(
-                'rounded-full px-3 py-1',
-                all && 'bg-primary text-primary-foreground',
-              )}
-              onClick={() => setAll(true)}
-            >
-              All {state?.plateCount ?? state?.plates.length ?? 0}
-            </button>
-          </div>)}
+          <span className="text-xs text-muted-foreground">{batchId ? visible.length : listed.length} changed {(batchId ? visible.length : listed.length) === 1 ? 'Plate' : 'Plates'}</span>
         </div>
         {batchId && (
           <div className="grid gap-2 pb-3 text-sm">
@@ -386,70 +354,41 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
           </div>
         )}
         <div className="max-h-[75dvh] min-h-0 flex-1 overflow-y-auto md:max-h-full">
-          {((!batchId && all)
-            ? (state?.plates ?? [])
-            : listed.slice(0, pageEnd).map((entry) => ({
-                id: entry.baseline.id,
-                displayName: entry.proposed.displayName,
-                imageUrl: entry.afterImageUrl ?? plateImage(entry.baseline.id),
-                entry,
-              }))
-          ).map((plate, index) => {
-            const item =
-              'entry' in plate
-                ? (plate.entry as Entry)
-                : inState.find((entry) => entry.baseline.id === plate.id)
-            return (
-              <Link
-                key={`${plate.id}-${item?.batch.id ?? index}`}
-                aria-label={`${plate.displayName} · ${item?.baseline.state ?? code ?? ''}`}
-                aria-current={entry?.baseline.id === plate.id && entry.batch.id === item?.batch.id ? 'true' : undefined}
-                prefetch={false}
-                href={reviewHref(item?.baseline.state ?? code ?? undefined, plate.id, item?.batch.id, { ...filters, scope: batchId ? scope : null })}
-                className={cn(
-                  'flex min-h-14 items-center gap-3 rounded-2xl p-2',
-                  entry?.baseline.id === plate.id && entry.batch.id === item?.batch.id && 'bg-muted',
-                )}
-              >
-                {plate.imageUrl ? (
-                  <Image
-                    unoptimized
-                    src={plate.imageUrl}
-                    alt=""
-                    width={72}
-                    height={36}
-                    className="h-9 w-[72px] object-contain"
-                  />
-                ) : (
-                  <span className="h-9 w-[72px] shrink-0 rounded bg-muted" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <strong className="block text-sm">{plate.displayName}{batchId && item && <span className="ml-1 font-normal text-muted-foreground">{item.baseline.state}</span>}</strong>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {item
-                      ? changeSummary(item.baseline, item.proposed, item.order)
-                      : 'No changes'}
-                  </span>
-                  {item && (
-                    <span
-                      className="mt-1 inline-block max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-[10px]"
-                      title={`${item.batch.name} by ${item.batch.createdByName || 'a curator'}`}
-                    >
-                      {item.batch.name} · by{' '}
-                      {item.batch.createdByName || 'a curator'}
-                    </span>
-                  )}
+          {listed.slice(0, pageEnd).map(item => {
+            const plate = item.proposed
+            const imageUrl = item.afterImageUrl ?? item.beforeImageUrl ?? plateImage(plate.id)
+            const selected = entry?.baseline.id === plate.id && entry.batch.id === item.batch.id
+            const key = `${plate.id}-${item.batch.id}`
+            const row = <Link key={key}
+              aria-label={`${plate.displayName} · ${item.baseline.state}`} title={changeSummary(item.baseline, item.proposed, item.order)} aria-current={selected ? 'true' : undefined} prefetch={false}
+              href={reviewHref(item.baseline.state, plate.id, item.batch.id, { ...filters, scope: batchId ? scope : null })}
+              className={cn('flex min-h-14 items-center gap-2 rounded-xl p-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary', selected && 'bg-muted')}>
+              {imageUrl ? <Image unoptimized src={imageUrl} alt="" width={80} height={40} className="h-10 w-20 shrink-0 object-contain" />
+                : <span className="h-10 w-20 shrink-0 rounded bg-muted" />}
+              <span className="min-w-0 flex-1">
+                <strong className="block truncate text-sm">{plate.displayName}</strong>
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {batchId && <span className="text-xs text-muted-foreground">{item.baseline.state}</span>}
+                  <PlateChangeIcons entry={item} />
                 </span>
-                {item && (
-                  <Author
-                    uid={item.batch.createdBy}
-                    name={item.batch.createdByName}
-                  />
-                )}
-              </Link>
-            )
+              </span>
+              {!batchId && <Author uid={item.batch.createdBy} name={item.batch.createdByName} />}
+            </Link>
+            if (!filters.run) return row
+            return <HoverCard.Root key={key} openDelay={500}>
+              <HoverCard.Trigger asChild>{row}</HoverCard.Trigger>
+              <HoverCard.Portal>
+                <HoverCard.Content side="right" align="start" sideOffset={8} collisionPadding={12}
+                  className="z-50 grid max-h-[var(--radix-hover-card-content-available-height)] w-[min(420px,calc(100vw-24px))] gap-2 overflow-auto rounded-2xl border bg-card p-3 shadow-xl">
+                  {imageUrl && <Image src={imageUrl} alt={plate.displayName} width={208} height={104} unoptimized className="h-24 w-52 object-contain" />}
+                  <strong className="text-sm">{plate.displayName}</strong>
+                  <DiffTable compact preview before={item.baseline} after={plate} beforeImageUrl={item.beforeImageUrl} afterImageUrl={item.afterImageUrl}
+                    version={item.batch.baselineVersion} revision={item.batch.revision} order={[]} positions={item.order} pipelineChanges={item.edit?.pipelineChanges} />
+                </HoverCard.Content>
+              </HoverCard.Portal>
+            </HoverCard.Root>
           })}
-          {batchId && pageEnd < listed.length && <Button variant="outline" size="sm" className="mx-2 my-3" onClick={() => setPagination({ scope: pageScope, count: pageEnd + reviewPageSize })}>Load more plates</Button>}
+          {pageEnd < listed.length && <Button variant="outline" size="sm" className="mx-2 my-3" onClick={() => setPagination({ scope: pageScope, count: pageEnd + reviewPageSize })}>Load more plates</Button>}
           {batchId && term && !listed.length && <p className="p-2 text-sm">No plates match your search.</p>}
         </div>
       </section>
@@ -478,23 +417,13 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
         ) : recent.isLoading ? <p role="status">Loading new changes…</p> : entry ? (
           <>
             <header className="flex flex-wrap items-center gap-3">
-              {plateImage(entry.baseline.id) && (
-                <Image
-                  unoptimized
-                  src={plateImage(entry.baseline.id)!}
-                  alt={entry.proposed.displayName}
-                  width={96}
-                  height={48}
-                  className="h-12 w-24 object-contain"
-                />
+              {(entry.afterImageUrl ?? entry.beforeImageUrl ?? plateImage(entry.baseline.id)) && (
+                <Image unoptimized src={(entry.afterImageUrl ?? entry.beforeImageUrl ?? plateImage(entry.baseline.id))!} alt={entry.proposed.displayName}
+                  width={160} height={80} className="h-20 w-40 object-contain" />
               )}
               <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-extrabold">
-                  {entry.proposed.displayName}
-                </h2>
-                <p className="font-mono text-xs text-muted-foreground">
-                  {entry.baseline.id}
-                </p>
+                <h2 className="text-lg font-extrabold">{entry.proposed.displayName}</h2>
+                <PlateChangeIcons entry={entry} />
               </div>
               <div className="text-xs text-muted-foreground">
                 <strong className="block">{entry.batch.name}</strong>
@@ -502,6 +431,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               </div>
             </header>
             <DiffTable
+              compact
               before={entry.baseline}
               beforeImageUrl={entry.beforeImageUrl ?? plateImage(entry.baseline.id)}
               afterImageUrl={entry.afterImageUrl}
@@ -514,7 +444,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               reverting={reverting}
               onRevert={me.data && canEdit(entry.batch, me.data) && editableStates.includes(entry.batch.state) ? revert : undefined}
             />
-            <RunStatus batchId={entry.batch.id} />
+            <RunStatus compact batchId={entry.batch.id} />
             <ReviewFooter
               key={entry.batch.id}
               detail={currentDetails[entry.batch.id]}

@@ -5,7 +5,7 @@ import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import { claimJob, claimNext, createJob, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
-import { enqueueRun, cancelRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
+import { enqueueRun, enqueueSelection, cancelRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
 import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage, recordQueueWorkflowFailure } from '../../lib/jobs/queue-engine'
 import { failLocalJob, listLocalOrphanJobs, recoverLocalOrphanJob } from '../../lib/jobs/queue-failure'
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
@@ -16,9 +16,9 @@ const other = { ...actor, uid: 'other' }
 const owner = { ...actor, uid: 'owner', role: 'owner' as const }
 const base = { backend: 'test', model: 'fixture', promptVersion: 'v1', durationMs: 10 }
 
-function setup() {
+function setup(slugs = ['one', 'two']) {
   let time = 100, sequence = 0
-  const plates = ['one', 'two'].map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
+  const plates = slugs.map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
   const review = createMemoryStore(['batch', 'other-batch'].map((id, index) => ({ id, name: 'Queue', createdBy: index ? other.uid : actor.uid, createdAt: '', revision: 0,
     state: 'open' as const, baselineVersion: 1, plateIds: plates.map(plate => plate.id), approval: null })))
   const store = createMemoryJobsStore(review, localJobsEnvironment('test-queue'))
@@ -36,8 +36,8 @@ function setup() {
     if (!claim) throw Error('Expected claim')
     const sent = await reportResult(deps, workerId, claim.job.id, claim.claimId, report)
     expect(sent).toMatchObject({ ok: true })
-    await observeQueueStage(deps, claim.job.queueRunId!, claim.job.queueAttempt!, claim.job.queueStep!)
-    return claim
+    const observation = await observeQueueStage(deps, claim.job.queueRunId!, claim.job.queueAttempt!, claim.job.queueStep!)
+    return { ...claim, observation }
   }
   return { deps, plates, review, run, complete, advance: (ms: number) => { time += ms } }
 }
@@ -149,6 +149,69 @@ test('a missing Wiki result stops the research run before any model job is dispa
   if (!retry.ok) throw Error(retry.error)
   expect(retry.value.attempts[0].steps.map(step => step.status)).toEqual(['failed', 'cancelled', 'cancelled'])
   expect(retry.value.attempts[1].steps.every(step => step.status === undefined && step.endedAt === undefined && step.reason === undefined)).toBe(true)
+})
+
+test('three missing links skip only their plates in a 21-plate selection', async () => {
+  const s = setup(Array.from({ length: 21 }, (_, index) => `plate-${index}`))
+  const created = await enqueueSelection(s.deps, actor, {
+    requestId: 'mixed-links', batchId: 'batch', plateIds: s.plates.map(plate => plate.id), stages: ['wiki-link', 'describe'],
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  const missing = new Set([0, 10, 20])
+  const url = 'https://example.org/wiki'
+  for (const [index, plate] of s.plates.entries()) {
+    const wikiIndex = index * 2
+    expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex, `hook-${wikiIndex}`)).toBeTruthy()
+    const wiki = await s.complete('worker', missing.has(index) ? { ...base, stageError: 'no_sources' } : {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] },
+    })
+    expect(wiki.job.plateId).toBe(plate.id)
+    if (missing.has(index)) {
+      expect(wiki.observation).toEqual(index === 20 ? { phase: 'done' } : { phase: 'next', nextIndex: wikiIndex + 2 })
+      expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex + 1, `skip-${wikiIndex}`)).toBeNull()
+      expect(await claimNext(s.deps, 'worker')).toBeNull()
+      continue
+    }
+    expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex + 1, `describe-${wikiIndex}`)).toBeTruthy()
+    const description = await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'A sourced description' }, sources: [url] },
+    })
+    expect(description.job.inputPlate?.wikiUrl).toBe(url)
+  }
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  const [attempt] = saved.attempts
+  expect(saved).toMatchObject({ status: 'completed', draftPlateIds: s.plates.filter((_, index) => !missing.has(index)).map(plate => plate.id) })
+  expect(attempt).toMatchObject({ outcome: 'partial', cursor: 42 })
+  expect(attempt.completedJobIds).toHaveLength(36)
+  for (const index of missing) {
+    expect(attempt.steps.slice(index * 2, index * 2 + 2)).toMatchObject([
+      { status: 'failed', reason: 'no_sources' }, { status: 'cancelled', reason: 'upstream_failed' },
+    ])
+  }
+  expect(await s.review.listEdits('batch')).toHaveLength(18)
+  const retried = await retryRun(s.deps, actor, run.id, 'retry-missing-links')
+  if (!retried.ok) throw Error(retried.error)
+  expect(retried.value.attempts[1]).toMatchObject({ cursor: 0, completedJobIds: attempt.completedJobIds })
+  expect(retried.value.attempts[1].steps.filter(step => step.status === 'completed')).toHaveLength(36)
+
+  for (const index of missing) {
+    const wikiIndex = index * 2
+    expect(await dispatchQueueStage(s.deps, run.id, 2, wikiIndex, `retry-wiki-${index}`)).toBeTruthy()
+    await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] },
+    })
+    expect(await dispatchQueueStage(s.deps, run.id, 2, wikiIndex + 1, `retry-describe-${index}`)).toBeTruthy()
+    const result = await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'A sourced description' }, sources: [url] },
+    })
+    expect(result.observation).toEqual(index === 20 ? { phase: 'done' } : { phase: 'next', nextIndex: index === 0 ? 20 : 40 })
+  }
+  const [finished] = await s.deps.store.transaction(tx => tx.runs())
+  expect(finished.status).toBe('completed')
+  expect(finished.attempts[1].outcome).toBeUndefined()
+  expect(finished.attempts[1].completedJobIds).toHaveLength(42)
+  expect(await s.review.listEdits('batch')).toHaveLength(21)
 })
 
 test('dispatch refuses a persisted run that advanced without its selected Wiki prerequisite', async () => {

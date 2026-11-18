@@ -2,7 +2,7 @@
 
 import { isPublishStop, PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useEffect, useState } from 'react'
-import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
+import { IoCheckmark, IoCopyOutline, IoPulseOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
 import type { BatchRun } from '@/lib/client/hooks'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
@@ -141,11 +141,24 @@ export function RunStatusView({ run }: { run: BatchRun }) {
   )
 }
 
-export function RunStatus({ batchId }: { batchId: string }) {
+export function RunStatus({ batchId, compact = false }: { batchId: string; compact?: boolean }) {
   const me = useMe()
   const run = useBatchRun(batchId)
   if (me.data?.role !== 'owner') return null
   if (run.error) return <p role="alert">Could not load the approval run.</p>
+  if (compact && run.data) {
+    const phase = run.data.phase
+    if (!phase) return null
+    if (!['failed', 'superseded', 'timed-out'].includes(phase)) {
+      return <details>
+        <summary className="caption cursor-pointer">
+          <IoPulseOutline className="mx-1 inline size-4 align-text-bottom" aria-hidden="true" />
+          {phase === 'published' ? 'Run details' : steps[phases.indexOf(phase)] ?? 'Run details'}
+        </summary>
+        <RunStatusView run={run.data} />
+      </details>
+    }
+  }
   return run.data ? (
     <RunStatusView run={run.data} />
   ) : (

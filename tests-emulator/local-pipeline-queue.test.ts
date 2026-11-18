@@ -104,6 +104,41 @@ test('result reconciliation advances dependencies and one atomic bundle Apply pr
   expect(await applyQueueBundle(jobs, review, actor, run.id)).toMatchObject({ value: { revision: 1 } })
 })
 
+test('a missing source skips that plate and shared grouping while other plate results remain applicable', async () => {
+  const created = await enqueueRun(jobs, actor, {
+    requestId: 'partial-group', batchId: 'batch', plateIds: plates.map(plate => plate.id), stages: ['wiki-link', 'describe', 'group'],
+  })
+  if (!created.ok) throw Error(created.error)
+  const { id } = created.value
+  const meta = { backend: 'fixture', model: 'test', promptVersion: 'v1', durationMs: 10 }
+  await dispatchQueueStage(jobs, id, 1, 0, 'missing-link')
+  const missing = (await claimNext(jobs, 'worker'))!
+  expect(await reportResult(jobs, 'worker', missing.job.id, missing.claimId, { ...meta, stageError: 'no_sources' })).toMatchObject({ ok: true })
+
+  const restored = { ...jobs, store: firestoreJobsStore(db, localJobsEnvironment('queue-emulator'), 'development') }
+  expect(await observeQueueStage(restored, id, 1, 0)).toEqual({ phase: 'next', nextIndex: 2 })
+  expect(await dispatchQueueStage(restored, id, 1, 1, 'skipped-description')).toBeNull()
+  const url = 'https://example.org/wiki'
+  for (const [index, result] of [
+    { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] },
+    { kind: 'fields', stage: 'describe', fields: { description: 'Plate two description' }, sources: [url] },
+  ].entries()) {
+    await dispatchQueueStage(restored, id, 1, index + 2, `link-stage-${index}`)
+    const claim = (await claimNext(restored, 'worker'))!
+    expect(claim.job.plateId).toBe(plates[1].id)
+    expect(await reportResult(restored, 'worker', claim.job.id, claim.claimId, { ...meta, fieldSuggestion: result })).toMatchObject({ ok: true })
+    await observeQueueStage(restored, id, 1, index + 2)
+  }
+  expect(await dispatchQueueStage(restored, id, 1, 4, 'skipped-group')).toBeNull()
+  expect(await claimNext(restored, 'worker')).toBeNull()
+  expect(await listRuns(restored, actor)).toMatchObject({ value: [{ status: 'completed', attempts: [{ outcome: 'partial', steps: [
+    { status: 'failed' }, { status: 'cancelled' }, { status: 'completed' }, { status: 'completed' },
+    { stage: 'group', status: 'cancelled', reason: 'group_member_failed' },
+  ] }] }] })
+  expect(await applyQueueBundle(restored, review, actor, id)).toMatchObject({ value: { revision: 1 } })
+  expect(await review.store.listEdits('batch')).toMatchObject([{ plateId: plates[1].id, fields: { wikiUrl: url, description: 'Plate two description' } }])
+}, 20_000)
+
 test('an image choice saves a verified image before Group runs against the updated peers', async () => {
   const bytes = Buffer.from('queue emulator verified image')
   const candidate = { id: 'photo', title: 'Photo', imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Plate.jpg',

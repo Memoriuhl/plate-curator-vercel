@@ -220,7 +220,7 @@ test('URL state, plate and batch select the requested comparison', () => {
   expect(html).not.toContain('Nothing waiting for review')
 })
 
-test('approval names the entire batch and counts changes across two states', async () => {
+test('approval keeps the whole Batch revision and summarizes the changed plates', async () => {
   const kansas = { ...before, id: 'KS.army', state: 'KS' }
   const multi: BatchDetail = {
     ...detail,
@@ -235,17 +235,15 @@ test('approval names the entire batch and counts changes across two states', asy
     ],
   }
   const html = renderToStaticMarkup(<ReviewFooter detail={multi} />)
-  expect(html).toContain(
-    'Approving &quot;Veterans updates&quot; by Alex covers all 2 changes in revision 4 (AK 1, KS 1).',
-  )
-  expect(html).toContain('Any later edit asks you to look again.')
+  expect(html).toContain('1 changed plate · rev 4')
+  expect(html).toContain('title="AK"')
   const approve = state.buttons.get('Approve revision 4')!
     .onClick as () => Promise<void>
   await approve()
   expect(state.approve).toHaveBeenCalledWith('one', 4)
 })
 
-test('batch chips and footer switch with the URL batch, with generic author fallback', () => {
+test('the compact comparison and footer switch with the URL Batch', () => {
   const render = (selected: BatchDetail) => {
     state.detail = selected
     state.query = `state=AK&plate=AK.army&batch=${selected.batch.id}`
@@ -254,9 +252,9 @@ test('batch chips and footer switch with the URL batch, with generic author fall
     )
   }
   const named = render(detail)
-  expect(named).toContain('Updates · by Alex')
-  expect(named).toContain('aria-label="Alex"')
-  expect(named).toContain('Approving &quot;Updates&quot; by Alex')
+  expect(named).toContain('Updates')
+  expect(named).toContain('Approve revision 4')
+  expect(named).not.toContain('Updates · by Alex')
   const older = render({
     ...detail,
     batch: {
@@ -267,9 +265,8 @@ test('batch chips and footer switch with the URL batch, with generic author fall
       createdByName: null,
     },
   })
-  expect(older).toContain('Older batch · by a curator')
-  expect(older).toContain('aria-label="Curator"')
-  expect(older).toContain('Approving &quot;Older batch&quot; by a curator')
+  expect(older).toContain('Older batch')
+  expect(older).not.toContain('Older batch · by a curator')
   expect(older).toContain('Approve revision 8')
   expect(older).not.toContain('by Alex')
 })

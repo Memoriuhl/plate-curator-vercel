@@ -76,7 +76,7 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
       await api.send('POST', `/api/research/${job.id}/accept`, { fields, draft, baseRevision: plate.revision })
       await Promise.all([mutate(`/api/batches/${job.batchId}`), research.mutate(), mutate(key => typeof key === 'string' && key.startsWith('/api/batches?'))])
       router.refresh()
-      setMessage('Accepted selected fields into the Batch. Review and approval are still required.')
+      setMessage('Saved to the Batch.')
     } catch (error) { setMessage(researchMessage(error)) }
     finally { setPending(false) }
   }
@@ -87,9 +87,9 @@ function ResearchRun({ plate, storageKey }: { plate: PlateCardData; storageKey: 
       <Button variant="outline" disabled={pending || blocked} onClick={() => void start(!!job)}>{pending ? 'Working…' : intent && !intent.jobId ? 'Retry research request' : job ? 'Start replacement run' : 'Research this plate'}</Button>
     </div> : <p className="caption">An Owner can start research.</p>}
     {job ? <p role="status" className="caption">{job.executor === 'desktop' ? 'Desktop / Ollama' : 'Vercel / Eve'} · {job.state}{job.executor === 'desktop' && job.state === 'queued' ? ' · Waiting for the desktop worker; it may be offline.' : ''}{job.error ? ` · ${job.error}` : ''}</p> : null}
-    {job?.eve ? <p className="id break-all">Agent session: {job.eve.sessionId}</p> : null}
+
     {research.error ? <p role="alert">{researchMessage(research.error)}</p> : null}
     {message ? <p role="status" className="text-sm">{message}</p> : null}
-    {job?.result ? <ResearchResult key={job.id} result={job.result} canEditDraft={me.data?.role === 'owner'} pending={pending || blocked || job.state !== 'completed'} onAccept={(fields, draft) => void accept(fields, draft)} /> : null}
+    {job?.result ? <ResearchResult key={job.id} plate={plate} result={job.result} canEditDraft={me.data?.role === 'owner'} pending={pending || blocked || job.state !== 'completed'} onAccept={(fields, draft) => void accept(fields, draft)} /> : null}
   </section>
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useId, useState, type CSSProperties } from 'react'
 import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
@@ -119,6 +119,8 @@ export function DiffTable({
   pipelineChanges,
   onRevert,
   reverting,
+  compact = false,
+  preview = false,
 }: {
   before: Plate
   after: Plate
@@ -131,6 +133,8 @@ export function DiffTable({
   pipelineChanges?: ProposedEdit['pipelineChanges']
   onRevert?(field: keyof EditableFields, jobId: string): void
   reverting?: boolean
+  compact?: boolean
+  preview?: boolean
 }) {
   const [visibleSide, setVisibleSide] = useState<'before' | 'after'>('before')
   const comparisonId = useId()
@@ -186,9 +190,13 @@ export function DiffTable({
     ],
   ]
   const imageChanged = before.image !== after.image || before.imageUrl !== after.imageUrl
+  const visibleRows = compact ? rows.filter(([label, oldValue, newValue]) =>
+    (label === 'Image' && imageChanged) || JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '') ||
+    fieldsByRow[String(label)]?.some(field => pipelineChanges?.[field]?.previous !== undefined &&
+      !sameEditableValue(field, pipelineChanges[field]?.previous, after[field]))) : rows
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-4 text-sm md:grid-cols-2">
-      <div role="group" aria-label="Comparison view" className="flex rounded-full bg-muted p-1 md:hidden">
+    <div className={cn('grid min-w-0 grid-cols-1 text-sm md:grid-cols-2', compact ? 'gap-2' : 'gap-4')} style={{ '--comparison-rows': Math.max(2, visibleRows.length + 1) } as CSSProperties}>
+      {!preview && <div role="group" aria-label="Comparison view" className="flex rounded-full bg-muted p-1 md:hidden">
         {(['before', 'after'] as const).map(side => (
           <button
             key={side}
@@ -201,7 +209,7 @@ export function DiffTable({
             {side === 'before' ? 'Before' : 'After'}
           </button>
         ))}
-      </div>
+      </div>}
       {(['before', 'after'] as const).map((side, index) => {
         const plate = side === 'before' ? before : after
         const imageUrl = side === 'before'
@@ -211,31 +219,35 @@ export function DiffTable({
           ? 'bg-[var(--danger-tint)]'
           : 'bg-[var(--success-tint)]'
         return (
-          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 gap-3 rounded-2xl border border-[var(--hairline)] bg-card p-4 md:grid md:grid-rows-subgrid', hasStory && hasColors ? 'md:row-span-18' : hasStory || hasColors ? 'md:row-span-16' : 'md:row-span-14', visibleSide === side ? 'grid' : 'hidden')}>
+          <section key={side} id={`${comparisonId}-${side}`} aria-label={side === 'before' ? 'Before' : 'After'} className={cn('min-w-0 rounded-2xl border border-[var(--hairline)] bg-card md:grid md:grid-rows-subgrid md:[grid-row:span_var(--comparison-rows)]', compact ? 'gap-2 p-2.5' : 'gap-3 p-4', preview || visibleSide === side ? 'grid' : 'hidden')}>
             <h3 className="font-semibold">{side === 'before' ? `Before · Catalog v${version}` : `After · rev ${revision}`}</h3>
-            {rows.map(([label, oldValue, newValue]) => {
+            {compact && !visibleRows.length && <p className="caption">No field differences</p>}
+            {visibleRows.map(([label, oldValue, newValue]) => {
               const value = index === 0 ? oldValue : newValue
               const changed = JSON.stringify(oldValue ?? '') !== JSON.stringify(newValue ?? '')
+              const otherTags = side === 'before' ? after.tags : before.tags
+              const tags = label === 'Tags' ? (value as string[]).filter(tag => !compact || !otherTags.includes(tag)) : []
               return (
-                <div key={String(label)} className="min-w-0 border-t border-[var(--hairline)] pt-3">
+                <div key={String(label)} className={cn('min-w-0 border-t border-[var(--hairline)]', compact ? 'pt-2' : 'pt-3')}>
                   <p className="mb-2 text-xs font-semibold">{label}</p>
                   {label === 'Image' ? (
-                    <div className={cn('relative flex aspect-[2/1] items-center justify-center rounded-xl bg-[var(--fill)] p-3', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger)]' : 'ring-2 ring-[var(--success)]'))}>
+                    <div className={cn('relative flex aspect-[2/1] w-full max-w-44 items-center justify-center rounded-lg bg-[var(--fill)]', imageChanged && (side === 'before' ? 'ring-2 ring-[var(--danger)]' : 'ring-2 ring-[var(--success)]'))}>
                       {imageUrl ? (
-                        <Image src={imageUrl} alt={plate.displayName} fill unoptimized className="object-contain p-3" />
+                        <Image src={imageUrl} alt={plate.displayName} fill sizes="176px" unoptimized className="object-contain p-1" />
                       ) : (
                         <span className="break-all text-center text-xs">{String(value || 'none')}</span>
                       )}
                     </div>
                   ) : label === 'Tags' ? (
                     <div className="flex flex-wrap gap-2">
-                      {(value as string[]).length ? (value as string[]).map((tag) => (
+                      {tags.map((tag) => (
                         <span key={tag} className={cn(
                           'label min-w-0 max-w-full rounded-full px-3 py-1 [overflow-wrap:anywhere]',
-                          !(side === 'before' ? after.tags : before.tags).includes(tag)
+                          !otherTags.includes(tag)
                             ? tint : 'bg-[var(--fill)]',
                         )}>{tag}</span>
-                      )) : 'none'}
+                      ))}
+                      {!tags.length && <span className="caption">None</span>}
                     </div>
                   ) : (
                     <span className={cn('whitespace-pre-wrap break-words [overflow-wrap:anywhere]', changed && tint)}>

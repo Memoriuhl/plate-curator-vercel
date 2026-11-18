@@ -3,7 +3,7 @@ import { canEdit } from '../review/batch'
 import type { Actor, ReviewBatch } from '../review/types'
 import { localJobsEnvironment } from './local-scope'
 import { isPipelineStage } from './suggestions'
-import { canonicalStages, planPipeline, pipelineNeedsModel } from './pipeline-plan'
+import { canonicalStages, planPipeline, pipelineNeedsModel, type RunStep } from './pipeline-plan'
 import { defaultImageEnhancement, enhancementOperations } from './image-enhancement'
 import { parsePipelineOptions, snapshotPipelineOptions } from './pipeline-options'
 import { projectionMatchesBatch, snapshotProjection } from './queue-projection'
@@ -211,6 +211,7 @@ export function finishRun(run: PipelineRun, status: 'completed' | 'failed' | 'ca
   const attempt = run.attempts.at(-1)!
   Object.assign(attempt, { status, endedAt: now, ...(error ? { error } : {}) })
   if (status !== 'completed') for (const step of attempt.steps.slice(attempt.cursor)) {
+    if (step.status === 'completed' || step.status === 'cancelled') continue
     step.status = status === 'failed' && step.index === attempt.cursor ? 'failed' : 'cancelled'
     step.endedAt = now
     step.reason = step.status === 'failed' ? error ?? 'stage_failed' : status === 'failed' ? 'upstream_failed' : 'run_cancelled'
@@ -251,19 +252,26 @@ export async function retryRun(d: JobsDeps, actor: Actor, id: string, requestId:
     const error = queuePermission(batch, actor)
     if (error) return { ok: false, error }
     if (run.attempts.some(attempt => attempt.requestId === requestId)) return { ok: true, value: run }
-    if (!['failed', 'cancelled'].includes(run.status)) return { ok: false, error: 'invalid_state' }
-    if (run.attempts.length >= maxQueueAttempts) return { ok: false, error: 'attempt_limit' }
     const previous = run.attempts.at(-1)!
+    if (!['failed', 'cancelled'].includes(run.status) && !(run.status === 'completed' && previous.outcome === 'partial')) return { ok: false, error: 'invalid_state' }
+    if (run.attempts.length >= maxQueueAttempts) return { ok: false, error: 'attempt_limit' }
     for (const id of previous.jobIds) if ((await tx.get(id))?.state === 'claimed') return { ok: false, error: 'invalid_state' }
     if (!await currentProjectionMatches(d, tx, run, batch!)) return { ok: false, error: 'stale_input' }
-    if (previous.cursor >= previous.steps.length) return { ok: false, error: 'invalid_state' }
+    const steps = previous.steps.map<RunStep>(step => {
+      if (step.status === 'skipped') return step
+      if (step.status === 'completed' || !step.status && step.index < previous.cursor) {
+        const completedJobId = step.completedJobId ?? previous.completedJobIds[step.index]
+        return { ...step, status: 'completed', ...(completedJobId ? { completedJobId } : {}) }
+      }
+      return { index: step.index, plateId: step.plateId, stage: step.stage, resourceClass: step.resourceClass }
+    })
+    const cursor = steps.findIndex(step => step.status !== 'completed' && step.status !== 'skipped')
+    if (cursor < 0) return { ok: false, error: 'invalid_state' }
     if (await tx.canQueue?.() === false) return { ok: false, error: 'publish_in_progress' }
     const now = d.now()
     run.attempts.push({ number: previous.number + 1, requestId, createdAt: now, jobIds: [...previous.completedJobIds], completedJobIds: [...previous.completedJobIds], status: 'queued',
-      cursor: previous.cursor, ...(previous.noResultCount ? { noResultCount: previous.noResultCount } : {}),
-      steps: previous.steps.map(step => step.index < previous.cursor ? { ...step } : {
-        index: step.index, plateId: step.plateId, stage: step.stage, resourceClass: step.resourceClass,
-      }), choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
+      cursor, ...(previous.noResultCount ? { noResultCount: previous.noResultCount } : {}),
+      steps, choices: { ...previous.choices }, projection: structuredClone(previous.projection!) })
     run.status = 'queued'; run.queuedAt = now; run.updatedAt = now; run.waitReason = 'worker'
     run.enqueueSequence = Math.max(0, ...runs.map(run => run.enqueueSequence ?? 0)) + 1
     delete run.cancelRequestedAt

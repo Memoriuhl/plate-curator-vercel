@@ -114,7 +114,7 @@ test('Owner sees Publish tab and empty state; Editor sees neither action nor tab
     ),
   ).toContain('href="/publish"')
   expect(renderToStaticMarkup(<PublishWorkspace />)).toContain(
-    'No approved Batches yet.',
+    'No Batches to publish.',
   )
   state.role = 'editor'
   expect(

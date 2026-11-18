@@ -13,22 +13,28 @@ import { saveQueueDraft } from './queue-draft'
 import { shouldReuseSavedSources } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 
-export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number }
+export type StageObservation = { phase: 'done' | 'next' | 'waiting' | 'claimed'; deadline?: number; nextIndex?: number }
 
 async function scopedRun(tx: JobsTransaction, id: string, scope: string | undefined) {
   const run = await tx.getRun(id)
   return run && run.localScope === scope ? run : null
 }
 
-function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number, skipReason?: string) {
-  attempt.completedJobIds.push(jobId)
-  Object.assign(attempt.steps[attempt.cursor], { status: skipReason ? 'skipped' : 'completed', endedAt: now, ...(skipReason ? { reason: skipReason } : {}) })
-  if (skipReason) attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+function advanceCursor(run: PipelineRun, attempt: RunAttempt, now: number) {
   attempt.cursor++
+  while (attempt.steps[attempt.cursor]?.status === 'completed' || attempt.steps[attempt.cursor]?.status === 'cancelled' || attempt.steps[attempt.cursor]?.status === 'skipped') attempt.cursor++
   delete attempt.error
   if (attempt.cursor === attempt.steps.length) {
-    if (attempt.noResultCount) attempt.outcome = attempt.noResultCount === attempt.cursor ? 'no_result' : 'partial'
-    finishRun(run, 'completed', now)
+    const failures = attempt.steps.filter(step => step.status === 'failed')
+    if (failures.length) {
+      const failedPlateIds = new Set(failures.map(step => step.plateId))
+      const finished = attempt.steps.some(step => step.status === 'completed' && !failedPlateIds.has(step.plateId))
+      attempt.outcome = attempt.completedJobIds.length ? 'partial' : 'no_result'
+      finishRun(run, finished ? 'completed' : 'failed', now, failures[0].reason)
+    } else {
+      if (attempt.noResultCount) attempt.outcome = attempt.noResultCount === attempt.cursor ? 'no_result' : 'partial'
+      finishRun(run, 'completed', now)
+    }
     return
   }
   run.updatedAt = now
@@ -36,15 +42,40 @@ function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now:
   run.status = 'queued'
 }
 
+function advanceStage(run: PipelineRun, attempt: RunAttempt, jobId: string, now: number, skipReason?: string) {
+  attempt.completedJobIds.push(jobId)
+  Object.assign(attempt.steps[attempt.cursor], {
+    status: skipReason ? 'skipped' : 'completed', completedJobId: jobId, endedAt: now,
+    ...(skipReason ? { reason: skipReason } : {}),
+  })
+  if (skipReason) attempt.noResultCount = (attempt.noResultCount ?? 0) + 1
+  advanceCursor(run, attempt, now)
+}
+
+function failPlateStage(run: PipelineRun, attempt: RunAttempt, reason: string, now: number) {
+  const failed = attempt.steps[attempt.cursor]
+  Object.assign(failed, { status: 'failed', reason, endedAt: now })
+  for (const step of attempt.steps.slice(attempt.cursor + 1)) {
+    if (step.status === 'completed' || step.status === 'cancelled') continue
+    const skipReason = step.stage === 'group' ? 'group_member_failed' : step.plateId === failed.plateId ? 'upstream_failed' : undefined
+    if (skipReason) Object.assign(step, { status: 'cancelled', reason: skipReason, endedAt: now })
+  }
+  advanceCursor(run, attempt, now)
+}
+
+function nextStage(attempt: RunAttempt, index: number): StageObservation {
+  return { phase: 'next', ...(attempt.cursor > index + 1 ? { nextIndex: attempt.cursor } : {}) }
+}
+
 function missingResearchInput(attempt: RunAttempt, step: RunStep, plate: ProjectedPlate): string | undefined {
   if (step.stage !== 'describe' && step.stage !== 'story') return
   const preceding = (stage: 'wiki-link' | 'describe') => attempt.steps.find(candidate =>
     candidate.index < step.index && candidate.plateId === step.plateId && candidate.stage === stage)
   const wiki = preceding('wiki-link')
-  if (wiki && (!storyUrl(plate.executionPlate.wikiUrl) || !plate.sourceJobIds.includes(attempt.completedJobIds[wiki.index]))) return 'missing_wiki_link'
+  if (wiki && (!storyUrl(plate.executionPlate.wikiUrl) || !plate.sourceJobIds.includes(wiki.completedJobId ?? attempt.completedJobIds[wiki.index]))) return 'missing_wiki_link'
   if (step.stage === 'story') {
     const describe = preceding('describe')
-    if (describe && (!plate.executionPlate.description?.trim() || !plate.sourceJobIds.includes(attempt.completedJobIds[describe.index]))) return 'missing_description'
+    if (describe && (!plate.executionPlate.description?.trim() || !plate.sourceJobIds.includes(describe.completedJobId ?? attempt.completedJobIds[describe.index]))) return 'missing_description'
   }
 }
 
@@ -76,12 +107,18 @@ export async function dispatchQueueStage(d: JobsDeps, id: string, number: number
     let error: string | undefined
     if (!batch || batch.state !== 'open') error = 'batch_read_only'
     else if (!projected || batch.baselineVersion !== attempt.projection?.baselineVersion || ((!run.incrementalDrafts || run.previewOnly || step.stage === 'group') && !await currentProjectionMatches(d, tx, run, batch))) error = 'stale_input'
-    else error = missingResearchInput(attempt, step, projected)
     const groupContext = step.stage === 'group' && batch ? await queueGroupContext(d, tx, batch, Object.values(attempt.projection!.plates).map(entry => entry.batchInput)) : null
     if (step.stage === 'group' && !groupContext) error = 'invalid_group_scope'
     if (run.cancelRequestedAt !== undefined || error || !projected) {
       finishRun(run, run.cancelRequestedAt !== undefined ? 'cancelled' : 'failed', d.now(), error)
       tx.setRun(run); return null
+    }
+    const missing = missingResearchInput(attempt, step, projected)
+    if (missing) {
+      if (run.plateIds.length > 1) failPlateStage(run, attempt, missing, d.now())
+      else finishRun(run, 'failed', d.now(), missing)
+      tx.setRun(run)
+      return null
     }
     const modelId = step.stage === 'research' ? run.researchModel?.id : step.stage === 'tag' ? run.tagModelId ?? run.modelId : run.modelId
     const hosted = step.stage === 'research' ? run.researchModel?.executor === 'eve' : step.stage === 'tag' && taggingModel(modelId)?.runsOn === 'gateway'
@@ -110,7 +147,7 @@ export async function observeQueueStage(d: JobsDeps, id: string, number: number,
     const run = await scopedRun(tx, id, d.localScope)
     const attempt = run?.attempts.at(-1)
     if (!run || !attempt || attempt.number !== number || !['queued', 'running'].includes(run.status)) return { phase: 'done' }
-    if (attempt.cursor !== index) return { phase: attempt.cursor > index ? 'next' : 'done' }
+    if (attempt.cursor !== index) return attempt.cursor > index ? nextStage(attempt, index) : { phase: 'done' }
     const job = await tx.get(`${id}-${number}-${index}`)
     if (!job || job.queueRunId !== run.id || job.queueAttempt !== number || job.queueStep !== index ||
       job.batchId !== run.batchId || job.localScope !== d.localScope || job.requestedBy !== run.requestedBy ||
@@ -147,10 +184,15 @@ async function settleQueueStage(
     shouldReuseSavedSources({ ...job.stageOptions, policy: job.researchPolicy })) {
     advanceStage(run, attempt, job.id, d.now(), 'no_saved_sources')
   } else if (job.result?.stageError) {
-    if (job.result.stageError === 'no_sources' || job.result.stageError === 'no_supported_fields') {
-      attempt.outcome = shouldSave && run.draftPlateIds?.length ? 'partial' : 'no_result'
+    const reason = job.result.stageError
+    if (run.plateIds.length > 1 && job.stage !== 'group' && ['no_sources', 'no_supported_fields', 'missing_image'].includes(reason)) {
+      failPlateStage(run, attempt, reason, d.now())
+    } else {
+      if (reason === 'no_sources' || reason === 'no_supported_fields') {
+        attempt.outcome = shouldSave && run.draftPlateIds?.length ? 'partial' : 'no_result'
+      }
+      finishRun(run, 'failed', d.now(), reason)
     }
-    finishRun(run, 'failed', d.now(), job.result.stageError)
   } else {
     const raw = job.result?.fieldSuggestion
     const candidateId = attempt.choices[job.id]
@@ -190,7 +232,7 @@ async function settleQueueStage(
     if (cancelled) finishRun(run, 'cancelled', d.now(), error)
     else if (error) finishRun(run, 'failed', d.now(), error)
   }
-  return { phase: run.status === 'queued' ? 'next' : 'done' }
+  return run.status === 'queued' ? nextStage(attempt, job.queueStep!) : { phase: 'done' }
 }
 
 export async function chooseQueueImage(d: JobsDeps, actor: Actor, id: string, jobId: string, candidateId: string): Promise<QueueOutcome<PipelineRun>> {

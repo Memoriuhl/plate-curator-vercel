@@ -11,6 +11,7 @@ import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { canCopyForFreshReview } from '@/lib/review/access'
 import { batchHref } from '@/lib/review/href'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
+import { IoArrowUpOutline, IoLayersOutline } from 'react-icons/io5'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { PublishControlView } from './control'
 import { CopyRecovery } from './copy-recovery'
@@ -120,6 +121,7 @@ function BatchSelection({
   const failed = approved ? run.data?.outcome : undefined
   const stopped = isPublishStop(failed?.error) || !!preflight?.stopped
   const canRetry = preflight?.canRetry === true
+  const catalogVersion = preflight?.liveVersion ?? (published ? run.data?.outcome?.version : undefined)
   const requested = requestedFrom !== undefined && requestedFrom === (run.data?.runId ?? null)
   const receiptConflict = preflight?.error === BASELINE_ERRORS.receiptConflict || failed?.error === BASELINE_ERRORS.receiptConflict
   const liveVersion = rejectedLiveVersion ?? (isBaselineError(preflight?.error) ? preflight.liveVersion : isBaselineError(failed?.error) ? failed.liveVersion : undefined)
@@ -180,17 +182,20 @@ function BatchSelection({
     }
   }
   return (
-    <section className="min-w-0 space-y-6 rounded-3xl bg-card p-5">
+    <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-3xl bg-card p-4">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold">{batch.name}</h1>
           <p className="text-sm text-muted-foreground"><BatchLastChanged batch={batch} /></p>
           {!published && preflight && <p className="text-sm">Destination · {destination}</p>}
+          {catalogVersion != null && (
+            <p className="caption flex items-center gap-1.5"><IoLayersOutline aria-hidden="true" />Published catalog {catalogVersion}</p>
+          )}
           {counts && <p className="text-sm">{counts}</p>}
         </div>
         {canPublish && (
           <Button variant="publish" onClick={openConfirmation}>
-            {canRetry ? 'Publish again' : 'Confirm Publish'}
+            <IoArrowUpOutline aria-hidden="true" />{canRetry ? 'Publish again' : 'Confirm Publish'}
           </Button>
         )}
       </header>
@@ -200,42 +205,44 @@ function BatchSelection({
         {!published && <Button size="sm" variant="outline" onClick={() => { setRejectedLiveVersion(null); void refresh() }}>Refresh Batch</Button>}
       </nav>
       {!published && live === 'Live updates unavailable' && <p role="status">Live updates unavailable. Refresh Batch to check for changes.</p>}
-      <RunStatus batchId={id} />
-      {!published && baseline.error && <p role="alert">Could not check whether this Batch can publish. Refresh Batch to try again.</p>}
-      {!published && !baseline.error && !confirmationCurrent && <p role="status">Checking the current Batch for Publish…</p>}
-      {!published && preflight?.enabledHere === false && <p role="status">Publishing is disabled in this environment.</p>}
-      {!published && pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
-      {!published && empty && <p role="status">This Batch has no changes to publish. Edit it on the Dashboard.</p>}
-      {!published && !empty && !draft && !approved && <p role="alert">This Batch needs current approval. Review its changes or edit it on the Dashboard to reopen it.</p>}
-      {!published && preflight?.approvalProblems?.length ? <div role="alert">
-        <p>Resolve these Standard plate issues before publishing.</p>
-        <ul className="list-disc pl-5">{preflight.approvalProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
-      </div> : null}
-      {!published && preflight?.retryReason === 'locked' && <p role="status">A Publish attempt is already in progress. Wait for it to finish, then refresh this Batch.</p>}
-      {approved && !empty && !stopped && !stale && !pipelineBusy && preflight?.enabledHere && !preflight.error && preflight.retryReason === PUBLISH_ERRORS.notWaiting && run.data && !['waiting-for-publish', 'publishing'].includes(run.data.phase ?? '') && (
-        <p role="status">The approval run is no longer waiting for Publish. Refresh Batch to check its status.</p>
-      )}
-      {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
-      {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
-        <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
-        {baseline.data.canAbandon ? <>
-          <label className="block">Reason for abandonment<input className="block w-full rounded border p-2" value={abandonReason} maxLength={1000} onChange={event => setAbandonReason(event.target.value)} /></label>
-          <Button variant="outline" disabled={busy || !abandonReason.trim()} onClick={abandon}>Abandon prepared Snapshot</Button>
-        </> : <p role="status">Abandon unavailable: {baseline.data.abandonReason === 'locked' ? 'A live Publish run or lease owns this attempt.' : 'This attempt cannot safely be abandoned. Refresh its status.'}</p>}
-      </section>}
-      {abandonMessage && <p role="status">{abandonMessage}</p>}
-      {baseline.data?.stopped && !isPublishStop(failed?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.stopped.reason]} The Catalog did not advance.{baseline.data.stopped.requestedBy ? ` Requested by ${baseline.data.stopped.requestedBy.email} (${baseline.data.stopped.requestedBy.uid}).` : ''}</p>}
-      {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
-      {!empty && stale && !isPublishStop(preflight?.error) && liveVersion !== undefined && canCopyForFreshReview(batch, liveVersion) && (
-        <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
-      )}
-      {message &&
-        (!requested ||
-          !run.data?.phase ||
-          run.data.phase === 'waiting-for-publish') && (
-          <p role="status">{message}</p>
+      <div className="min-h-0 flex-1 space-y-3 lg:overflow-y-auto">
+        <RunStatus compact batchId={id} />
+        {!published && baseline.error && <p role="alert">Could not check whether this Batch can publish. Refresh Batch to try again.</p>}
+        {!published && !baseline.error && !confirmationCurrent && <p role="status">Checking the current Batch for Publish…</p>}
+        {!published && preflight?.enabledHere === false && <p role="status">Publishing is disabled in this environment.</p>}
+        {!published && pipelineBusy && <p role="status">{PIPELINE_BUSY_MESSAGE}</p>}
+        {!published && empty && <p role="status">This Batch has no changes to publish. Edit it on the Dashboard.</p>}
+        {!published && !empty && !draft && !approved && <p role="alert">This Batch needs current approval. Review its changes or edit it on the Dashboard to reopen it.</p>}
+        {!published && preflight?.approvalProblems?.length ? <div role="alert">
+          <p>Resolve these Standard plate issues before publishing.</p>
+          <ul className="list-disc pl-5">{preflight.approvalProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
+        </div> : null}
+        {!published && preflight?.retryReason === 'locked' && <p role="status">A Publish attempt is already in progress. Wait for it to finish, then refresh this Batch.</p>}
+        {approved && !empty && !stopped && !stale && !pipelineBusy && preflight?.enabledHere && !preflight.error && preflight.retryReason === PUBLISH_ERRORS.notWaiting && run.data && !['waiting-for-publish', 'publishing'].includes(run.data.phase ?? '') && (
+          <p role="status">The approval run is no longer waiting for Publish. Refresh Batch to check its status.</p>
         )}
-      <BatchChanges plates={plates} batch={batch} />
+        {baseline.data?.abandonment && <p role="status">{baseline.data.abandonment.by.email} abandoned the prepared Snapshot at {new Date(baseline.data.abandonment.at).toLocaleString()}; burned v{baseline.data.abandonment.burnedVersion}.</p>}
+        {baseline.data?.prepared && baseline.data.abandonReason !== 'locked' && <section className="space-y-3 rounded-2xl border p-4" aria-label="Prepared Snapshot recovery">
+          <p>Prepared Snapshot v{baseline.data.prepared.toVersion}. Abandoning records disposition and permanently burns this version; Batch approval stays intact.</p>
+          {baseline.data.canAbandon ? <>
+            <label className="block">Reason for abandonment<input className="block w-full rounded border p-2" value={abandonReason} maxLength={1000} onChange={event => setAbandonReason(event.target.value)} /></label>
+            <Button variant="outline" disabled={busy || !abandonReason.trim()} onClick={abandon}>Abandon prepared Snapshot</Button>
+          </> : <p role="status">Abandon unavailable: {baseline.data.abandonReason === 'locked' ? 'A live Publish run or lease owns this attempt.' : 'This attempt cannot safely be abandoned. Refresh its status.'}</p>}
+        </section>}
+        {abandonMessage && <p role="status">{abandonMessage}</p>}
+        {baseline.data?.stopped && !isPublishStop(failed?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.stopped.reason]} The Catalog did not advance.{baseline.data.stopped.requestedBy ? ` Requested by ${baseline.data.stopped.requestedBy.email} (${baseline.data.stopped.requestedBy.uid}).` : ''}</p>}
+        {isPublishStop(baseline.data?.error) && <p role="status">{PUBLISH_STOP_MESSAGES[baseline.data.error]}{baseline.data.error === PUBLISH_STOPS.paused ? ' Resume before requesting Publish.' : baseline.data.error === PUBLISH_STOPS.notEnabled ? ' An Owner must Resume publishing.' : ''}</p>}
+        {!empty && stale && !isPublishStop(preflight?.error) && liveVersion !== undefined && canCopyForFreshReview(batch, liveVersion) && (
+          <CopyRecovery key={liveVersion} batch={batch} liveVersion={liveVersion} receiptConflict={receiptConflict} />
+        )}
+        {message &&
+          (!requested ||
+            !run.data?.phase ||
+            run.data.phase === 'waiting-for-publish') && (
+            <p role="status">{message}</p>
+          )}
+        <BatchChanges plates={plates} batch={batch} />
+      </div>
       <dialog
         ref={dialog}
         onClose={() => setConfirmation(null)}
@@ -300,21 +307,13 @@ function OwnerWorkspace() {
   const firstId = approved[0]?.id ?? drafts[0]?.id ?? published[0]?.id
   const selected = requestedBatch ?? pinnedBatch ?? firstId
   return (
-    <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-      <aside className="space-y-4">
+    <div className="grid gap-4 lg:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] lg:grid-cols-[minmax(220px,272px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+      <aside className="min-h-0 space-y-2 lg:overflow-y-auto lg:pr-2">
         <h1 className="text-2xl font-extrabold">Publish</h1>
         <PublishControlView control={control.data?.control ?? null} error={!!control.error} change={control.change} />
         {batches.error && <p role="alert">Could not load the Batch list.</p>}
         {batches.isLoading && <p role="status">Loading Batches…</p>}
-        <h2 className="font-bold">Approved Batches</h2>
-        {!batches.isLoading && !batches.error && !approved.length && (
-          <p>
-            No approved Batches yet.{' '}
-            <Link href="/review" className="underline">
-              Review
-            </Link>
-          </p>
-        )}
+        {approved.length > 0 && <h2 className="font-bold">Approved Batches</h2>}
         {approved.map((batch) => (
           <BatchItem
             key={batch.id}
@@ -326,12 +325,8 @@ function OwnerWorkspace() {
           <h2 className="pt-4 font-bold">Draft Batches</h2>
           {drafts.map(batch => <BatchItem key={batch.id} batch={batch} selected={batch.id === selected} />)}
         </>}
-        <h2 className="pt-4 font-bold">Published Batches</h2>
-        {!batches.isLoading && !batches.error && !published.length && (
-          <p className="text-sm text-muted-foreground">
-            No published Batches yet.
-          </p>
-        )}
+        {published.length > 0 && <h2 className="pt-2 font-bold">Published Batches</h2>}
+        {!selected && <p className="caption">No Batches to publish. <Link href="/review" className="underline">Review</Link></p>}
         {published.map((batch) => (
           <BatchItem
             key={batch.id}
