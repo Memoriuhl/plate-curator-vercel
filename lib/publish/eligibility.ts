@@ -66,6 +66,9 @@ export function retryEligibility(input: EligibilityInput): RetryEligibility {
     if (!claimTakeoverEligible(claim, input.claimStop, input.runStatus, now, input.claimTtlMs)) return denied('locked')
     return { canRetry: true, reason: null }
   }
-  if (input.receiptStop || terminalRun(input.runStatus) || batch?.approvalRun?.revision !== command.revision - 1 && !receipt) return { canRetry: true, reason: null }
+  // A submitted draft can still have a running review for the revision being confirmed.
+  const confirmingDraft = !input.replay && command.confirmedDraftRevision === command.revision - 1
+  const hasApprovalRun = !confirmingDraft && batch?.approvalRun?.revision === command.revision - 1
+  if (input.receiptStop || terminalRun(input.runStatus) || !hasApprovalRun && !receipt) return { canRetry: true, reason: null }
   return denied(PUBLISH_ERRORS.notWaiting)
 }
