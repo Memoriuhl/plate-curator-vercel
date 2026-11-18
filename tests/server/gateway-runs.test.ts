@@ -48,3 +48,14 @@ test('history restores saved results and the exact Workflow Visibility URL', asy
   const result = await (await GET(new Request('https://example.org/api/jobs/runs'))).json()
   expect(result).toMatchObject({ observedAt: 400, runs: [{ id: 'wrun_one', progress: { workflowUrl: expect.stringContaining('/workflows/runs/wrun_one?environment=preview') } }] })
 })
+
+test('Gateway stages from one connected run use its review identity and count each Plate once', async () => {
+  await deps.store.transaction(async tx => {
+    const base = (await tx.get('one'))!
+    tx.create({ ...base, id: 'research', queueRunId: 'connected-run', stage: 'research' })
+    tx.create({ ...base, id: 'tag', queueRunId: 'connected-run', workflowId: 'separate-job-workflow' })
+  })
+  expect(await listGatewayRuns(deps, actor)).toContainEqual(expect.objectContaining({
+    id: 'connected-run', stages: ['research', 'tag'], plateIds: ['AK.one'], status: 'completed',
+  }))
+})

@@ -1,13 +1,15 @@
 import type { ModelAdapter } from './model'
 import type { FieldSuggestion, PipelineStage, StageError } from '../lib/jobs/types'
 import type { GroupInput } from '../lib/jobs/specialized-suggestions'
+import type { ImageEnhancementOptions } from '../lib/jobs/image-enhancement'
 import type { ImageGroupOptions } from '../lib/jobs/image-options'
 import type { LocalWorkerCapabilities } from '../lib/jobs/capabilities'
 import { localCapabilityReport, withCapabilityHeartbeat } from './capability-heartbeat'
+import { savedResearchSourcesHeader, type EnrichmentOptions } from '../lib/research/enrichment'
 import type { StoryFields } from '../lib/catalog/types'
 
 export type WorkerPlate = StoryFields & { image: string; imageUrl?: string | null; displayName: string; state: string; tags: string[]; description?: string | null; sourceUrl?: string | null; wikiUrl?: string | null }
-export type StageResult = { fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
+export type StageResult = { enhancedImage?: string; enhancedImageFrames?: string[]; fieldSuggestion?: FieldSuggestion; stageError?: StageError; backend: string; model: string; promptVersion: string; usage?: Record<string, number> }
 
 export interface WorkerDeps {
   capabilities?: LocalWorkerCapabilities
@@ -17,7 +19,7 @@ export interface WorkerDeps {
   fetch: typeof fetch
   adapter: ModelAdapter
   adapterFor?: (model: string) => ModelAdapter
-  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & { policy?: 'fill-missing' | 'replace' } }) => Promise<StageResult>
+  suggestFields?: (input: { stage: PipelineStage; plate: WorkerPlate; model?: string; groupScope?: GroupInput; standardId?: string; options?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions; onPhase?: (index: number) => Promise<void> }) => Promise<StageResult>
   readImage: (image: string) => Promise<string>
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -32,7 +34,7 @@ interface Claim {
   stage?: PipelineStage
   groupScope?: GroupInput
   standardId?: string
-  stageOptions?: ImageGroupOptions & { policy?: 'fill-missing' | 'replace' }
+  stageOptions?: ImageGroupOptions & Partial<ImageEnhancementOptions> & EnrichmentOptions
   plate: WorkerPlate
   local?: boolean
   queueRunId?: string
@@ -43,6 +45,7 @@ export async function runOnce(deps: WorkerDeps): Promise<Outcome> {
   if (deps.protectionBypass) headers['x-vercel-protection-bypass'] = deps.protectionBypass
   const base = deps.apiBase.replace(/\/+$/, '')
   const capabilities = localCapabilityReport(deps)
+  if (deps.suggestFields) headers[savedResearchSourcesHeader] = '1'
   const response = await deps.fetch(`${base}/api/worker/claim`, { method: 'POST', headers: capabilities ? { ...headers, 'Content-Type': 'application/json' } : headers, ...(capabilities ? { body: JSON.stringify({ capabilities }) } : {}) })
   if (response.status === 401) return 'stopped'
   if (response.status === 204) return 'idle'
@@ -80,6 +83,8 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
   let model = adapter.model
   let promptVersion = adapter.promptVersion
   let fieldSuggestion: FieldSuggestion | undefined
+  let enhancedImage: string | undefined
+  let enhancedImageFrames: string[] | undefined
   let stageError: StageError | undefined
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
@@ -88,8 +93,20 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
       deps.log('No handler is configured for this pipeline stage')
       return 'dropped'
     }
-    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.standardId ? { standardId: claim.standardId } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}) })
+    const onPhase = claim.local && claim.queueRunId ? async (index: number) => {
+      try {
+        await deps.fetch(`${base}/api/worker/jobs/${encodeURIComponent(claim.job.id)}/progress`, {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ claimId: claim.claimId, index }), signal: AbortSignal.timeout(1200),
+        })
+      } catch {
+        // Status updates are best-effort. A valid result can still be reported.
+      }
+    } : undefined
+    const result = await deps.suggestFields({ stage: claim.stage, plate: claim.plate, model: claim.model, ...(claim.groupScope ? { groupScope: claim.groupScope } : {}), ...(claim.standardId ? { standardId: claim.standardId } : {}), ...(claim.stageOptions ? { options: claim.stageOptions } : {}), ...(onPhase ? { onPhase } : {}) })
     fieldSuggestion = result.fieldSuggestion
+    enhancedImage = result.enhancedImage
+    enhancedImageFrames = result.enhancedImageFrames
     stageError = result.stageError
     backend = result.backend
     model = result.model
@@ -110,7 +127,7 @@ async function executeClaim(deps: WorkerDeps, claim: Claim, headers: Record<stri
       usage = result.usage
     }
   }
-  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
+  const body = JSON.stringify({ claimId: claim.claimId, suggestions, ...(enhancedImage ? { enhancedImage } : {}), ...(enhancedImageFrames ? { enhancedImageFrames } : {}), ...(fieldSuggestion ? { fieldSuggestion } : {}), ...(stageError ? { stageError } : {}), backend, model, promptVersion, durationMs: Math.max(0, deps.now() - start), ...(usage ? { usage } : {}) })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break
     try {

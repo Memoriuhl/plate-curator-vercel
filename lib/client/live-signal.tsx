@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { doc, getFirestore, onSnapshot } from 'firebase/firestore'
 import { useSWRConfig } from 'swr'
+import { batchApiPath } from './api'
 import { clientApp } from './firebase'
 import { useSession } from './session'
 import { signalPath } from '../review/live-signal'
@@ -30,6 +31,7 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
   const [status, setStatus] = useState<{ id: string | null; text: string }>({ id: batchId, text: 'Updating' })
   useEffect(() => {
     if (batchId === null || !user) return
+    const batchKey = batchApiPath(batchId)
     let disposed = false
     let stopped = false
     let unsubscribe = () => {}
@@ -45,7 +47,7 @@ export function useBatchRevisionSignal(batchId: string | null, displayedRevision
       refreshing = true
       const revision = seen
       try {
-        await mutate(key => typeof key === 'string' && (key === '/api/batches/' + batchId || key === '/api/batches' || key.startsWith('/api/batches?')))
+        await mutate(key => typeof key === 'string' && (key === batchKey || key === batchKey + '/publish' || key === batchKey + '/run' || key === '/api/batches' || key.startsWith('/api/batches?')))
         if (!disposed && !stopped && seen === revision) updateStatus('Live')
       } catch { unavailable() }
       finally {

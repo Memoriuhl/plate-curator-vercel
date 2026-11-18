@@ -24,7 +24,10 @@ const state = vi.hoisted(() => ({
 vi.mock('../components/research/research-actions', () => ({ ResearchActions: () => null }))
 vi.mock('../components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
 vi.mock('../components/dashboard/plate-tag-actions', () => ({ PlateTagActions: () => null }))
-vi.mock('swr', () => ({ useSWRConfig: () => ({ mutate: state.mutate }) }))
+vi.mock('swr', async (importOriginal) => ({
+  ...await importOriginal<typeof import('swr')>(),
+  useSWRConfig: () => ({ mutate: state.mutate }),
+}))
 vi.mock('../lib/client/hooks', () => ({
   useEditPlate: () => ({ edit: state.edit, pending: state.pending }),
   useDraftOverlay: (plates: PlateCardData[]) =>

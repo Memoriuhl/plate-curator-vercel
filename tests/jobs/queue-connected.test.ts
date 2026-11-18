@@ -132,7 +132,8 @@ test('a description with no supported fields stops before dispatching Story', as
   expect(await claimNext(s.jobs, 'worker')).toBeNull()
   expect(await s.review.store.listEdits('batch')).toEqual([])
   const saved = (await s.jobs.store.transaction(tx => tx.runs())).find(run => run.id === id)
-  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 1, outcome: 'no_result', error: 'no_supported_fields' }] })
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 3, outcome: 'no_result', error: 'no_supported_fields',
+    steps: [{ status: 'completed' }, { status: 'failed' }, { status: 'skipped', reason: 'upstream_failed' }] }] })
   expect(saved?.attempts[0].projection?.plates['AK.one'].executionPlate.wikiUrl).toBe(url)
 })
 

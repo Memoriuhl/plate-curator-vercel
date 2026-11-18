@@ -7,6 +7,9 @@ export const PUBLISH_STOPS = {
 
 export type PublishStop = typeof PUBLISH_STOPS[keyof typeof PUBLISH_STOPS]
 
+export const PIPELINE_BUSY = 'pipeline_busy'
+export const PIPELINE_BUSY_MESSAGE = 'Plate Pipeline work is queued or running. Publish when it finishes.'
+
 export const PUBLISH_ERRORS = { ...PUBLISH_STOPS, notWaiting: 'not_waiting', unavailable: 'unavailable' } as const
 
 export function isPublishStop(error: unknown): error is PublishStop {

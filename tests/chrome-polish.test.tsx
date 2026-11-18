@@ -5,29 +5,27 @@ import { Button } from '../components/ui/button'
 import { PublishButton } from '../components/dashboard/publish-button'
 import { WorkspaceTabs } from '../components/app/workspace-tabs'
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/' }))
-vi.mock('../lib/client/hooks', () => ({ useMe: () => ({ data: { role: 'owner' } }) }))
+vi.mock('next/navigation', () => ({ usePathname: () => '/', useSearchParams: () => new URLSearchParams('batch=batch%20%2FB') }))
+vi.mock('../lib/client/hooks', () => ({ useMe: () => ({ data: { role: 'owner' } }), useBatches: () => ({}) }))
 
-test('approved Owners can open Publish', () => {
-  const html = renderToStaticMarkup(<PublishButton batchId="batch /B" owner approved />)
+test('Owners can open Publish for the exact Batch', () => {
+  const html = renderToStaticMarkup(<PublishButton batchId="batch /B" owner />)
   expect(html).toContain('href="/publish?batch=batch%20%2FB"')
-  expect(html).toContain('Publish to players')
+  expect(html).toContain('Publish')
   expect(html).not.toContain('aria-disabled=')
 })
 
-test.each([
-  [true, false, 'Approve the batch first'],
-  [false, true, 'Only Owners can publish'],
-  [false, false, 'Only Owners can publish'],
-])('Publish gating for owner=%s approved=%s', (owner, approved, reason) => {
-  const html = renderToStaticMarkup(<PublishButton batchId="batch-b" owner={owner} approved={approved} />)
-  expect(html).toContain('aria-disabled="true"')
-  expect(html).toContain(reason)
-  expect(html).not.toContain('href=')
+test('only an Owner with a selected Batch sees the contextual Publish action', () => {
+  expect(renderToStaticMarkup(<PublishButton batchId="batch-b" owner={false} />)).toBe('')
+  expect(renderToStaticMarkup(<PublishButton owner />)).toBe('')
 })
 
-test('workspace tabs omit Strip Art', () => {
-  expect(renderToStaticMarkup(<WorkspaceTabs />)).not.toContain('Strip Art')
+test('Review opens all changes while Dashboard and Publish carry the selected Batch', () => {
+  const html = renderToStaticMarkup(<WorkspaceTabs />)
+  expect(html).not.toContain('Strip Art')
+  expect(html).toContain('href="/review"')
+  for (const path of ['/', '/publish'])
+    expect(html).toContain(`href="${path}?batch=batch%20%2FB"`)
 })
 
 test('all button variants and sizes share flex alignment and fixed icon sizes', () => {

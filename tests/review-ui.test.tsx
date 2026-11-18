@@ -27,6 +27,7 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
   useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
 }))
+vi.mock('../lib/client/review-checkpoint', () => ({ useReviewCheckpoint: vi.fn(), useRecentReviewPlates: () => ({}) }))
 vi.mock('../lib/client/session', () => ({
   useSession: () => ({ user: { displayName: 'Author' } }),
 }))
@@ -92,15 +93,12 @@ beforeEach(() => {
   state.submit.mockReset()
   state.mutate.mockReset().mockResolvedValue(detail)
 })
-test('approval sends the selected batch revision and refreshes after a superseded revision', async () => {
-  renderToStaticMarkup(<ReviewFooter detail={detail} />)
-  const approve = state.buttons.get('Approve revision 4')!
-    .onClick as () => Promise<void>
-  await approve()
-  expect(state.approve).toHaveBeenCalledWith('one', 4)
-  state.approve.mockRejectedValueOnce({ code: 'superseded_revision' })
-  await approve()
-  expect(state.mutate).toHaveBeenCalledOnce()
+test.each(['open', 'submitted'] as const)('Review summarizes %s Batches without release actions', status => {
+  const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: status } }} />)
+  expect(html).toContain('1 changed plate · rev 4')
+  expect(html).not.toContain('Submit for review')
+  expect(html).not.toContain('Approve revision')
+  expect(html).not.toContain('Publish to players')
 })
 test('summaries describe fields, family and standard changes', () => {
   expect(changeSummary(before, after)).toBe(
@@ -144,24 +142,7 @@ test('table renders every field kind, tags diff and unchanged values in order', 
   expect(html).toContain('Before · Catalog v41')
   expect(html).toContain('After · rev 4')
 })
-test('owner can approve and editor cannot', () => {
-  expect(renderToStaticMarkup(<ReviewFooter detail={detail} />)).toContain(
-    'Approve revision 4',
-  )
-  state.role = 'editor'
-  const html = renderToStaticMarkup(<ReviewFooter detail={detail} />)
-  expect(html).not.toContain('Approve revision')
-  expect(html).toContain('Waiting for an Owner to approve')
-})
-test('own open batch offers submit and approved batch has no actions', () => {
-  state.role = 'editor'
-  expect(
-    renderToStaticMarkup(
-      <ReviewFooter
-        detail={{ ...detail, batch: { ...detail.batch, state: 'open' } }}
-      />,
-    ),
-  ).toContain('Submit for review')
+test('Review retains existing approval metadata', () => {
   const html = renderToStaticMarkup(
     <ReviewFooter
       detail={{
@@ -189,7 +170,7 @@ test('empty state links to dashboard and selection links preserve URL state', ()
   )
   expect(html).toContain('Nothing waiting for review')
   expect(html).toContain('href="/"')
-  expect(html).toContain('href="/review?state=AK"')
+  expect(html).not.toContain('href="/review?state=AK"')
   expect(reviewHref('AK', 'AK.army', 'batch id')).toBe(
     '/review?state=AK&plate=AK.army&batch=batch+id',
   )
@@ -212,14 +193,14 @@ test('URL state, plate and batch select the requested comparison', () => {
   )
   expect(html).toContain('New Army')
   expect(html).toContain('After · rev 4')
-  expect(html).toContain('Approve revision 4')
+  expect(html).toContain('1 changed plate · rev 4')
   expect(html).toContain(
     'href="/review?state=AK&amp;plate=AK.army&amp;batch=one"',
   )
   expect(html).not.toContain('Nothing waiting for review')
 })
 
-test('approval names the entire batch and counts changes across two states', async () => {
+test('the footer keeps the whole Batch revision and summarizes the changed plates', () => {
   const kansas = { ...before, id: 'KS.army', state: 'KS' }
   const multi: BatchDetail = {
     ...detail,
@@ -234,17 +215,12 @@ test('approval names the entire batch and counts changes across two states', asy
     ],
   }
   const html = renderToStaticMarkup(<ReviewFooter detail={multi} />)
-  expect(html).toContain(
-    'Approving &quot;Veterans updates&quot; by Alex covers all 2 changes in revision 4 (AK 1, KS 1).',
-  )
-  expect(html).toContain('Any later edit asks you to look again.')
-  const approve = state.buttons.get('Approve revision 4')!
-    .onClick as () => Promise<void>
-  await approve()
-  expect(state.approve).toHaveBeenCalledWith('one', 4)
+  expect(html).toContain('1 changed plate · rev 4')
+  expect(html).toContain('title="AK"')
+
 })
 
-test('batch chips and footer switch with the URL batch, with generic author fallback', () => {
+test('the compact comparison and footer switch with the URL Batch', () => {
   const render = (selected: BatchDetail) => {
     state.detail = selected
     state.query = `state=AK&plate=AK.army&batch=${selected.batch.id}`
@@ -253,9 +229,9 @@ test('batch chips and footer switch with the URL batch, with generic author fall
     )
   }
   const named = render(detail)
-  expect(named).toContain('Updates · by Alex')
-  expect(named).toContain('aria-label="Alex"')
-  expect(named).toContain('Approving &quot;Updates&quot; by Alex')
+  expect(named).toContain('Updates')
+  expect(named).toContain('1 changed plate · rev 4')
+  expect(named).not.toContain('Updates · by Alex')
   const older = render({
     ...detail,
     batch: {
@@ -266,10 +242,9 @@ test('batch chips and footer switch with the URL batch, with generic author fall
       createdByName: null,
     },
   })
-  expect(older).toContain('Older batch · by a curator')
-  expect(older).toContain('aria-label="Curator"')
-  expect(older).toContain('Approving &quot;Older batch&quot; by a curator')
-  expect(older).toContain('Approve revision 8')
+  expect(older).toContain('Older batch')
+  expect(older).not.toContain('Older batch · by a curator')
+  expect(older).toContain('1 changed plate · rev 8')
   expect(older).not.toContain('by Alex')
 })
 
@@ -336,4 +311,24 @@ test('review submission errors show every affected state', async () => {
   const { ApiError } = await import('../lib/client/api')
   const reasons = ['AK: make Gold the Standard.', 'NY: make Blue the Standard.']
   expect(reviewError(new ApiError(409, 'standard_change_unconfirmed', { reasons }), 1)).toBe(reasons.join(' '))
+})
+
+test('a run History link lists just the changed plates from that run across states', () => {
+  const kansas = { ...before, id: 'KS.sesquicentennial', state: 'KS', displayName: 'Sesquicentennial' }
+  const virginia = { ...before, id: 'VA.dogwood', state: 'VA', displayName: 'Dogwood' }
+  state.query = 'batch=one&run=mountain'
+  state.detail = {
+    ...detail,
+    plates: [
+      ...detail.plates.map(plate => ({ ...plate, edit: { plateId: before.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['service'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] } })),
+      { baseline: kansas, proposed: { ...kansas, tags: ['prairie'] }, edit: { plateId: kansas.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['prairie'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['mountain'] }, revision: 'ks' },
+      { baseline: virginia, proposed: { ...virginia, tags: ['flower'] }, edit: { plateId: virginia.id, baseRevision: 'a', resultRevision: 'b', fields: { tags: ['flower'] }, authorId: 'author', updatedAt: '', pipelineRunIds: ['coastal'] }, revision: 'va' },
+    ],
+  }
+  const html = renderToStaticMarkup(<ReviewWorkspace states={[
+    { code: 'AK', name: 'Alaska', plates: [] }, { code: 'KS', name: 'Kansas', plates: [] }, { code: 'VA', name: 'Virginia', plates: [] },
+  ]} />)
+  expect(html).toContain('Sesquicentennial')
+  expect(html).toContain('state=KS&amp;plate=KS.sesquicentennial&amp;batch=one&amp;run=mountain')
+  expect(html).not.toContain('Dogwood')
 })

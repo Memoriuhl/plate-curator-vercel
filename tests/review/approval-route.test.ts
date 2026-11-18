@@ -1,7 +1,7 @@
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { POST as submit } from '../../app/api/batches/[id]/submit/route'
 import { POST as approve } from '../../app/api/batches/[id]/approve/route'
-import { POST as publish } from '../../app/api/batches/[id]/publish/route'
+import { GET as preflight, POST as publish } from '../../app/api/batches/[id]/publish/route'
 import { GET } from '../../app/api/batches/[id]/run/route'
 import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
@@ -10,7 +10,7 @@ import { plateRevision } from '../../lib/review/revision'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 
-const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: () => true, controlRead: vi.fn(), start: vi.fn(), getHookByToken: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
+const mocks = vi.hoisted(() => ({ currentActor: vi.fn(), currentActiveOwner: vi.fn(), reviewDeps: vi.fn(), publishDeps: vi.fn(), publishAllowed: vi.fn(() => true), controlRead: vi.fn(), start: vi.fn(), getHookByToken: vi.fn(), resumeHook: vi.fn(), getRun: vi.fn(), publishBatch: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn(), revalidateTag: vi.fn() }))
 vi.mock('../../lib/server/context', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/server/context')>(), ...mocks }))
@@ -24,6 +24,7 @@ function request(body: unknown) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.publishAllowed.mockReturnValue(true)
   mocks.currentActiveOwner.mockResolvedValue({ ok: true, actor: { uid: 'owner', email: 'owner@example.com', authorityEpoch: 5, role: 'owner' } })
   mocks.controlRead.mockResolvedValue({ paused: false, generation: 1 })
   mocks.publishDeps.mockReturnValue({ control: { read: mocks.controlRead }, pointer: { read: async () => ({ version: 7 }) }, records: { eligibility: async () => ({ canRetry: false, reason: 'not_waiting' }), command: async () => null, get: async () => null, accept: async (command: unknown) => ({ ok: true, command }), bindRun: async () => true } })
@@ -107,7 +108,7 @@ test.each(['submitted', 'approved'] as const)('plate and order edits supersede a
       : await PUT(request({ batchRevision: 0, order: ['one'] }), { params: Promise.resolve({ id: 'batch', state: 'AK' }) })
     expect(response.status).toBe(200)
     expect(mocks.reviewDeps().supersedeRun).toHaveBeenCalledWith(previous)
-    expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ state: 'open', revision: 1, approvalRun: previous.approvalRun })
+    expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({ state: 'open', revision: 1, approvalRun: previous.approvalRun, lastChangedAt: mocks.reviewDeps().now() })
   }
 })
 
@@ -192,4 +193,76 @@ test('invalid Publish bodies and missing Batches are rejected before the paused 
   expect((await publish(request({}), ctx)).status).toBe(400)
   expect((await publish(request({ revision: 2 }), { params: Promise.resolve({ id: 'missing' }) })).status).toBe(404)
   expect(mocks.controlRead).not.toHaveBeenCalled()
+})
+
+afterEach(() => vi.unstubAllEnvs())
+
+test.each(['open', 'submitted'] as const)('preflight and explicit confirmation target the exact %s revision', async state => {
+  vi.stubEnv('GCP_PROJECT_ID', 'license-plate-game-staging')
+  const requested = { ...batch, id: 'chosen-batch', state, revision: 2 }
+  const unrelated = { ...batch, id: 'other-batch', state: 'approved' as const, revision: 3 }
+  mocks.reviewDeps().store = createMemoryStore([requested, unrelated])
+  const records = mocks.publishDeps().records
+  records.eligibility = vi.fn(async () => ({ canRetry: true, reason: null }))
+  const chosen = { params: Promise.resolve({ id: requested.id }) }
+  const details = await preflight(request(null), chosen)
+  expect(details.status).toBe(200)
+  expect(await details.json()).toMatchObject({ batchRevision: 2, confirmation: { revision: 2 }, destination: 'license-plate-game-staging', enabledHere: true, canConfirmDraft: true })
+  expect(records.eligibility).toHaveBeenCalledWith(expect.objectContaining({ batchId: requested.id, revision: 3, confirmedDraftRevision: 2 }), expect.any(String))
+  expect(mocks.start).not.toHaveBeenCalled()
+
+  await mocks.reviewDeps().store.commit(requested.id, 2, { batch: { ...requested, state: 'open', revision: 3 }, edit: {
+    plateId: 'one', fields: { tags: ['changed by Editor'] }, authorId: 'editor', updatedAt: mocks.reviewDeps().now(), baseRevision: 'before', resultRevision: 'after',
+  } })
+  const stale = await publish(request({ revision: 2 }), chosen)
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({ error: 'superseded_revision', confirmation: { revision: 3 } })
+  expect(mocks.start).not.toHaveBeenCalled()
+  expect((await publish(request({ revision: 3, commandId: 'confirmed-new' }), chosen)).status).toBe(202)
+  expect(mocks.start).toHaveBeenCalledWith(expect.any(Function), [requested.id, 4, expect.objectContaining({ confirmedDraftRevision: 3 })], expect.any(Object))
+  expect(await mocks.reviewDeps().store.getBatch(unrelated.id)).toEqual(unrelated)
+})
+
+test('Publish preflight rejects Editors and missing exact IDs', async () => {
+  mocks.currentActiveOwner.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'forbidden' }, { status: 403 }) })
+  expect((await preflight(request(null), ctx)).status).toBe(403)
+  expect((await preflight(request(null), { params: Promise.resolve({ id: 'missing' }) })).status).toBe(404)
+  expect(mocks.publishDeps).not.toHaveBeenCalled()
+})
+
+test('Publish preflight reports disabled releases, pending Pipeline, and stale Catalog versions', async () => {
+  const records = mocks.publishDeps().records
+  records.eligibility = async () => ({ canRetry: true, reason: null })
+  mocks.publishAllowed.mockReturnValueOnce(false)
+  expect(await (await preflight(request(null), ctx)).json()).toMatchObject({ enabledHere: false, canConfirmDraft: false })
+  records.pipelineBusy = async () => true
+  expect(await (await preflight(request(null), ctx)).json()).toMatchObject({ pipelineBusy: true, canConfirmDraft: false })
+  records.pipelineBusy = async () => false
+  mocks.publishDeps().pointer.read = async () => ({ version: 8 })
+  expect(await (await preflight(request(null), ctx)).json()).toMatchObject({ error: 'stale_baseline', reviewedVersion: 7, liveVersion: 8, canConfirmDraft: false })
+})
+
+test('Publish preflight exposes the same Standard repair that blocks draft confirmation', async () => {
+  const other = { ...baseline, id: 'other', displayName: 'Other', isStandard: false }
+  const store = createMemoryStore([{ ...batch, stateOrders: { AK: [other.id, baseline.id] } }])
+  mocks.reviewDeps().store = store
+  mocks.reviewDeps().stateBaseline = async () => [baseline, other]
+  mocks.publishDeps().records.eligibility = async () => ({ canRetry: true, reason: null })
+  expect(await (await preflight(request(null), ctx)).json()).toMatchObject({
+    canConfirmDraft: false,
+    approvalProblems: [expect.stringContaining('make Other the Standard')],
+  })
+  expect(await (await publish(request({ revision: 0 }), ctx)).json()).toMatchObject({
+    error: 'standard_change_unconfirmed',
+    reasons: [expect.stringContaining('make Other the Standard')],
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
+})
+
+test('draft confirmation never resumes the existing approval workflow Publish hook', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, state: 'submitted', revision: 1 }])
+  const response = await publish(request({ revision: 1 }), ctx)
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'not_waiting' })
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
 })

@@ -1,4 +1,4 @@
-import { isPublishStop, PUBLISH_ERRORS } from './stop'
+import { isPublishStop, PIPELINE_BUSY, PUBLISH_ERRORS } from './stop'
 import { claimSupersedes, isSuperseded, receiptId } from './command'
 import { publishBaselineError } from './baseline'
 import { randomUUID } from 'node:crypto'
@@ -37,7 +37,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
   const leaseMs = d.leaseMs ?? 60000
   const expiry = () => new Date(Date.parse(d.now()) + leaseMs).toISOString()
   const lease: PublishLease = { ...command, token: randomUUID(), expiresAt: expiry() }
-  if (!await d.lock.claim(lease, d.now())) return { ok: false, error: 'locked' }
+  if (!await d.lock.claim(lease, d.now())) return { ok: false, error: await d.records.pipelineBusy?.() ? PIPELINE_BUSY : 'locked' }
   let keepFrozen = true
   const renew = async () => {
     lease.expiresAt = expiry()
@@ -85,7 +85,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
         keepFrozen = false
         return { ok: false, error: 'invalid_snapshot', reasons: ['Baseline snapshot has an invalid version or plates'] }
       }
-      const edits = await d.store.listEdits(command.batchId)
+      const edits = (await d.store.listEdits(command.batchId)).filter(edit => Object.keys(edit.fields).length > 0)
       const fields = new Map(edits.map(edit => [edit.plateId, edit.fields]))
       const orders = new Map(Object.entries(batch.stateOrders).map(([state, order]) => [state, new Map(order.map((id, index) => [id, index]))]))
       const toVersion = record?.toVersion ?? await d.records.nextVersion(lease.token, d.now())
@@ -94,6 +94,7 @@ async function publishAttempt(d: PublishDeps, command: PublishCommand): Promise<
       const next = { version: toVersion, plates: baseline.plates.filter(plate => !deleted.has(plate.id)).map(plate => {
         const edited = { ...plate, ...fields.get(plate.id) }
         delete edited.deleted
+        if (fields.get(plate.id)?.templateRole) edited.isTemplate = edited.templateRole === 'template'
         if (fields.get(plate.id)?.variantOfPlateId === null) delete edited.variantOfPlateId
         for (const key of ['firstIssuedYear', 'wikiUrl', 'colorDetail', 'lineageColor'] as const) {
           if (fields.get(plate.id)?.[key] === null) delete edited[key]

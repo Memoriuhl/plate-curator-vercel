@@ -6,42 +6,8 @@ import {
   type PlateCardData,
 } from '@/lib/catalog/dashboard-types'
 
-export function groupFamilies(plates: readonly PlateCardData[]) {
-  const ordered = [...plates].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
-  )
-  const templates = ordered.filter((plate) => plate.templateRole === 'template')
-  const byId = new Map(
-    ordered
-      .filter((plate) => plate.templateRole !== 'variant')
-      .map((plate) => [plate.id, plate]),
-  )
-  const byFamily = new Map(
-    templates
-      .filter((plate) => plate.templateFamily)
-      .map((plate) => [plate.templateFamily, plate]),
-  )
-  const families = new Map<
-    string,
-    { template: PlateCardData; variants: PlateCardData[] }
-  >()
-  for (const plate of ordered) {
-    const parent =
-      plate.templateRole === 'variant'
-        ? (byId.get(plate.variantOfPlateId ?? '') ??
-          byFamily.get(plate.templateFamily))
-        : undefined
-    const head = parent ?? plate
-    if (!families.has(head.id))
-      families.set(head.id, { template: head, variants: [] })
-    if (parent) families.get(head.id)!.variants.push(plate)
-  }
-  return [...families.values()].sort(
-    (a, b) =>
-      a.template.sortOrder - b.template.sortOrder ||
-      a.template.id.localeCompare(b.template.id),
-  )
-}
+import { groupFamilies } from '@/lib/catalog/families'
+export { groupFamilies } from '@/lib/catalog/families'
 
 export function attachedFamilyIds(plates: readonly PlateCardData[], families = groupFamilies(plates)) {
   return new Set(families.flatMap(family => family.variants.map(plate => plate.id)))

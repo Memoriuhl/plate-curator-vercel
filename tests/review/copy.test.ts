@@ -120,3 +120,14 @@ test.each(['open', 'published'] as const)('replay returns the existing copy afte
   expect(await f.store.copy({ ...f.input, batch: copied.value, edits: [] })).toEqual(copied)
   expect(await f.store.list({})).toHaveLength(2)
 })
+
+test.each(['open', 'submitted'] as const)('an Owner can copy a stale %s Batch onto the live Catalog', async state => {
+  const f = setup()
+  const draft = { ...(await f.store.getBatch(batch.id))!, state, approval: null }
+  await f.store.commit(batch.id, 2, { batch: draft })
+  expect(await copyBatch(f.d, owner, { ...f.input, targetVersion: 1 })).toEqual({ ok: false, error: 'invalid_state' })
+  expect(await copyBatch(f.d, { ...owner, role: 'editor' }, f.input)).toEqual({ ok: false, error: 'forbidden' })
+  const result = await copyBatch(f.d, owner, f.input)
+  expect(result).toMatchObject({ ok: true, value: { state: 'open', baselineVersion: 2, approval: null, lastChangedAt: f.d.now() } })
+  expect(await f.store.getBatch(batch.id)).toEqual(draft)
+})

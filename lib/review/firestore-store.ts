@@ -1,6 +1,8 @@
+import { canCopyForFreshReview } from './access'
 import type { DocumentSnapshot, Firestore, Transaction } from '@google-cloud/firestore'
 import { liveEnvKey, signalPath } from './live-signal'
 import type { ProposedEdit, PublishMetadata, ReviewBatch, ReviewStore } from './types'
+import { currentDraftChanges, draftChange, reviewChanges, type DraftChange, type ReviewCheckpoint } from './checkpoint'
 import { receiptId } from '../publish/command'
 
 export function writePublishMetadata(transaction: Transaction, batch: DocumentSnapshot, fields: PublishMetadata) {
@@ -15,7 +17,42 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
     transaction.set(signal(batch.id), { revision: batch.revision })
   }
 
+  const recentChanges = async (transaction: Transaction, batch: DocumentSnapshot, since: number) => {
+    const [changes, edits] = await Promise.all([
+      transaction.get(batch.ref.collection('draftChanges').where('revision', '>', since)),
+      transaction.get(batch.ref.collection('edits').select('fields')),
+    ])
+    return currentDraftChanges(batch.data() as ReviewBatch, edits.docs.filter(edit => Object.keys(edit.get('fields') ?? {}).length > 0).map(edit => edit.id), changes.docs.map(doc => doc.data() as DraftChange))
+  }
+
   return {
+    async recentPlateIds(batchId, since) {
+      return db.runTransaction(async transaction => {
+        const batch = await transaction.get(batches.doc(batchId))
+        if (batch.get('env') !== env) return null
+        return [...new Set((await recentChanges(transaction, batch, since)).flatMap(change => change.plateIds))]
+      }, { readOnly: true })
+    },
+    async markViewed(batchId, uid, revision, viewedAt) {
+      return db.runTransaction(async transaction => {
+        const batch = batches.doc(batchId)
+        const ref = batch.collection('reviewCheckpoints').doc(encodeURIComponent(uid))
+        const [current, checkpoint] = await transaction.getAll(batch, ref)
+        if (current.get('env') !== env || revision > current.get('revision')) return false
+        if ((checkpoint.get('revision') ?? -1) < revision) transaction.set(ref, { revision, viewedAt })
+        return true
+      })
+    },
+    async changesSinceReview(batchId, uid, revision) {
+      return db.runTransaction(async transaction => {
+        const ref = batches.doc(batchId)
+        const [batch, checkpoint] = await transaction.getAll(ref, ref.collection('reviewCheckpoints').doc(encodeURIComponent(uid)))
+        if (batch.get('env') !== env || batch.get('revision') !== revision) return null
+        const current = checkpoint.exists ? checkpoint.data() as ReviewCheckpoint : null
+        if (!current || current.revision >= revision) return reviewChanges(revision, current, [])
+        return reviewChanges(revision, current, await recentChanges(transaction, batch, current.revision))
+      }, { readOnly: true })
+    },
     async updatePublishMetadata(batchId, revision, fields) {
       const write = async (transaction: Transaction) => {
         const batch = await transaction.get(batches.doc(batchId))
@@ -39,7 +76,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         }
         if (!source.exists || source.get('env') !== env) return { ok: false, error: 'not_found' }
         if (source.get('revision') !== input.sourceRevision) return { ok: false, error: 'superseded_revision' }
-        if (source.get('state') !== 'approved') return { ok: false, error: 'invalid_state' }
+        if (!canCopyForFreshReview({ state: source.get('state'), baselineVersion: source.get('baselineVersion') }, input.targetVersion)) return { ok: false, error: 'invalid_state' }
         if (source.get('publishReservation') || receipt.get('committedAt')) return { ok: false, error: 'invalid_state' }
         const liveVersion = head.get('version')
         if (typeof liveVersion !== 'number') throw new Error('Catalog head unavailable')
@@ -138,12 +175,20 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
         if (!batch.exists || batch.get('env') !== env || batch.get('revision') !== expectedRevision) {
           return 'revision_mismatch'
         }
+        if (batch.get('state') === 'open' && next.batch.state === 'submitted') {
+          const runs = await transaction.get(db.collection('localPipelineRuns').where('batchId', '==', batchId).select('status'))
+          if (runs.docs.some(run => ['queued', 'running'].includes(run.get('status')))) return 'pipeline_busy'
+        }
         const reservation = batch.get('publishReservation')
         if (reservation) {
           if (next.publishToken !== reservation.token || next.batch.state !== 'published' || next.batch.revision !== expectedRevision + 1) return 'revision_mismatch'
           const record = await transaction.get(db.doc(`publishRecords/${reservation.recordId}`))
           if (!record.get('committedAt') || record.get('state') !== 'done' || record.get('env') !== env || record.get('revision') !== expectedRevision || record.get('batchId') !== batchId) return 'revision_mismatch'
         } else if (next.publishToken !== undefined) return 'revision_mismatch'
+        const updates = [...(next.edits ?? []), ...(next.edit ? [next.edit] : [])]
+        const deletes = [...(next.deleteEditsFor ?? []), ...(next.deleteEditFor ? [next.deleteEditFor] : [])]
+        const change = draftChange(batch.data() as ReviewBatch, next.batch, updates, deletes, next.by)
+        if (change) transaction.set(batchRef.collection('draftChanges').doc(String(next.batch.revision)), change)
         transaction.set(batchRef, {
           ...next.batch,
           ...(batch.get('publishAbandonment') ? { publishAbandonment: batch.get('publishAbandonment') } : {}),
@@ -156,7 +201,7 @@ export function firestoreReviewStore(db: Firestore, env: string, scopedTransacti
           transaction.delete(batchRef.collection('edits').doc(next.deleteEditFor))
         }
         for (const id of next.deleteEditsFor ?? []) transaction.delete(batchRef.collection('edits').doc(id))
-        for (const edit of [...(next.edits ?? []), ...(next.edit ? [next.edit] : [])]) {
+        for (const edit of updates) {
           transaction.set(batchRef.collection('edits').doc(edit.plateId), edit)
         }
         return 'ok'

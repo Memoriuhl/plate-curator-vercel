@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, renderHook } from '@testing-library/react'
+import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { SWRConfig } from 'swr'
 import { FamilyCard } from '../components/plate/family-card'
 import { useGridEntrance } from '../components/dashboard/use-grid-entrance'
 import { plateCards } from '../fixtures/plate-cards'
@@ -15,7 +16,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: reduced, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   HTMLElement.prototype.animate = animate
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); reduced = false })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); reduced = false })
 
 test('plate pointer intent and focus prefetch each plate once', () => {
   const view = render(<FamilyCard template={plateCards[0]} variants={[plateCards[1]]} />)
@@ -207,6 +208,30 @@ test('slow tooltip freezes Loading until the pointer leaves', () => {
   view.anchor.remove()
 })
 
+test('the image check displays the four enhancement frames together', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const hash = 'a'.repeat(64)
+  const frame = { width: 160, height: 80, sha256: hash }
+  const frames = ['original', 'crop', 'upscale', 'roundCorners'].map(step => ({ ...frame, step }))
+  avatarSession.api.get.mockImplementation(async (path: string) => path.endsWith('/enhancement')
+    ? { result: { jobId: 'status-preview', suggestion: { ...frame, kind: 'enhanced-image', stage: 'enhance-image', originalWidth: 160, originalHeight: 80, frames } } }
+    : { image: 'AQIDBA==' })
+  const anchor = document.createElement('span')
+  document.body.append(anchor)
+  render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+    <ReadyPlatePreview plate={plateCards[0]} anchor={anchor} checkKey="image" immediate />
+  </SWRConfig>)
+  try {
+    const panel = await screen.findByRole('dialog', { name: `${plateCards[0].displayName} image enhancement` })
+    const images = await within(panel).findAllByRole('img')
+    expect(images.map(image => image.getAttribute('alt'))).toEqual(['Original', 'Crop margins', 'Upscale', 'Round corners'].map(label => `${label} of ${plateCards[0].displayName}`))
+    const framePath = '/api/local-pipeline/jobs/status-preview/enhanced-image'
+    expect(avatarSession.api.get.mock.calls.map(([path]) => path)).toEqual(expect.arrayContaining([
+      `${framePath}?step=original`, `${framePath}?step=crop`, `${framePath}?step=upscale`, framePath,
+    ]))
+  } finally { anchor.remove() }
+})
+
 test.each(['description', 'funFacts', 'link', 'tags', 'family', 'image', 'rarity'] as const)('formats %s and missing values', checkKey => {
   const base = { ...plateCards[0], tags: ['Military'], templateFamily: 'Army', templateRole: 'variant' as const, imageUrl: '/plate.png', checks: { ...plateCards[0].checks, [checkKey]: { status: 'good' as const, value: checkKey === 'funFacts' ? 'First fact\nSecond fact' : 'Full value' } } }
   const html = renderToStaticMarkup(<CheckValue plate={base} checkKey={checkKey} parent="Army" />)
@@ -246,7 +271,7 @@ test('only image pointer hover opens breakdown; links, focus and container do no
 import { UserAvatar } from '../components/app/user-avatar'
 import { HeaderActions } from '../components/app/header-actions'
 import { TooltipProvider } from '../components/ui/tooltip'
-const avatarSession = vi.hoisted(() => ({ ready: true, user: { displayName: 'Priya', email: 'curator', photoURL: null as string | null }, signOut: vi.fn() }))
+const avatarSession = vi.hoisted(() => ({ ready: true, user: { displayName: 'Priya', email: 'curator', photoURL: null as string | null }, signOut: vi.fn(), api: { get: vi.fn() } }))
 vi.mock('../lib/client/session', () => ({ useSession: () => avatarSession }))
 
 beforeEach(() => { avatarSession.user.displayName = 'Priya'; avatarSession.user.photoURL = null })
@@ -296,4 +321,16 @@ test('image tooltip shows the file name, strips URL suffixes and shortens long n
   expect(html).toContain(filename.slice(0, 36) + '\u2026' + filename.slice(-24))
   expect(html).not.toContain('320 px')
   expect(renderToStaticMarkup(<CheckValue plate={{ ...plateCards[0], imageUrl: null }} checkKey="image" />)).toBe('Missing')
+})
+
+test('a pipeline-changed Plate exposes the blue Review link beside its title and can receive keyboard focus', () => {
+  const plate = { ...plateCards[0], pipelineBatchId: 'pipeline-batch' }
+  const view = render(<FamilyCard template={plate} variants={[plateCards[1]]} />)
+  const link = view.getByRole('link', { name: 'Review ' + plate.displayName })
+  expect(link.parentElement?.querySelector('h3')?.textContent).toBe(plate.displayName)
+  expect(link.getAttribute('data-variant')).toBe('publish')
+  link.focus()
+  expect(document.activeElement).toBe(link)
+  expect(link.getAttribute('href')).toBe(`/review?state=${plate.state}&plate=${plate.id}&batch=pipeline-batch`)
+  expect(view.queryByRole('link', { name: 'Review ' + plateCards[1].displayName })).toBeNull()
 })

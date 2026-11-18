@@ -1,3 +1,4 @@
+import { minimumPlateTagCount } from '@/lib/catalog/plate-checks'
 import type { RunPlate } from './use-tag-run'
 
 export const localStageReasons: Record<string, string> = {
@@ -8,5 +9,5 @@ export const localStageReasons: Record<string, string> = {
 
 export function planTagRun(plates: readonly RunPlate[], onlyUnderTagged: boolean, limit: number) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 25) return []
-  return plates.filter(plate => !onlyUnderTagged || plate.tags.length < 3).slice(0, limit)
+  return plates.filter(plate => !onlyUnderTagged || plate.tags.length < minimumPlateTagCount).slice(0, limit)
 }

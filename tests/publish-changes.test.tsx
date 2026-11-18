@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BatchChanges, changesByState } from '../components/publish/batch-changes'
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }))
+vi.mock('../lib/client/live-signal', () => ({ useBatchRevisionSignal: () => 'Live' }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 
 import { PublishWorkspace } from '../components/publish/workspace'
 import type { BatchDetail } from '../lib/client/hooks'
@@ -46,15 +47,15 @@ vi.mock('../lib/client/hooks', () => ({
   useMe: () => ({ data: { role: 'owner' } }),
   usePublishControl: () => ({ data: { control: null }, change: vi.fn() }),
   useBatches: () => ({ data: [{ id: 'published', name: 'Autumn plates', state: status.value, createdAt: '2026-11-17', revision: 2, stateOrders: {} }] }),
-  useBatch: () => ({ data: { batch: { id: 'published', name: 'Autumn plates', state: status.value, revision: 2, stateOrders: {} }, plates: [] } }),
+  useBatch: () => ({ data: { batch: { id: 'published', name: 'Autumn plates', state: status.value, revision: 2, stateOrders: {}, approval: status.retry ? { revision: 1 } : null }, plates: [{ ...entry, edit: { fields: { description: 'New' } } }] } }),
   useBatchRun: () => ({ data: { outcome: { version: status.version } } }),
-  usePublishBaseline: () => ({ data: { canRetry: status.retry } }),
+  usePublishBaseline: () => ({ data: { error: null, canRetry: status.retry, enabledHere: true, batchRevision: 2, approvalProblems: [], confirmation: { revision: 2, since: null, plateCount: 0, contributors: [] } } }),
   useReviewActions: () => ({}),
 }))
 
 test('published batch uses the catalog version as its visual anchor', () => {
   render(<PublishWorkspace />)
-  const card = screen.getByRole('button', { name: /v16.*Autumn plates/ })
+  const card = screen.getByRole('link', { name: /v16.*Autumn plates/ })
   expect(card.querySelector('.text-4xl')?.textContent).toBe('v16')
   expect(card.textContent).not.toContain('waiting')
 })
@@ -71,10 +72,11 @@ test('large state groups mount only a window of plate rows', () => {
   expect(rows.length).toBeLessThan(30)
 })
 
-test('missing approval remains a visible blocking message', () => {
+test('an invalid approval leaves the Publish button visible and disabled', () => {
   status.value = 'approved'
   render(<PublishWorkspace />)
-  expect(screen.getByRole('alert').textContent).toContain('needs current approval')
+  expect(screen.getByText('Reopen this Batch on the Dashboard before publishing.')).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' }).disabled).toBe(true)
   expect(screen.queryByRole('button', { name: /Publish revision/ })).toBeNull()
 })
 
@@ -82,7 +84,7 @@ test('missing approval remains a visible blocking message', () => {
 test('published batch without a version uses a normal Published title', () => {
   status.version = undefined
   render(<PublishWorkspace />)
-  const card = screen.getByRole('button', { name: /Published.*Autumn plates/ })
+  const card = screen.getByRole('link', { name: /Published.*Autumn plates/ })
   expect(card.querySelector('.text-4xl')).toBeNull()
   expect(card.textContent).not.toContain('v?')
 })

@@ -1,8 +1,9 @@
+import { savedResearchSourcesHeader } from '../../../../lib/research/enrichment'
 import { claimNext } from '../../../../lib/jobs/jobs'
 import { currentWorker, jobsDeps, reviewDeps } from '../../../../lib/server/context'
 import { json } from '../../../../lib/server/respond'
 import { taggingModel } from '../../../../lib/tagging/models'
-import { reportLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
+import { parseWorkerCapabilities, reportLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { readJson, badRequest } from '../../../../lib/server/respond'
 import { wakeLocalJob } from '../../../../lib/server/local-queue'
 import type { Plate } from '../../../../lib/catalog/types'
@@ -12,11 +13,20 @@ export async function POST(request: Request) {
   if (!worker.ok) return worker.response
 
   const dependencies = jobsDeps()
+  const supportsSavedSources = request.headers.get(savedResearchSourcesHeader) === '1'
+  let enhanceImage = false
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && dependencies.localScope) {
     const body = await readJson(request)
-    if (body?.capabilities !== undefined && !await reportLocalWorkerCapabilities(dependencies, worker.workerId, body.capabilities)) return badRequest()
+    if (body?.capabilities !== undefined) {
+      const capabilities = parseWorkerCapabilities(body.capabilities)
+      if (!capabilities || !await reportLocalWorkerCapabilities(dependencies, worker.workerId, capabilities, supportsSavedSources)) return badRequest()
+      enhanceImage = capabilities.enhanceImage?.available === true
+    }
   }
-  const claim = await claimNext(dependencies, worker.workerId)
+  const claim = await claimNext(dependencies, worker.workerId, {
+    supportsSavedSources,
+    enhanceImage,
+  })
   if (!claim) return new Response(null, { status: 204, headers: { 'Cache-Control': 'private, no-store' } })
 
   const plate = claim.job.inputPlate ?? await legacyInput(claim.job.batchId, claim.job.plateId)

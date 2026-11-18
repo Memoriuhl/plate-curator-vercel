@@ -2,24 +2,25 @@ import { imageGroupCapabilities } from './image-options'
 import type { JobsDeps } from './types'
 
 export type Availability = { available: boolean; reason?: string }
-export type LocalWorkerCapabilities = { group: Availability; embeddings: Availability; mask: Availability; vision: Availability; pollIntervalMs: number }
-export type WorkerCapabilityRecord = { workerId: string; reportedAt: number; capabilities: LocalWorkerCapabilities }
+export type LocalWorkerCapabilities = { group: Availability; embeddings: Availability; mask: Availability; vision: Availability; enhanceImage?: Availability; pollIntervalMs: number }
+export type WorkerCapabilityRecord = { workerId: string; reportedAt: number; supportsSavedSources?: boolean; capabilities: LocalWorkerCapabilities }
 
 export function shouldWriteCapabilities(previous: WorkerCapabilityRecord | null, record: WorkerCapabilityRecord): boolean {
   if (!previous) return true
   if (record.reportedAt < previous.reportedAt) return false
   const unchanged = previous.workerId === record.workerId
+    && previous.supportsSavedSources === record.supportsSavedSources
     && previous.capabilities.pollIntervalMs === record.capabilities.pollIntervalMs
-    && (['group', 'embeddings', 'mask', 'vision'] as const).every(key => previous.capabilities[key].available === record.capabilities[key].available && previous.capabilities[key].reason === record.capabilities[key].reason)
+    && (['group', 'embeddings', 'mask', 'vision', 'enhanceImage'] as const).every(key => previous.capabilities[key]?.available === record.capabilities[key]?.available && previous.capabilities[key]?.reason === record.capabilities[key]?.reason)
   return !unchanged || record.reportedAt - previous.reportedAt >= record.capabilities.pollIntervalMs
 }
 
 export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
-  if (Object.keys(input).some(key => !['group', 'embeddings', 'mask', 'vision', 'pollIntervalMs'].includes(key)) || !Number.isInteger(input.pollIntervalMs) || Number(input.pollIntervalMs) < 100 || Number(input.pollIntervalMs) > 60000) return null
+  if (Object.keys(input).some(key => !['group', 'embeddings', 'mask', 'vision', 'enhanceImage', 'pollIntervalMs'].includes(key)) || !Number.isInteger(input.pollIntervalMs) || Number(input.pollIntervalMs) < 100 || Number(input.pollIntervalMs) > 60000) return null
   const entries: [string, Availability][] = []
-  for (const key of ['group', 'embeddings', 'mask', 'vision']) {
+  for (const key of ['group', 'embeddings', 'mask', 'vision', ...(input.enhanceImage === undefined ? [] : ['enhanceImage'])]) {
     const raw = input[key]
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
     const item = raw as Record<string, unknown>
@@ -31,11 +32,11 @@ export function parseWorkerCapabilities(value: unknown): LocalWorkerCapabilities
   return { ...Object.fromEntries(entries), pollIntervalMs: Number(input.pollIntervalMs) } as LocalWorkerCapabilities
 }
 
-export async function reportLocalWorkerCapabilities(d: JobsDeps, workerId: string, input: unknown): Promise<boolean> {
+export async function reportLocalWorkerCapabilities(d: JobsDeps, workerId: string, input: unknown, supportsSavedSources?: boolean): Promise<boolean> {
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope) return false
   const capabilities = parseWorkerCapabilities(input)
   if (!capabilities) return false
-  await d.store.writeCapabilities(d.localScope, { workerId, reportedAt: d.now(), capabilities })
+  await d.store.writeCapabilities(d.localScope, { workerId, reportedAt: d.now(), capabilities, ...(supportsSavedSources === undefined ? {} : { supportsSavedSources }) })
   return true
 }
 
@@ -45,11 +46,13 @@ export async function readLocalWorkerCapabilities(d: JobsDeps) {
   if (!fresh) {
     const result = imageGroupCapabilities()
     const unavailable = { available: false, reason: 'Local worker not reporting' }
-    return { ...result, 'find-image': unavailable, group: unavailable, embeddings: unavailable, colorSignal: unavailable, backgroundMask: unavailable, visionTiebreak: unavailable, reportedAt: record?.reportedAt ?? null, pollIntervalMs: record?.capabilities.pollIntervalMs ?? null }
+    return { ...result, 'find-image': unavailable, 'enhance-image': unavailable, group: unavailable, embeddings: unavailable, colorSignal: unavailable, backgroundMask: unavailable, visionTiebreak: unavailable, reportedAt: record?.reportedAt ?? null, pollIntervalMs: record?.capabilities.pollIntervalMs ?? null }
   }
   const caps = record.capabilities
   return {
     ...imageGroupCapabilities(),
+    'enhance-image': caps.enhanceImage ?? { available: false, reason: 'Update the local worker to enhance images' },
+    ...(record.supportsSavedSources === undefined ? {} : { supportsSavedSources: record.supportsSavedSources }),
     group: caps.group,
     embeddings: caps.embeddings,
     colorSignal: caps.mask,

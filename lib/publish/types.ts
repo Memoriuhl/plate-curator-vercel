@@ -1,5 +1,5 @@
 import type { BaselineError } from './baseline'
-import type { PublishStop } from './stop'
+import type { PIPELINE_BUSY, PublishStop } from './stop'
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'
 import type { RetryEligibility } from './eligibility'
@@ -8,14 +8,14 @@ export type CatalogPointer = { version: number; url?: string; blobSha256?: strin
 export type { PublishStop } from './stop'
 export type RequesterAuthority = { uid: string; email: string; authorityEpoch: number }
 export type PublishRequester = { ownerUid: string; requestedBy?: RequesterAuthority; generation?: number; commandId?: string }
-export type PublishCommand = { batchId: string; revision: number } & Omit<PublishRequester, 'ownerUid'>
+export type PublishCommand = { batchId: string; revision: number; confirmedDraftRevision?: number } & Omit<PublishRequester, 'ownerUid'>
 export const validCommandId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(value)
 export type PublishControlState = { paused: boolean; generation: number; changedBy: { uid: string; email: string }; changedAt: string }
 export interface PublishControl {
   read(): Promise<PublishControlState | null>
   check(command: PublishCommand, now: string): Promise<PublishStop | null>
 }
-export type PublishError = PublishStop | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
+export type PublishError = PublishStop | typeof PIPELINE_BUSY | 'empty_batch' | 'not_waiting' | 'forbidden' | 'not_found' | 'invalid_state' | 'superseded_revision' | 'invalid_snapshot' | 'locked' | 'lock_lost' | 'version_taken' | 'pointer_moved' | 'unavailable' | BaselineError
 export type PublishRecord = {
   abandonment?: Abandonment
   object?: SnapshotObject
@@ -38,7 +38,7 @@ export type PublishRecord = {
 export type PublishLease = { token: string; batchId: string; revision: number; expiresAt: string; purpose?: 'abandon' }
 export interface PublishPointer {
   read(): Promise<CatalogPointer>
-  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'version_taken' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop>
+  advance(record: PublishRecord, lease: PublishLease, now: string): Promise<'advanced' | 'version_taken' | 'pointer_moved' | 'lock_lost' | 'superseded_revision' | PublishStop | typeof PIPELINE_BUSY>
 }
 export type SnapshotObject = { generation: string; metageneration: string; md5Hash?: string; crc32c?: string; url: string }
 export interface PublishSnapshots {
@@ -49,6 +49,7 @@ export interface PublishSnapshots {
   downloadUrl(version: number): Promise<string | null>
 }
 export interface PublishRecords {
+  pipelineBusy?(): Promise<boolean>
   nextVersion(token: string, now: string): Promise<number | null>
   abandon(record: PublishRecord, actor: RequesterAuthority, reason: string, object: SnapshotObject | null, token: string, now: string): Promise<AbandonResult>
   abandonmentEligibility(record: PublishRecord, now: string): Promise<PublishError | null>

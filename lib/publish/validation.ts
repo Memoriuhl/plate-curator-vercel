@@ -1,5 +1,6 @@
 import { validTarget } from './allocation'
 import type { Snapshot } from '../catalog/types'
+import { familyRole } from '../catalog/families'
 import { colorFieldKeys, parseColorFields, parseStoryFields, storyUrl } from '../review/fields'
 import { sameEditableValue, storyFieldKeys } from '../review/story'
 
@@ -19,7 +20,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
   const baselineFamilies = new Set(baseline.plates.flatMap(plate => typeof plate.templateFamily === 'string' ? [plate.templateFamily] : []))
   const touchedFamilies = new Set<string>()
   for (const plate of baseline.plates) {
-    if (typeof plate.templateFamily === 'string' && plate.templateRole === 'template') {
+    if (typeof plate.templateFamily === 'string' && familyRole(plate) === 'template') {
       baselineTemplateCounts.set(plate.templateFamily, (baselineTemplateCounts.get(plate.templateFamily) ?? 0) + 1)
     }
   }
@@ -54,13 +55,13 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
     }
     if (plate.templateFamily !== undefined) {
       if (typeof plate.templateFamily !== 'string') reasons.push(`Plate ${index} requires string templateFamily`)
-      else families.set(plate.templateFamily, (families.get(plate.templateFamily) ?? 0) + (plate.templateRole === 'template' ? 1 : 0))
+      else families.set(plate.templateFamily, (families.get(plate.templateFamily) ?? 0) + (familyRole(plate) === 'template' ? 1 : 0))
     }
   }
   for (const plate of baseline.plates) {
     if (ids.has(plate.id)) continue
     if (!deleted.has(plate.id)) reasons.push(`Missing baseline plate: ${plate.id}`)
-    if (plate.templateRole === 'template' && plate.templateFamily && families.has(plate.templateFamily)) touchedFamilies.add(plate.templateFamily)
+    if (familyRole(plate) === 'template' && plate.templateFamily && families.has(plate.templateFamily)) touchedFamilies.add(plate.templateFamily)
   }
   for (const [state, count] of standards) if (count > 1) reasons.push(`Multiple standard plates in state: ${state}`)
   for (const plate of candidate.plates) {
@@ -74,7 +75,7 @@ export function validateSnapshot(baseline: Snapshot, candidate: unknown, deleted
   for (const [state, order] of Object.entries(stateOrders)) {
     const plates = candidate.plates.filter(plate => plate && typeof plate === 'object' && plate.state === state)
     const first = plates.find(plate => plate.id === order[0])
-    if (!first || first.templateRole !== 'template' || first.isStandard !== true || plates.filter(plate => plate.isStandard === true).length !== 1) reasons.push('Standard must be the first Template in state: ' + state)
+    if (!first || familyRole(first) !== 'template' || first.isStandard !== true || plates.filter(plate => plate.isStandard === true).length !== 1) reasons.push('Standard must be the first Template in state: ' + state)
   }
   return reasons
 }

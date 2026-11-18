@@ -1,9 +1,10 @@
 import type { Plate } from '../catalog/types'
 import { canEdit } from '../review/access'
 import { editableFieldKeys, editableKeys, limits, parseEditableFields } from '../review/fields'
+import { retainedPipelineChanges } from '../review/pipeline-changes'
 import { plateRevision } from '../review/revision'
 import { sameEditableValue } from '../review/story'
-import type { Actor, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from '../review/types'
+import type { Actor, EditableFields, Outcome, ProposedEdit, ReviewBatch, ReviewDeps } from '../review/types'
 import { localQueueEnabled } from './queue'
 import type { JobsDeps } from './types'
 import { verifiedImageFields } from '../review/image'
@@ -22,6 +23,8 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.state !== 'open') return { ok: false, error: 'invalid_state' }
   const attempt = run.attempts.at(-1)!
+  if (run.incrementalDrafts) return ['completed', 'failed', 'cancelled'].includes(run.status)
+    ? { ok: true, value: batch } : { ok: false, error: 'invalid_state' }
   const token = `${run.id}:${attempt.number}`
   if (batch.pipelineApplications?.[token]) return { ok: true, value: batch }
   if (run.status !== 'completed' || attempt.outcome === 'no_result' || !attempt.projection || Object.keys(batch.pipelineApplications ?? {}).length >= 50 ||
@@ -35,7 +38,7 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     if (plateRevision(actual) !== entry.batchInputHash) return { ok: false, error: 'stale_plate', current: actual }
     baselines.set(baseline.id, baseline); current.set(baseline.id, actual)
   }
-  const changes = new Map<string, Partial<Plate>>()
+  const changes = new Map<string, EditableFields>()
   const storedJobs = await jobs.store.transaction(async tx => {
     const result = []
     for (const id of attempt.completedJobIds) {
@@ -62,7 +65,11 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
     if (!parsed) return { ok: false, error: 'invalid_state' }
     changes.set(before.id, parsed)
   }
-  if (run.stages.includes('group')) {
+  const groupBlocked = attempt.steps.some(step => step.stage === 'group' && (
+    step.reason === 'group_member_failed' && (step.status === 'cancelled' || step.status === 'skipped') ||
+    step.reason === 'group_member_skipped' && step.status === 'skipped'
+  ))
+  if (run.stages.includes('group') && !groupBlocked) {
     const selected = [...current.values()]
     if (!selected.length || new Set(selected.map(plate => plate.state)).size !== 1) return { ok: false, error: 'invalid_state' }
     const state = selected[0].state
@@ -78,22 +85,38 @@ export async function applyQueueBundle(jobs: JobsDeps, review: ReviewDeps, actor
       })) return { ok: false, error: 'invalid_state' }
   }
   const nextEdits: ProposedEdit[] = []
-  const deleteEditsFor: string[] = []
   const plateIds = new Set(batch.plateIds)
+  const byId = new Map(edits.map(edit => [edit.plateId, edit]))
+  const at = review.now()
   for (const [plateId, fields] of changes) {
     const baseline = baselines.get(plateId)!
-    const plate = { ...current.get(plateId)!, ...fields }
+    const before = current.get(plateId)!
+    const plate = { ...before, ...fields }
     const delta = Object.fromEntries(editableKeys.filter(key => !sameEditableValue(key, baseline[key], plate[key])).map(key => [key, plate[key]]))
-    if (!Object.keys(delta).length) deleteEditsFor.push(plateId)
-    else {
-      plateIds.add(plateId)
-      nextEdits.push({ plateId, baseRevision: plateRevision(baseline), fields: delta, authorId: actor.uid, updatedAt: review.now(), resultRevision: plateRevision(plate) })
+    plateIds.add(plateId)
+    const previous = retainedPipelineChanges(byId.get(plateId), plate)
+    const pipelineChanges = { ...previous.pipelineChanges }
+    const jobId = attempt.projection.plates[plateId]?.sourceJobIds.at(-1) ?? token
+    for (const key of editableKeys) {
+      const imagePair = (key === 'imageUrl' || key === 'sourceUrl') && Object.hasOwn(fields, 'imageUrl')
+      if (!imagePair && sameEditableValue(key, before[key], plate[key])) continue
+      const value = fields[key]
+      const prior = key === 'imageUrl'
+        ? typeof before.imageUrl === 'string' || before.imageUrl === null ? before.imageUrl : undefined
+        : before[key]
+      pipelineChanges[key] = {
+        runId: run.id, jobId, by: run.requestedBy, byName: actor.uid === run.requestedBy ? actor.name : null, at,
+        ...(prior !== undefined ? { previous: prior } : {}),
+        ...(value !== undefined ? { value } : {}),
+      }
     }
+    nextEdits.push({ plateId, baseRevision: plateRevision(baseline), fields: delta, authorId: actor.uid, updatedAt: at, resultRevision: plateRevision(plate),
+      pipelineChanges, pipelineRunIds: [...new Set([...(previous.pipelineRunIds ?? []), run.id])] })
   }
   if (plateIds.size > limits.plates) return { ok: false, error: 'invalid_state' }
-  const next: ReviewBatch = { ...batch, revision: batch.revision + 1, approval: null, plateIds: [...plateIds],
-    pipelineApplications: { ...batch.pipelineApplications, [token]: { by: actor.uid, at: review.now() } } }
-  const result = await review.store.commit(batch.id, batch.revision, { batch: next, edits: nextEdits, deleteEditsFor })
+  const next: ReviewBatch = { ...batch, lastChangedAt: at, revision: batch.revision + 1, approval: null, plateIds: [...plateIds],
+    pipelineApplications: { ...batch.pipelineApplications, [token]: { by: actor.uid, at } } }
+  const result = await review.store.commit(batch.id, batch.revision, { batch: next, edits: nextEdits })
   if (result !== 'ok') {
     const latest = await review.store.getBatch(batch.id)
     if (latest?.pipelineApplications?.[token]) return { ok: true, value: latest }

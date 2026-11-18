@@ -9,6 +9,7 @@ import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { BatchActions } from '../components/dashboard/batch-actions'
+import { DashboardPipelineProvider } from '../components/dashboard/pipeline-runs'
 import { ReviewStrip } from '../components/dashboard/review-strip'
 import { FilterBar } from '../components/dashboard/filter-bar'
 import { alaskaFixture } from '../fixtures/dashboard-frame'
@@ -17,12 +18,10 @@ import type { ReviewBatch } from '../lib/review/types'
 
 const state = vi.hoisted(() => ({
   selected: false,
-  readonly: false,
   role: 'owner',
   open: [] as ReviewBatch[],
   review: [] as ReviewBatch[],
   detail: undefined as BatchDetail | undefined,
-  submit: vi.fn(),
   buttons: new Map<
     string,
     { disabled?: boolean; 'aria-disabled'?: boolean | 'true' | 'false'; onClick?: () => Promise<void> }
@@ -31,7 +30,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../lib/client/hooks', () => ({
   useTaggingModels: () => ({ data: undefined }),
-  useWorkspaceBatch: () => state.selected ? ({ mode: 'selected', id: 'shared', detail: state.detail, status: state.readonly ? 'read-only' : 'ready' }) : ({ mode: 'personal' }),
+  useWorkspaceBatch: () => state.selected ? ({ mode: 'selected', id: 'shared', detail: state.detail, status: state.detail ? 'ready' : 'loading' }) : ({ mode: 'personal' }),
   useEnsureBatch: () => vi.fn(),
   useEditPlate: () => ({ edit: vi.fn(), pending: false }),
   useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
@@ -39,7 +38,6 @@ vi.mock('../lib/client/hooks', () => ({
     data: states.includes('open') ? state.open : state.review,
   }),
   useBatch: () => ({ data: state.detail }),
-  useReviewActions: () => ({ submit: state.submit }),
 }))
 vi.mock('../lib/client/session', () => ({
   useSession: () => ({ api: { get: vi.fn(), send: vi.fn() } }),
@@ -71,6 +69,7 @@ const batch: ReviewBatch = {
   state: 'open',
   revision: 7,
   createdAt: '2026-11-16',
+  lastChangedAt: '2026-11-17T16:15:00Z',
   baselineVersion: 11,
   approval: null,
   plateIds: ['AK.standard_gold', 'AK.amateur_radio_call_sign', 'AZ.standard'],
@@ -78,7 +77,6 @@ const batch: ReviewBatch = {
 
 beforeEach(() => {
   state.selected = false
-  state.readonly = false
   state.role = 'owner'
   state.open = [batch]
   state.review = []
@@ -97,7 +95,7 @@ beforeEach(() => {
         proposed: {
           id: 'AK.standard_gold',
           state: 'AK',
-          tags: [],
+          tags: ['gold'],
           slug: 'standard_gold',
           displayName: 'Standard',
           image: '',
@@ -106,7 +104,7 @@ beforeEach(() => {
         edit: {
           plateId: 'AK.standard_gold',
           baseRevision: 'r0',
-          fields: {},
+          fields: { tags: ['gold'] },
           authorId: 'Jonathan',
           updatedAt: '2026-11-16',
           resultRevision: 'r1',
@@ -115,47 +113,33 @@ beforeEach(() => {
     ],
   } as BatchDetail
   state.buttons.clear()
-  state.submit.mockReset()
 })
 
-test('submit sends the loaded batch revision and counts edits', async () => {
-  const html = renderToStaticMarkup(
-    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
-  )
-  expect(html).toContain('1 changes, saved')
-  const submit = state.buttons.get('Submit for review')!
-  expect(submit.disabled).toBe(false)
-  await submit.onClick!()
-  expect(state.submit).toHaveBeenCalledWith('batch-one', 7)
+test('Owner sees the personal Batch name, persisted change time, Review and Publish', () => {
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
+  expect(html).toContain('Alaska updates')
+  expect(html).toContain('dateTime="2026-11-17T16:15:00Z"')
+  expect(html).toContain('Last changed')
+  expect(html).toContain('href="/review?batch=batch-one"')
+  expect(html).toContain('href="/publish?batch=batch-one"')
+  expect(html).not.toContain('Submit for review')
 })
 
-test('editors see disabled Publish and can open the pipeline menu', () => {
+test('Editor sees the Batch identity and can open Review and the pipeline menu', () => {
   state.role = 'editor'
-  const html = renderToStaticMarkup(
-    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
-  )
-  expect(html).toContain('Only Owners can publish')
-  expect(state.buttons.get('Publish to players')?.['aria-disabled']).toBe('true')
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
+  expect(html).toContain('Last changed')
+  expect(html).toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('href="/publish')
   expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })
 
-test('owner Publish is disabled and empty batches cannot submit', () => {
-  state.detail!.plates[0].edit = null
-  renderToStaticMarkup(
-    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
-  )
-  expect(state.buttons.get('Publish to players')?.['aria-disabled']).toBe('true')
-  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
-})
-
-test('no open batch hides the batch summary and disables submit', () => {
+test('without an open Batch, the dashboard explains the empty workspace', () => {
   state.open = []
   state.detail = undefined
-  const html = renderToStaticMarkup(
-    <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />,
-  )
-  expect(html).not.toContain('Your batch:')
-  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
+  expect(html).toContain('No open Batch yet')
+  expect(html).not.toContain('href="/publish')
 })
 
 test('review strip hides when empty and approved batches retain Review with enabled Publish', () => {
@@ -164,7 +148,8 @@ test('review strip hides when empty and approved batches retain Review with enab
   const html = renderToStaticMarkup(<ReviewStrip />)
   expect(html).toContain('href="/review?batch=batch-one"')
   expect(html).toContain('Approved')
-  expect(html).toContain('Rev 7')
+  expect(html).toContain('Last changed')
+  expect(html).not.toContain('Rev 7')
   expect(html).toContain('href="/publish?batch=batch-one"')
   expect(state.buttons.get('Publish to players')?.disabled).not.toBe(true)
 })
@@ -200,21 +185,21 @@ test('changed filter counts current-jurisdiction batch membership including uned
 })
 
 
-test('selected submit targets the shared Batch and Run Tag is available', async () => {
+test('selected Publish keeps the shared Batch ID while its details load', () => {
   state.selected = true
-  state.detail!.batch = { ...batch, id: 'shared', revision: 9 }
-  const html = renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
-  expect(html).toContain('Selected batch:')
-  expect(state.buttons.get('Run pipeline')?.disabled).toBe(false)
-  await state.buttons.get('Submit for review')!.onClick!()
-  expect(state.submit).toHaveBeenCalledWith('shared', 9)
+  state.detail = undefined
+  const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
+  expect(html).toContain('href="/publish?batch=shared"')
+  expect(html).not.toContain('href="/publish?batch=batch-one"')
 })
 
-test('read-only shared Batch cannot submit', async () => {
-  state.selected = true
-  state.readonly = true
-  renderToStaticMarkup(<BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />)
-  expect(state.buttons.get('Submit for review')?.disabled).toBe(true)
-  await state.buttons.get('Submit for review')!.onClick!()
-  expect(state.submit).not.toHaveBeenCalled()
+test('legacy Batch timestamps distinguish creation from an unknown edit time', () => {
+  for (const [revision, label] of [[0, 'Created'], [7, 'Last change unavailable']] as const) {
+    const legacy = { ...batch, revision, lastChangedAt: undefined }
+    state.open = [legacy]
+    state.detail = { batch: legacy, plates: [] }
+    const html = renderToStaticMarkup(<DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>)
+    expect(html).toContain(label)
+    expect(html).not.toContain('Last changed')
+  }
 })

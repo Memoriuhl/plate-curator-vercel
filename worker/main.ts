@@ -1,4 +1,5 @@
 import { gatewayAdapter, ollamaAdapter, type ModelAdapter } from './model'
+import { createEnhanceImageRunner } from './enhance-image'
 import { imageReader } from './images'
 import { runLoop, type WorkerDeps } from './run'
 import { assertLocalWorker } from './local'
@@ -33,10 +34,11 @@ async function main() {
   const runtime = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' ? await detectGroupRuntime(process.env) : undefined
   const availability = imageGroupCapabilities(runtime)
   if (process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && (!Number.isInteger(idleMs) || idleMs < 100 || idleMs > 60000)) throw new Error('Local IDLE_MS must be between 100 and 60000')
-  const capabilities = runtime ? { group: availability.group, embeddings: availability.embeddings, mask: availability.backgroundMask, vision: availability.visionTiebreak, pollIntervalMs: idleMs } : undefined
+  const capabilities = runtime ? { group: availability.group, embeddings: availability.embeddings, mask: availability.backgroundMask, vision: availability.visionTiebreak, enhanceImage: { available: true }, pollIntervalMs: idleMs } : undefined
   const imageStages = createImageGroupRunner({ embed, runtime, tiebreak: localVisionTiebreak({ url: ollamaUrl, readImage }) })
+  const enhanceImage = createEnhanceImageRunner(readImage)
   const suggestFields: WorkerDeps['suggestFields'] = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
-    ? input => ['find-image', 'group'].includes(input.stage) ? imageStages(input) : textStages(input)
+    ? input => input.stage === 'enhance-image' ? enhanceImage(input) : ['find-image', 'group'].includes(input.stage) ? imageStages(input) : textStages(input)
     : undefined
   await runLoop({ apiBase: API_BASE, token, protectionBypass: VERCEL_PROTECTION_BYPASS, capabilities, fetch, adapter, adapterFor, suggestFields, readImage, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log: console.log }, { idleMs, concurrency })
 }

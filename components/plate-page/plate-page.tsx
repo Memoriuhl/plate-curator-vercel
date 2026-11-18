@@ -1,9 +1,12 @@
 'use client'
 
+import { PipelineReviewLink } from '@/components/plate/pipeline-review-link'
+
 import { useStandardConfirmation } from '@/components/plate/standard-confirmation'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSWRConfig } from 'swr'
 import Image from 'next/image'
+import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
@@ -164,6 +167,7 @@ function Member({
     >
       <span className="flex h-9 w-[72px] shrink-0 items-center justify-center rounded bg-[var(--fill)]">
         {plate.imageUrl ? (
+          <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={plate.imageUrl}>
           <Image
             src={plate.imageUrl}
             alt=""
@@ -172,6 +176,7 @@ function Member({
             unoptimized
             className="h-9 w-[72px] object-contain"
           />
+          </PlateImageHover>
         ) : null}
       </span>
       <span className="min-w-0 flex-1 break-words text-sm font-extrabold">
@@ -330,7 +335,7 @@ export function PlatePage(props: PlatePageProps) {
         </AlertDialogContent>
       </AlertDialog>
       <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="group/plate flex flex-wrap items-center gap-3">
           <Link
             href={stateHref}
             aria-label={`Back to ${props.stateName}`}
@@ -346,6 +351,7 @@ export function PlatePage(props: PlatePageProps) {
             {plate.state}
           </Link>
           <h1 className={cn("page-title", current.deleted && "line-through opacity-60")}>{current.displayName}</h1>
+          <PipelineReviewLink plate={plate} />
           <span className="id text-[var(--ink-2)]">
             {current.id} ·{' '}
             {current.templateRole === null
@@ -400,6 +406,7 @@ export function PlatePage(props: PlatePageProps) {
           <Card>
             <div className="flex min-h-[200px] items-center justify-center overflow-hidden">
               {props.plate.imageUrl ? (
+                <PlateImageHover plateId={plate.id} plateName={plate.displayName} before={props.plate.imageUrl}>
                 <Image
                   src={props.plate.imageUrl}
                   width={props.plate.imageSize.width}
@@ -409,6 +416,7 @@ export function PlatePage(props: PlatePageProps) {
                   priority
                   className={cn("max-w-full object-contain", current.deleted && "opacity-60")}
                 />
+                </PlateImageHover>
               ) : (
                 <p>No image available</p>
               )}

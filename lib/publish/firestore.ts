@@ -1,14 +1,16 @@
 import { abandonClaim, abandonmentCommands, abandonmentError, abandonmentPlan, abandonedReceiptId } from './abandon'
 import { nextPublishVersion, occupiesTarget, validTarget } from './allocation'
 import { publishRequesterStop, sameRequester } from './authority'
-import { batchApprovedFor, claimSupersedes, isSuperseded, receiptId } from './command'
+import { batchApprovedFor, claimSupersedes, draftCanBeConfirmed, hasDraftChanges, isSuperseded, receiptId } from './command'
 import { CLAIM_TTL_MS, claimRunKey, resolveClaimRun, retryEligibility, terminalRun, type EligibilityInput, type PublishRunLookup } from './eligibility'
+import { liveEnvKey, signalPath } from '../review/live-signal'
 import { firestoreReviewStore, writePublishMetadata } from '../review/firestore-store'
 import { uploadError } from './upload'
 import { sameObject } from './object'
-import type { ReviewBatch } from '../review/types'
+import type { EditableFields, ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
-import { isPublishStop, PUBLISH_STOPS, type PublishStop } from './stop'
+import { hasActivePipeline } from './pipeline-gate'
+import { isPublishStop, PIPELINE_BUSY, PUBLISH_STOPS, type PublishStop } from './stop'
 import { parsePublishControl, publishCommandKey, publishControlStop } from './control'
 import type { PublishCommand, PublishControl, PublishControlState } from './types'
 import { FieldValue, type DocumentData, type DocumentSnapshot, type Transaction, type Firestore } from '@google-cloud/firestore'
@@ -47,6 +49,10 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
         if (lock.exists && unexpired(lock.get('expiresAt'), now)) return false
         const data = batch.data()
         const recordId = receiptId(lease.batchId, lease.revision)
+        if (lease.purpose !== 'abandon' && await hasActivePipeline(db, transaction, env)) {
+          const receipt = await transaction.get(db.doc(`publishRecords/${recordId}`))
+          if (receipt.get('env') !== env || !receipt.get('committedAt')) return false
+        }
         if (data?.env !== env) return false
         if (lease.purpose !== 'abandon' && (data.state !== 'approved' || data.revision !== lease.revision || data.publishReservation && data.publishReservation.recordId !== recordId)) return false
         transaction.set(lockRef, { ...lease, env })
@@ -137,8 +143,13 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
     const resolved = evidence.resolved
     const claim = changed ? context.claim : resolved.claim
     const status = changed ? undefined : resolved.status
+    const currentBatch = batch.get('env') === env ? batch.data() as ReviewBatch : null
+    const confirmed = !replay && currentBatch && draftCanBeConfirmed(currentBatch) && !batch.get('publishReservation') &&
+      command.confirmedDraftRevision === currentBatch.revision && command.revision === currentBatch.revision + 1 && command.requestedBy
+      ? { state: 'approved' as const, revision: command.revision, approval: { revision: currentBatch.revision, by: command.requestedBy.uid, at: now } }
+      : null
     const input: EligibilityInput = {
-      command, batch: batch.get('env') === env ? batch.data() as ReviewBatch : null,
+      command, batch: confirmed ? { ...currentBatch!, ...confirmed } : currentBatch,
       control: parsePublishControl(control.data()), member: member?.data(), liveVersion: pointer.get('version'),
       receipt: receipt.get('env') === env ? receipt.data() as PublishRecord : null,
       claim: claim ?? (pending?.revision === command.revision ? { command: { batchId: command.batchId, revision: command.revision, commandId: pending.commandId }, acceptedAt: now } : undefined),
@@ -147,7 +158,11 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       ownStop: isPublishStop(ownStop.get('reason')) ? ownStop.get('reason') : null,
       runStatus: status, now, claimTtlMs: options.claimTtlMs, replay,
     }
-    const eligibility = changed ? { canRetry: false, reason: 'locked' as const } : retryEligibility(input)
+    const edits = confirmed ? await transaction.get(batch.ref.collection('edits').select('fields')) : null
+    const emptyDraft = edits && !hasDraftChanges(currentBatch!, edits.docs.map(edit => (edit.get('fields') ?? {}) as EditableFields))
+    const eligibility = (!replay && command.confirmedDraftRevision !== undefined && !confirmed) ? { canRetry: false, reason: 'superseded_revision' as const } : changed ? { canRetry: false, reason: 'locked' as const }
+      : emptyDraft ? { canRetry: false, reason: 'empty_batch' as const }
+      : retryEligibility(input)
     if (writeRecovered && !changed && 'recoveredRunId' in resolved && resolved.recoveredRunId && status !== 'not_found' && !terminalRun(status) && claimDoc && claim) {
       if (claimDoc.exists) transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
       else transaction.create(claimDoc.ref, { ...claim, env })
@@ -155,9 +170,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
         writePublishMetadata(transaction, batch, { approvalRun: { runId: resolved.recoveredRunId, revision: claim.command.revision - 1 }, publishRequestedAt: claim.acceptedAt, ...(claim.command.requestedBy ? { publishRequestedBy: claim.command.requestedBy } : {}) })
       }
     }
-    return { eligibility, batch, input, claimStop, receiptStop, changed }
+    return { eligibility, batch, input, claimStop, receiptStop, changed, confirmed }
   }
   return {
+    async pipelineBusy() { return db.runTransaction(tx => hasActivePipeline(db, tx, env), { readOnly: true }) },
     async nextVersion(token, now) {
       return db.runTransaction(async transaction => {
         const [lock, pointer] = await transaction.getAll(db.doc('locks/publish'), db.doc('config/catalog'))
@@ -233,6 +249,7 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
       for (let attempt = 0; attempt < 2; attempt++) {
         const evidence = await resolveRun(command, now)
         const result = await db.runTransaction<Awaited<ReturnType<PublishRecords['accept']>> | 'claim_changed'>(async transaction => {
+          if (await hasActivePipeline(db, transaction, env)) return { ok: false, error: PIPELINE_BUSY }
           const ref = db.doc(`publishCommands/${publishCommandKey(command)}`)
           const accepted = await transaction.get(ref)
           if (accepted.exists) {
@@ -240,7 +257,7 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
             if (data.env !== env || data.command.batchId !== command.batchId || data.command.revision !== command.revision || !sameRequester(data.command.requestedBy, command.requestedBy)) return { ok: false, error: PUBLISH_STOPS.superseded }
             command = data.command as PublishCommand
           }
-          const { eligibility, batch, input, claimStop, receiptStop, changed } = await inspect(transaction, command, now, evidence, accepted.exists, true)
+          const { eligibility, batch, input, claimStop, receiptStop, changed, confirmed } = await inspect(transaction, command, now, evidence, accepted.exists, true)
           if (changed && accepted.exists) return 'claim_changed'
           if (!eligibility.canRetry) return { ok: false, error: eligibility.reason! }
           if (accepted.exists) {
@@ -252,6 +269,10 @@ export function firestorePublishRecords(db: Firestore, env: string, options: Pub
           }
           if (input.receipt && input.receipt.commandId !== command.commandId && !receiptStop?.exists && input.receipt.commandId !== input.claim?.command.commandId) {
             transaction.create(db.doc(`publishCommandStops/${publishCommandKey(input.receipt)}`), { batchId: input.receipt.batchId, revision: input.receipt.revision, commandId: publishCommandKey(input.receipt), reason: PUBLISH_STOPS.superseded, stoppedAt: now })
+          }
+          if (confirmed) {
+            transaction.update(batch.ref, confirmed)
+            transaction.set(db.doc(signalPath(liveEnvKey(env), command.batchId)), { revision: command.revision })
           }
           transaction.create(ref, { env, command, acceptedAt: now })
           writePublishMetadata(transaction, batch, { publishCommand: { commandId: command.commandId!, revision: command.revision } })
@@ -366,6 +387,7 @@ export function firestorePublishPointer(db: Firestore, env: string, verifyObject
         if (claimSupersedes(batch.data(), record)) return PUBLISH_STOPS.superseded
         if (receipt.get('commandId') !== record.commandId) return PUBLISH_STOPS.superseded
         if (receipt.get('committedAt')) return 'advanced'
+        if (await hasActivePipeline(db, transaction, env)) return PIPELINE_BUSY
         const targets = await transaction.get(db.collection('publishRecords').where('toVersion', '==', record.toVersion))
         if (targets.docs.some(target => target.id !== record.id && occupiesTarget(target.data() as PublishRecord))) return 'version_taken'
         const stop = writePublishStop({ transaction, command: record, control, stopped, now, member })

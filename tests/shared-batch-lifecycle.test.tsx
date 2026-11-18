@@ -2,7 +2,10 @@ import { createContext, useContext } from 'react'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { SWRConfig } from 'swr'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { PublishWorkspace } from '../components/publish/workspace'
+import { ReviewWorkspace } from '../components/review/workspace'
 import { BatchActions } from '../components/dashboard/batch-actions'
+import { DashboardPipelineProvider } from '../components/dashboard/pipeline-runs'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
 import { projectFamilyPlate } from '../components/dashboard/family-data'
@@ -11,9 +14,10 @@ import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-si
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
 import { approveBatch, proposeEdit, reorderState, submitBatch } from '../lib/review/batch'
+import { discardPlateChanges } from '../lib/review/discard-changes'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
-import type { Actor, ReviewBatch, ReviewDeps } from '../lib/review/types'
+import type { Actor, DraftChangeTarget, ReviewBatch, ReviewDeps } from '../lib/review/types'
 import type { Plate } from '../lib/catalog/types'
 import { plateCards } from '../fixtures/plate-cards'
 
@@ -75,6 +79,16 @@ function session(actor: Actor, id: string | null = 'shared') {
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return actor
+        if (path === '/api/publish/control') return { control: null }
+        if (path.endsWith('/run')) return { phase: null, runId: null, outcome: null, updatedAt: null }
+        if (path.endsWith('/publish')) {
+          const current = (await deps.store.getBatch(path.split('/')[3]))!
+          return {
+            error: null, enabledHere: true, batchRevision: current.revision, approvalProblems: [],
+            destination: 'license-plate-game-staging', canConfirmDraft: true,
+            confirmation: await deps.store.changesSinceReview!(current.id, actor.uid, current.revision),
+          }
+        }
         if (path.startsWith('/api/batches?')) return (await deps.store.list({ states: ['open'] })).filter(b => b.createdBy === actor.uid)
         if (path.startsWith('/api/batches/')) {
           const result = await batchDetail(deps, path.split('/')[3])
@@ -85,7 +99,14 @@ function session(actor: Actor, id: string | null = 'shared') {
       },
       send: async (method: string, path: string, body: unknown) => {
         requests.push({ actor: actor.uid, method, path, body })
+        if (method === 'POST' && path.endsWith('/publish')) return { status: 'publishing' }
         if (path === '/api/live-access') return { envKey: 'test', expiresAt: new Date(Date.now() + 3600000).toISOString() }
+        if (method === 'PATCH' && body && typeof body === 'object' && 'discard' in body) {
+          const request = body as { batchRevision: number; discard: DraftChangeTarget }
+          const result = await discardPlateChanges(deps, actor, { batchId: path.split('/')[3], plateId: path.split('/')[5], batchRevision: request.batchRevision, target: request.discard })
+          if (!result.ok) throw new ApiError(409, result.error, result)
+          return result.value
+        }
         if (method === 'PATCH') {
           const result = await proposeEdit(deps, actor, { batchId: path.split('/')[3], plateId: path.split('/')[5], ...body as { baseRevision: string; fields: import('../lib/review/types').EditableFields; standard?: import('../lib/review/types').StandardChange } })
           if (!result.ok) throw new ApiError(409, result.error, result)
@@ -103,9 +124,24 @@ function session(actor: Actor, id: string | null = 'shared') {
     },
   }
 }
-function Workspace({ value }: { value: ReturnType<typeof session> }) {
+function Workspace({ value, page = 'dashboard' }: { value: ReturnType<typeof session>; page?: 'dashboard' | 'review' | 'publish' }) {
   const cache = new Map()
-  return <Context.Provider value={value}><SWRConfig value={{ provider: () => cache, dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}><SelectedBatchBar /><FamilyGrid plates={gridPlates} /><OrderAction /><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></LiveSignalProvider></SWRConfig></Context.Provider>
+  return (
+    <Context.Provider value={value}>
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}>
+        <LiveSignalProvider value={source}>
+          {page === 'dashboard' && <>
+            <SelectedBatchBar />
+            <FamilyGrid plates={gridPlates} />
+            <OrderAction />
+            <DashboardPipelineProvider><BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" /></DashboardPipelineProvider>
+          </>}
+          {page === 'review' && <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />}
+          {page === 'publish' && <PublishWorkspace />}
+        </LiveSignalProvider>
+      </SWRConfig>
+    </Context.Provider>
+  )
 }
 beforeEach(() => {
   connected = true; failedOrder = undefined; supersedeRun.mockClear()
@@ -128,6 +164,25 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+test('Review removes one field, then clears the selected plate and leaves the other plate’s draft', async () => {
+  await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { description: 'Draft description', tags: ['draft'] } })
+  await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.b', baseRevision: plateRevision(plates[2]), fields: { tags: ['navy'] } })
+  const value = session(editor)
+  value.params.set('plate', 'AK.v')
+  const view = render(<Workspace value={value} page="review" />)
+  fireEvent.click(await view.findByRole('button', { name: 'After' }))
+  fireEvent.click(view.getByRole('button', { name: 'Remove description change' }))
+  await waitFor(async () => expect((await deps.store.getEdit('shared', 'AK.v'))?.fields).toEqual({ tags: ['draft'] }))
+  await waitFor(() => expect(view.queryByRole('button', { name: 'Remove description change' })).toBeNull())
+  fireEvent.click(view.getByRole('button', { name: 'Remove all changes' }))
+  const dialog = await view.findByRole('alertdialog', { name: 'Remove all changes for Variant?' })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Remove all changes' }))
+  await view.findByText('No changes for this plate')
+  expect(await deps.store.getEdit('shared', 'AK.v')).toBeNull()
+  expect((await deps.store.getEdit('shared', 'AK.b'))?.fields).toEqual({ tags: ['navy'] })
+  expect((await deps.store.getBatch('shared'))?.plateIds).toEqual(['AK.a', 'AK.b'])
+})
+
 function OrderAction() {
   const { reorder } = useReorderState()
   return <button onClick={() => void reorder('AK', ['AK.b', 'AK.a', 'AK.v'], { from: 'AK.a', to: 'AK.b' })}>Reverse State order</button>
@@ -142,7 +197,7 @@ async function twoSessions() {
   const first = render(<Workspace value={session(editor)} />)
   const second = render(<Workspace value={session(owner)} />)
   await waitFor(() => expect(first.container.textContent).toContain('Live'))
-  await waitFor(() => expect(second.container.textContent).toContain('rev 0'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0'))
   await settle()
   return { first, second }
 }
@@ -151,13 +206,16 @@ test('State order and Standard reach the other Dashboard and the Batch can be su
   const { first, second } = await twoSessions()
   expect(familyOrder(second.container)).toEqual(['Army family', 'Navy family'])
   fireEvent.click(within(first.container).getByText('Reverse State order'))
-  await waitFor(() => expect(second.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   expect(familyOrder(first.container)).toEqual(['Navy family', 'Army family'])
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
   expect(requests.find(r => r.path.endsWith('/state-order/AK'))).toMatchObject({ path: '/api/batches/shared/state-order/AK', body: { batchRevision: 0, standard: { from: 'AK.a', to: 'AK.b' }, order: ['AK.b', 'AK.a', 'AK.v'] } })
-  const submit = within(first.container).getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement
-  expect(submit.disabled).toBe(false)
-  fireEvent.click(submit)
+  const reviewLink = within(first.container).getByRole('link', { name: 'Review Batch' })
+  expect(reviewLink.getAttribute('href')).toBe('/review?batch=shared')
+  const review = render(<Workspace value={session(editor)} page="review" />)
+  await within(review.container).findByRole('region', { name: 'Before and after' })
+  expect(within(review.container).queryByRole('button', { name: 'Submit for review' })).toBeNull()
+  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
   await waitFor(() => expect(second.container.textContent).toContain('submitted'))
 })
 
@@ -170,29 +228,26 @@ test('a stale State order submission changes neither draft nor signal', async ()
   await waitFor(() => expect(failedOrder).toEqual({ ok: false, error: 'superseded_revision' }))
   expect(await deps.store.readBatch('shared')).toEqual(before)
   expect(signals.get('shared')).toBe(1)
-  expect(second.container.textContent).toContain('rev 0')
+  expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0')
 })
 
 test('submit, approve and a post-approval edit update both the Batch bar and actions', async () => {
   const { first, second } = await twoSessions()
   await act(async () => { expect(await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } })).toMatchObject({ ok: true }) })
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
-  fireEvent.click(within(first.container).getByRole('button', { name: 'Submit for review' }))
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
+  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
   await waitFor(() => expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('submitted'))
-  expect(within(second.container).getByLabelText('AK batch actions').textContent).toContain('submitted')
-  expect((within(second.container).getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(within(second.container).getByRole('link', { name: 'Publish' }).getAttribute('href')).toBe('/publish?batch=shared')
   await act(async () => {
     expect(await deps.store.recordRun('shared', 2, 'approval-run')).toBe(true)
     expect(await approveBatch(deps, owner, 'shared', 2)).toMatchObject({ ok: true })
   })
   await waitFor(() => expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('approved'))
-  expect(within(second.container).getByLabelText('AK batch actions').textContent).toContain('approved')
   await act(async () => { expect(await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision({ ...plates[1], tags: ['first'] }), fields: { tags: ['revised'] } })).toMatchObject({ ok: true }) })
   for (const view of [first, second]) {
-    await waitFor(() => expect(view.container.textContent).toContain('rev 4'))
+    await waitFor(() => expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('4'))
     expect(within(view.container).getByLabelText('Selected Batch').textContent).toContain('open')
-    expect(within(view.container).getByLabelText('AK batch actions').textContent).toContain('open')
-    expect((within(view.container).getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(within(view.container).queryByRole('button', { name: 'Submit for review' })).toBeNull()
   }
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 4 })
   expect(supersedeRun).toHaveBeenCalledWith(expect.objectContaining({ state: 'approved', approvalRun: { runId: 'approval-run', revision: 2 } }))
@@ -208,9 +263,9 @@ test('resubscription catches up missed commits with one coherent read and ignore
   })
   const key = owner.uid + '/api/batches/shared'
   const before = reads.get(key)!
-  expect(second.container.textContent).toContain('rev 0')
+  expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0')
   await act(async () => { failures.get('shared')!({ code: 'permission-denied' }) })
-  await waitFor(() => expect(second.container.textContent).toContain('rev 3'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('3'))
   await settle()
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
@@ -231,7 +286,7 @@ test('manual Refresh catches up while the subscription is unavailable', async ()
   const key = owner.uid + '/api/batches/shared'
   const before = reads.get(key)!
   fireEvent.click(within(second.container).getByRole('button', { name: 'Refresh' }))
-  await waitFor(() => expect(second.container.textContent).toContain('rev 2'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('2'))
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
   expect(second.container.textContent).toContain('submitted')
@@ -247,7 +302,7 @@ test('a burst of committed lifecycle signals fetches only the latest coherent Ba
     await submitBatch(deps, editor, 'shared', 1)
     await approveBatch(deps, owner, 'shared', 2)
   })
-  await waitFor(() => expect(second.container.textContent).toContain('rev 3'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('3'))
   await settle()
   expect(reads.get(key)).toBe(before + 1)
   expect(familyOrder(second.container)).toEqual(['Navy family', 'Army family'])
@@ -260,7 +315,7 @@ test('Standard plate issues offers a confirmed repair for the first Template', a
   const value = session(editor)
   value.params.set('show', 'standardPlate')
   const view = render(<Workspace value={value} />)
-  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   fireEvent.click(within(view.container).getByRole('button', { name: 'Make Navy the Standard' }))
   expect(within(document.body).getByRole('alertdialog').textContent).toContain('Make Navy the AK Standard?')
   expect((await deps.store.getBatch('shared'))?.revision).toBe(1)
@@ -275,16 +330,51 @@ test('Standard repair buttons exclude states absent from this Batch state orders
   const value = session(editor)
   value.params.set('show', 'standardPlate')
   const view = render(<Workspace value={value} />)
-  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   expect(within(view.container).queryByRole('button', { name: /Make .* the Standard/ })).toBeNull()
   expect(requests.filter(request => request.method === 'PATCH')).toEqual([])
 })
 
-test('submit errors show the affected state and repair instruction', async () => {
+test('the legacy submit endpoint still reports the affected state and repair instruction', async () => {
   const original = (await deps.store.getBatch('shared'))!
   await deps.store.commit('shared', 0, { batch: { ...original, revision: 1, stateOrders: { AK: ['AK.b', 'AK.a', 'AK.v'] } } })
-  const view = render(<Workspace value={session(editor)} />)
-  await waitFor(() => expect(view.container.textContent).toContain('rev 1'))
-  fireEvent.click(within(view.container).getByRole('button', { name: 'Submit for review' }))
-  await waitFor(() => expect(view.container.textContent).toContain('AK: use Standard plate issues to make Navy the Standard'))
+  expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({
+    ok: false, error: 'standard_change_unconfirmed', reasons: [expect.stringContaining('AK: use Standard plate issues to make Navy the Standard')],
+  })
+})
+
+
+test('the Owner receives a live Editor change in the exact Batch confirmation', async () => {
+  const { first, second } = await twoSessions()
+  expect(within(first.container).queryByRole('link', { name: 'Publish' })).toBeNull()
+  const target = within(second.container).getByRole('link', { name: 'Publish' }).getAttribute('href')
+  expect(target).toBe('/publish?batch=shared')
+  const batchId = new URL(target!, 'http://localhost').searchParams.get('batch')!
+  await act(async () => {
+    expect(await proposeEdit(deps, editor, { batchId, plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } }))
+      .toMatchObject({ ok: true })
+    await deps.store.markViewed!(batchId, owner.uid, 1, deps.now())
+  })
+  const view = render(<Workspace value={session(owner, batchId)} page="publish" />)
+  const publish = within(view.container)
+  const open = await publish.findByRole('button', { name: 'Publish to Game' })
+  const dialogElement = view.container.querySelector('dialog')!
+  dialogElement.showModal = () => dialogElement.setAttribute('open', '')
+  dialogElement.close = () => dialogElement.removeAttribute('open')
+  fireEvent.click(open)
+  const dialog = within(publish.getByRole('dialog'))
+  expect(dialog.getByRole('button', { name: 'Publish revision 1' })).toBeTruthy()
+
+  await act(async () => {
+    const plate = { ...plates[1], tags: ['first'] }
+    expect(await proposeEdit(deps, editor, { batchId, plateId: plate.id, baseRevision: plateRevision(plate), fields: { tags: ['latest'] } }))
+      .toMatchObject({ ok: true })
+  })
+  expect(await dialog.findByText(/This Batch changed/)).toBeTruthy()
+  expect(await dialog.findByText(/1 Plate changed.*Editor/)).toBeTruthy()
+  expect(requests.filter(request => request.path.endsWith('/publish'))).toEqual([])
+  fireEvent.click(dialog.getByRole('button', { name: 'Publish anyway' }))
+  await waitFor(() => expect(requests.filter(request => request.path.endsWith('/publish'))).toEqual([
+    { actor: owner.uid, method: 'POST', path: '/api/batches/shared/publish', body: { revision: 2, commandId: expect.any(String) } },
+  ]))
 })

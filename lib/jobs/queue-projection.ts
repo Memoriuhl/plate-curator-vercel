@@ -53,6 +53,7 @@ export function projectJob(projection: RunProjection, job: TaggingJob): Projecti
       }
       return { ok: true, value: { ...projection, plates } }
     }
+    if (suggestion?.kind === 'enhanced-image') return { ok: true, value: projection }
     if (!suggestion || !('fields' in suggestion) || Object.hasOwn(suggestion.fields, 'sourceUrl')) return { ok: false, error: 'invalid_result' }
     next = { ...next, ...suggestion.fields }
   } else next = { ...next, tags: [...new Set([...next.tags, ...job.result.suggestions].map(tag => tag.trim().toLowerCase()).filter(Boolean))] }

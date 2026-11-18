@@ -155,7 +155,7 @@ export function TagRunBanner({
                   inspectOnly={entry.job.previewOnly}
                   accept={() => void acceptFields(entry, fieldSuggestion)}
                 /> : null}
-                {entry.job.state === 'completed' && !entry.error && fieldSuggestion && fieldSuggestion.kind !== 'fields' ? <SpecializedSuggestion
+                {entry.job.state === 'completed' && !entry.error && (fieldSuggestion?.kind === 'image' || fieldSuggestion?.kind === 'group') ? <SpecializedSuggestion
                   suggestion={fieldSuggestion}
                   plates={detail.data?.plates.map(item => item.proposed) ?? []}
                   baseRevision={entry.job.inputHash}

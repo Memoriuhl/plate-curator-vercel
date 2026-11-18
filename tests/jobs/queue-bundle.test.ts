@@ -83,6 +83,30 @@ test('invalid Group changes or a partial family reject the whole coherent fields
   expect(await s.review.store.listEdits('batch')).toEqual([])
 })
 
+test.each([
+  ['cancelled', 'group_member_failed'],
+  ['skipped', 'group_member_failed'],
+  ['skipped', 'group_member_skipped'],
+] as const)('Apply preserves other plate results when Group is %s with %s', async (status, reason) => {
+  const s = await setup(true)
+  await s.jobs.store.transaction(async tx => {
+    const [run] = await tx.runs()
+    const attempt = run.attempts[0]
+    const group = attempt.steps.find(step => step.stage === 'group')!
+    Object.assign(group, { status, reason })
+    attempt.outcome = 'partial'
+    const untouched = attempt.projection!.plates[s.plates[0].id]
+    untouched.executionPlate = untouched.batchInput
+    untouched.executionHash = untouched.batchInputHash
+    untouched.sourceJobIds = []
+    tx.setRun(run)
+  })
+  expect(await applyQueueBundle(s.jobs, s.review, actor, s.id)).toMatchObject({ ok: true, value: { revision: 1 } })
+  const edits = await s.review.store.listEdits('batch')
+  expect(edits.map(edit => edit.plateId)).toEqual([s.plates[1].id])
+  expect(edits[0].fields).toMatchObject({ description: 'A sourced description' })
+})
+
 test('Apply permissions/read-only/local gates remain enforced, including after a prior successful application', async () => {
   const s = await setup()
   expect(await applyQueueBundle(s.jobs, s.review, { ...actor, uid: 'other' }, s.id)).toMatchObject({ error: 'forbidden' })

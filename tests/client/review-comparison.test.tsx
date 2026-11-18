@@ -40,3 +40,28 @@ test('comparison buttons switch the selected pane without losing either revision
   expect(screen.getByRole('heading', { name: 'Before · Catalog v11' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'After · rev 4' })).toBeTruthy()
 })
+
+test('draft comparison allows reverting the one eligible pipeline field', () => {
+  const before: Plate = { id: 'AK.one', state: 'AK', slug: 'one', image: '', displayName: 'One', tags: ['published'] }
+  const after = { ...before, tags: ['draft'], description: 'Manual description' }
+  const revert = vi.fn()
+  render(<DiffTable before={before} after={after} version={1} revision={2} order={[before.id]} pipelineChanges={{
+    tags: { runId: 'run', jobId: 'tag-job', by: 'editor', byName: 'Ro', at: '', value: after.tags, previous: ['earlier'] },
+  }} onRevert={revert} />)
+  fireEvent.click(screen.getByRole('button', { name: 'After' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Revert tags' }))
+  expect(revert).toHaveBeenCalledWith('tags', 'tag-job')
+  expect(screen.queryByRole('button', { name: 'Revert description' })).toBeNull()
+})
+
+test('the review comparison offers removal for individual manual fields and order', () => {
+  const before: Plate = { id: 'AK.one', state: 'AK', slug: 'one', image: '', displayName: 'One', tags: ['published'] }
+  const discard = vi.fn()
+  render(<DiffTable compact before={before} after={{ ...before, tags: ['draft'], description: 'Edited description' }} version={4} revision={7}
+    order={[]} positions={{ before: 2, after: 1, total: 3 }} onDiscard={discard} />)
+  fireEvent.click(screen.getByRole('button', { name: 'After' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Remove description change' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Remove tags change' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Remove order change' }))
+  expect(discard.mock.calls).toEqual([['description'], ['tags'], ['order']])
+})

@@ -2,10 +2,12 @@
 
 import { useId, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { IoChevronForward } from 'react-icons/io5'
 import type { BatchDetail } from '@/lib/client/hooks'
 import { JURISDICTIONS } from '@/lib/catalog/jurisdictions'
+import { PlateChangeIcons } from '@/components/review/plate-change-icons'
 import { cn } from '@/components/utils'
 import { changeSummary, DiffTable, groupChanges } from '@/components/review/diff'
 
@@ -34,7 +36,9 @@ export function changesByState(plates: Entry[]) {
 function Thumbnail({ entry }: { entry: Entry }) {
   const url = entry.afterImageUrl ?? entry.beforeImageUrl
   return <span className={cn("flex h-12 w-24 shrink-0 items-center justify-center rounded-lg bg-[var(--fill)]", entry.proposed.deleted && "opacity-60")}>
-    {url ? <Image src={url} alt="" width={96} height={48} loading="lazy" unoptimized className="h-12 w-24 object-contain p-1" /> : <span className="text-xs text-muted-foreground">No image</span>}
+    {url ? <PlateImageHover plateId={entry.baseline.id} plateName={entry.proposed.displayName} before={url}>
+      <Image src={url} alt="" width={96} height={48} loading="lazy" unoptimized className="h-12 w-24 object-contain p-1" />
+    </PlateImageHover> : <span className="text-xs text-muted-foreground">No image</span>}
   </span>
 }
 
@@ -56,7 +60,7 @@ function StatePlates({ plates, batch }: { plates: ChangedPlate[]; batch: BatchDe
     rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...(focused === null ? [] : [focused])])].sort((a, b) => a - b),
   })
   function row(index: number, start?: number) {
-    const { entry, tags, summary } = plates[index]
+    const { entry, summary } = plates[index]
     const open = expanded.includes(entry.baseline.id)
     return <div key={entry.baseline.id} data-index={index} ref={virtualized ? virtualizer.measureElement : undefined}
       className={virtualized ? 'absolute left-0 top-0 w-full pb-2' : 'pb-2'}
@@ -66,9 +70,13 @@ function StatePlates({ plates, batch }: { plates: ChangedPlate[]; batch: BatchDe
         <button type="button" aria-expanded={open} aria-controls={open ? `${id}-${index}` : undefined} className="flex min-h-14 w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-primary" onClick={() => setExpanded(ids => open ? ids.filter(value => value !== entry.baseline.id) : [...ids, entry.baseline.id])}>
           <IoChevronForward aria-hidden className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
           <Thumbnail entry={entry} />
-          <span className="min-w-0 space-y-1"><strong className={cn("block break-words", entry.proposed.deleted && "line-through opacity-60")}>{entry.proposed.displayName}</strong>{!open && <span className="block truncate text-xs text-muted-foreground" title={summary}>{summary}</span>}<span className="flex flex-wrap gap-2">{tags.map(tag => <span key={tag} className="rounded-full bg-card px-2 py-0.5 text-xs text-muted-foreground">{tag}</span>)}</span></span>
+          <span className="min-w-0 space-y-1" title={summary}>
+            <strong className={cn('block truncate', entry.proposed.deleted && 'line-through opacity-60')}>{entry.proposed.displayName}</strong>
+            <span className="sr-only">{summary}</span>
+            <PlateChangeIcons entry={entry} />
+          </span>
         </button>
-        {open && <div id={`${id}-${index}`} className="mt-4"><DiffTable before={entry.baseline} after={entry.proposed} beforeImageUrl={entry.beforeImageUrl} afterImageUrl={entry.afterImageUrl} version={batch.baselineVersion} revision={batch.revision} positions={entry.order} order={batch.stateOrders[entry.baseline.state] ?? []} /></div>}
+        {open && <div id={`${id}-${index}`} className="mt-4"><DiffTable compact before={entry.baseline} after={entry.proposed} beforeImageUrl={entry.beforeImageUrl} afterImageUrl={entry.afterImageUrl} version={batch.baselineVersion} revision={batch.revision} positions={entry.order} order={batch.stateOrders[entry.baseline.state] ?? []} /></div>}
       </div>
     </div>
   }

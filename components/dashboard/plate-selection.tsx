@@ -10,6 +10,7 @@ export function createPlateSelection() {
   let anchor: string | null = null
   let visible: PlateCardData[] = []
   let loaded: PlateCardData[] = []
+  const fullStateSelections = new Set<string>()
   const states = new Map<string, PlateCardData[]>()
   let templatesWithVariants = new Set<string>()
   const listeners = new Set<() => void>()
@@ -21,7 +22,7 @@ export function createPlateSelection() {
     loaded: () => loaded,
     hasVariants: (id: string) => templatesWithVariants.has(id),
     statePlates: (state: string) => states.get(state) ?? [],
-    replace(plates: readonly PlateCardData[]) { publish(plates) },
+    replace(plates: readonly PlateCardData[]) { fullStateSelections.clear(); publish(plates) },
     register(plates: PlateCardData[]) {
       if (loaded === plates) return
       loaded = plates
@@ -35,20 +36,36 @@ export function createPlateSelection() {
       visible = plates.filter(plate => !plate.deleted)
       const loadedIds = new Set(loaded.map(plate => plate.id))
       const visibleIds = new Set(plates.map(plate => plate.id))
-      const next = selected.filter(plate => !loadedIds.has(plate.id) || visibleIds.has(plate.id))
+      const next = selected.filter(plate => fullStateSelections.has(plate.state) || !loadedIds.has(plate.id) || visibleIds.has(plate.id))
       if (next.length !== selected.length) publish(next)
     },
-    clear() { anchor = null; publish([]) },
+    clear() { anchor = null; fullStateSelections.clear(); publish([]) },
     add(plates: PlateCardData[]) { publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()]) },
-    all() { publish(visible) },
+    selectState(state: string) {
+      const plates = states.get(state)
+      if (!plates?.length) return
+      fullStateSelections.add(state)
+      publish([...new Map([...selected, ...plates].map(plate => [plate.id, plate])).values()])
+    },
+    all() {
+      const visibleStates = new Set(visible.map(plate => plate.state))
+      for (const state of visibleStates) fullStateSelections.delete(state)
+      publish([...selected.filter(plate => !visibleStates.has(plate.state)), ...visible])
+    },
     select(id: string, modifiers: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) {
       const plate = visible.find(plate => plate.id === id)
       if (!plate) return
       const a = visible.findIndex(plate => plate.id === anchor)
       const b = visible.indexOf(plate)
-      if (modifiers.shiftKey && a >= 0) { publish(visible.slice(Math.min(a, b), Math.max(a, b) + 1)); return }
+      const otherStates = selected.filter(selectedPlate => selectedPlate.state !== plate.state)
+      if (modifiers.shiftKey && a >= 0) {
+        fullStateSelections.delete(plate.state)
+        publish([...otherStates, ...visible.slice(Math.min(a, b), Math.max(a, b) + 1)])
+        return
+      }
       const exists = selected.some(plate => plate.id === id)
-      publish(exists ? selected.filter(plate => plate.id !== id) : modifiers.ctrlKey || modifiers.metaKey ? [...selected, plate] : [plate])
+      if (!exists && !modifiers.ctrlKey && !modifiers.metaKey) fullStateSelections.delete(plate.state)
+      publish(exists ? selected.filter(plate => plate.id !== id) : modifiers.ctrlKey || modifiers.metaKey ? [...selected, plate] : [...otherStates, plate])
       anchor = exists && !modifiers.ctrlKey && !modifiers.metaKey ? null : id
     },
   }
@@ -67,7 +84,7 @@ export function SelectionPlate({ id, children, disabled = false, highlight = tru
   const statusId = useId()
   function select(event: MouseEvent) {
     const target = event.target as Element
-    if (target.closest('button, input, [data-plate-open]')) return
+    if (target.closest('button, input')) return
     if (target.closest('a') && !event.ctrlKey && !event.metaKey && !event.shiftKey) return
     event.preventDefault()
     event.stopPropagation()
@@ -80,12 +97,17 @@ export function SelectionPlate({ id, children, disabled = false, highlight = tru
   </div>
 }
 
+const runPipelineSelector = '[data-run-menu], [data-run-trigger]'
+function runPipelineInteraction(event: Event) {
+  return event.composedPath().some(target => target instanceof Element && target.matches(runPipelineSelector))
+}
+
 export function useSelectionKeyboard({ close, promote, disabled, dragging = false }: { close(): void; promote(): Promise<void>; disabled: boolean; dragging?: boolean }) {
   const latest = useRef({ close, promote, disabled, dragging })
   useEffect(() => { latest.current = { close, promote, disabled, dragging } })
   useEffect(() => {
     function key(event: KeyboardEvent) {
-      if (selectionInput(event.target) || selectionInput(document.activeElement) || event.defaultPrevented || latest.current.dragging) return
+      if (runPipelineInteraction(event) || document.activeElement?.closest(runPipelineSelector) || selectionInput(event.target) || selectionInput(document.activeElement) || event.defaultPrevented || latest.current.dragging) return
       if (event.key === 'Escape') { latest.current.close(); plateSelection.clear() }
       if (['Backspace', 'Delete'].includes(event.key) && plateSelection.snapshot().length) {
         event.preventDefault()
@@ -101,7 +123,7 @@ export function useSelectionKeyboard({ close, promote, disabled, dragging = fals
 export function SelectionPresence() {
   useEffect(() => {
     function dismiss(event: globalThis.MouseEvent) {
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
+      if (runPipelineInteraction(event) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented || !plateSelection.snapshot().length) return
       const target = event.target
       if (target instanceof Element && target.closest('a, button, input, textarea, select, label, nav, [role="button"], [role="tab"], [role="option"], [data-selection-controls], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], #plate-breakdown-preview')) return
       plateSelection.clear()

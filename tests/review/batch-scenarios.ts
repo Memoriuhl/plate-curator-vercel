@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
 import { approveBatch, proposeEdit, reorderState, submitBatch } from '../../lib/review/batch'
+import { limits } from '../../lib/review/fields'
 import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
 import type { ReviewBatch, ReviewDeps, ReviewStore } from '../../lib/review/types'
@@ -147,7 +148,7 @@ export function reviewBatchScenarios(createStore: (batch: ReviewBatch) => Review
   })
 
   test('membership additions respect the limit and failed proposals leave membership intact', async () => {
-    const ids = Array.from({ length: 50 }, (_, i) => `plate-${i}`)
+    const ids = Array.from({ length: limits.plates }, (_, i) => `plate-${i}`)
     const { deps, store, input } = await setup({ plateIds: ids })
     expect(await proposeEdit(deps, editor, input)).toEqual({ ok: false, error: 'invalid_state' })
     expect(await proposeEdit(deps, editor, { ...input, plateId: 'missing' })).toEqual({ ok: false, error: 'not_found' })

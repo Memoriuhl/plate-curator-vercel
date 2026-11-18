@@ -49,6 +49,8 @@ vi.mock('@/components/dashboard/review-strip', () => ({
 
 vi.mock('@/components/dashboard/selected-batch-bar', () => ({ SelectedBatchBar: () => null }))
 
+vi.mock('@/lib/client/session', () => ({ useSession: () => ({ user: null, api: {} }) }))
+
 const { default: StatesLayout } = await import('@/app/(curator)/states/layout')
 const { useParams } = await import('next/navigation')
 
@@ -97,11 +99,15 @@ test('shared controls stay mounted when the router changes the state parameter',
   const view = render(<StatesLayout><StatePage key={mounted.code} /></StatesLayout>)
   const strip = screen.getByRole('navigation')
   const search = screen.getByRole('textbox')
+  const pipeline = screen.getByRole('region', { name: 'Plate Pipeline' })
+  const state = screen.getByText('AK')
+  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(state.closest('.states-content'))
   mounted.code = 'AL'
   view.rerender(<StatesLayout><StatePage key={mounted.code} /></StatesLayout>)
   expect(screen.getByText('AL')).toBeTruthy()
   expect(screen.getByRole('navigation')).toBe(strip)
   expect(screen.getByRole('textbox')).toBe(search)
+  expect(screen.getByRole('region', { name: 'Plate Pipeline' })).toBe(pipeline)
   expect(mounted.strip).toBe(1)
   expect(mounted.review).toBe(1)
   expect(mounted.search).toBe(1)

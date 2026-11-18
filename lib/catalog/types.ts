@@ -18,6 +18,7 @@ export type Plate = StoryFields & {
   image: string
   templateFamily?: string
   templateRole?: 'template' | 'variant'
+  isTemplate?: boolean
   variantOfPlateId?: string | null
   isStandard?: boolean
   sortOrder?: number

@@ -10,6 +10,8 @@ import { projectFamilyPlate } from '../components/dashboard/family-data'
 import { LiveSignalProvider, type LiveSignalSource } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
+import { POST as familyDrop } from '../app/api/batches/[id]/family-merge/route'
+import { plateSelection } from '../components/dashboard/plate-selection'
 import { proposeEdit, reorderState } from '../lib/review/batch'
 import { batchDetail } from '../lib/review/queries'
 import { respond } from '../lib/server/respond'
@@ -36,6 +38,10 @@ vi.mock('@tanstack/react-virtual', () => ({ useWindowVirtualizer: () => ({
 
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
 const owner: Actor = { uid: 'owner-uid', name: 'Owner', role: 'owner' }
+vi.mock('../lib/server/context', () => ({
+  currentActor: async (request: Request) => ({ ok: true, actor: request.headers.get('Authorization') === owner.uid ? owner : editor }),
+  reviewDeps: () => deps,
+}))
 const plates: Plate[] = [
   { id: 'AK.a', state: 'AK', image: '', slug: 'a', displayName: 'Army', isStandard: true, tags: [], templateRole: 'template', templateFamily: 'army' },
   { id: 'AK.v', state: 'AK', image: '', slug: 'v', displayName: 'Variant', tags: [], templateRole: 'variant', templateFamily: 'army', variantOfPlateId: 'AK.a' },
@@ -104,6 +110,14 @@ function session(actor: Actor, id: string | null = 'shared') {
           }
           return result.value
         }
+        if (method === 'POST' && path.endsWith('/family-merge')) {
+          const response = await familyDrop(new Request('https://fixture.invalid' + path, {
+            method, headers: { Authorization: actor.uid }, body: JSON.stringify(body),
+          }), { params: Promise.resolve({ id: path.split('/')[3] }) })
+          const parsed = await response.json()
+          if (!response.ok) throw new ApiError(response.status, parsed.error, parsed)
+          return parsed
+        }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         const [, , , batchId, , plateId] = path.split('/')
         const result = await proposeEdit(deps, actor, { batchId, plateId, ...body as { baseRevision: string; fields: EditableFields } })
@@ -120,7 +134,7 @@ function Page({ index = 1 }: { index?: number }) {
   return <PlatePage plate={{ ...slimPlate(cards[index]), imageSize: { width: 320, height: 160 }, description: null, sourceUrl: null, wikiUrl: null }} plates={cards.map(slimPlate)} stateName="Alaska" prevId="AK.a" nextId="AK.b" />
 }
 function Workspace({ actor, page = false, index = 1 }: { actor: Actor; page?: boolean; index?: number }) {
-  return <Context.Provider value={session(actor)}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}>{page ? <Page index={index} /> : <><SelectedBatchBar /><FamilyGrid plates={gridPlates} /></>}</LiveSignalProvider></SWRConfig></Context.Provider>
+  return <Context.Provider value={session(actor)}><SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}><LiveSignalProvider value={source}>{page ? <Page index={index} /> : <><SelectedBatchBar /><FamilyGrid plates={gridPlates} catalogVersion={1} /></>}</LiveSignalProvider></SWRConfig></Context.Provider>
 }
 function pointer(element: Element, type: string, x: number, y = 100) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })
@@ -144,7 +158,7 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); plateSelection.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const box = (view: ReturnType<typeof render>, label = 'Description') => within(view.container).getByRole('textbox', { name: label }) as HTMLInputElement
 const button = (view: ReturnType<typeof render>, name: string) => within(view.container).getByRole('button', { name })
@@ -198,6 +212,10 @@ test.each(['pointer', 'keyboard'] as const)('two sessions see a successful %s pr
   expect((await saved()).proposed).toMatchObject({ templateRole: 'template', templateFamily: 'ak_v', variantOfPlateId: null })
   expect(await deps.store.getBatch('shared')).toMatchObject({ revision: 1, stateOrders: { AK: ['AK.a', 'AK.b', 'AK.v'] } })
   for (const view of [first, second]) expect(Array.from(view.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
+  first.unmount()
+  const reloaded = render(<Workspace actor={editor} />)
+  await ready(reloaded)
+  expect(Array.from(reloaded.container.querySelectorAll<HTMLElement>('[data-drag-family]')).map(el => el.dataset.dragFamily)).toEqual(['AK.a', 'AK.b', 'AK.v'])
 })
 function input(view: ReturnType<typeof render>, value: string, label = 'Description') {
   fireEvent.change(box(view, label), { target: { value } })
@@ -222,13 +240,13 @@ async function conflictPair() {
   await ready(first); await ready(second)
   input(second, 'My story')
   input(first, 'Saved story'); save(first)
-  await waitFor(() => expect(second.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   save(second)
   await waitFor(() => expect(within(second.container).getByRole('alert').textContent).toContain('My story'))
   return { first, second }
 }
 
-test('remote update during an active drag is deferred, then applied with the original precondition and a resolvable conflict', async () => {
+test('a family drop rejects a remote edit during the gesture and refreshes the saved family', async () => {
   const first = render(<Workspace actor={editor} />)
   const second = render(<Workspace actor={owner} page index={2} />)
   await ready(first); await ready(second)
@@ -236,18 +254,37 @@ test('remote update during an active drag is deferred, then applied with the ori
   const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
   pointer(handle, 'pointerdown', 100); pointer(handle, 'pointermove', 110)
   fireEvent.click(button(second, 'Add Variant to family'))
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   expect(within(within(first.container).getByRole('article', { name: 'Army family' })).getByText('Variant')).toBeTruthy()
   pointer(handle, 'pointermove', 400); pointer(handle, 'pointerup', 400)
-  await waitFor(() => expect(button(first, 'Reapply mine')).toBeTruthy())
+  await waitFor(() => expect(first.container.textContent).toContain('The Batch changed. Drag again'))
   expect(within(within(first.container).getByRole('article', { name: 'Navy family' })).getByText('Variant')).toBeTruthy()
-  expect(requests.filter(r => r.actor === editor.uid && r.method === 'PATCH')[0].body).toMatchObject({ baseRevision: plateRevision(plates[1]) })
-  const alert = within(first.container).getByRole('alert')
-  expect(alert.textContent).toContain('templateFamily')
-  expect(alert.textContent).not.toContain('description')
-  fireEvent.click(button(first, 'Reapply mine'))
-  await waitFor(() => expect(first.container.textContent).toContain('rev 2'))
-  expect((await saved()).proposed).toMatchObject({ templateFamily: 'navy', variantOfPlateId: 'AK.b' })
+  expect(requests.filter(r => r.actor === editor.uid && r.path.endsWith('/family-merge'))).toEqual([
+    expect.objectContaining({ body: expect.objectContaining({ batchRevision: 0, members: [{ id: 'AK.v', revision: plateRevision(plates[1]) }] }) }),
+  ])
+  expect((await deps.store.getBatch('shared'))!.revision).toBe(1)
+})
+
+test('a saved family drop survives a fresh workspace load and the published view stays at the same catalog version', async () => {
+  const first = render(<Workspace actor={editor} />)
+  await ready(first)
+  targetRects(first.container)
+  const handle = first.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+  pointer(handle, 'pointerdown', 100)
+  pointer(handle, 'pointermove', 400)
+  pointer(handle, 'pointerup', 400)
+  await waitFor(() => expect(first.container.textContent).toContain('1 plate moved'))
+  first.unmount()
+  const collaborator = render(<Workspace actor={owner} />)
+  await ready(collaborator)
+  const family = (name: string) => within(within(collaborator.container).getByRole('article', { name }))
+  expect(family('Navy family').getByText('Variant')).toBeTruthy()
+  expect(collaborator.container.textContent).toContain('Published catalog v1 · Batch: shared Batch (based on catalog v1)')
+  fireEvent.click(button(collaborator, 'Show published families'))
+  expect(family('Army family').getByText('Variant')).toBeTruthy()
+  expect(collaborator.container.textContent).not.toContain('based on catalog v1')
+  fireEvent.click(button(collaborator, 'Show Batch changes'))
+  expect(family('Navy family').getByText('Variant')).toBeTruthy()
 })
 
 test.each(['Description', 'Template family', 'Add tag'])('remote updates preserve open %s input and its original precondition', async label => {
@@ -256,7 +293,7 @@ test.each(['Description', 'Template family', 'Add tag'])('remote updates preserv
   await ready(first); await ready(second)
   input(first, 'local', label)
   input(second, 'Remote story'); save(second)
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   expect(box(first, label).value).toBe('local')
   save(first, label)
   await waitFor(() => expect(button(first, 'Keep saved')).toBeTruthy())
@@ -270,7 +307,7 @@ test('cancelling input applies the latest saved values without a write', async (
   await ready(first); await ready(second)
   input(first, 'Local story')
   input(second, 'Remote story'); save(second)
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   fireEvent.keyDown(box(first), { key: 'Escape' })
   expect(box(first).value).toBe('Remote story')
   expect(requests.filter(r => r.actor === editor.uid && r.method === 'PATCH')).toHaveLength(0)
@@ -294,7 +331,7 @@ test('same Plate saves from the same revision conflict even for different fields
   input(first, 'My story')
   fireEvent.click(button(second, 'Set as Standard'))
   fireEvent.click(document.querySelector('[data-slot=alert-dialog-action]')!)
-  await waitFor(() => expect(first.container.textContent).toContain('rev 1'))
+  await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
   save(first)
   await waitFor(() => expect(button(first, 'Keep saved')).toBeTruthy())
   const alert = within(first.container).getByRole('alert')
@@ -327,7 +364,7 @@ test('a third save before reapply produces another conflict with newer saved val
   const { second } = await conflictPair()
   const reviewedRevision = (await saved()).revision
   await remote({ description: 'Third story' })
-  await waitFor(() => expect(second.container.textContent).toContain('rev 2'))
+  await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('2'))
   fireEvent.click(button(second, 'Reapply mine'))
   await waitFor(() => expect(within(second.container).getByRole('alert').textContent).toContain('Saved: Third story'))
   expect(within(second.container).getByRole('alert').textContent).toContain('Proposed: My story')

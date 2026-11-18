@@ -1,120 +1,221 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
-import { IoChevronDown, IoPlay } from 'react-icons/io5'
+import { useId, useRef, useState } from 'react'
+import { IoArrowForwardOutline, IoChevronDown, IoListOutline, IoPlay, IoWarningOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/components/utils'
 import { defaultPipelineOptions, snapshotPipelineOptions, type PipelineOptions } from '@/lib/jobs/pipeline-options'
+import { canonicalStages, planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
+import { shouldReuseSavedSources } from '@/lib/research/enrichment'
+import { groupSelectionLimit } from '@/lib/review/group-context'
+import { enhancementOperations } from '@/lib/jobs/image-enhancement'
 import { useSelectedPlates } from './plate-selection'
-import { planTagRun } from './local-pipeline'
-import { pipelineStages, stageAvailability } from './pipeline-stages'
+import { newRunStages, stageAvailability } from './pipeline-stages'
+import { PipelineOptionSelect } from './pipeline-option-select'
 import { TaggingModelPicker, useTaggingModelChoice } from './tagging-model-picker'
+import { ResearchModelPicker, useResearchModelChoice } from './research-model-picker'
 import type { RunPlate } from './use-tag-run'
 import type { usePipelineQueue } from './use-pipeline-queue'
-import type { TaggingModelId } from '@/lib/tagging/models'
-import { planPipeline, pipelineNeedsModel } from '@/lib/jobs/pipeline-plan'
-import { ResearchModelPicker, useResearchModelChoice } from './research-model-picker'
+import { estimateStageMs, formatEstimate, useRunTimings } from './pipeline-estimates'
 
-type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> & Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities'>>
+const selectedPlateLimit = 200
+const flowStepsPerRow = 4
+const groupFeatures = ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const
 
-export function PipelineRunControls({ underTagged, allPlates = [], batchPlates, stateName, queue, disabledReason }: {
-  underTagged: RunPlate[]; allPlates?: RunPlate[]; batchPlates: RunPlate[]; stateName: string; queue: Controls; disabledReason?: string
+type Controls = Pick<ReturnType<typeof usePipelineQueue>, 'runs' | 'action' | 'message' | 'disabledReason' | 'enqueue'> &
+  Partial<Pick<ReturnType<typeof usePipelineQueue>, 'capabilities' | 'selectedBatchName'>>
+
+export function PipelineRunControls({ batchPlates, stateName, stateCode, queue }: {
+  batchPlates: RunPlate[]; stateName: string; stateCode?: string; queue: Controls
 }) {
   const selected = useSelectedPlates()
-  const choice = useTaggingModelChoice()
+  const tagChoice = useTaggingModelChoice()
   const desktopChoice = useTaggingModelChoice('pipeline-desktop-model:v1')
   const researchChoice = useResearchModelChoice()
   const [open, setOpen] = useState(false)
-  const trigger = useRef<HTMLButtonElement>(null)
-  const [scope, setScope] = useState('under')
-  const [limit, setLimit] = useState('25')
-  const [stages, setStages] = useState<LocalRunStage[]>(['tag'])
+  const timings = useRunTimings(open)
+  const [stages, setStages] = useState<LocalRunStage[]>([])
+  const [expanded, setExpanded] = useState<LocalRunStage[]>([])
   const [options, setOptions] = useState<PipelineOptions>({})
-  const [previewOnly, setPreviewOnly] = useState(false)
-  const desktop = choice.data?.models.filter(model => model.runsOn === 'desktop') ?? []
-  const modelId = (desktop.find(model => model.id === desktopChoice.modelId)?.id ?? desktop[0]?.id) as TaggingModelId | undefined
-  const localChoice = { ...desktopChoice, modelId, data: choice.data ? { ...choice.data, models: desktop } : undefined }
-  const plates = scope === 'selected' ? selected : scope === 'batch' ? batchPlates : scope === 'all' ? allPlates : underTagged
-  const planned = useMemo(() => planTagRun(plates, false, Number(limit)), [plates, limit])
-  const validLimit = Number.isInteger(Number(limit)) && Number(limit) > 0 && Number(limit) <= 25
-  const reason = disabledReason ?? queue.disabledReason
+  const trigger = useRef<HTMLButtonElement>(null)
+  const optionsId = useId()
+
+  const desktop = desktopChoice.data?.models.filter(model => model.runsOn === 'desktop') ?? []
+  const modelId = desktop.find(model => model.id === desktopChoice.modelId)?.id ?? desktop[0]?.id
+  const localChoice = { ...desktopChoice, modelId, data: desktopChoice.data ? { ...desktopChoice.data, models: desktop } : undefined }
+  const selectedStates = new Set(selected.map(plate => plate.state))
+  const firstState = selected[0]?.state
+  const batchName = selectedStates.size > 1 ? 'Cross-state pipeline' : `${firstState && stateCode && firstState !== stateCode ? firstState : stateName} pipeline`
   const posting = queue.action === 'enqueue'
-  const active = queue.runs.some(run => ['queued', 'running'].includes(run.status))
-  const unavailableStage = stages.map(id => pipelineStages.find(stage => stage.id === id)!).find(stage => stageAvailability(stage, true, queue.capabilities))
-  const groupOutsideBatch = stages.includes('group') && planned.some(plate => !batchPlates.some(member => member.id === plate.id))
+  const active = queue.runs.some(run => run.status === 'queued' || run.status === 'running')
+  const groupSelected = stages.includes('group')
+  const groupOutsideBatch = groupSelected && !!queue.selectedBatchName && selected.some(plate => !batchPlates.some(member => member.id === plate.id))
+  const invalidGroupSize = groupSelected && (selected.length > groupSelectionLimit || selectedStates.size > 1)
+  const overLimit = selected.length > selectedPlateLimit
+
   const resolvedOptions = snapshotPipelineOptions(stages, options)
-  if (resolvedOptions.group) for (const key of ['colorSignal', 'backgroundMask', 'visionTiebreak'] as const) {
-    if (!queue.capabilities?.[key].available) resolvedOptions.group[key] = false
+  if (resolvedOptions.group) for (const feature of groupFeatures) {
+    if (!queue.capabilities?.[feature].available) resolvedOptions.group[feature] = false
   }
-  const steps = planPipeline(planned.map(plate => ({ ...plate, description: plate.description ?? plate.checks?.description?.value, hasStory: plate.hasStory ?? plate.checks?.funFacts.status === 'good' })), stages, resolvedOptions)
+  const enhancement = resolvedOptions['enhance-image']
+  const invalidEnhancement = !!enhancement && !enhancementOperations.some(key => enhancement[key])
+  const runPlates = selected.map(({ id, tags, imageUrl, checks, wikiUrl, funFacts, firstIssuedYear, readMore }) => ({
+    id, tags, imageUrl, description: checks?.description?.value, wikiUrl, funFacts, firstIssuedYear, readMore,
+  }))
+  const steps = planPipeline(runPlates, stages, resolvedOptions)
+  const timingModels = { tag: tagChoice.modelId, desktop: modelId, research: researchChoice.model?.id }
+  const estimates = new Map(canonicalStages.map(id => [id, estimateStageMs(id, timings, timingModels, resolvedOptions)]))
+  const totalMs = steps.reduce((total, step) => total + estimates.get(step.stage)!, 0)
   const needsModel = pipelineNeedsModel(steps.filter(step => step.stage !== 'tag'), resolvedOptions)
   const needsTagModel = steps.some(step => step.stage === 'tag')
   const needsResearchModel = steps.some(step => step.stage === 'research')
-  const blocked = !!reason || !validLimit || !steps.length || needsModel && !modelId || needsTagModel && !choice.modelId || needsResearchModel && !researchChoice.modelId || !!queue.action || !!unavailableStage || groupOutsideBatch
+  const tagModel = needsTagModel ? tagChoice.modelId : undefined
+  const researchModel = needsResearchModel ? researchChoice.model : undefined
+  const useSavedSources = shouldReuseSavedSources(options.research)
+  const stageIssues = new Map<LocalRunStage, string>(newRunStages.flatMap(stage => {
+    const { id } = stage
+    const issue = stageAvailability(stage, true, queue.capabilities)
+      ?? (id === 'enhance-image' && invalidEnhancement ? 'Choose at least one enhancement.'
+        : id === 'group' && invalidGroupSize ? `Group needs up to ${groupSelectionLimit} plates from one state.`
+        : id === 'group' && groupOutsideBatch ? 'Every Group member must already be in this Batch.'
+        : id === 'group' && needsModel && !modelId ? 'Choose a desktop stage model.'
+        : id === 'tag' && needsTagModel && !tagModel ? 'Choose a tagging model.'
+        : id === 'research' && needsResearchModel && !researchModel ? 'Choose a research model.'
+        : undefined)
+    return issue ? [[id, issue] as const] : []
+  }))
+  const stageBlockers = stages.flatMap(id => stageIssues.get(id) ?? [])
+  const runBlockers = [
+    queue.disabledReason,
+    overLimit ? `Select up to ${selectedPlateLimit} plates per run.` : undefined,
+    queue.action && !posting ? 'Wait for the current queue action to finish.' : undefined,
+    !selected.length ? 'Select plates on the dashboard to start a run.'
+      : !stages.length ? 'Choose a pipeline stage to continue.'
+      : !steps.length && !stageBlockers.length ? 'These stages have no work for the selected plates. Check the stage options.'
+      : undefined,
+    ...stageBlockers,
+  ].filter((reason): reason is string => !!reason)
+  const blocked = posting || runBlockers.length > 0
+  const reasonsId = `${optionsId}-run-blockers`
+
   async function enqueue() {
     if (blocked) return
-    if (await queue.enqueue([...planned], stages, needsModel ? modelId : needsTagModel ? choice.modelId : undefined, resolvedOptions, previewOnly, needsTagModel ? choice.modelId : undefined, needsResearchModel ? researchChoice.modelId : undefined)) setOpen(false)
+    const saved = await queue.enqueue([...selected], stages, needsModel ? modelId : tagModel, resolvedOptions, false, tagModel, researchModel?.id, batchName)
+    if (saved) {
+      setStages([])
+      setExpanded([])
+      setOpen(false)
+    }
   }
-  function option(stage: keyof PipelineOptions, key: string, value: string | boolean) {
+
+  function setOption(stage: keyof PipelineOptions, key: string, value: string | boolean) {
     setOptions(current => ({ ...current, [stage]: { ...defaultPipelineOptions[stage], ...current[stage], [key]: value } }))
   }
+
   return <div className="grid gap-2">
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild><Button ref={trigger} data-run-trigger disabled={!!reason} title={reason} onClick={() => { if (selected.length) setScope('selected') }}>
+      <PopoverTrigger asChild><Button ref={trigger} className="pt-0 [&_svg]:mt-0" data-run-trigger disabled={!!queue.disabledReason} title={queue.disabledReason}>
         <IoPlay aria-hidden="true" />Run pipeline<IoChevronDown aria-hidden="true" className={cn('transition-transform', open && 'rotate-180')} />
       </Button></PopoverTrigger>
-      <PopoverContent align="end" collisionPadding={0} data-run-menu="" aria-label="Run pipeline"
+      <PopoverContent align="end" collisionPadding={8} data-run-menu="" aria-label="Run pipeline"
         onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }}
-        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[580px] max-w-[100vw] gap-[var(--stack-gap)] overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-5 pt-5 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0 [&_fieldset]:min-w-0 max-[420px]:w-screen max-[420px]:rounded-none">
-        <fieldset className="grid gap-2"><legend className="label mb-2">Run on</legend>
-          <div className="flex flex-wrap gap-2">{[
-            ['selected', `Selected plates ${selected.length}`, selected.length], ['batch', `Plates in your batch ${batchPlates.length}`, batchPlates.length],
-            ['under', `Under-tagged plates ${underTagged.length}`, underTagged.length], ['all', `All plates in ${stateName} ${allPlates.length}`, allPlates.length],
-          ].map(([id, label, count]) => <Button key={id} size="sm" variant={scope === id ? 'primary' : 'outline'} aria-pressed={scope === id} disabled={!count} onClick={() => setScope(String(id))}>{label}</Button>)}</div>
-          <label className="caption flex items-center gap-2">Plate limit<input type="number" min={1} max={25} value={limit} onChange={event => setLimit(event.target.value)} className="w-20 rounded-[var(--radius-sm)] bg-[var(--fill)] p-2" /></label>
-          <p className="caption">First {planned.length} of {plates.length}</p>
-        </fieldset>
-        <section className="grid gap-[var(--stack-gap)]"><h2 className="label">Stages and their options</h2>
-          {pipelineStages.map(stage => {
-            const unavailable = stageAvailability(stage, true, queue.capabilities)
-            const checked = stages.includes(stage.id as LocalRunStage)
-            return <fieldset key={stage.id} className={cn('grid gap-2 rounded-[var(--radius-md)] p-4', stage.options.length > 0 && 'bg-[var(--fill)]', unavailable && 'text-[var(--ink-2)]')}>
-              <label className="flex items-center gap-3"><input type="checkbox" disabled={!!unavailable && !checked} checked={checked} aria-label={unavailable ? `${stage.label}: ${unavailable}` : stage.label}
-                onChange={event => setStages(current => event.target.checked ? pipelineStages.filter(candidate => candidate.id !== 'order' && (candidate.id === stage.id || current.includes(candidate.id))).map(candidate => candidate.id as LocalRunStage) : current.filter(id => id !== stage.id))} />
-                <span className="flex-1"><strong>{stage.label}</strong><span className="caption block">{stage.description}</span></span><span className="id">{stage.duration}</span></label>
-              {unavailable ? <p className="caption">{unavailable}</p> : null}
-              {stage.options.map(setting => {
-                const values = { ...defaultPipelineOptions[stage.id as keyof PipelineOptions], ...resolvedOptions[stage.id as keyof PipelineOptions] } as Record<string, string | boolean>
-                const capability = stage.id === 'group' ? queue.capabilities?.[setting.id === 'method' ? 'embeddings' : setting.id as 'colorSignal' | 'backgroundMask' | 'visionTiebreak'] : undefined
-                const disabledReason = setting.disabledReason ?? (stage.id === 'group' && !capability?.available ? capability?.reason ?? 'Local worker not reporting' : undefined)
-                const value = stage.id === 'group' && setting.kind === 'boolean' && disabledReason ? false : values[setting.id] ?? setting.default
-                return <label key={setting.id} className="caption flex items-center gap-2 pl-7">
-                  {setting.kind === 'boolean' ? <input type="checkbox" checked={value === true} disabled={!checked || !!unavailable || !!disabledReason} onChange={event => option(stage.id as keyof PipelineOptions, setting.id, event.target.checked)} /> : null}
-                  {setting.label}
-                  {setting.kind === 'select' ? <select value={String(value)} disabled={!checked || !!unavailable || !!disabledReason} onChange={event => option(stage.id as keyof PipelineOptions, setting.id, event.target.value)} className="rounded-[var(--radius-sm)] bg-[var(--card)] p-2">
-                    {setting.choices?.map(choice => <option key={choice.value} value={choice.value} disabled={!!choice.disabledReason}>{choice.label}{choice.disabledReason ? ` · ${choice.disabledReason}` : ''}</option>)}
-                  </select> : null}
-                  {disabledReason ? <span className="text-[var(--ink-2)]">{disabledReason}</span> : null}
+        className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100vw-16px)] gap-4 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl [&>*]:min-w-0 [&>*]:shrink-0">
+        <header className="grid gap-1">
+          <p className="font-normal">Selected plates <strong className="font-extrabold tabular-nums">{selected.length.toLocaleString()}</strong></p>
+          <p className="caption text-[var(--ink-2)]" role={overLimit ? 'alert' : undefined}>Up to {selectedPlateLimit} plates per run</p>
+        </header>
+        <div className="grid gap-2" role="group" aria-label="Pipeline stages">
+          {newRunStages.map(stage => {
+            const { id } = stage
+            const issue = stageIssues.get(id)
+            const checked = stages.includes(id)
+            const showingOptions = expanded.includes(id)
+            const panelId = `${optionsId}-${id}`
+            const optionStage = id as keyof PipelineOptions
+            const values = { ...defaultPipelineOptions[optionStage], ...options[optionStage] } as Record<string, string | boolean>
+            return <div key={id} className={cn('rounded-[var(--radius-md)] border bg-[var(--fill)]', checked ? 'border-primary' : 'border-transparent')}>
+              <div className="flex items-stretch">
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 pl-3">
+                  <input type="checkbox" checked={checked} aria-label={stage.label} aria-describedby={issue ? `${panelId}-issue` : undefined} className="accent-[var(--primary)]"
+                    onChange={event => {
+                      const next = event.target.checked
+                      setStages(current => next ? newRunStages.filter(candidate => candidate.id === id || current.includes(candidate.id)).map(candidate => candidate.id) : current.filter(item => item !== id))
+                    }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <strong className="inline-flex items-center gap-2">
+                        <stage.icon aria-hidden="true" className="size-4 shrink-0" />{stage.label}
+                      </strong>
+                      {issue ? <span id={`${panelId}-issue`}
+                        className="caption inline-flex items-center gap-1 rounded-md bg-[var(--danger-tint)] px-1.5 py-0.5 font-medium text-[var(--danger)]">
+                        <IoWarningOutline aria-hidden="true" className="size-3.5 shrink-0" />{issue}
+                      </span> : null}
+                    </span>
+                    <span className="caption block">{stage.description}</span>
+                    {stage.flow ? <span role="list" aria-label={`${stage.label} steps`}
+                      className="caption mt-2 grid items-center gap-x-3 gap-y-1 overflow-x-auto text-[var(--ink-2)]"
+                      style={{ gridTemplateColumns: `repeat(${Math.min(stage.flow.length, flowStepsPerRow)}, max-content)` }}>
+                      {stage.flow.map(({ label, icon: StepIcon }, index) => (
+                        <span key={label} role="listitem" className="flex min-w-0 items-center gap-1">
+                          {index % flowStepsPerRow !== 0 ? <IoArrowForwardOutline aria-hidden="true" className="size-3 shrink-0" /> : null}
+                          <StepIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                          <span className="whitespace-nowrap">{id === 'research' && index === 0 && useSavedSources ? 'Use saved sources' : label}</span>
+                        </span>
+                      ))}
+                    </span> : null}
+                    {id === 'research' && checked && selected.length > 0 && !needsResearchModel
+                      ? <span className="caption block">Research fields are filled. Choose Replace existing to run again.</span> : null}
+                  </span>
+                  {!stageAvailability(stage, true, queue.capabilities) && <span className="id shrink-0 whitespace-nowrap">{formatEstimate(estimates.get(id)!)}{id === 'group' ? ' / group' : ' / plate'}</span>}
                 </label>
-              })}
-            </fieldset>
+                <button type="button" aria-label={`More options for ${stage.label}`} aria-expanded={showingOptions} aria-controls={panelId}
+                  className="flex w-11 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-2)] hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-primary"
+                  onClick={() => setExpanded(current => showingOptions ? current.filter(item => item !== id) : [...current, id])}>
+                  <IoChevronDown aria-hidden="true" className={cn('size-4 transition-transform', showingOptions && 'rotate-180')} />
+                </button>
+              </div>
+              <div id={panelId} hidden={!showingOptions}>
+                {showingOptions ? <div className="grid gap-3 rounded-b-[var(--radius-md)] border-t border-[var(--hairline)] bg-[color-mix(in_srgb,var(--fill)_94%,black)] px-3 py-3">
+                  {stage.options.map(setting => {
+                    const value = values[setting.id] ?? setting.default
+                    if (setting.kind === 'select') {
+                      return <PipelineOptionSelect key={setting.id} label={setting.label} choices={setting.choices ?? []}
+                        value={String(value)} onChange={next => setOption(optionStage, setting.id, next)} />
+                    }
+                    const capability = id === 'group' ? queue.capabilities?.[setting.id as typeof groupFeatures[number]] : undefined
+                    if (id === 'group' && !capability?.available) {
+                      return <p key={setting.id} className="caption text-[var(--ink-2)]">{setting.label} · {capability?.reason ?? 'Unavailable on the local worker'}</p>
+                    }
+                    return <label key={setting.id} className="caption flex cursor-pointer items-center gap-2">
+                      <input type="checkbox" checked={value === true} onChange={event => setOption(optionStage, setting.id, event.target.checked)} />
+                      {setting.label}
+                    </label>
+                  })}
+                  {id === 'research' && values.reuseSavedSources === true ? <p className="caption">
+                    {values.policy === 'replace' ? 'Replace existing searches for sources again.' : 'Skips plates without a usable saved source.'}
+                  </p> : null}
+                  {id === 'research' ? <ResearchModelPicker choice={researchChoice} /> : null}
+                  {id === 'tag' ? <TaggingModelPicker choice={tagChoice} inlineLabel="Tagging model" /> : null}
+                  {id === 'group' && values.visionTiebreak === true && queue.capabilities?.visionTiebreak.available
+                    ? <TaggingModelPicker choice={localChoice} inlineLabel="Desktop stage model" /> : null}
+                </div> : null}
+              </div>
+            </div>
           })}
-        </section>
-        {needsTagModel ? <div className="grid gap-1"><p className="label">Tag model</p><TaggingModelPicker choice={choice} /></div> : null}
-        {needsModel ? <div className="grid gap-1"><p className="label">Desktop stage model</p><TaggingModelPicker choice={localChoice} /></div> : null}
-        {needsResearchModel ? <ResearchModelPicker choice={researchChoice} /> : null}
-        <footer className="sticky bottom-0 grid gap-[var(--stack-gap)] border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-5">
-          <label className="caption flex items-center gap-2"><input type="checkbox" checked={previewOnly} onChange={event => setPreviewOnly(event.target.checked)} />Preview only · inspect results, Apply is unavailable</label>
-          <p className="caption">Up to {planned.length} plates · {stages.map(id => pipelineStages.find(stage => stage.id === id)?.label).join(' → ') || 'Choose stages'}. {previewOnly ? 'Run again without Preview only to apply changes.' : 'Suggestions wait for your explicit Apply.'}</p>
-          {active ? <p className="caption">A run is already active. You can queue these plates and stages; each resource slot is shared fairly between requesters.</p> : null}
-          {queue.message ? <p role="alert">{queue.message}</p> : null}
-          {groupOutsideBatch ? <p role="alert">Every Group member must already be in this Batch. Choose a complete family scope from plates in your Batch.</p> : null}
-          <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button disabled={blocked || active} onClick={() => void enqueue()}><IoPlay aria-hidden="true" />{posting ? 'Saving run…' : 'Start run'}</Button>
-            <Button variant="outline" disabled={blocked} onClick={() => void enqueue()}>{posting ? 'Saving run…' : 'Queue run'}</Button>
-          </div>
+        </div>
+        <footer className="sticky bottom-0 grid gap-2 border-t border-[var(--hairline)] bg-[var(--card)] pt-3 pb-4">
+          {!blocked && steps.length > 0 && <p className="caption tabular-nums">{formatEstimate(totalMs)} processing time</p>}
+          {queue.message ? <p role="alert" className="caption">{queue.message}</p> : null}
+          {runBlockers.length ? <ul id={reasonsId} aria-live="polite" className="caption grid gap-1 text-[var(--danger)]">
+            {[...new Set(runBlockers)].map(reason => <li key={reason}>{reason}</li>)}
+          </ul> : null}
+          <Button className="justify-self-end pt-0 [&_svg]:mt-0" disabled={blocked}
+            aria-describedby={runBlockers.length ? reasonsId : undefined} onClick={() => void enqueue()}>
+            {active ? <IoListOutline aria-hidden="true" /> : <IoPlay aria-hidden="true" />}
+            {posting ? 'Saving run…' : active ? 'Queue Run' : 'Start Run'}
+          </Button>
         </footer>
       </PopoverContent>
     </Popover>

@@ -15,7 +15,7 @@ beforeEach(() => {
 const request = (paused = true) => new Request('http://localhost/api/publish/control', { method: 'POST', body: JSON.stringify({ paused }) })
 
 test('Owner can read audit details and pause or resume', async () => {
-  expect(await (await GET(request())).json()).toEqual({ control })
+  expect(await (await GET(request())).json()).toEqual({ control, enabledHere: true })
   for (const paused of [true, false]) {
     expect((await POST(request(paused))).status).toBe(200)
     expect(mocks.change).toHaveBeenLastCalledWith(paused, control.changedBy, expect.any(String))
@@ -30,6 +30,7 @@ test('unauthenticated requests and disabled environments are denied', async () =
   mocks.currentActiveOwner.mockResolvedValueOnce({ ok: false, response: Response.json({ error: 'unauthenticated' }, { status: 401 }) })
   expect((await POST(request())).status).toBe(401)
   mocks.publishAllowed.mockReturnValue(false)
+  expect(await (await GET(request())).json()).toEqual({ control, enabledHere: false })
   expect((await POST(request())).status).toBe(403)
 })
 test('unavailable controls fail closed', async () => {

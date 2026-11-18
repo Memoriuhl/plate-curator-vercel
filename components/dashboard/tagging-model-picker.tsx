@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { IoCloudOutline, IoLaptopOutline } from 'react-icons/io5'
 import { useTaggingModels } from '@/lib/client/hooks'
 import { formatTaggingModel } from '@/lib/client/tagging-models'
+import { InlineSelect } from '@/components/ui/inline-select'
 import type { TaggingModelId } from '@/lib/tagging/models'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -19,12 +21,23 @@ export function useTaggingModelChoice(storageKey = 'tagging-model:v1') {
   return { data, modelId, choose }
 }
 
-export function TaggingModelPicker({ choice, error }: { choice: ReturnType<typeof useTaggingModelChoice>; error?: string }) {
+export function TaggingModelPicker({ choice, error, inlineLabel }: {
+  choice: Pick<ReturnType<typeof useTaggingModelChoice>, 'data' | 'choose'> & { modelId?: string }
+  error?: string
+  inlineLabel?: string
+}) {
+  const models = choice.data?.models ?? []
   return <div className="grid min-w-0 gap-1">
-    {choice.data && choice.data.models.length > 1 ? <Select value={choice.modelId} onValueChange={choice.choose}>
+    {models.length > 1 && (inlineLabel
+      ? <InlineSelect label={inlineLabel} value={choice.modelId} onChange={choice.choose}
+        options={models.map(model => ({
+          value: model.id, label: formatTaggingModel(model),
+          icon: model.runsOn === 'desktop' ? IoLaptopOutline : IoCloudOutline,
+        }))} />
+      : <Select value={choice.modelId} onValueChange={choice.choose}>
       <SelectTrigger size="sm" aria-label="Tagging model" className="min-w-0 max-w-full whitespace-nowrap [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate"><SelectValue /></SelectTrigger>
-      <SelectContent>{choice.data.models.map(model => <SelectItem key={model.id} value={model.id}>{formatTaggingModel(model)}</SelectItem>)}</SelectContent>
-    </Select> : null}
+      <SelectContent>{models.map(model => <SelectItem key={model.id} value={model.id}>{formatTaggingModel(model)}</SelectItem>)}</SelectContent>
+    </Select>)}
     {error ? <p role="alert" className="caption">{error}</p> : null}
   </div>
 }

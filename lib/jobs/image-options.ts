@@ -13,6 +13,7 @@ export function imageGroupCapabilities(runtime?: GroupRuntime) {
   const maskReady = !!runtime?.embeddings && runtime.backgroundMask
   return {
     'find-image': { available: true, label: 'Wikimedia Commons' },
+    'enhance-image': { available: false, reason: 'Update the local worker to enhance images' },
     group: { available: !!runtime?.embeddings, reason: runtime?.embeddings ? undefined : unavailable },
     embeddings: { available: !!runtime?.embeddings, reason: runtime?.embeddings ? undefined : unavailable },
     colorSignal: { available: maskReady, reason: maskReady ? undefined : runtime?.maskReason ?? unavailable },

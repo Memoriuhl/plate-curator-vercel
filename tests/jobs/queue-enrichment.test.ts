@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { enqueueRun, retryRun, cancelRun } from '../../lib/jobs/queue'
-import { dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
+import { enqueueRun, enqueueSelection, listRuns, retryRun, cancelRun } from '../../lib/jobs/queue'
+import { bindQueueWorkflow, dispatchQueueStage, observeQueueStage } from '../../lib/jobs/queue-engine'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
+import { readLocalWorkerCapabilities, reportLocalWorkerCapabilities } from '../../lib/jobs/capabilities'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
-import { createEnrichmentHandler } from '../../worker/pipeline/research'
+import { captureSavedEnrichment, createEnrichmentHandler } from '../../worker/pipeline/research'
 import { executeQueueResearch } from '../../lib/research/queue-hosted'
 import { createResearchMemoryState } from '../../lib/research/state'
 import { evidenceSource } from '../../lib/research/evidence'
@@ -35,7 +36,10 @@ function setup() {
     baselineAtVersion: async (_, id) => plates.find(plate => plate.id === id) ?? null, now: () => 1000, id: () => `claim-${++seq}`, leaseMs: 10000 }
   const capture = vi.fn(async (): Promise<{ sources: typeof source[]; wikiUrl: string | null }> => ({ sources: [source], wikiUrl: source.url }))
   const request = vi.fn(async () => Response.json({ message: { content: JSON.stringify(draft) }, eval_count: 120, prompt_eval_count: 800 }))
-  const handler = createEnrichmentHandler({ url: 'http://ollama.test', capture, fetch: request })
+  const captureSaved = vi.fn(async (plate: Pick<Plate, 'wikiUrl' | 'readMore'>) => ({
+    sources: plate.wikiUrl || plate.readMore?.length ? [source] : [], wikiUrl: plate.wikiUrl ?? null,
+  }))
+  const handler = createEnrichmentHandler({ url: 'http://ollama.test', capture, captureSaved, fetch: request })
   const state = createResearchMemoryState()
   const deliver = vi.fn(async (job: TaggingJob) => {
     await state.update(`draft/${job.id}`, () => ({ value: { draft }, result: null }))
@@ -44,8 +48,8 @@ function setup() {
     await state.update(`model-attempts/${job.id}`, () => ({ value: [{ id: job.id, costUsd: 0.000128 }], result: null }))
     return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
   })
-  const hosted = (job: TaggingJob) => executeQueueResearch(jobs, job, { state, capture, activeOwner: async () => true, deliver })
-  return { jobs, plates, review, capture, request, handler, state, deliver, hosted }
+  const hosted = (job: TaggingJob) => executeQueueResearch(jobs, job, { state, capture, captureSaved, activeOwner: async () => true, deliver })
+  return { jobs, plates, review, capture, captureSaved, request, handler, state, deliver, hosted }
 }
 
 test.each(['desktop', 'eve'] as const)('%s bulk Fill missing skips populated plates and fields, stores model/policy and applies one coherent draft', async executor => {
@@ -84,6 +88,93 @@ test.each(['desktop', 'eve'] as const)('%s bulk Fill missing skips populated pla
   expect(two?.fields).not.toHaveProperty('funFacts')
   expect(await s.review.getEdit('batch', 'AK.complete')).toBeNull()
   expect(await applyQueueBundle(s.jobs, review, actor, run.id)).toMatchObject({ value: { revision: 1 } })
+})
+
+test('saved-source capture only fetches saved links, deduplicates them and classifies fetched Wiki evidence', async () => {
+  const museum = { ...source, url: 'https://museum.example/plate', kind: 'web' as const }
+  const fetchPage = vi.fn().mockImplementation(async url => url === source.url ? { ...source, kind: 'web' } : museum)
+  const result = await captureSavedEnrichment({
+    wikiUrl: source.url, sourceUrl: source.url, readMore: [{ title: 'Museum', site: 'Museum', url: museum.url }],
+    funFacts: [{ text: 'Saved fact', sourceUrl: museum.url }],
+  }, fetchPage)
+  expect(fetchPage.mock.calls.map(([url]) => url)).toEqual([source.url, museum.url])
+  expect(result).toEqual({ sources: [source, museum], wikiUrl: source.url })
+})
+
+test.each(['desktop', 'eve'] as const)('%s skips a plate without saved evidence and continues to the next plate', async executor => {
+  const s = setup()
+  s.plates[0].wikiUrl = null
+  const model = executor === 'eve' ? 'eve-gemini-2-5-flash-lite' : 'desktop-gemma4-12b'
+  const created = await enqueueRun(s.jobs, actor, {
+    requestId: 'saved-sources', batchId: 'batch', plateIds: ['AK.one', 'AK.two'], stages: ['research'],
+    researchModelId: model, options: { research: { policy: 'fill-missing', reuseSavedSources: true } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const run = created.value
+  for (let index = 0; index < 2; index++) {
+    const id = (await dispatchQueueStage(s.jobs, run.id, 1, index, `hook-${index}`))!
+    expect((await getJob(s.jobs, id))?.stageOptions).toMatchObject({ reuseSavedSources: true })
+    if (executor === 'eve') await executeHostedQueueStage(s.jobs, id, async () => { throw Error('unexpected Tag') }, s.hosted)
+    else {
+      expect(await claimNext(s.jobs, 'old-worker')).toBeNull()
+      const claim = (await claimNext(s.jobs, 'new-worker', { supportsSavedSources: true }))!
+      const result = await s.handler({ plate: claim.job.inputPlate!, model, ...claim.job.stageOptions })
+      expect(await reportResult(s.jobs, 'new-worker', id, claim.claimId, { ...result, durationMs: 1 })).toMatchObject({ ok: true })
+    }
+    expect((await observeQueueStage(s.jobs, run.id, 1, index)).phase).toBe(index === 0 ? 'next' : 'done')
+  }
+  expect(s.capture).not.toHaveBeenCalled()
+  expect(s.captureSaved).toHaveBeenCalledTimes(2)
+  expect(executor === 'eve' ? s.deliver : s.request).toHaveBeenCalledOnce()
+  expect(await listRuns(s.jobs, actor)).toMatchObject({ value: [{ status: 'completed', attempts: [
+    { outcome: 'partial', steps: [{ status: 'skipped', reason: 'no_saved_sources' }, { status: 'completed' }] },
+  ] }] })
+})
+
+test('a hosted Research session that ends without a draft does not stop the next plate', async () => {
+  const s = setup()
+  s.deliver.mockImplementationOnce(async job => {
+    await s.state.update(`eve-outcome/${job.id}`, () => ({ value: { outcome: 'failed' }, result: null }))
+    return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
+  })
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'hosted-research-failure', batchId: 'batch', plateIds: ['AK.one', 'AK.two'],
+    stages: ['research'], researchModelId: 'eve-gemini-2-5-flash-lite',
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  for (const index of [0, 1]) {
+    const id = (await dispatchQueueStage(s.jobs, run.id, 1, index, `hook-${index}`))!
+    expect(await executeHostedQueueStage(s.jobs, id, async () => { throw Error('unexpected Tag') }, s.hosted)).toBe('settled')
+    expect(await observeQueueStage(s.jobs, run.id, 1, index)).toEqual({ phase: index === 0 ? 'next' : 'done' })
+  }
+  expect(await listRuns(s.jobs, actor)).toMatchObject({ value: [{ status: 'completed', draftPlateIds: ['AK.two'], attempts: [
+    { outcome: 'partial', steps: [{ status: 'failed', reason: 'stage_failed' }, { status: 'completed' }] },
+  ] }] })
+})
+
+test('a Run Pipeline selection saves one hosted result with its description and sourced facts to the Batch', async () => {
+  const s = setup()
+  const plateId = s.plates[0].id
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'selection', batchId: 'batch', plateIds: [plateId], stages: ['research'],
+    researchModelId: 'eve-gemini-2-5-flash-lite', options: { research: { policy: 'replace', reuseSavedSources: true } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  expect(run.attempts[0].steps).toEqual([{ index: 0, plateId, stage: 'research', resourceClass: 'io' }])
+  const id = (await dispatchQueueStage(s.jobs, run.id, 1, 0, 'selection-hook'))!
+  expect(await executeHostedQueueStage(s.jobs, id, async () => { throw Error('No Tag jobs expected') }, s.hosted)).toBe('settled')
+  await observeQueueStage(s.jobs, run.id, 1, 0)
+  await observeQueueStage(s.jobs, run.id, 1, 0)
+  expect(s.deliver).toHaveBeenCalledOnce()
+  expect(s.capture).toHaveBeenCalledOnce()
+  expect(s.captureSaved).not.toHaveBeenCalled()
+  const fields = { description: draft.description, funFacts: [{ text: draft.funFacts[0].text, sourceUrl: source.url }] }
+  expect(await listRuns(s.jobs, actor)).toMatchObject({ value: [{ id: run.id, status: 'completed', draftPlateIds: [plateId], jobs: [
+    { id, researchModel: { id: 'eve-gemini-2-5-flash-lite' }, result: { fieldSuggestion: { stage: 'research', fields } } },
+  ] }] })
+  expect(await s.review.readBatch('batch')).toMatchObject({ batch: { revision: 1 }, edits: [{ plateId, fields }] })
 })
 
 test.each(['fill-missing', 'replace'] as EnrichmentPolicy[])('%s server projection refuses empty replacements and protects populated fields from worker overreach', async policy => {
@@ -168,4 +259,27 @@ test('retrieval failure and invalid synthesis never replace saved fields or retr
   expect(await s.handler({ plate: s.plates[0], policy: 'replace', model: 'desktop-gemma4-26b' })).toMatchObject({ stageError: 'no_supported_fields', model: 'gemma4:26b' })
   expect(s.request).toHaveBeenCalledOnce()
   expect(await s.review.listEdits('batch')).toEqual([])
+})
+
+test('saved-source research reports an incompatible worker using the same condition as the claim', async () => {
+  const s = setup()
+  const created = await enqueueRun(s.jobs, actor, {
+    requestId: 'saved-source-worker', batchId: 'batch', plateIds: [s.plates[0].id],
+    stages: ['research'], researchModelId: 'desktop-gemma4-26b',
+    options: { research: { policy: 'fill-missing', reuseSavedSources: true } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const run = created.value
+  await bindQueueWorkflow(s.jobs, run.id, 1, 'workflow-saved-sources')
+  await dispatchQueueStage(s.jobs, run.id, 1, 0, 'hook-saved-sources')
+  const list = async () => listRuns(s.jobs, actor, await readLocalWorkerCapabilities(s.jobs))
+  const available = { available: true }
+  const capabilities = { group: available, embeddings: available, mask: available, vision: available, pollIntervalMs: 5000 }
+  await reportLocalWorkerCapabilities(s.jobs, 'worker', capabilities, false)
+  expect(await list()).toMatchObject({ value: [{ id: run.id, queueWait: 'saved_sources_worker' }] })
+  expect(await claimNext(s.jobs, 'worker')).toBeNull()
+
+  await reportLocalWorkerCapabilities(s.jobs, 'worker', capabilities, true)
+  expect(await list()).toMatchObject({ value: [{ id: run.id, queueWait: 'worker_claim' }] })
+  expect(await claimNext(s.jobs, 'worker', { supportsSavedSources: true })).toMatchObject({ job: { queueRunId: run.id } })
 })

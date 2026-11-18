@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   try {
     const auth = await currentActiveOwner(request)
     if (!auth.ok) return auth.response
-    return json({ control: await publishControl().read() })
+    return json({ control: await publishControl().read(), enabledHere: publishAllowed() })
   } catch {
     return json({ error: 'unavailable' }, 503)
   }

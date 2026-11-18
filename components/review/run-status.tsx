@@ -1,8 +1,8 @@
 'use client'
 
-import { isPublishStop, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
+import { isPublishStop, PIPELINE_BUSY, PIPELINE_BUSY_MESSAGE, PUBLISH_STOP_MESSAGES } from '@/lib/publish/stop'
 import { useEffect, useState } from 'react'
-import { IoCheckmark, IoCopyOutline } from 'react-icons/io5'
+import { IoCheckmark, IoCopyOutline, IoPulseOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
 import type { BatchRun } from '@/lib/client/hooks'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
@@ -24,6 +24,7 @@ const phases = [
 ]
 const failures: Record<string, string> = {
   ...PUBLISH_STOP_MESSAGES,
+  [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
   [BASELINE_ERRORS.stale]: 'The Catalog changed since this Batch was reviewed.',
   [BASELINE_ERRORS.receiptConflict]: 'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
   pointer_moved: 'The Catalog moved during Publish.',
@@ -102,7 +103,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               ))}
             </ul>
             {run.outcome?.reviewedVersion !== undefined && <p>Reviewed Catalog v{run.outcome.reviewedVersion}; current Catalog v{run.outcome.liveVersion}.</p>}
-            <p>{isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
+            <p>{run.outcome?.error === PIPELINE_BUSY ? 'Confirm Publish again when the pipeline clears.' : isPublishStop(run.outcome?.error) ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.' : (isBaselineError(run.outcome?.error) || run.outcome?.error === 'pointer_moved') ? 'Open Publish and copy to a new Batch for fresh review.' : 'Fix the Batch and approve it again.'}</p>
           </div>
         )}
         {run.phase === 'superseded' && (
@@ -140,11 +141,24 @@ export function RunStatusView({ run }: { run: BatchRun }) {
   )
 }
 
-export function RunStatus({ batchId }: { batchId: string }) {
+export function RunStatus({ batchId, compact = false }: { batchId: string; compact?: boolean }) {
   const me = useMe()
   const run = useBatchRun(batchId)
   if (me.data?.role !== 'owner') return null
   if (run.error) return <p role="alert">Could not load the approval run.</p>
+  if (compact && run.data) {
+    const phase = run.data.phase
+    if (!phase) return null
+    if (!['failed', 'superseded', 'timed-out'].includes(phase)) {
+      return <details>
+        <summary className="caption cursor-pointer">
+          <IoPulseOutline className="mx-1 inline size-4 align-text-bottom" aria-hidden="true" />
+          {phase === 'published' ? 'Run details' : steps[phases.indexOf(phase)] ?? 'Run details'}
+        </summary>
+        <RunStatusView run={run.data} />
+      </details>
+    }
+  }
   return run.data ? (
     <RunStatusView run={run.data} />
   ) : (

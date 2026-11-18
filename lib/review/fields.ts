@@ -2,9 +2,10 @@ import type { EditableFields } from './types'
 import { storyFieldKeys } from './story'
 import { commonsImageUrl, commonsSourceUrl } from '../jobs/image-options'
 
-export const limits = { tags: 50, tag: 60, text: 120, plates: 50 }
+export const limits = { tags: 50, tag: 60, text: 120, plates: 1000 }
 const storyKeys = storyFieldKeys
 export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
+export const draftGroupingFields = ['templateFamily', 'templateRole', 'variantOfPlateId'] as const
 const imageKeys = ['imageUrl', 'sourceUrl'] as const
 export const editableKeys = ['tags', 'templateFamily', 'templateRole', 'variantOfPlateId', 'isStandard', 'description', 'deleted', ...storyKeys, ...imageKeys, ...colorFieldKeys] as const
 export function editableFieldKeys() {

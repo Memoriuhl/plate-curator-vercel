@@ -1,11 +1,14 @@
+import sharp from 'sharp'
+import { createEnhanceImageRunner } from '../../worker/enhance-image'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import { claimJob, claimNext, createJob, expireJob, getJob, reportResult } from '../../lib/jobs/jobs'
-import { enqueueRun, cancelRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
+import { enqueueRun, enqueueSelection, cancelRun, dismissRun, listRuns, retryRun, maxQueueAttempts } from '../../lib/jobs/queue'
 import { bindQueueWorkflow, confirmStoppedWorker, dispatchQueueStage, observeQueueStage, recordQueueWorkflowFailure } from '../../lib/jobs/queue-engine'
 import { failLocalJob, listLocalOrphanJobs, recoverLocalOrphanJob } from '../../lib/jobs/queue-failure'
+import { readLocalWorkerCapabilities, reportLocalWorkerCapabilities } from '../../lib/jobs/capabilities'
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
 import type { LocalRunStage } from '../../lib/jobs/queue-types'
 
@@ -14,9 +17,9 @@ const other = { ...actor, uid: 'other' }
 const owner = { ...actor, uid: 'owner', role: 'owner' as const }
 const base = { backend: 'test', model: 'fixture', promptVersion: 'v1', durationMs: 10 }
 
-function setup() {
+function setup(slugs = ['one', 'two']) {
   let time = 100, sequence = 0
-  const plates = ['one', 'two'].map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
+  const plates = slugs.map(slug => ({ id: `AK.${slug}`, state: 'AK', slug, displayName: slug, image: '', tags: [] }))
   const review = createMemoryStore(['batch', 'other-batch'].map((id, index) => ({ id, name: 'Queue', createdBy: index ? other.uid : actor.uid, createdAt: '', revision: 0,
     state: 'open' as const, baselineVersion: 1, plateIds: plates.map(plate => plate.id), approval: null })))
   const store = createMemoryJobsStore(review, localJobsEnvironment('test-queue'))
@@ -34,8 +37,8 @@ function setup() {
     if (!claim) throw Error('Expected claim')
     const sent = await reportResult(deps, workerId, claim.job.id, claim.claimId, report)
     expect(sent).toMatchObject({ ok: true })
-    await observeQueueStage(deps, claim.job.queueRunId!, claim.job.queueAttempt!, claim.job.queueStep!)
-    return claim
+    const observation = await observeQueueStage(deps, claim.job.queueRunId!, claim.job.queueAttempt!, claim.job.queueStep!)
+    return { ...claim, observation }
   }
   return { deps, plates, review, run, complete, advance: (ms: number) => { time += ms } }
 }
@@ -137,16 +140,127 @@ test('a missing Wiki result stops the research run before any model job is dispa
   expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'describe-hook')).toBeNull()
   expect(await claimNext(s.deps, 'worker')).toBeNull()
   const [saved] = await s.deps.store.transaction(tx => tx.runs())
-  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 0, outcome: 'no_result', error: 'no_sources', steps: [
+  expect(saved).toMatchObject({ status: 'failed', attempts: [{ cursor: 3, outcome: 'no_result', error: 'no_sources', steps: [
     { stage: 'wiki-link', status: 'failed', reason: 'no_sources', endedAt: 100 },
-    { stage: 'describe', status: 'cancelled', reason: 'upstream_failed', endedAt: 100 },
-    { stage: 'story', status: 'cancelled', reason: 'upstream_failed', endedAt: 100 },
+    { stage: 'describe', status: 'skipped', reason: 'upstream_failed', endedAt: 100 },
+    { stage: 'story', status: 'skipped', reason: 'upstream_failed', endedAt: 100 },
   ] }] })
   expect(await s.review.listEdits('batch')).toEqual([])
   const retry = await retryRun(s.deps, actor, run.id, 'retry-source')
   if (!retry.ok) throw Error(retry.error)
-  expect(retry.value.attempts[0].steps.map(step => step.status)).toEqual(['failed', 'cancelled', 'cancelled'])
+  expect(retry.value.attempts[0].steps.map(step => step.status)).toEqual(['failed', 'skipped', 'skipped'])
   expect(retry.value.attempts[1].steps.every(step => step.status === undefined && step.endedAt === undefined && step.reason === undefined)).toBe(true)
+})
+
+test('three missing links skip only their plates in a 21-plate selection', async () => {
+  const s = setup(Array.from({ length: 21 }, (_, index) => `plate-${index}`))
+  const created = await enqueueSelection(s.deps, actor, {
+    requestId: 'mixed-links', batchId: 'batch', plateIds: s.plates.map(plate => plate.id), stages: ['wiki-link', 'describe'],
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  const missing = new Set([0, 10, 20])
+  const url = 'https://example.org/wiki'
+  for (const [index, plate] of s.plates.entries()) {
+    const wikiIndex = index * 2
+    expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex, `hook-${wikiIndex}`)).toBeTruthy()
+    const wiki = await s.complete('worker', missing.has(index) ? { ...base, stageError: 'no_sources' } : {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] },
+    })
+    expect(wiki.job.plateId).toBe(plate.id)
+    if (missing.has(index)) {
+      expect(wiki.observation).toEqual(index === 20 ? { phase: 'done' } : { phase: 'next', nextIndex: wikiIndex + 2 })
+      expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex + 1, `skip-${wikiIndex}`)).toBeNull()
+      expect(await claimNext(s.deps, 'worker')).toBeNull()
+      continue
+    }
+    expect(await dispatchQueueStage(s.deps, run.id, 1, wikiIndex + 1, `describe-${wikiIndex}`)).toBeTruthy()
+    const description = await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'A sourced description' }, sources: [url] },
+    })
+    expect(description.job.inputPlate?.wikiUrl).toBe(url)
+  }
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  const [attempt] = saved.attempts
+  expect(saved).toMatchObject({ status: 'completed', draftPlateIds: s.plates.filter((_, index) => !missing.has(index)).map(plate => plate.id) })
+  expect(attempt).toMatchObject({ outcome: 'partial', cursor: 42 })
+  expect(attempt.completedJobIds).toHaveLength(36)
+  for (const index of missing) {
+    expect(attempt.steps.slice(index * 2, index * 2 + 2)).toMatchObject([
+      { status: 'failed', reason: 'no_sources' }, { status: 'skipped', reason: 'upstream_failed' },
+    ])
+  }
+  expect(await s.review.listEdits('batch')).toHaveLength(18)
+  const retried = await retryRun(s.deps, actor, run.id, 'retry-missing-links')
+  if (!retried.ok) throw Error(retried.error)
+  expect(retried.value.attempts[1]).toMatchObject({ cursor: 0, completedJobIds: attempt.completedJobIds })
+  expect(retried.value.attempts[1].steps.filter(step => step.status === 'completed')).toHaveLength(36)
+
+  for (const index of missing) {
+    const wikiIndex = index * 2
+    expect(await dispatchQueueStage(s.deps, run.id, 2, wikiIndex, `retry-wiki-${index}`)).toBeTruthy()
+    await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'wiki-link', fields: { wikiUrl: url }, sources: [url] },
+    })
+    expect(await dispatchQueueStage(s.deps, run.id, 2, wikiIndex + 1, `retry-describe-${index}`)).toBeTruthy()
+    const result = await s.complete('worker', {
+      ...base, fieldSuggestion: { kind: 'fields', stage: 'describe', fields: { description: 'A sourced description' }, sources: [url] },
+    })
+    expect(result.observation).toEqual(index === 20 ? { phase: 'done' } : { phase: 'next', nextIndex: index === 0 ? 20 : 40 })
+  }
+  const [finished] = await s.deps.store.transaction(tx => tx.runs())
+  expect(finished.status).toBe('completed')
+  expect(finished.attempts[1].outcome).toBeUndefined()
+  expect(finished.attempts[1].completedJobIds).toHaveLength(42)
+  expect(await s.review.listEdits('batch')).toHaveLength(21)
+})
+
+test.each(['stage_failed', 'no_saved_sources'])('Research %s skips the rest of that plate and the next plate still runs', async reason => {
+  const s = setup()
+  const created = await enqueueSelection(s.deps, actor, {
+    requestId: 'research-worker-failure', batchId: 'batch', plateIds: s.plates.map(plate => plate.id),
+    stages: ['research', 'wiki-link', 'describe'], researchModelId: 'desktop-gemma4-12b',
+    options: { research: { policy: 'fill-missing', reuseSavedSources: reason === 'no_saved_sources' } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  await dispatchQueueStage(s.deps, run.id, 1, 0, 'first')
+  const claim = (await claimNext(s.deps, 'worker', { supportsSavedSources: true }))!
+  expect(claim.job.stage).toBe('research')
+  const model = claim.job.researchModel!.model
+  if (reason === 'no_saved_sources') {
+    expect(await reportResult(s.deps, 'worker', claim.job.id, claim.claimId, { ...base, model, stageError: 'no_sources' })).toMatchObject({ ok: true })
+  } else {
+    await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, reason)
+  }
+  expect(await observeQueueStage(s.deps, run.id, 1, 0)).toEqual({ phase: 'next', nextIndex: 3 })
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 1, 'skipped')).toBeNull()
+  expect(await dispatchQueueStage(s.deps, run.id, 1, 2, 'skipped')).toBeNull()
+
+  const url = 'https://example.org/wiki'
+  const results = [
+    { stage: 'research', fields: { description: 'Researched' } },
+    { stage: 'wiki-link', fields: { wikiUrl: url } },
+    { stage: 'describe', fields: { description: 'Sourced description' } },
+  ] as const
+  for (const [offset, result] of results.entries()) {
+    const index = 3 + offset
+    expect(await dispatchQueueStage(s.deps, run.id, 1, index, 'second')).toBeTruthy()
+    const next = (await claimNext(s.deps, 'worker', { supportsSavedSources: true }))!
+    expect(next.job.plateId).toBe(s.plates[1].id)
+    expect(await reportResult(s.deps, 'worker', next.job.id, next.claimId, { ...base, model,
+      fieldSuggestion: { kind: 'fields', ...result, sources: [url] },
+    })).toMatchObject({ ok: true })
+    await observeQueueStage(s.deps, run.id, 1, index)
+  }
+  const [saved] = await s.deps.store.transaction(tx => tx.runs())
+  expect(saved).toMatchObject({ status: 'completed', draftPlateIds: [s.plates[1].id] })
+  expect(saved.attempts[0].steps).toMatchObject([
+    { status: reason === 'no_saved_sources' ? 'skipped' : 'failed', reason },
+    { status: 'skipped', reason: reason === 'no_saved_sources' ? 'upstream_skipped' : 'upstream_failed' },
+    { status: 'skipped', reason: reason === 'no_saved_sources' ? 'upstream_skipped' : 'upstream_failed' },
+    { status: 'completed' }, { status: 'completed' }, { status: 'completed' },
+  ])
 })
 
 test('dispatch refuses a persisted run that advanced without its selected Wiki prerequisite', async () => {
@@ -246,19 +360,24 @@ test('all direct local physical claims stay fenced after lease expiry and explic
   expect(await expireJob(production, 'production')).toMatchObject({ value: { state: 'expired' } })
 })
 
-test('list keeps every visible active run after more than fifty newer terminal or invisible records', async () => {
+test('list retains every unremoved run and allows opening older archived results by ID', async () => {
   const s = setup()
   const active = await s.run('active-old')
   await s.deps.store.transaction(async tx => {
     const [template] = await tx.runs()
     for (let index = 0; index < 60; index++) tx.setRun({ ...template, id: `history-${index}`, createdAt: 200 + index, status: 'completed' })
     for (let index = 0; index < 60; index++) tx.setRun({ ...template, id: `invisible-${index}`, createdAt: 300 + index, status: 'completed', batchId: 'missing' })
+    for (let index = 0; index < 60; index++) tx.setRun({ ...template, id: `archived-${index}`, status: 'completed', dismissedAt: 400 + index })
   })
   const listed = await listRuns(s.deps, actor)
   if (!listed.ok) throw Error(listed.error)
-  expect(listed.value).toHaveLength(51)
+  expect(listed.value).toHaveLength(111)
   expect(listed.value.some(run => run.id === active.id && run.status === 'queued')).toBe(true)
-  expect(listed.value.filter(run => run.status === 'completed')).toHaveLength(50)
+  expect(listed.value.filter(run => run.status === 'completed' && run.dismissedAt === undefined)).toHaveLength(60)
+  expect(listed.value.filter(run => run.dismissedAt !== undefined)).toHaveLength(50)
+  expect(listed.value.some(run => run.id === 'archived-0')).toBe(false)
+  const requested = await listRuns(s.deps, actor, undefined, 'archived-0')
+  expect(requested.ok && requested.value.some(run => run.id === 'archived-0')).toBe(true)
   const claim = (await claimNext(s.deps, 'worker'))!
   s.advance(1000)
   await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'stage_failed')
@@ -266,8 +385,43 @@ test('list keeps every visible active run after more than fifty newer terminal o
   const failed = await listRuns(s.deps, actor)
   expect(failed).toMatchObject({ ok: true })
   if (!failed.ok) throw Error(failed.error)
-  expect(failed.value[0]).toMatchObject({ id: active.id, status: 'failed', editable: true })
+  expect(failed.value.find(run => run.id === active.id)).toMatchObject({ status: 'failed', editable: true })
   expect(await retryRun(s.deps, actor, active.id, 'retry-old-visible')).toMatchObject({ ok: true })
+})
+
+test('dismissing a terminal card preserves its history, and retry restores it to the rail', async () => {
+  const s = setup()
+  const run = await s.run('dismiss-card')
+  expect(await dismissRun(s.deps, actor, run.id)).toEqual({ ok: false, error: 'invalid_state' })
+  const claim = (await claimNext(s.deps, 'worker'))!
+  await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'stage_failed')
+  await observeQueueStage(s.deps, run.id, 1, 0)
+  expect(await dismissRun(s.deps, other, run.id)).toEqual({ ok: false, error: 'not_found' })
+  expect(await dismissRun(s.deps, actor, run.id)).toMatchObject({ ok: true, value: { dismissedAt: 100, status: 'failed' } })
+  s.advance(500)
+  expect(await dismissRun(s.deps, actor, run.id)).toMatchObject({ ok: true, value: { dismissedAt: 100 } })
+  expect(await listRuns(s.deps, actor)).toMatchObject({ value: [{ id: run.id, dismissedAt: 100, jobs: [{ id: claim.job.id }] }] })
+  const retried = await retryRun(s.deps, actor, run.id, 'retry-dismissed')
+  if (!retried.ok) throw Error(retried.error)
+  expect(retried.value.status).toBe('queued')
+  expect(retried.value).not.toHaveProperty('dismissedAt')
+})
+
+test('queued cards distinguish an occupied GPU from a released failed claim and an offline worker', async () => {
+  const s = setup()
+  const first = await s.run('gpu-holder', ['tag'], other, 'other-batch')
+  const claim = (await claimNext(s.deps, 'worker'))!
+  const queued = await s.run('gpu-waiter')
+  const list = async () => listRuns(s.deps, actor, await readLocalWorkerCapabilities(s.deps))
+  expect(await list()).toMatchObject({ value: [{ id: queued.id, queueWait: 'gpu_busy' }] })
+  s.advance(11 * 60_000)
+  expect(await list()).toMatchObject({ value: [{ id: queued.id, queueWait: 'gpu_recovery' }] })
+  await failLocalJob(s.deps, 'worker', claim.job.id, claim.claimId, 'lease_expired')
+  await observeQueueStage(s.deps, first.id, 1, 0)
+  expect(await list()).toMatchObject({ value: [{ id: queued.id, queueWait: 'worker_offline' }] })
+  const available = { available: true }
+  await reportLocalWorkerCapabilities(s.deps, 'worker', { group: available, embeddings: available, mask: available, vision: available, pollIntervalMs: 5000 })
+  expect(await list()).toMatchObject({ value: [{ id: queued.id, queueWait: 'worker_claim' }] })
 })
 
 test('a dead worker stays reserved until explicit exact stale-claim recovery confirms it stopped', async () => {
@@ -369,4 +523,31 @@ test('existing hosted Tag jobs retain their by-id lifecycle and never reserve lo
   expect(await claimNext(s.deps, 'local-worker')).not.toBeNull()
   expect(await listLocalOrphanJobs(s.deps, actor)).toEqual([])
   expect(await expireJob(s.deps, 'hosted')).toMatchObject({ value: { state: 'expired' } })
+})
+
+
+test('enhancement skips old workers, verifies the WebP and stores it with the completed queue job', async () => {
+  const s = setup()
+  s.plates[0].image = 'AK/one.webp'
+  const run = await s.run('enhancement', ['enhance-image'])
+  expect(run.modelId).toBeUndefined()
+  expect(await claimNext(s.deps, 'previous-version-worker')).toBeNull()
+  const claim = (await claimNext(s.deps, 'enhancement-worker', { enhanceImage: true }))!
+  const input = await sharp({ create: { width: 200, height: 100, channels: 3, background: 'white' } }).png().toBuffer()
+  const readImage = vi.fn(async () => input.toString('base64'))
+  const result = await createEnhanceImageRunner(readImage)({ stage: 'enhance-image', plate: claim.job.inputPlate!, options: claim.job.stageOptions })
+  expect(readImage).toHaveBeenCalledWith('AK/one.webp')
+  expect(result.fieldSuggestion).toMatchObject({ kind: 'enhanced-image', width: 400, height: 200 })
+  const report = { ...base, ...result }
+  const reportJob = (body: ReportInput) => reportResult(s.deps, 'enhancement-worker', claim.job.id, claim.claimId, body)
+  expect(await reportJob({ ...report, enhancedImage: 'eA==' })).toEqual({ ok: false, error: 'invalid_result' })
+  expect(await s.deps.store.readEnhancedImage(claim.job.id)).toBeNull()
+  expect(await reportJob(report)).toMatchObject({ ok: true, value: { state: 'completed' } })
+  expect(await reportJob(report)).toMatchObject({ ok: true })
+  expect((await s.deps.store.readEnhancedImage(claim.job.id))?.toString('base64')).toBe(result.enhancedImage)
+  expect(await observeQueueStage(s.deps, run.id, 1, 0)).toEqual({ phase: 'done' })
+  const [saved] = await listRuns(s.deps, actor).then(outcome => outcome.ok ? outcome.value : [])
+  expect(saved).toMatchObject({ status: 'completed', attempts: [{ cursor: 1 }] })
+  expect(saved.jobs[0].result).not.toHaveProperty('enhancedImage')
+  expect(await s.review.listEdits('batch')).toEqual([])
 })

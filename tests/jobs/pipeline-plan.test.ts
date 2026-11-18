@@ -21,3 +21,11 @@ test('stage filters do not drop unrelated stages and default snapshots do not si
   expect(plan.map(step => step.stage)).toEqual(['describe'])
   expect(snapshotPipelineOptions(['group'], {})).toEqual({ group: { method: 'embeddings', colorSignal: true, backgroundMask: false, visionTiebreak: false } })
 })
+
+
+test('image enhancement follows a selected image search and keeps a standalone crop runnable', () => {
+  const stages = ['enhance-image', 'find-image'] as const
+  expect(orderedPipelineStages(stages)).toEqual(['find-image', 'enhance-image'])
+  expect(planPipeline(plates.slice(0, 1), ['enhance-image'], { 'enhance-image': { upscale: false, crop: true, roundCorners: false } }))
+    .toMatchObject([{ stage: 'enhance-image', resourceClass: 'io' }])
+})

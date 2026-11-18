@@ -1,5 +1,16 @@
 # Publish controls and recovery (#129, #128, #127, #126, #119)
 
+## Plate Pipeline gate
+
+Publish checks the target catalog environment for queued or running workflow
+records and standalone jobs. Legacy worker records can use a device namespace
+that differs from their Batch's environment. The gate reads Batch IDs by catalog
+environment, then uses those IDs to query jobs and runs in groups of 30. The
+lookup reads status metadata from that catalog's history and uses existing
+single-field indexes. It needs no migration or index rollout. Admission reads
+the shared Publish lease inside the queue transaction, and the pointer
+transaction repeats the scoped gate before advancing the Catalog.
+
 ## Pause and Resume
 
 Active Owners use the Catalog publishing control in Publish to Pause or Resume.
@@ -250,9 +261,10 @@ from environment, source ID, source revision and target version. Repeated reques
 including an ambiguous response or concurrent Owners, return the same copy.
 Replays return its current state; they never reset an edited or approved copy.
 
-The transaction checks the source environment, approved state and exact revision,
-rejects an outstanding Publish reservation or committed receipt, and checks the
-Catalog head before creating the entire new Batch, edits and initial live revision
+The transaction checks the source environment and exact revision. It accepts an
+approved Batch or an open or submitted Batch based on an older Catalog. It
+rejects an outstanding Publish reservation or committed receipt and checks the
+Catalog head before creating the new Batch, edits and initial live revision
 signal. A head race returns `head_moved` and the latest version. The UI requires
 another explicit click to copy against that version. A new version gets a separate
 copy; no existing copy is silently retargeted.
@@ -263,8 +275,9 @@ editable fields (including explicit null clears) are retained. Edit revisions an
 before values use the new immutable snapshot; State order before values use that
 snapshot's ordering. Missing referenced Plates or Variant parents and incompatible
 Jurisdiction inventories are reported with no partial target. The original Batch,
-its edits, approval and run history remain intact. Normal Submit, Approve and
-Publish are required for the copy. Copy does not start a model or Publish run.
+its edits, approval and run history remain intact. The Owner can explicitly
+confirm the copied draft in Publish or use the Submit and Approve flow first.
+Copy does not start a model or Publish run.
 
 ## Deployment compatibility and release gate
 

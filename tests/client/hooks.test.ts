@@ -20,7 +20,7 @@ test('batch cache keys distinguish mine and compose it with states', () => {
 })
 
 const session = vi.hoisted(() => ({ user: { uid: 'jon' }, api: { get: vi.fn(), send: vi.fn() } }))
-const navigation = vi.hoisted(() => ({ refresh: vi.fn() }))
+const navigation = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }))
 vi.mock('next/navigation', async importOriginal => ({ ...await importOriginal<typeof import('next/navigation')>(), useSearchParams: () => new URLSearchParams(), useRouter: () => navigation }))
 vi.mock('../../lib/client/session', () => ({ useSession: () => session }))
 
@@ -64,6 +64,7 @@ function harness(fallback: Record<string, unknown> = {}) {
 }
 beforeEach(() => {
   navigation.refresh.mockClear()
+  navigation.replace.mockClear()
   session.api.get.mockReset().mockImplementation(async (key: string) => key === ownKey ? [batch] : detail())
   session.api.send.mockReset()
 })
@@ -172,6 +173,30 @@ test.each([true, false])('lost move response reconciles saved Batch before repor
   expect(session.api.send).toHaveBeenCalledOnce()
 })
 
+test('a template move waits for the committed revision and keeps the promotion in the reloaded overlay', async () => {
+  const { result } = renderHook(() => ({ ordering: useReorderState(), overlay: useDraftOverlay([card]) }), harness())
+  expect(result.current.ordering.ready).toBe(false)
+  await waitFor(() => expect(result.current.ordering.ready).toBe(true))
+  const origin = result.current.ordering.capture()
+  const savedBatch = { ...batch, revision: 2, stateOrders: { AK: [card.id] } }
+  const saved = { batch: savedBatch, plates: [{ ...detail().plates[0], proposed: { ...proposed, templateFamily: 'new', templateRole: 'template', variantOfPlateId: null } }] }
+  session.api.send.mockResolvedValue(savedBatch)
+  session.api.get.mockImplementationOnce(async () => detail()).mockImplementation(async key => key === ownKey ? [savedBatch] : saved)
+  await act(async () => {
+    expect(await result.current.ordering.move('AK', [card.id], { plateId: card.id, templateFamily: 'new' }, origin)).toMatchObject({ ok: true })
+  })
+  expect(result.current.overlay[0]).toMatchObject({ templateFamily: 'new', templateRole: 'template', variantOfPlateId: null, sortOrder: 0 })
+})
+
+test('a successful HTTP response still requires a saved template and order', async () => {
+  const { result } = renderHook(() => useReorderState(), harness())
+  await waitFor(() => expect(result.current.ready).toBe(true))
+  session.api.send.mockResolvedValue({ ...batch, revision: 2 })
+  await act(async () => {
+    expect(await result.current.move('AK', [card.id], { plateId: card.id, templateFamily: 'new' }, result.current.capture())).toMatchObject({ ok: false, error: 'superseded_revision' })
+  })
+})
+
 test('personal Batch discovered after lift cannot inherit its newer revision', async () => {
   const context = harness()
   const { result } = renderHook(() => useReorderState(), context)
@@ -184,21 +209,27 @@ test('personal Batch discovered after lift cannot inherit its newer revision', a
 })
 
 test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the server revision', async action => {
-  const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', templateRole: action === 'merge' ? 'template' : 'variant' }))
+  const plate = expandFamilyPlate(projectFamilyPlate({ ...card, id: 'AK.outside', revision: 'server-revision', isStandard: false, templateRole: action === 'merge' ? 'template' : 'variant' }))
   const parent = { ...card, id: 'AK.parent', isStandard: true, templateRole: 'template' as const }
   const families = action === 'merge'
     ? [{ template: parent, variants: [] }, { template: plate, variants: [] }]
     : [{ template: parent, variants: [plate] }]
-  session.api.send.mockResolvedValue({ batch, plate: proposed })
-  const reorder = vi.fn().mockResolvedValue({ ok: true })
+  session.api.send.mockImplementation(async () => {
+    const merged = action === 'merge'
+    const savedBatch = { ...batch, revision: 2, stateOrders: merged ? {} : { AK: [parent.id, plate.id] } }
+    session.api.get.mockImplementation(async key => key === ownKey ? [savedBatch] : {
+      batch: savedBatch, plates: [{ ...detail().plates[0], proposed: { ...proposed, id: plate.id, templateFamily: 'ak_outside', templateRole: merged ? 'variant' : 'template', variantOfPlateId: merged ? parent.id : null } }],
+    })
+    return merged ? { moved: [plate.id], alreadyInFamily: 0, standard: 0, deleted: 0 } : savedBatch
+  })
   const { result } = renderHook(() => {
     const ordering = useReorderState()
     return { ...usePlateDrag({
     families, canEdit: true, show: 'all', query: '', edits: useEditPlate(),
-    ordering: action === 'promote' ? ordering : { reorder, pending: false }, closePreview: vi.fn(), reload: vi.fn(),
+    ordering, closePreview: vi.fn(), reload: vi.fn(),
     targets: () => [{ target: action === 'merge' ? { kind: 'merge', familyId: parent.id } : { kind: 'family-slot', index: 1 }, rect: { left: 0, top: 0, right: 500, bottom: 500 } }],
   }), origin: ordering.capture() } }, harness())
-  if (action === 'promote') await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))
+  await waitFor(() => expect(result.current.origin).toEqual({ batchId: 'draft', revision: 1 }))
   const handle = document.createElement('button')
   document.body.append(handle)
   try {
@@ -210,9 +241,9 @@ test.each(['merge', 'promote'] as const)('%s drop outside the batch sends the se
       Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } })
       act(() => { window.dispatchEvent(event) })
     }
-    await waitFor(() => expect(result.current.announcement).toBe('Dropped'))
-    if (action === 'merge') expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PATCH', '/api/batches/draft/plates/AK.outside', {
-      baseRevision: 'server-revision', fields: { templateRole: 'variant', variantOfPlateId: parent.id, templateFamily: parent.id },
+    await waitFor(() => expect(result.current.announcement).toBe(action === 'merge' ? '1 plate moved' : 'Dropped'))
+    if (action === 'merge') expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/draft/family-merge', {
+      batchRevision: 1, members: [{ id: plate.id, revision: 'server-revision' }], destination: { id: parent.id, revision: parent.revision },
     })
     else expect(session.api.send).toHaveBeenCalledExactlyOnceWith('PUT', '/api/batches/draft/state-order/AK', {
       batchRevision: 1, order: [parent.id, plate.id], promotion: { plateId: plate.id, templateFamily: 'ak_outside' },
@@ -624,14 +655,14 @@ test('shared preview consumes the preloaded session API response and draft overl
 
 test.each([
   ['publish_disabled_here', 'Publishing is disabled in this environment.'],
-  ['superseded_revision', 'This Batch changed since approval and must be re-approved.'],
+  ['superseded_revision', 'This Batch changed. Confirm the current revision.'],
   ['not_waiting', 'This run is no longer waiting for Publish. Refresh to see its status.'],
   ['forbidden', 'Only the Owner can Publish.'],
   ['not_found', 'This Batch could not be found.'],
 ])('Publish maps %s and posts the approved revision', async (code, message) => {
   session.api.send.mockRejectedValue(new ApiError(409, code, {}))
   const { result } = renderHook(() => useReviewActions(), harness())
-  await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message }))
+  await act(async () => expect(await result.current.publish('approved', 7)).toEqual({ ok: false, message, ...(code === 'superseded_revision' ? { code } : {}) }))
   expect(session.api.send).toHaveBeenCalledWith('POST', '/api/batches/approved/publish', { revision: 7, commandId: expect.any(String) })
 })
 
@@ -696,32 +727,40 @@ test('Publish keeps the click identity after an ambiguous response and clears it
   expect(session.api.send.mock.calls[2][2].commandId).not.toBe(first.commandId)
 })
 
-test('Publish confirmation shows the approved revision, sends the current batch revision and retains its result when lists refresh', async () => {
+test('Publish confirmation sends the displayed revision and retains its result when lists refresh', async () => {
   let published = false
   const approved = { ...batch, id: 'release', name: 'Veterans release', state: 'approved', revision: 8, approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' } }
   const other = { ...approved, id: 'other', name: 'Other release', approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' } }
   session.api.get.mockImplementation(async (key: string) => {
     if (key === '/api/me') return { role: 'owner' }
+    if (key.endsWith('/publish')) return { batchRevision: 8, destination: 'license-plate-game-staging', enabledHere: true, approvalProblems: [], error: null, retryReason: 'not_waiting', confirmation: { revision: 8, since: null, plateCount: 0, contributors: [] } }
     if (key.endsWith('/run')) return { phase: published ? 'published' : 'waiting-for-publish', runId: 'release-run', outcome: published ? { version: 12 } : null, updatedAt: null }
     if (key.includes('?')) return [{ ...approved, state: published ? 'published' : 'approved' }, other]
-    return { batch: { ...approved, state: published ? 'published' : 'approved' }, plates: detail().plates }
+    return { batch: { ...approved, state: published ? 'published' : 'approved' }, plates: detail({ plateId: baseline.id, fields: { tags: proposed.tags }, baseRevision: 'old', resultRevision: 'new', authorId: 'editor', updatedAt: approved.approval.at }).plates }
   })
-  session.api.send.mockImplementation(async () => { published = true; return { status: 'publishing' } })
+  session.api.send.mockImplementation(async (_method, path) => {
+    if (path === '/api/live-access') throw new Error('No live subscription in this fixture')
+    published = true
+    return { status: 'publishing' }
+  })
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', '') } })
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open') } })
   try {
     render(createElement(PublishWorkspace), harness())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish revision 7' })).toBeDefined())
-    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 7' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Game' })).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Game' }))
     const dialog = screen.getByRole('dialog')
     expect(dialog.textContent).toContain('Publish Veterans release?')
-    expect(dialog.textContent).toContain('This creates the next Catalog Snapshot.')
+    expect(dialog.textContent).toContain('This creates the next Snapshot for Staging Catalog (license-plate-game-staging).')
     expect(dialog.textContent).toContain('edited')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 7' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish revision 8' }))
     await waitFor(() => expect(screen.getByText(/Published as Snapshot/)).toBeDefined())
-    expect(session.api.send).toHaveBeenCalledExactlyOnceWith('POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) })
+    expect(session.api.send.mock.calls.filter(([, path]) => path.endsWith('/publish'))).toEqual([
+      ['POST', '/api/batches/release/publish', { revision: 8, commandId: expect.any(String) }],
+    ])
+    expect(navigation.replace).toHaveBeenCalledWith('/publish?batch=release', { scroll: false })
     expect(within(screen.getByRole('region', { name: 'Approval run' })).getByText('v12')).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'Publish revision 7' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish revision 8' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Veterans release' })).toBeDefined()
   } finally { Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
 })
@@ -748,4 +787,19 @@ test('Set as Standard forwards its explicit acknowledgement', async () => {
   const standard = { from: 'AK.parent', to: card.id }
   await act(async () => { expect((await result.current.edit(card, { isStandard: true }, undefined, standard)).ok).toBe(true) })
   expect(session.api.send).toHaveBeenCalledWith('PATCH', '/api/batches/draft/plates/AK.one', { baseRevision: 'draft-revision', fields: { isStandard: true }, standard })
+})
+
+test('Batch consumers load bounded pages without mixing two revisions', async () => {
+  const key = '/api/batches/draft'
+  const first = detail()
+  const second = { ...first, batch: { ...batch, revision: 2 } }
+  session.api.get
+    .mockResolvedValueOnce({ ...first, nextPage: '1.1' })
+    .mockRejectedValueOnce(new ApiError(409, 'superseded_revision', {}))
+    .mockResolvedValueOnce({ ...second, nextPage: '2.1' })
+    .mockResolvedValueOnce({ ...second, plates: [{ ...second.plates[0], baseline: { ...baseline, id: 'AK.two' }, proposed: { ...proposed, id: 'AK.two' } }] })
+  const view = renderHook(() => useBatch('draft'), harness())
+  await waitFor(() => expect(view.result.current.data?.plates.map(plate => plate.baseline.id)).toEqual(['AK.one', 'AK.two']))
+  expect(view.result.current.data?.batch.revision).toBe(2)
+  expect(session.api.get.mock.calls.map(([path]) => path)).toEqual([key, key + '?page=1.1', key, key + '?page=2.1'])
 })

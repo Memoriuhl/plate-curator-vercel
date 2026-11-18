@@ -1,11 +1,13 @@
+import { defaultImageEnhancement, enhancementOperations } from './image-enhancement'
 import type { Actor, Outcome as ReviewOutcome } from '../review/types'
+import { sortedJsonValue } from '../review/canonical-value'
 import { plateRevision } from '../review/revision'
 import type { JobsDeps, JobsTransaction, Outcome, ReportInput, JobResult, TaggingJob, PipelineStage } from './types'
 import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
-import { localClaimCandidate, localClaimsEnabled } from './queue-claim'
+import { localClaimCandidate, localClaimsEnabled, type LocalClaimFeatures } from './queue-claim'
 import { currentProjectionMatches, queueStageTimeoutMs, queueGroupContext } from './queue'
 import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
@@ -20,7 +22,8 @@ export async function claimHostedQueueJob(d: JobsDeps, id: string) {
     // Workflow retries retain the same reservation; never hand it to a desktop worker.
     if (job.state === 'claimed' && job.workerId === 'hosted' && job.leaseExpiresAt! > d.now()) return { job, claimId: job.claimId! }
     if (localClaimCandidate(d, jobs, runs, 'hosted')?.id !== id) return null
-    const claimed: TaggingJob = { ...job, state: 'claimed', workerId: 'hosted', claimId: d.id(), leaseExpiresAt: d.now() + queueStageTimeoutMs }
+    const now = d.now()
+    const claimed: TaggingJob = { ...job, state: 'claimed', startedAt: now, workerId: 'hosted', claimId: d.id(), leaseExpiresAt: now + queueStageTimeoutMs }
     const run = runs.find(run => run.id === job.queueRunId)!
     run.lastDispatchedAt = Math.max(d.now(), ...runs.map(run => (run.lastDispatchedAt ?? 0) + 1)); run.status = 'running'; run.waitReason = 'inference'; run.updatedAt = d.now()
     tx.set(claimed); tx.setRun(run)
@@ -34,13 +37,14 @@ async function currentPlate(d: JobsDeps, tx: JobsTransaction, batchId: string, p
   return review && baseline ? { ...baseline, ...review.fields } : null
 }
 
-export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob>> {
+export async function createJob(d: JobsDeps, input: { id: string; batchId: string; plateId: string; requestedBy: string; route?: 'hosted'; workflowId?: string; modelId?: string; stage?: PipelineStage; groupScope?: GroupInput; stageOptions?: ImageGroupOptions }): Promise<Outcome<TaggingJob> | { ok: false; error: 'publish_in_progress' }> {
   if (input.stage === 'research') return { ok: false, error: 'forbidden' } // Research requires the persisted queue model/policy contract.
   if (input.stage !== undefined && (process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1' || !d.localScope || !isPipelineStage(input.stage))) return { ok: false, error: 'forbidden' }
   if (input.stageOptions && (!input.stage || input.stageOptions.method && input.stageOptions.method !== 'embeddings')) return { ok: false, error: 'forbidden' }
   if (input.groupScope && input.stage !== 'group' || input.stage === 'group' && (!input.groupScope?.length || input.groupScope.length > 25 || new Set(input.groupScope.map(member => member.plate.id)).size !== input.groupScope.length || !input.groupScope.some(member => member.plate.id === input.plateId) || new Set(input.groupScope.map(member => member.plate.state)).size !== 1)) return { ok: false, error: 'forbidden' }
   return d.store.transaction(async tx => {
     if (await tx.get(input.id)) return { ok: false, error: 'already_exists' }
+    if (await tx.canQueue?.() === false) return { ok: false, error: 'publish_in_progress' }
     const inputPlate = await currentPlate(d, tx, input.batchId, input.plateId)
     if (!inputPlate) return { ok: false, error: 'not_found' }
     let groupScope: GroupInput | undefined
@@ -65,13 +69,13 @@ export async function createJob(d: JobsDeps, input: { id: string; batchId: strin
       const current = await currentPlate(d, tx, input.batchId, member.plate.id)
       if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
     }
-    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
+    const job: TaggingJob = { ...input, ...(input.workflowId ? { workflowUrl: workflowVisibilityUrl(input.workflowId, process.env.VERCEL_ENV, process.env.WORKFLOW_TARGET_WORLD) } : {}), ...(groupScope ? { groupScope, standardId } : {}), ...(d.localScope ? { localScope: d.localScope } : {}), inputPlate, inputHash: plateRevision(inputPlate), env: d.store.env, createdAt: d.now(), state: 'queued' }
     tx.create(job)
     return { ok: true, value: job }
   })
 }
 
-export async function claimNext(d: JobsDeps, workerId: string) {
+export async function claimNext(d: JobsDeps, workerId: string, features: LocalClaimFeatures = {}) {
   if (!Number.isFinite(d.leaseMs) || d.leaseMs <= 0) throw new Error('Lease must be positive and finite')
   const claimId = d.id()
   return d.store.transaction(async tx => {
@@ -79,7 +83,7 @@ export async function claimNext(d: JobsDeps, workerId: string) {
     const jobs = await tx.list()
     const local = localClaimsEnabled(d)
     const runs = local ? await tx.runs() : []
-    const job = local ? localClaimCandidate(d, jobs, runs) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
+    const job = local ? localClaimCandidate(d, jobs, runs, 'local', features) : jobs.filter(job => !job.queueRunId && job.localScope === d.localScope && job.route !== 'hosted' && claimable(job, now))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
     if (!job) return null
     const leaseExpiresAt = now + (job.queueRunId ? queueStageTimeoutMs : d.leaseMs)
@@ -149,6 +153,32 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
     if (job.state !== 'completed' && job.leaseExpiresAt! <= d.now()) return { ok: false, error: 'claim_expired' }
     const result = normalize(input, job.stage)
     if (!result) return { ok: false, error: 'invalid_result' }
+    const enhancement = result.fieldSuggestion?.kind === 'enhanced-image' ? result.fieldSuggestion : null
+    const attachment = input.enhancedImage !== undefined || input.enhancedImageFrames !== undefined
+    if ((enhancement && (!job.queueRunId || !localClaimsEnabled(d))) || (!enhancement && attachment)) {
+      return { ok: false, error: 'invalid_result' }
+    }
+    let imageBytes: Buffer | null = null
+    const previews = new Map<string, Buffer>()
+    if (enhancement) {
+      const { verifyEnhancedImage } = await import('./verify-enhanced-image')
+      imageBytes = await verifyEnhancedImage(input.enhancedImage, enhancement)
+      if (!imageBytes) return { ok: false, error: 'invalid_result' }
+      const { frames } = enhancement
+      const frameInput = input.enhancedImageFrames
+      if (!frames && frameInput !== undefined) return { ok: false, error: 'invalid_result' }
+      if (frames) {
+        const options = { ...defaultImageEnhancement, ...job.stageOptions }
+        const expected = ['original', ...enhancementOperations.filter(step => options[step])]
+        if (!Array.isArray(frameInput) || frameInput.length !== frames.length - 1 || expected.length !== frames.length ||
+          frames.some(({ step }, index) => expected[index] !== step)) return { ok: false, error: 'invalid_result' }
+        for (const [index, frame] of frames.slice(0, -1).entries()) {
+          const bytes = await verifyEnhancedImage(frameInput[index], frame)
+          if (!bytes) return { ok: false, error: 'invalid_result' }
+          previews.set(frame.step, bytes)
+        }
+      }
+    }
     if (job.stage === 'research') {
       if (!job.researchModel || result.model !== job.researchModel.model) return { ok: false, error: 'invalid_result' }
       if (result.fieldSuggestion?.kind === 'fields') {
@@ -156,7 +186,7 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
         if (!Object.keys(result.fieldSuggestion.fields).length) { delete result.fieldSuggestion; result.stageError = 'no_supported_fields' }
       }
     }
-    if (job.state === 'completed') return JSON.stringify(job.result) === JSON.stringify(result)
+    if (job.state === 'completed') return JSON.stringify(sortedJsonValue(job.result)) === JSON.stringify(sortedJsonValue(result))
       ? { ok: true, value: job } : { ok: false, error: 'result_mismatch' }
     if (result.fieldSuggestion?.kind === 'group') {
       const expected = job.groupScope?.map(member => ({ plateId: member.plate.id, baseRevision: member.baseRevision })).sort((a, b) => a.plateId.localeCompare(b.plateId))
@@ -166,13 +196,16 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
         if (!current || plateRevision(current) !== member.baseRevision) return { ok: false, error: 'stale_input' }
       }
     }
+    let checksDraftAtApply = false
     if (job.queueRunId) {
-      const run = (await tx.runs()).find(run => run.id === job.queueRunId && run.localScope === d.localScope)
+      const run = await tx.getRun(job.queueRunId)
       const attempt = run?.attempts.at(-1)
       const projected = attempt?.projection?.plates[job.plateId]
-      if (!run || !attempt || attempt.number !== job.queueAttempt || attempt.cursor !== job.queueStep || !projected ||
+      if (!run || run.localScope !== d.localScope || !attempt || run.batchId !== job.batchId || run.requestedBy !== job.requestedBy ||
+        attempt.number !== job.queueAttempt || attempt.cursor !== job.queueStep || !projected ||
         job.inputHash !== projected.batchInputHash || job.executionHash !== projected.executionHash || !job.inputPlate ||
         plateRevision(job.inputPlate) !== projected.executionHash) return { ok: false, error: 'stale_input' }
+      checksDraftAtApply = Boolean(run.incrementalDrafts && !run.previewOnly && job.stage !== 'group')
       if (job.stage === 'group') {
         const entries = Object.values(attempt.projection!.plates)
         if (!job.groupScope || job.groupScope.length !== entries.length || new Set(job.groupScope.map(member => member.plate.id)).size !== entries.length ||
@@ -187,9 +220,13 @@ export async function reportResult(d: JobsDeps, workerId: string, id: string, cl
           !validGroupContext(result.fieldSuggestion, entries.map(entry => entry.executionPlate), context.statePlates, context.standardId)) return { ok: false, error: 'invalid_result' }
       }
     }
-    const current = await currentPlate(d, tx, job.batchId, job.plateId)
-    if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
+    if (!checksDraftAtApply) {
+      const current = await currentPlate(d, tx, job.batchId, job.plateId)
+      if (!current || plateRevision(current) !== job.inputHash) return { ok: false, error: 'stale_input' }
+    }
     const completed: TaggingJob = { ...job, state: 'completed', result, completedAt: d.now() }
+    if (imageBytes) tx.setEnhancedImage(id, imageBytes)
+    for (const [step, bytes] of previews) tx.setEnhancedImage(`${id}--${step}`, bytes)
     tx.set(completed)
     return { ok: true, value: completed }
   })

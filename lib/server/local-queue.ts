@@ -8,7 +8,7 @@ import { jobsDeps } from './context'
 import { json } from './respond'
 
 export function queueResponse<T>(outcome: QueueOutcome<T>, status = 200) {
-  const codes = { forbidden: 403, not_found: 404, invalid_state: 422, bad_request: 400, request_mismatch: 409, stale_input: 409, payload_too_large: 413, attempt_limit: 422 }
+  const codes = { forbidden: 403, not_found: 404, invalid_state: 422, bad_request: 400, request_mismatch: 409, stale_input: 409, payload_too_large: 413, attempt_limit: 422, publish_in_progress: 409 }
   return outcome.ok ? json({ run: outcome.value }, status) : json({ error: outcome.error }, codes[outcome.error])
 }
 
