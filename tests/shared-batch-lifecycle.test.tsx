@@ -64,7 +64,7 @@ const source: LiveSignalSource = {
     const set = listeners.get(id) ?? new Set()
     listeners.set(id, set)
     set.add(next)
-    next(signals.get(id) ?? null)
+    if (connected) next(signals.get(id) ?? null)
     return () => { set.delete(next) }
   },
 }
@@ -117,6 +117,11 @@ function session(actor: Actor, id: string | null = 'shared') {
             ? await reorderState(deps, actor, { batchId: path.split('/')[3], state: 'AK', ...body as { batchRevision: number; order: string[] } })
             : await submitBatch(deps, actor, path.split('/')[3], (body as { revision: number }).revision)
           if (!result.ok) { failedOrder = result; throw new ApiError(409, result.error, result) }
+          return result.value
+        }
+        if (path.endsWith('/approve')) {
+          const result = await approveBatch(deps, actor, path.split('/')[3], (body as { revision: number }).revision)
+          if (!result.ok) throw new ApiError(409, result.error, result)
           return result.value
         }
         throw new Error('Unexpected write ' + method + ' ' + path)
@@ -214,8 +219,7 @@ test('State order and Standard reach the other Dashboard and the Batch can be su
   expect(reviewLink.getAttribute('href')).toBe('/review?batch=shared')
   const review = render(<Workspace value={session(editor)} page="review" />)
   await within(review.container).findByRole('region', { name: 'Before and after' })
-  expect(within(review.container).queryByRole('button', { name: 'Submit for review' })).toBeNull()
-  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
+  fireEvent.click(await within(review.container).findByRole('button', { name: 'Submit for review' }))
   await waitFor(() => expect(second.container.textContent).toContain('submitted'))
 })
 
@@ -233,16 +237,23 @@ test('a stale State order submission changes neither draft nor signal', async ()
 
 test('submit, approve and a post-approval edit update both the Batch bar and actions', async () => {
   const { first, second } = await twoSessions()
+  const editorReview = render(<Workspace value={session(editor)} page="review" />)
+  const ownerReview = render(<Workspace value={session(owner)} page="review" />)
   await act(async () => { expect(await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } })).toMatchObject({ ok: true }) })
   await waitFor(() => expect(first.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('1'))
-  await act(async () => { expect(await submitBatch(deps, editor, 'shared', 1)).toMatchObject({ ok: true }) })
+  fireEvent.click(await within(editorReview.container).findByRole('button', { name: 'Submit for review' }))
   await waitFor(() => expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('submitted'))
   expect(within(second.container).getByRole('link', { name: 'Publish' }).getAttribute('href')).toBe('/publish?batch=shared')
-  await act(async () => {
-    expect(await deps.store.recordRun('shared', 2, 'approval-run')).toBe(true)
-    expect(await approveBatch(deps, owner, 'shared', 2)).toMatchObject({ ok: true })
-  })
+  expect(await deps.store.recordRun('shared', 2, 'approval-run')).toBe(true)
+  const approve = await within(ownerReview.container).findByRole('button', { name: 'Approve revision 2' })
+  expect(within(editorReview.container).queryByRole('button', { name: /Approve revision/ })).toBeNull()
+  fireEvent.click(approve)
   await waitFor(() => expect(within(second.container).getByLabelText('Selected Batch').textContent).toContain('approved'))
+  expect(await deps.store.getBatch('shared')).toMatchObject({ approval: { revision: 2, by: owner.uid } })
+  expect(requests.filter(request => /\/(submit|approve|publish)$/.test(request.path))).toEqual([
+    { actor: editor.uid, method: 'POST', path: '/api/batches/shared/submit', body: { revision: 1 } },
+    { actor: owner.uid, method: 'POST', path: '/api/batches/shared/approve', body: { revision: 2 } },
+  ])
   await act(async () => { expect(await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision({ ...plates[1], tags: ['first'] }), fields: { tags: ['revised'] } })).toMatchObject({ ok: true }) })
   for (const view of [first, second]) {
     await waitFor(() => expect(view.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('4'))
@@ -251,6 +262,28 @@ test('submit, approve and a post-approval edit update both the Batch bar and act
   }
   expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'open', approval: null, revision: 4 })
   expect(supersedeRun).toHaveBeenCalledWith(expect.objectContaining({ state: 'approved', approvalRun: { runId: 'approval-run', revision: 2 } }))
+})
+
+test('an Owner approving a stale Review sees the updated revision without approving it', async () => {
+  await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision(plates[1]), fields: { tags: ['first'] } })
+  await submitBatch(deps, editor, 'shared', 1)
+  // Start offline so an initial live snapshot cannot queue a catch-up read.
+  connected = false
+  const review = render(<Workspace value={session(owner)} page="review" />)
+  const view = within(review.container)
+  await view.findByRole('button', { name: 'Approve revision 2' })
+  await act(async () => {
+    await proposeEdit(deps, editor, { batchId: 'shared', plateId: 'AK.v', baseRevision: plateRevision({ ...plates[1], tags: ['first'] }), fields: { tags: ['revised'] } })
+    await submitBatch(deps, editor, 'shared', 3)
+  })
+  expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'submitted', revision: 4 })
+  fireEvent.click(view.getByRole('button', { name: 'Approve revision 2' }))
+  expect(requests.filter(request => request.path.endsWith('/approve'))).toEqual([
+    { actor: owner.uid, method: 'POST', path: '/api/batches/shared/approve', body: { revision: 2 } },
+  ])
+  await view.findByText('This batch changed while you were reviewing. Look again at revision 4.')
+  expect(await view.findByRole('button', { name: 'Approve revision 4' })).toBeDefined()
+  expect(await deps.store.getBatch('shared')).toMatchObject({ state: 'submitted', revision: 4, approval: null })
 })
 
 test('resubscription catches up missed commits with one coherent read and ignores duplicate or older signals', async () => {
@@ -264,6 +297,7 @@ test('resubscription catches up missed commits with one coherent read and ignore
   const key = owner.uid + '/api/batches/shared'
   const before = reads.get(key)!
   expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('0')
+  connected = true
   await act(async () => { failures.get('shared')!({ code: 'permission-denied' }) })
   await waitFor(() => expect(second.container.querySelector('[data-batch-id]')?.getAttribute('data-batch-revision')).toBe('3'))
   await settle()

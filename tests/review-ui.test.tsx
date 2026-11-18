@@ -93,11 +93,10 @@ beforeEach(() => {
   state.submit.mockReset()
   state.mutate.mockReset().mockResolvedValue(detail)
 })
-test.each(['open', 'submitted'] as const)('Review summarizes %s Batches without release actions', status => {
+test.each(['open', 'submitted'] as const)('Review summarizes %s Batches without Publish actions', status => {
   const html = renderToStaticMarkup(<ReviewFooter detail={{ ...detail, batch: { ...detail.batch, state: status } }} />)
   expect(html).toContain('1 changed plate · rev 4')
-  expect(html).not.toContain('Submit for review')
-  expect(html).not.toContain('Approve revision')
+  expect(html).toContain(status === 'open' ? 'Submit for review' : 'Approve revision 4')
   expect(html).not.toContain('Publish to players')
 })
 test('summaries describe fields, family and standard changes', () => {
