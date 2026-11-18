@@ -222,8 +222,10 @@ export function PipelineQueuePanel({
           renderHeader={renderHeader}
           renderRun={(run, progress, stepsOpen) => {
             const attempt = run.attempts.at(-1)!
+            const cancellationPending =
+              run.status === 'running' && run.cancelRequestedAt !== undefined
             const status =
-              run.cancelRequestedAt !== undefined ||
+              cancellationPending ||
               run.waitReason === 'recovery' ||
               run.waitReason === 'image_choice'
                 ? label(run)

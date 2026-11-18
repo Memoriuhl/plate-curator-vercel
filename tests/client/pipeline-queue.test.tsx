@@ -745,6 +745,7 @@ test('footer status applies to whole canceled or skipped runs only', () => {
   const canceled = saved({
     id: 'canceled',
     status: 'cancelled',
+    cancelRequestedAt: 150,
     stages: ['enhance-image'],
     progress: { workerIds: [], steps: [{ ...step, status: 'cancelled' }] },
   })
@@ -765,9 +766,10 @@ test('footer status applies to whole canceled or skipped runs only', () => {
   expect(
     within(card('skipped').querySelector('footer')!).getByText('Skipped')
   ).toBeTruthy()
+  const canceledFooter = within(card('canceled').querySelector('footer')!)
   expect(
-    within(card('canceled').querySelector('footer')!).getByText('Canceled')
-  ).toBeTruthy()
+    canceledFooter.getAllByText(/^Cancel+ed$/).map((node) => node.textContent)
+  ).toEqual(['Canceled'])
   expect(within(card('mixed')).queryByText(/^(Skipped|Canceled)$/)).toBeNull()
   expect(
     within(card('skipped')).getByRole('link', {
