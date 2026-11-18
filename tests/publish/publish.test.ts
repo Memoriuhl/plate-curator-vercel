@@ -279,7 +279,7 @@ test('publishes field edits, state order and an absent cleared variant link toge
   f.deps.store.listEdits = async () => [{ plateId: 'one', baseRevision: 'base', fields: { tags: ['changed'], variantOfPlateId: null }, authorId: 'editor', updatedAt: f.deps.now(), resultRevision: 'result' }, ...standardEdits.filter(edit => edit.plateId !== 'one')]
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
   const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
-  expect(written).toEqual({ version: 2, plates: [{ ...snapshot.plates[0], tags: ['changed'], sortOrder: 1 }, { ...snapshot.plates[1], isStandard: true, templateRole: 'template', sortOrder: 0 }] })
+  expect(written).toEqual({ version: 2, plates: [{ ...snapshot.plates[0], tags: ['changed'], sortOrder: 1 }, { ...snapshot.plates[1], isStandard: true, templateRole: 'template', isTemplate: true, sortOrder: 0 }] })
   expect(written.plates[0]).not.toHaveProperty('variantOfPlateId')
   expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
 })

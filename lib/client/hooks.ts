@@ -1,5 +1,7 @@
 'use client'
 
+import { familyRole } from '@/lib/catalog/families'
+
 import type { ReviewChanges } from '../review/checkpoint'
 import type { RunStatus } from '../review/run-status'
 
@@ -279,7 +281,7 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
       const checks = plateChecks(proposed, imageUrl)
       return {
         ...ordered, imageUrl, deleted: proposed.deleted === true, tags: proposed.tags, templateFamily: proposed.templateFamily ?? null,
-        templateRole: proposed.templateRole ?? null, variantOfPlateId: proposed.variantOfPlateId ?? null,
+        templateRole: familyRole(proposed), variantOfPlateId: proposed.variantOfPlateId ?? null,
         isStandard: proposed.isStandard ?? false, revision: entry.revision, checks,
         funFacts: proposed.funFacts ?? [], readMore: proposed.readMore ?? [], wikiUrl: proposed.wikiUrl ?? null,
         ...('firstIssuedYear' in card ? { firstIssuedYear: proposed.firstIssuedYear ?? null } : {}),
@@ -472,7 +474,7 @@ export function useReorderState() {
     } finally { setPendingCount(count => count - 1) }
   }
 
-  return { reorder, capture, move, stateOrders: displayed?.batch.stateOrders, pending: pendingCount > 0 }
+  return { reorder, capture, move, stateOrders: displayed?.batch.stateOrders, batch: displayed?.batch, pending: pendingCount > 0 }
 }
 
 export function useTaggingModels() {

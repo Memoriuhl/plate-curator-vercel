@@ -49,7 +49,7 @@ export type PlateCardData = StoryFields & {
 
 export type DashboardData = { catalogVersion: number; jurisdictions: JurisdictionSummary[] }
 
-export type JurisdictionData = { code: string; name: string; region: string; plates: PlateCardData[] }
+export type JurisdictionData = { catalogVersion: number; code: string; name: string; region: string; plates: PlateCardData[] }
 
 export type PlateDetail = {
   plate: PlateCardData & StoryFields & {

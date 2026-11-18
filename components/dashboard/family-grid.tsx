@@ -46,16 +46,21 @@ export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
   return useDraftOverlay(baselines)
 }
 
-export function FamilyGrid({ plates, code, onSelectGroup }: {
+export function FamilyGrid({ plates, code, catalogVersion, onSelectGroup }: {
   plates: FamilyPlate[]
   code?: string
+  catalogVersion?: number
   onSelectGroup?(key: string, ids: string[]): void
 }) {
   const params = useSearchParams()
   const pathname = usePathname()
   const latestOverlay = useFamilyBatchOverlay(plates)
+  const [publishedOnly, setPublishedOnly] = useState(false)
+  const published = useMemo(() => publishedOnly ? plates.map(plate => ({
+    ...expandFamilyPlate(plate), changedInBatch: false,
+  })) : null, [plates, publishedOnly])
   const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(null)
-  const overlaid = heldOverlay ?? latestOverlay
+  const overlaid = published ?? heldOverlay ?? latestOverlay
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const attachedIds = useMemo(() => attachedFamilyIds(overlaid, baselineFamilies), [overlaid, baselineFamilies])
   const counts = useMemo(() => filterCounts(overlaid, attachedIds), [overlaid, attachedIds])
@@ -69,7 +74,8 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
       ),
     [overlaid],
   )
-  const show = params.get('show') ?? 'all'
+  const filter = params.get('show') ?? 'all'
+  const show = publishedOnly && filter === 'changed' ? 'all' : filter
   const query = params.get('q') ?? ''
   const standardIds = useMemo(() => new Set(show === 'standardPlate' ? plateIdsForCheck(overlaid, show, '', attachedIds) : []), [overlaid, show, attachedIds])
   const matches = (plate: PlateCardData) =>
@@ -99,6 +105,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const edits = useEditPlate()
   const bulkEdits = useEditPlate({ parallel: true })
   const ordering = useReorderState()
+  const draftBatch = workspace.mode === 'selected' ? workspace.detail?.batch : ordering.batch
   const standardConfirmation = useStandardConfirmation()
   const standardRepairs = useMemo(() => {
     if (show !== 'standardPlate') return []
@@ -112,7 +119,7 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
   const [resolving, setResolving] = useState(false)
   const [resolutionError, setResolutionError] = useState('')
   const { mutate } = useSWRConfig()
-  const canEdit = workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner'
+  const canEdit = !publishedOnly && (workspace.mode === 'selected' ? workspace.status === 'ready' : me.data?.role === 'editor' || me.data?.role === 'owner')
   const drag = usePlateDrag({
     bulkEdits,
     families: baselineFamilies, canEdit: canEdit && !issue && !standardConfirmation.pending, show, query, ordering,
@@ -279,6 +286,20 @@ export function FamilyGrid({ plates, code, onSelectGroup }: {
     : undefined
   return (
     <section aria-label="Plate families" id="families" className="grid grid-cols-[minmax(0,1fr)] gap-[var(--stack-gap)] pb-56 sm:pb-32">
+      {catalogVersion !== undefined ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="caption">
+            Published catalog v{catalogVersion}
+            {draftBatch && !publishedOnly ? ` · Batch: ${draftBatch.name} (based on catalog v${draftBatch.baselineVersion})` : null}
+          </p>
+          {draftBatch || publishedOnly ? (
+            <Button variant="outline" size="sm" disabled={!!drag.active || drag.saving || !!issue} onClick={() => {
+              close()
+              setPublishedOnly(value => !value)
+            }}>{publishedOnly ? 'Show Batch changes' : 'Show published families'}</Button>
+          ) : null}
+        </div>
+      ) : null}
       {code ? <FilterBar counts={counts} code={code} resolveGroup={key => plateIdsForCheck(overlaid, key, query, attachedIds)} onSelectGroup={(key, ids) => {
         const selectedIds = new Set(ids)
         plateSelection.add(overlaid.filter(plate => selectedIds.has(plate.id)))

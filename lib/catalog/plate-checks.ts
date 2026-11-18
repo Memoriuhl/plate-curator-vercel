@@ -1,3 +1,4 @@
+import { familyRole } from './families'
 import { COMPLETENESS_CHECK_KEYS } from './dashboard-types'
 import type { Check, PlateChecks } from './dashboard-types'
 import type { Plate } from './types'
@@ -10,7 +11,7 @@ export function plateChecks(plate: Plate, imageUrl: string | null): PlateChecks 
   const sourceUrl = text(plate.sourceUrl)
   const wikiUrl = text(plate.wikiUrl)
   const family = text(plate.templateFamily)
-  const role = plate.templateRole ?? null
+  const role = familyRole(plate)
   const facts = Array.isArray(plate.funFacts) && plate.funFacts.length > 0 ? plate.funFacts.map(fact => typeof fact === 'string' ? fact : fact.text).join('\n') : text(plate.funFacts)
   const rarity = typeof plate.rarity === 'object' && plate.rarity !== null && 'tier' in plate.rarity ? text(plate.rarity.tier) : text(plate.rarity)
   return {
