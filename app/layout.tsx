@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Overpass, Geist_Mono } from 'next/font/google'
 import { SessionProvider } from '../lib/client/session'
 import './globals.css'
+import { ScrollbarActivity } from '../components/app/scrollbar-activity'
 import { TooltipProvider } from '../components/ui/tooltip'
 
 const overpass = Overpass({
@@ -36,6 +37,7 @@ export default function RootLayout({
         />
       </head>
       <body className={overpass.variable + ' ' + mono.variable}>
+        <ScrollbarActivity />
         <SessionProvider>
           <TooltipProvider>{children}</TooltipProvider>
         </SessionProvider>

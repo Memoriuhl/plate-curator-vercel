@@ -204,10 +204,10 @@ test('shared controls stay mounted when the router changes the state parameter',
   const strip = screen.getByRole('navigation')
   const search = screen.getByRole('textbox')
   const pipeline = screen.getByRole('region', { name: 'Plate Pipeline' })
-  const state = screen.getByText('AK')
-  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(
-    state.closest('.states-content')
-  )
+  expect(
+    pipeline.closest('.states-pipeline')?.previousElementSibling
+  ).toBeNull()
+  expect(pipeline.closest('.states-pipeline')?.nextElementSibling).toBe(search)
   mounted.code = 'AL'
   view.rerender(
     <StatesLayout>
