@@ -54,7 +54,6 @@ export function PipelineRunCard({
   attempt,
   runAction,
   waitLabel,
-  stepsOpen,
 }: {
   run: {
     id: string
@@ -77,9 +76,7 @@ export function PipelineRunCard({
   waitLabel?: string
   stageResultsHref?: (stage: LocalRunStage) => string
   attempt?: { number: number; error?: string }
-  stepsOpen?: boolean
 }) {
-  const hasPlateSteps = progress.steps.some((step) => step.stage !== 'group')
   const settled = progress.steps.filter((step) =>
     ['completed', 'skipped', 'failed', 'cancelled'].includes(step.status)
   ).length
@@ -352,15 +349,12 @@ export function PipelineRunCard({
           aria-label={`Run ${reference} progress`}
         />
       ) : null}
-      {stepsOpen && hasPlateSteps && (
-        <div className={styles.plateSteps}>
-          <PlatePipelineTimeline
-            steps={progress.steps}
-            batchId={run.batchId}
-            images={progress.plateImages}
-          />
-        </div>
-      )}
+      <PlatePipelineTimeline
+        steps={progress.steps}
+        batchId={run.batchId}
+        images={progress.plateImages}
+        plates={plates}
+      />
       {waitLabel && (
         <p className="caption" role="status">
           {waitLabel}

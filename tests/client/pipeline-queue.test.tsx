@@ -534,7 +534,7 @@ test('the run rail keeps completed cards in order and follows a new run to the r
   expect(rail.scrollLeft).toBe(25)
 })
 
-test('the header display selector switches all visible cards between runs and plate steps', () => {
+test('plate steps are always visible for every displayed run', () => {
   const queued = saved({ id: 'queued' })
   const running = saved({ id: 'running', status: 'running' })
   const queue = {
@@ -552,32 +552,22 @@ test('the header display selector switches all visible cards between runs and pl
   const rail = screen.getByRole('region', {
     name: 'Plate Pipeline runs, scroll horizontally',
   })
-  const display = within(
-    screen.getByRole('group', { name: 'Pipeline display' })
-  )
-  const runs = display.getByRole('button', { name: 'Runs' })
-  const toggle = display.getByRole('button', { name: 'Plate steps' })
-  expect(toggle.closest('header')).toBeTruthy()
   const timelines = () =>
     within(rail).queryAllByRole('region', { name: 'Pipeline steps by plate' })
-  expect(rail.contains(toggle)).toBe(false)
-  expect(
-    document.getElementById(toggle.getAttribute('aria-controls') ?? '')
-  ).toBe(rail)
-  expect(runs.getAttribute('aria-pressed')).toBe('true')
-  expect(toggle.getAttribute('aria-pressed')).toBe('false')
-  expect(timelines()).toHaveLength(0)
-  fireEvent.click(toggle)
-  expect(toggle.getAttribute('aria-pressed')).toBe('true')
   expect(timelines()).toHaveLength(2)
+  expect(screen.queryByRole('group', { name: 'Pipeline display' })).toBeNull()
   view.rerender(
     <PipelineQueuePanel
-      queue={{ ...queue, runs: [{ ...running, status: 'completed' }, queued] }}
+      queue={{
+        ...queue,
+        runs: [
+          { ...running, status: 'completed' },
+          { ...queued, dismissedAt: 300 },
+        ],
+      }}
     />
   )
-  expect(timelines()).toHaveLength(2)
-  fireEvent.click(runs)
-  expect(timelines()).toHaveLength(0)
+  expect(timelines()).toHaveLength(1)
 })
 
 test('the vertical wheel scrolls the rail except over a watch timeline or at a rail edge', () => {
@@ -620,7 +610,6 @@ test('the vertical wheel scrolls the rail except over a watch timeline or at a r
   expect(wheel(stage, { deltaX: 60, deltaY: 20 })).toBe(false)
   expect(wheel(stage, { deltaY: 60, ctrlKey: true })).toBe(false)
   expect(scrollLeft).toBe(132)
-  fireEvent.click(screen.getByRole('button', { name: 'Plate steps' }))
   const watch = within(rail).getByRole('list', {
     name: 'AK.one pipeline steps',
   })
@@ -770,7 +759,11 @@ test('footer status applies to whole canceled or skipped runs only', () => {
   expect(
     canceledFooter.getAllByText(/^Cancel+ed$/).map((node) => node.textContent)
   ).toEqual(['Canceled'])
-  expect(within(card('mixed')).queryByText(/^(Skipped|Canceled)$/)).toBeNull()
+  expect(
+    within(card('mixed').querySelector('footer')!).queryByText(
+      /^(Skipped|Canceled)$/
+    )
+  ).toBeNull()
   expect(
     within(card('skipped')).getByRole('link', {
       name: 'View Enhance image results',
@@ -1772,7 +1765,6 @@ test('execution dropdown switches local and gateway views without mutating or re
   expect(
     screen.getByRole('button', { name: /^View runs: Vercel Gateway$/ })
   ).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Plate steps' }))
   expect(
     screen.getByRole('list', { name: 'One pipeline steps' }).textContent
   ).toContain('Tag Complete')
@@ -2267,6 +2259,13 @@ test('worker phases advance the active box for just that plate', () => {
   ).toBe('/states/AK?plate=AK.one&batch=batch#families')
   fireEvent.blur(preview)
   const first = screen.getByRole('list', { name: 'One pipeline steps' })
+  const header = first.previousElementSibling!
+  expect(header.tagName).toBe('HEADER')
+  expect(header.firstElementChild?.textContent).toBe('One')
+  expect(header.children[1]).toBe(preview)
+  expect(header.lastElementChild).toBe(
+    screen.getByRole('link', { name: 'Go to One on the dashboard' })
+  )
   const second = screen.getByRole('list', { name: 'Two pipeline steps' })
   expect(first.querySelector('[aria-current="step"]')?.textContent).toContain(
     'Draft description & story'

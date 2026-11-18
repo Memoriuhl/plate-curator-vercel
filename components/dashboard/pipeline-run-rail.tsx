@@ -1,13 +1,6 @@
 'use client'
 
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import { IoTimeOutline } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
@@ -17,8 +10,6 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { tabsListVariants } from '@/components/ui/tabs'
-import { Toggle } from '@/components/ui/toggle'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { RunStatus } from '@/lib/jobs/queue-types'
 import { formatDuration, type PipelineProgress } from '@/lib/jobs/run-progress'
@@ -154,20 +145,10 @@ export function PipelineRunHistory<T extends RailRun>({
 /** Keep undismissed cards in enqueue order and scroll to newly added runs. */
 export function PipelineRunRail<T extends RailRun>({
   runs,
-  progress,
-  renderHeader,
   renderRun,
-  children,
 }: {
   runs: T[]
-  progress: (run: T) => PipelineProgress
-  renderHeader: (display: ReactNode) => ReactNode
-  renderRun: (
-    run: T,
-    progress: PipelineProgress,
-    stepsOpen: boolean
-  ) => ReactNode
-  children?: ReactNode
+  renderRun: (run: T) => ReactNode
 }) {
   const rail = runs
     .filter((run) => run.dismissedAt === undefined)
@@ -177,14 +158,8 @@ export function PipelineRunRail<T extends RailRun>({
         (a.enqueueSequence ?? 0) - (b.enqueueSequence ?? 0) ||
         a.id.localeCompare(b.id)
     )
-    .map((run) => ({ run, progress: progress(run) }))
-  const hasPlateSteps = rail.some((item) =>
-    item.progress.steps.some((step) => step.stage !== 'group')
-  )
-  const [stepsOpen, setStepsOpen] = useState(false)
-  const railId = useId()
   const viewport = useRef<HTMLDivElement>(null)
-  const newestId = rail.at(-1)?.run.id
+  const newestId = rail.at(-1)?.id
   useLayoutEffect(() => {
     const element = viewport.current
     if (element) element.scrollLeft = element.scrollWidth
@@ -220,46 +195,17 @@ export function PipelineRunRail<T extends RailRun>({
     ['failed', 'queued', 'running', 'completed', 'cancelled'] as const
   )
     .flatMap((status) => {
-      const count = rail.filter(({ run }) => run.status === status).length
+      const count = rail.filter((run) => run.status === status).length
       return count ? [`${count} ${historyLabels[status].toLowerCase()}`] : []
     })
     .join(', ')
-  const display = hasPlateSteps && (
-    <div
-      role="group"
-      aria-label="Pipeline display"
-      className={tabsListVariants({ className: styles.display })}
-    >
-      <Toggle
-        type="button"
-        variant="inset"
-        pressed={!stepsOpen}
-        aria-controls={railId}
-        onPressedChange={() => setStepsOpen(false)}
-      >
-        Runs
-      </Toggle>
-      <Toggle
-        type="button"
-        variant="inset"
-        pressed={stepsOpen}
-        aria-controls={railId}
-        onPressedChange={() => setStepsOpen(true)}
-      >
-        Plate steps
-      </Toggle>
-    </div>
-  )
   return (
     <TooltipProvider delayDuration={250}>
-      {renderHeader(display)}
-      {children}
       <p className="sr-only" role="status">
         {summary ? `Plate Pipeline: ${summary}` : ''}
       </p>
       <div
         ref={viewport}
-        id={railId}
         className={styles.rail}
         role="region"
         aria-label="Plate Pipeline runs, scroll horizontally"
@@ -267,8 +213,8 @@ export function PipelineRunRail<T extends RailRun>({
       >
         {rail.length ? (
           <ol className={styles.runList}>
-            {rail.map(({ run, progress }) => (
-              <li key={run.id}>{renderRun(run, progress, stepsOpen)}</li>
+            {rail.map((run) => (
+              <li key={run.id}>{renderRun(run)}</li>
             ))}
           </ol>
         ) : runs.length ? (

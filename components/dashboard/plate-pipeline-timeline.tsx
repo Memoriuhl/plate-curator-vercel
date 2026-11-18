@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { dashboardPlateHref } from '@/lib/review/href'
+import type { RunPlateDetail } from '@/lib/jobs/run-plates'
 import type { StepProgress } from '@/lib/jobs/run-progress'
 import { pipelineStages, pipelineStepReason } from './pipeline-stages'
 import styles from './pipeline-runs.module.css'
@@ -54,16 +55,19 @@ export function PlatePipelineTimeline({
   steps,
   batchId,
   images,
+  plates,
 }: {
   steps: StepProgress[]
   batchId?: string
   images?: Record<string, string>
+  plates?: RunPlateDetail[]
 }) {
   const rows = Map.groupBy(
     steps.filter((step) => step.stage !== 'group'),
     (step) => step.plateId
   )
   if (!rows.size) return null
+  const plateDetails = new Map(plates?.map((plate) => [plate.id, plate]))
 
   return (
     <section
@@ -77,10 +81,11 @@ export function PlatePipelineTimeline({
           const { plateName, plateState } = plateSteps[0]
           const state =
             plateState ?? (plateId.includes('.') ? plateId.split('.')[0] : null)
-          const image = images?.[plateId]
+          const image = images?.[plateId] ?? plateDetails.get(plateId)?.imageUrl
           return (
             <div key={plateId} className={styles.timelineRow}>
-              <div className={styles.timelineIdentity}>
+              <header className={styles.timelineIdentity}>
+                <strong className="caption">{plateName}</strong>
                 {image ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -112,9 +117,6 @@ export function PlatePipelineTimeline({
                     aria-hidden="true"
                   />
                 )}
-                <strong className="caption truncate" title={plateName}>
-                  {plateName}
-                </strong>
                 {state && (
                   <Link
                     href={dashboardPlateHref(state, plateId, batchId)}
@@ -127,7 +129,7 @@ export function PlatePipelineTimeline({
                     <IoArrowForward aria-hidden="true" />
                   </Link>
                 )}
-              </div>
+              </header>
               <ol
                 aria-label={`${plateSteps[0].plateName} pipeline steps`}
                 className={styles.phaseList}

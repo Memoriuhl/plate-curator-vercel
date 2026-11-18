@@ -89,7 +89,7 @@ export function PipelineQueuePanel({
   requester,
 }: {
   queue: QueueControls
-  header?: (history: ReactNode, display: ReactNode) => ReactNode
+  header?: (history: ReactNode) => ReactNode
   requester?(uid: string): string | undefined
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
@@ -137,18 +137,16 @@ export function PipelineQueuePanel({
       }}
     />
   )
-  const renderHeader = (display: ReactNode = null) =>
-    header ? (
-      header(history, display)
-    ) : (
-      <header className={styles.header}>
-        <h2 className="sr-only">Pipeline queue and history</h2>
-        {history}
-        {display}
-      </header>
-    )
-  const notices = (
-    <>
+  return (
+    <section aria-label="Pipeline queue and history" className={styles.panel}>
+      {header ? (
+        header(history)
+      ) : (
+        <header>
+          <h2 className="sr-only">Pipeline queue and history</h2>
+          {history}
+        </header>
+      )}
       {queue.error ? (
         <Button size="sm" variant="ghost" onClick={() => void queue.refresh()}>
           Refresh queue
@@ -205,23 +203,14 @@ export function PipelineQueuePanel({
           ) : null}
         </div>
       ))}
-    </>
-  )
-  return (
-    <section aria-label="Pipeline queue and history" className={styles.panel}>
       {queue.loading ? (
-        <>
-          {renderHeader()}
-          {notices}
-          <PipelineRailSkeleton />
-        </>
+        <PipelineRailSkeleton />
       ) : (
         <PipelineRunRail
           runs={queue.runs}
-          progress={(run) => run.progress ?? queueProgress(run)}
-          renderHeader={renderHeader}
-          renderRun={(run, progress, stepsOpen) => {
+          renderRun={(run) => {
             const attempt = run.attempts.at(-1)!
+            const progress = run.progress ?? queueProgress(run)
             const cancellationPending =
               run.status === 'running' && run.cancelRequestedAt !== undefined
             const status =
@@ -292,7 +281,6 @@ export function PipelineQueuePanel({
                 run={run}
                 stages={run.stages}
                 progress={progress}
-                stepsOpen={stepsOpen}
                 observedAt={queue.observedAt}
                 requester={
                   requester?.(run.requestedBy) ??
@@ -353,9 +341,7 @@ export function PipelineQueuePanel({
               </PipelineRunCard>
             )
           }}
-        >
-          {notices}
-        </PipelineRunRail>
+        />
       )}
     </section>
   )
