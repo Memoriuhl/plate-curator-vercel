@@ -6,7 +6,7 @@ import { workflowPublishRunLookup } from './publish-runs'
 import { verifyPreparedObject } from '../publish/object'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
-import { verifyIdToken } from '../auth/verify-id-token'
+import { authEmulatorEnabled, verifyIdToken } from '../auth/verify-id-token'
 import type { Plate, Snapshot } from '../catalog/types'
 import { orderedStatePlates } from '../catalog/order'
 import { firestoreCatalogSource } from '../catalog/firestore-source'
@@ -90,7 +90,11 @@ export function currentActor(request: Request) {
   return authenticate(request, {
     /** Verify an ID token against the configured Firebase project. */
     verify: (token) =>
-      verifyIdToken(token, { projectId, jwks: googleSecureTokenJwks() }),
+      verifyIdToken(token, {
+        projectId,
+        jwks: googleSecureTokenJwks(),
+        emulator: authEmulatorEnabled(projectId),
+      }),
     ownerUids: parseOwnerUids(process.env.OWNER_UIDS),
     members: {
       /** Resolve the current member for a normalized sign-in email. */

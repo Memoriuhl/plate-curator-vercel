@@ -1,5 +1,8 @@
 import { getApps, initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
+import { connectAuthEmulator, getAuth } from 'firebase/auth'
+
+/** Instances already pointed at a local emulator; connecting twice throws. */
+export const emulatorConnected = new WeakSet<object>()
 
 /**
  * Reuse the default Firebase app from the SDK's registry so Auth and live subscriptions
@@ -23,7 +26,23 @@ export function clientApp() {
   return initializeApp(config)
 }
 
+/**
+ * Return a local emulator `host:port` only for a `demo-` project, which Firebase reserves
+ * for emulator-only use, so a real project can never be pointed at an emulator.
+ */
+export function emulatorHost(value: string | undefined): string | null {
+  const host = value?.trim()
+  const project = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() ?? ''
+  return host && project.startsWith('demo-') ? host : null
+}
+
 /** Resolve the Firebase Auth instance tied to the curator's browser app. */
 export function clientAuth() {
-  return getAuth(clientApp())
+  const auth = getAuth(clientApp())
+  const host = emulatorHost(process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST)
+  if (host && !emulatorConnected.has(auth)) {
+    connectAuthEmulator(auth, `http://${host}`, { disableWarnings: true })
+    emulatorConnected.add(auth)
+  }
+  return auth
 }

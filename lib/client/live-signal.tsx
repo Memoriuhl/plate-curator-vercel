@@ -1,10 +1,16 @@
 'use client'
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { doc, getFirestore, onSnapshot } from 'firebase/firestore'
+import {
+  connectFirestoreEmulator,
+  doc,
+  getFirestore,
+  onSnapshot,
+} from 'firebase/firestore'
 import { useSWRConfig } from 'swr'
 import { batchApiPath } from './api'
-import { clientApp } from './firebase'
+import { clientApp, emulatorConnected, emulatorHost } from './firebase'
+import { countClientUsage } from './usage'
 import { useSession } from './session'
 import { signalPath } from '../review/live-signal'
 
@@ -16,15 +22,34 @@ export type LiveSignalSource = {
     error: (error: { code?: string }) => void
   ): () => void
 }
+/** Resolve the browser Firestore instance, using the local emulator for demo projects. */
+function clientFirestore() {
+  const db = getFirestore(clientApp())
+  const host = emulatorHost(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST)
+  if (host && !emulatorConnected.has(db)) {
+    const split = host.lastIndexOf(':')
+    connectFirestoreEmulator(
+      db,
+      host.slice(0, split),
+      Number(host.slice(split + 1))
+    )
+    emulatorConnected.add(db)
+  }
+  return db
+}
+
 const source: LiveSignalSource = {
   /**
    * Subscribe to the batch's Firestore revision signal and normalize its value for the
    * client.
    */
   subscribe(envKey, batchId, next, error) {
+    const usageKey = batchId.startsWith('topic:') ? batchId : 'batch'
+    countClientUsage('listen', usageKey)
     return onSnapshot(
-      doc(getFirestore(clientApp()), signalPath(envKey, batchId)),
+      doc(clientFirestore(), signalPath(envKey, batchId)),
       (snapshot) => {
+        countClientUsage('snapshot', usageKey)
         const revision = snapshot.data()?.revision
         next(
           typeof revision === 'number' &&
