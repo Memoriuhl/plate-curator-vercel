@@ -3,7 +3,7 @@ import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson } from '../../../../../../lib/server/respond'
 import {
   queueResponse,
-  wakeLocalJob,
+  wakeAfterReply,
 } from '../../../../../../lib/server/local-queue'
 
 /** Confirm that the abandoned worker claim has stopped so the run can recover. */
@@ -30,7 +30,7 @@ export async function POST(
   )
   if (result.ok) {
     const job = await d.store.transaction((tx) => tx.get(body.jobId as string))
-    if (job) await wakeLocalJob(job)
+    if (job) wakeAfterReply(job)
   }
   return queueResponse(result)
 }

@@ -5,12 +5,16 @@ const mocks = vi.hoisted(() => ({
   apps: vi.fn(),
   initialize: vi.fn(),
   auth: vi.fn(),
+  connectAuth: vi.fn(),
 }))
 vi.mock('firebase/app', () => ({
   getApps: mocks.apps,
   initializeApp: mocks.initialize,
 }))
-vi.mock('firebase/auth', () => ({ getAuth: mocks.auth }))
+vi.mock('firebase/auth', () => ({
+  getAuth: mocks.auth,
+  connectAuthEmulator: mocks.connectAuth,
+}))
 
 const variables = {
   NEXT_PUBLIC_FIREBASE_API_KEY: 'test-api-key',
@@ -61,4 +65,24 @@ test('reuses the default app rather than an unrelated named app', () => {
   mocks.apps.mockReturnValue([{ name: 'secondary' }, app])
   expect(clientApp()).toBe(app)
   expect(mocks.initialize).not.toHaveBeenCalled()
+})
+
+test('connects Auth to the local emulator only for a demo project', () => {
+  vi.stubEnv('NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST', 'localhost:9185')
+  const app = { name: '[DEFAULT]' }
+  mocks.apps.mockReturnValue([app])
+  const auth = {}
+  mocks.auth.mockReturnValue(auth)
+  clientAuth()
+  expect(mocks.connectAuth).not.toHaveBeenCalled()
+
+  vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'demo-plate-curator')
+  clientAuth()
+  clientAuth()
+  expect(mocks.connectAuth).toHaveBeenCalledTimes(1)
+  expect(mocks.connectAuth).toHaveBeenCalledWith(
+    auth,
+    'http://localhost:9185',
+    { disableWarnings: true }
+  )
 })

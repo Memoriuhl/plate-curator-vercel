@@ -1,0 +1,52 @@
+{
+  "label": "idle-before",
+  "scenario": "idle",
+  "measuredAt": "2026-11-19T01:44:13.175Z",
+  "observedMinutes": 5,
+  "jobsReported": 0,
+  "routes": {
+    "GET /api/jobs/runs": {
+      "observed": 99,
+      "perHour": 1180
+    },
+    "GET /api/local-pipeline/runs": {
+      "observed": 98,
+      "perHour": 1168
+    },
+    "POST /api/worker/claim": {
+      "observed": 60,
+      "perHour": 715
+    }
+  },
+  "browserRequests": {
+    "GET /api/jobs/runs": {
+      "observed": 98,
+      "perHour": 1168
+    },
+    "GET /api/local-pipeline/runs": {
+      "observed": 98,
+      "perHour": 1168
+    }
+  },
+  "firestore": {
+    "documentReads": {
+      "localPipelineCapabilities": 158,
+      "workerTokens": 60
+    },
+    "queries": {
+      "localPipelineRuns": 98,
+      "jobs": 454
+    },
+    "writes": {
+      "localPipelineCapabilities": 60
+    }
+  },
+  "client": null,
+  "totals": {
+    "requestsPerHour": 3064,
+    "browserRequestsPerHour": 2336,
+    "documentReadsPerHour": 2599,
+    "queriesPerHour": 6580,
+    "writesPerHour": 715
+  }
+}

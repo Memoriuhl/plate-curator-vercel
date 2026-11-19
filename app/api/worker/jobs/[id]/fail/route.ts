@@ -5,7 +5,7 @@ import {
   json,
   readJson,
 } from '../../../../../../lib/server/respond'
-import { wakeLocalJob } from '../../../../../../lib/server/local-queue'
+import { wakeAfterReply } from '../../../../../../lib/server/local-queue'
 
 /** Record a worker failure under its current claim and notify the queue workflow. */
 export async function POST(
@@ -33,6 +33,6 @@ export async function POST(
           ? 404
           : 409
     )
-  await wakeLocalJob(result.value)
+  wakeAfterReply(result.value)
   return json({ state: result.value.state })
 }

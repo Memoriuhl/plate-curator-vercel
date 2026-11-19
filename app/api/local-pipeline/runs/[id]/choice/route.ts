@@ -3,7 +3,7 @@ import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson } from '../../../../../../lib/server/respond'
 import {
   queueResponse,
-  wakeLocalJob,
+  wakeAfterReply,
 } from '../../../../../../lib/server/local-queue'
 
 /** Save the curator's image candidate selection and wake the stage waiting for it. */
@@ -26,7 +26,7 @@ export async function POST(
   )
   if (result.ok) {
     const job = await d.store.transaction((tx) => tx.get(body.jobId as string))
-    if (job) await wakeLocalJob(job)
+    if (job) wakeAfterReply(job)
   }
   return queueResponse(result)
 }

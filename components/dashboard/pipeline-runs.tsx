@@ -33,10 +33,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useSession } from '@/lib/client/session'
 import { useMe, useSharedDraftId } from '@/lib/client/hooks'
+import { useLiveRefresh } from '@/lib/client/live-signal'
 import { useSearchParams } from 'next/navigation'
 import type { GatewayRun } from '@/lib/jobs/gateway-runs'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
-import { gatewayRunsKey, usePipelineQueue } from './use-pipeline-queue'
+import {
+  gatewayRunsKey,
+  runListSafetyMs,
+  usePipelineQueue,
+} from './use-pipeline-queue'
 import { disabledRunStages } from './pipeline-stages'
 import {
   PipelineQueuePanel,
@@ -336,12 +341,18 @@ export function PipelineRuns({
   const setView = onDeviceChange ?? setInternalView
   const { user, api, ready } = useSession()
   const me = useMe()
-  // Reuse the Gateway list and poll less often while checking for runs on the other device.
+  // Reuse the Gateway list and refetch it when the server signals a pipeline change.
   const gateway = useSWR<{ runs: GatewayRun[]; observedAt: number }>(
     user ? gatewayRunsKey : null,
-    api.get,
-    { refreshInterval: view === 'local' ? 30000 : 3000 }
+    api.get
   )
+  const gatewayLive = useLiveRefresh(['gateway'], () => gateway.mutate(), {
+    enabled: Boolean(user),
+    key: gatewayRunsKey,
+    safetyMs: runListSafetyMs(gateway.data?.runs),
+  })
+  const liveUnavailable =
+    queue.live === 'unavailable' || gatewayLive === 'unavailable'
   const gatewayRuns = gateway.data?.runs ?? []
   const gatewayPending = ready === false || (gateway.isLoading && !gateway.data)
   const device = devices.find((device) => device.id === view) ?? devices[0]
@@ -368,6 +379,11 @@ export function PipelineRuns({
             </h2>
           )}
           {history}
+          {liveUnavailable && (
+            <span className={styles.liveNotice} role="status">
+              Live updates unavailable
+            </span>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SWRConfig } from 'swr'
 import { IoAddCircleOutline, IoPencilOutline } from 'react-icons/io5'
 import { TooltipProvider } from '../../components/ui/tooltip'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import {
   pipelineRunDetailKey,
   PipelineQueueWarmup,
@@ -57,6 +57,10 @@ import { RESEARCH_MODELS } from '../../lib/research/models'
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), send: vi.fn() },
   revertRun: vi.fn(),
+  /** The live refresh each mounted view registered, by its request key. */
+  refreshers: new Map<string, () => unknown>(),
+  /** The safety refresh each view last asked for, by its request key. */
+  safety: new Map<string, number | undefined>(),
   ensure: vi.fn(),
   pathname: '/states/AK',
   modelId: 'desktop-gemma4-12b',
@@ -83,6 +87,37 @@ vi.mock('../../lib/client/hooks', () => ({
   useSharedDraftId: () => 'shared-draft-test',
   useReviewActions: () => ({ revertPipelineRun: mocks.revertRun }),
 }))
+
+// Change-signal refresh has its own tests; here it stays connected and quiet, and a
+// test can run a round by calling the views' refreshes.
+vi.mock('../../lib/client/live-signal', async (importOriginal) => {
+  const { useEffect, useRef } = await import('react')
+  return {
+    ...(await importOriginal<typeof import('../../lib/client/live-signal')>()),
+    useLiveRefresh: (
+      _topics: unknown,
+      refresh: () => unknown,
+      options: { key?: string; enabled?: boolean } = {}
+    ) => {
+      const latest = useRef(refresh)
+      latest.current = refresh
+      const { key, enabled = true } = options as typeof options & {
+        safetyMs?: number
+      }
+      if (key && enabled)
+        mocks.safety.set(key, (options as { safetyMs?: number }).safetyMs)
+      useEffect(() => {
+        if (!key || !enabled) return
+        const run = () => latest.current()
+        mocks.refreshers.set(key, run)
+        return () => {
+          if (mocks.refreshers.get(key) === run) mocks.refreshers.delete(key)
+        }
+      }, [key, enabled])
+      return 'live'
+    },
+  }
+})
 
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
@@ -188,6 +223,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
+  mocks.refreshers.clear()
+  mocks.safety.clear()
 })
 afterEach(() => {
   cleanup()
@@ -394,6 +431,255 @@ test('returning from a run uses the newer queue snapshot loaded on the results p
   expect(screen.getByText('completed')).toBeTruthy()
   expect(screen.getByText('running')).toBeTruthy()
 })
+
+test.each([
+  ['nothing', undefined],
+  ['the same run', 'saved-run'],
+])(
+  'a live round refreshes the queue list with %s selected and an open run detail with one request',
+  async (_name, selection) => {
+    let status: QueueRunView['status'] = 'running'
+    const run = () => saved({ status })
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      return {
+        runs: [run()],
+        observedAt: status === 'running' ? 100 : 200,
+        ...(detail === 'saved-run' ? { selected: run() } : {}),
+      }
+    })
+    function Views() {
+      const list = usePipelineQueue()
+      const detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      const { select } = list
+      useEffect(() => {
+        if (selection) select(selection)
+      }, [select])
+      return (
+        <>
+          <span>list {list.runs[0]?.status}</span>
+          <span>detail {detail.selected?.status}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running')
+    await screen.findByText('detail running')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+
+    status = 'completed'
+    mocks.api.get.mockClear()
+    // A round calls every due view's refresh together.
+    await act(async () => {
+      for (const refresh of mocks.refreshers.values())
+        void Promise.resolve().then(refresh)
+    })
+    await screen.findByText('list completed')
+    await screen.findByText('detail completed')
+    expect(mocks.api.get).toHaveBeenCalledExactlyOnceWith(
+      '/api/local-pipeline/runs?detail=saved-run'
+    )
+  }
+)
+
+test('a round with a different selected run still refreshes each view', async () => {
+  mocks.api.get.mockImplementation(async (path: string) => {
+    const detail = new URL(path, 'https://example.org').searchParams.get(
+      'detail'
+    )
+    const run = saved({ id: detail ?? 'saved-run' })
+    return { runs: [run], selected: run }
+  })
+  function Views() {
+    const list = usePipelineQueue()
+    usePipelineQueue(undefined, undefined, 'saved-run')
+    const { select } = list
+    useEffect(() => select('other-run'), [select])
+    return null
+  }
+  render(<Views />, { wrapper })
+  await waitFor(() =>
+    expect([...mocks.refreshers.keys()].sort()).toEqual([
+      '/api/local-pipeline/runs?detail=other-run',
+      pipelineRunDetailKey('saved-run'),
+    ])
+  )
+  mocks.api.get.mockClear()
+  await act(async () => {
+    for (const refresh of mocks.refreshers.values())
+      void Promise.resolve().then(refresh)
+  })
+  await waitFor(() => expect(mocks.api.get).toHaveBeenCalledTimes(2))
+  expect(mocks.api.get.mock.calls.map(([path]) => path).sort()).toEqual([
+    '/api/local-pipeline/runs?detail=other-run',
+    pipelineRunDetailKey('saved-run'),
+  ])
+})
+
+test.each([
+  ['nothing', undefined],
+  ['the same run', 'saved-run'],
+])(
+  'a late response from an earlier round never replaces a newer one, with %s selected and an open run detail',
+  async (_name, selection) => {
+    let status: QueueRunView['status'] = 'running'
+    let holdNext = false
+    const held: (() => void)[] = []
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      // The response reflects the state when the request was read.
+      const body = {
+        runs: [saved({ status })],
+        observedAt: status === 'running' ? 100 : 200,
+        ...(detail === 'saved-run' ? { selected: saved({ status }) } : {}),
+      }
+      if (!holdNext) return body
+      holdNext = false
+      return new Promise((resolve) => held.push(() => resolve(body)))
+    })
+    function Views() {
+      const list = usePipelineQueue()
+      const detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      const { select } = list
+      useEffect(() => {
+        if (selection) select(selection)
+      }, [select])
+      return (
+        <>
+          <span>list {list.runs[0]?.status}</span>
+          <span>detail {detail.selected?.status}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running')
+    await screen.findByText('detail running')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+    // A round calls every due view's refresh together.
+    const round = () =>
+      act(async () => {
+        for (const refresh of mocks.refreshers.values())
+          void Promise.resolve().then(refresh)
+      })
+    mocks.api.get.mockClear()
+
+    // The first round reads the running state, and its response is slow.
+    holdNext = true
+    await round()
+    await waitFor(() => expect(held).toHaveLength(1))
+    // The run completes; its signal starts the next round, which answers first.
+    status = 'completed'
+    await round()
+    await screen.findByText('list completed')
+    await screen.findByText('detail completed')
+    // The first round's response arrives last and must not roll either view back.
+    await act(async () => {
+      held[0]()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByText('list completed')).toBeTruthy()
+    expect(screen.getByText('detail completed')).toBeTruthy()
+    expect(mocks.api.get).toHaveBeenCalledTimes(2)
+  }
+)
+
+type QueueViews = Record<'list' | 'detail', ReturnType<typeof usePipelineQueue>>
+test.each([
+  [
+    'an image choice from the run detail',
+    'detail' as const,
+    (queue: QueueViews['detail']) =>
+      queue.chooseImage('saved-run', 'job', 'candidate'),
+    (run: QueueRunView): QueueRunView => ({
+      ...run,
+      waitReason: undefined,
+      attempts: [{ ...run.attempts[0], choices: { job: 'candidate' } }],
+    }),
+  ],
+  [
+    'a cancel from the list',
+    'list' as const,
+    (queue: QueueViews['list']) => queue.cancel('saved-run'),
+    (run: QueueRunView): QueueRunView => ({
+      ...run,
+      status: 'cancelled',
+      waitReason: undefined,
+    }),
+  ],
+])(
+  'a live response read before %s never replaces the action result in the list or the open run detail',
+  async (_name, actor, perform, commit) => {
+    const before = saved({ status: 'running', waitReason: 'image_choice' })
+    let run = before
+    let observedAt = 100
+    let holdNext = false
+    const held: (() => void)[] = []
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      // The response reflects the state when the request was read.
+      const body = {
+        runs: [run],
+        observedAt,
+        ...(detail === 'saved-run' ? { selected: run } : {}),
+      }
+      if (!holdNext) return body
+      holdNext = false
+      return new Promise((resolve) => held.push(() => resolve(body)))
+    })
+    mocks.api.send.mockImplementation(async () => {
+      run = commit(run)
+      observedAt += 100
+      return { run }
+    })
+    const views = {} as QueueViews
+    // Run summaries carry the status and wait, which both actions change.
+    const describe = (view?: Pick<QueueRunView, 'status' | 'waitReason'>) =>
+      `${view?.status} ${view?.waitReason ?? 'not waiting'}`
+    function Views() {
+      views.list = usePipelineQueue()
+      views.detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      return (
+        <>
+          <span>list {describe(views.list.runs[0])}</span>
+          <span>detail {describe(views.detail.selected)}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running image_choice')
+    await screen.findByText('detail running image_choice')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+    mocks.api.get.mockClear()
+
+    // A live round reads the run before the action, and its response is slow.
+    holdNext = true
+    await act(async () => {
+      for (const refresh of mocks.refreshers.values())
+        void Promise.resolve().then(refresh)
+    })
+    await waitFor(() => expect(held).toHaveLength(1))
+    // The action commits, and its refresh shows the result in both views.
+    await act(() => perform(views[actor]))
+    const result = describe(commit(before))
+    await screen.findByText(`list ${result}`)
+    await screen.findByText(`detail ${result}`)
+    // The older live response arrives last and must not roll either view back.
+    await act(async () => {
+      held[0]()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByText(`list ${result}`)).toBeTruthy()
+    expect(screen.getByText(`detail ${result}`)).toBeTruthy()
+    // The action's refresh shares one request between the two views.
+    expect(mocks.api.get).toHaveBeenCalledTimes(2)
+  }
+)
 
 test('uncertain A then B then remount preserves A request ID', async () => {
   mocks.api.send.mockRejectedValue(new Error('Response lost'))
@@ -2133,6 +2419,79 @@ test.each([
     expect((await screen.findByRole('tooltip')).textContent).toBe(label)
   }
 )
+
+/** A hosted run as `GET /api/jobs/runs` lists it. */
+function gatewayRun(status: QueueRunView['status']) {
+  return {
+    id: 'gateway-run',
+    batchId: 'batch',
+    requestedBy: 'editor',
+    plateIds: ['AK.one'],
+    modelId: 'gateway-gemma4-26b',
+    createdAt: 100,
+    status,
+    progress: { workerIds: [], steps: [], workflowUrl: null },
+    results: [],
+  }
+}
+
+test.each([
+  {
+    queue: 'completed',
+    gateway: 'completed',
+    queueMs: 600_000,
+    gatewayMs: 600_000,
+  },
+  { queue: 'queued', gateway: 'failed', queueMs: 60_000, gatewayMs: 600_000 },
+  {
+    queue: 'cancelled',
+    gateway: 'running',
+    queueMs: 600_000,
+    gatewayMs: 60_000,
+  },
+] as const)(
+  'while live, a drawer list with no active run stretches its safety refresh to ten minutes (queue $queue, Gateway $gateway)',
+  async ({ queue, gateway, queueMs, gatewayMs }) => {
+    mocks.api.get.mockImplementation(async (path: string) =>
+      path.startsWith('/api/local-pipeline')
+        ? { runs: [saved({ status: queue })], observedAt: 1 }
+        : { runs: [gatewayRun(gateway)], observedAt: 1 }
+    )
+    function Runs() {
+      return <PipelineRuns queue={usePipelineQueue()} />
+    }
+    render(<Runs />, { wrapper })
+    await screen.findByRole('article', { name: 'Pipeline run saved-run' })
+    await waitFor(() => {
+      expect(mocks.safety.get('/api/local-pipeline/runs?detail=none')).toBe(
+        queueMs
+      )
+      expect(mocks.safety.get('/api/jobs/runs')).toBe(gatewayMs)
+    })
+  }
+)
+
+test('an open run keeps a one-minute safety refresh while it is active, and ten minutes once it ends', async () => {
+  let status: QueueRunView['status'] = 'running'
+  mocks.api.get.mockImplementation(async () => ({
+    runs: [saved({ status })],
+    selected: saved({ status }),
+    observedAt: status === 'running' ? 1 : 2,
+  }))
+  const { result } = renderHook(
+    () => usePipelineQueue(undefined, undefined, 'saved-run'),
+    { wrapper }
+  )
+  await waitFor(() => expect(result.current.selected?.status).toBe('running'))
+  expect(mocks.safety.get(pipelineRunDetailKey('saved-run'))).toBe(60_000)
+  status = 'completed'
+  await act(async () => {
+    await result.current.refresh()
+  })
+  await waitFor(() =>
+    expect(mocks.safety.get(pipelineRunDetailKey('saved-run'))).toBe(600_000)
+  )
+})
 
 test('History stays with the title and All Machines remains selected when only one machine has runs', async () => {
   mocks.api.get.mockImplementation(async (path: string) =>

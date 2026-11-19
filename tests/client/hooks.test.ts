@@ -28,6 +28,10 @@ import {
 } from '../../components/dashboard/family-data'
 import { usePlateDrag } from '../../components/dashboard/use-plate-drag'
 import { usePublishBaseline, usePublishControl } from '../../lib/client/hooks'
+import {
+  LiveSignalProvider,
+  type LiveSignalSource,
+} from '../../lib/client/live-signal'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -168,7 +172,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-test('Publish baseline does not poll and the control waits thirty seconds, with mutation refreshing baseline', async () => {
+test('without live updates, Publish baseline and control poll every thirty seconds, with mutation refreshing baseline', async () => {
   vi.useFakeTimers()
   try {
     const context = harness()
@@ -198,7 +202,9 @@ test('Publish baseline does not poll and the control waits thirty seconds, with 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2)
     })
-    expect(session.api.get.mock.calls.map(([path]) => path)).toEqual([
+    // Each resource keeps one slow poll while no listener can be opened.
+    expect(session.api.get.mock.calls.map(([path]) => path).sort()).toEqual([
+      '/api/batches/draft/publish',
       '/api/publish/control',
     ])
     session.api.get.mockClear()
@@ -1608,40 +1614,48 @@ test('Editor never requests run status', async () => {
 })
 
 test.each(['published', 'failed', 'superseded'])(
-  'Publish polls through delayed start and stops at %s',
+  'Publish follows publish signals through delayed start and stops polling at %s',
   async (terminal) => {
-    let phase = 'waiting-for-publish'
-    const id = `poll-${terminal}`
-    const key = `/api/batches/${id}/run`
-    session.api.get.mockImplementation(async (key: string) =>
-      key === '/api/me'
-        ? { role: 'owner' }
-        : { phase, runId: id, outcome: null, updatedAt: null }
-    )
-    session.api.send.mockResolvedValue({ status: 'publishing' })
-    const { result } = renderHook(
-      () => ({ run: useBatchRun(id), actions: useReviewActions() }),
-      harness({}, null)
-    )
-    await waitFor(() =>
-      expect(result.current.run.data?.phase).toBe('waiting-for-publish')
-    )
     vi.useFakeTimers()
     try {
+      let phase = 'waiting-for-publish'
+      const id = `poll-${terminal}`
+      const key = `/api/batches/${id}/run`
+      session.api.get.mockImplementation(async (path: string) =>
+        path === '/api/me'
+          ? { role: 'owner' }
+          : { phase, runId: id, outcome: null, updatedAt: null }
+      )
+      const { signals, wrapper } = topicSource()
+      const sent = session.api.send.getMockImplementation()!
+      session.api.send.mockImplementation(
+        async (method: string, path: string, ...rest: unknown[]) =>
+          path === '/api/live-access'
+            ? sent(method, path, ...rest)
+            : { status: 'publishing' }
+      )
+      const { result } = renderHook(
+        () => ({ run: useBatchRun(id), actions: useReviewActions() }),
+        { wrapper }
+      )
+      await advance(1)
+      await advance(1)
+      expect(result.current.run.data?.phase).toBe('waiting-for-publish')
+      // The run view listens before a publish is requested, so a request from
+      // another tab reaches it too.
+      expect(signals.has('topic:publish')).toBe(true)
       await act(async () =>
         expect(await result.current.actions.publish(id, 7)).toEqual({
           ok: true,
         })
       )
       phase = 'publishing'
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2100)
-      })
+      signals.get('topic:publish')!(4)
+      await advance(2100)
       expect(result.current.run.data?.phase).toBe('publishing')
       phase = terminal
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2100)
-      })
+      signals.get('topic:publish')!(5)
+      await advance(2100)
       expect(result.current.run.data?.phase).toBe(terminal)
       expect(navigation.refresh).toHaveBeenCalledTimes(
         terminal === 'published' ? 1 : 0
@@ -1652,20 +1666,184 @@ test.each(['published', 'failed', 'superseded'])(
       expect(navigation.refresh).toHaveBeenCalledTimes(
         terminal === 'published' ? 1 : 0
       )
+      // A finished run stops polling but keeps listening for a retry started elsewhere.
       const count = session.api.get.mock.calls.filter(
         ([path]) => path === key
       ).length
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000)
-      })
+      await advance(60_000)
       expect(
         session.api.get.mock.calls.filter(([path]) => path === key)
       ).toHaveLength(count)
+      expect(signals.has('topic:publish')).toBe(true)
     } finally {
+      cleanup()
       vi.useRealTimers()
     }
   }
 )
+
+/** A live source that records each topic's listener, and a live grant for it. */
+function topicSource() {
+  const signals = new Map<string, (revision: number | null) => void>()
+  const source: LiveSignalSource = {
+    subscribe(_envKey, signalId, next) {
+      signals.set(signalId, next)
+      return () => signals.delete(signalId)
+    },
+  }
+  session.api.send.mockImplementation(async (_method: string, path: string) =>
+    path === '/api/live-access'
+      ? {
+          envKey: 'development',
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        }
+      : {}
+  )
+  // Each caller reads the owner role from /api/me, so it starts uncached.
+  const { wrapper } = harness({}, null)
+  return {
+    signals,
+    wrapper: ({ children }: { children: ReactNode }) =>
+      createElement(
+        LiveSignalProvider,
+        { value: source },
+        wrapper({ children })
+      ),
+  }
+}
+
+/** Advance fake time inside act so SWR and the live hub can settle. */
+const advance = (ms: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+
+test('an idle Publish view refetches eligibility when another curator starts pipeline work', async () => {
+  vi.useFakeTimers()
+  try {
+    let busy = false
+    session.api.get.mockImplementation(async () => ({
+      error: null,
+      reviewedVersion: 1,
+      liveVersion: 1,
+      pipelineBusy: busy,
+    }))
+    const { signals, wrapper } = topicSource()
+    const { result } = renderHook(() => usePublishBaseline('draft'), {
+      wrapper,
+    })
+    await advance(1)
+    expect(result.current.data?.pipelineBusy).toBe(false)
+    // Idle eligibility still listens, so a second tab sees the change.
+    signals.get('topic:pipeline')!(1)
+    await advance(2100)
+    busy = true
+    signals.get('topic:pipeline')!(2)
+    await advance(2100)
+    expect(result.current.data?.pipelineBusy).toBe(true)
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})
+
+test.each([
+  ['eligibility', 'idle'],
+  ['run status', 'idle'],
+  ['run status', 'finished'],
+])(
+  'a %s view that is %s catches up within five minutes when its change signal is lost',
+  async (view, state) => {
+    vi.useFakeTimers()
+    try {
+      let version = 1
+      session.api.get.mockImplementation(async (path: string) =>
+        path === '/api/me'
+          ? { role: 'owner' }
+          : view === 'eligibility'
+            ? {
+                error: null,
+                reviewedVersion: version,
+                liveVersion: 1,
+                pipelineBusy: false,
+              }
+            : {
+                phase: state === 'finished' ? 'published' : null,
+                runId: `run-${version}`,
+                outcome: null,
+                updatedAt: null,
+              }
+      )
+      const { signals, wrapper } = topicSource()
+      const { result } = renderHook(
+        () =>
+          view === 'eligibility'
+            ? usePublishBaseline('lost').data?.reviewedVersion
+            : useBatchRun('lost').data?.runId,
+        { wrapper }
+      )
+      await advance(1)
+      await advance(1)
+      const before = view === 'eligibility' ? 1 : 'run-1'
+      expect(result.current).toBe(before)
+      expect(signals.size).toBeGreaterThan(0)
+      // Another curator changes it, and the bump never lands.
+      version = 2
+      await advance(299_000)
+      expect(result.current).toBe(before)
+      await advance(1_100)
+      expect(result.current).toBe(view === 'eligibility' ? 2 : 'run-2')
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  }
+)
+
+test('a run view follows a publish request started in another tab', async () => {
+  vi.useFakeTimers()
+  try {
+    let phase: string | null = null
+    const key = '/api/batches/elsewhere/run'
+    session.api.get.mockImplementation(async (path: string) =>
+      path === '/api/me'
+        ? { role: 'owner' }
+        : { phase, runId: phase && 'run', outcome: null, updatedAt: null }
+    )
+    const { signals, wrapper } = topicSource()
+    const { result } = renderHook(() => useBatchRun('elsewhere'), { wrapper })
+    await advance(1)
+    await advance(1)
+    expect(result.current.data?.phase).toBeNull()
+    signals.get('topic:publish')!(1)
+    await advance(2100)
+
+    // The other tab's request links its workflow, which signals publish listeners.
+    phase = 'waiting-for-publish'
+    signals.get('topic:publish')!(2)
+    await advance(2100)
+    expect(result.current.data?.phase).toBe('waiting-for-publish')
+    phase = 'publishing'
+    signals.get('topic:publish')!(3)
+    await advance(2100)
+    expect(result.current.data?.phase).toBe('publishing')
+    // The workflow finishing is not a write; the safety refresh brings it.
+    phase = 'published'
+    await advance(5100)
+    expect(result.current.data?.phase).toBe('published')
+    const count = session.api.get.mock.calls.filter(
+      ([path]) => path === key
+    ).length
+    await advance(60_000)
+    expect(
+      session.api.get.mock.calls.filter(([path]) => path === key)
+    ).toHaveLength(count)
+    expect(signals.has('topic:publish')).toBe(true)
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})
 
 test('mounting an already-published batch does not refresh cached pages', async () => {
   session.api.get.mockImplementation(async (key: string) =>

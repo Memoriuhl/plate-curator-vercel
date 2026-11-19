@@ -1,7 +1,16 @@
 import { beforeAll, expect, test, vi } from 'vitest'
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose'
+import {
+  createLocalJWKSet,
+  exportJWK,
+  generateKeyPair,
+  SignJWT,
+  UnsecuredJWT,
+} from 'jose'
 import type { JWTPayload } from 'jose'
-import { verifyIdToken } from '../../lib/auth/verify-id-token'
+import {
+  authEmulatorEnabled,
+  verifyIdToken,
+} from '../../lib/auth/verify-id-token'
 import { authenticate, parseOwnerUids } from '../../lib/auth/actor'
 import { googleSecureTokenJwks } from '../../lib/auth/google-jwks'
 import { createMemoryMembersStore } from '../../lib/members/memory-store'
@@ -89,6 +98,60 @@ test('rejects malformed tokens and key lookup failures', async () => {
       },
     })
   ).toBeNull()
+})
+
+/** Build an unsigned token shaped like the Firebase Auth emulator's. */
+function emulatorToken(project = projectId) {
+  return new UnsecuredJWT({
+    sub: 'user-one',
+    auth_time: now - 60,
+    iat: now - 60,
+    exp: now + 3600,
+    aud: project,
+    iss: `https://securetoken.google.com/${project}`,
+    firebase: { sign_in_provider: 'password' },
+  }).encode()
+}
+
+test('accepts unsigned emulator tokens only for an enabled demo project', async () => {
+  const clock = () => now * 1000
+  expect(
+    await verifyIdToken(emulatorToken(), {
+      projectId,
+      jwks,
+      now: clock,
+      emulator: true,
+    })
+  ).toMatchObject({ uid: 'user-one', signInProvider: 'password' })
+  expect(
+    await verifyIdToken(emulatorToken(), { projectId, jwks, now: clock })
+  ).toBeNull()
+  expect(
+    await verifyIdToken(emulatorToken('real-project'), {
+      projectId: 'real-project',
+      jwks,
+      now: clock,
+      emulator: true,
+    })
+  ).toBeNull()
+})
+
+test.each([
+  [{ FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099' }, 'demo-x', true],
+  [{}, 'demo-x', false],
+  [{ FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099' }, 'real-project', false],
+  [
+    { FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099', VERCEL_ENV: 'preview' },
+    'demo-x',
+    false,
+  ],
+  [
+    { FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099', NODE_ENV: 'production' },
+    'demo-x',
+    false,
+  ],
+])('gates the Auth emulator for %j on %s', (env, project, enabled) => {
+  expect(authEmulatorEnabled(project, env)).toBe(enabled)
 })
 
 test('omits an absent email', async () => {

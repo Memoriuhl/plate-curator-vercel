@@ -2,7 +2,7 @@ import { cancelRun } from '../../../../../../lib/jobs/queue'
 import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import {
   queueResponse,
-  wakeLocalJob,
+  wakeAfterReply,
 } from '../../../../../../lib/server/local-queue'
 
 /**
@@ -20,7 +20,7 @@ export async function POST(
   if (result.ok) {
     const jobId = result.value.attempts.at(-1)?.jobIds.at(-1)
     const job = jobId ? await d.store.transaction((tx) => tx.get(jobId)) : null
-    if (job) await wakeLocalJob(job)
+    if (job) wakeAfterReply(job)
   }
   return queueResponse(result)
 }

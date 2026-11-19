@@ -171,7 +171,7 @@ test('enqueue acknowledgement loss/start failure recovers the same persisted run
   ).toBe('workflow')
 })
 
-test('claim callback wakes the persisted lease; lost completed callback is reconciled by GET without creating another stage job', async () => {
+test('claim callback wakes the persisted lease; a lost completed callback is not woken by GET, which creates no other stage job', async () => {
   await POST(post())
   const [run] = await deps.store.transaction((tx) => tx.runs())
   const token = 'local-pipeline-stage'
@@ -193,14 +193,101 @@ test('claim callback wakes the persisted lease; lost completed callback is recon
     promptVersion: 'v1',
     durationMs: 10,
   })
-  mocks.resume.mockImplementation(async () =>
-    expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
-  )
+  mocks.resume.mockClear()
+  // Reads leave the lost wake to the workflow's own re-check and create no stage job.
   await getDetail(run.id)
-  expect(mocks.resume).toHaveBeenLastCalledWith(token, {
-    jobId: claimed.job.id,
-  })
+  expect(mocks.resume).not.toHaveBeenCalled()
+  expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
   expect(await deps.store.transaction((tx) => tx.list())).toHaveLength(1)
+})
+
+/** Report the claimed job's result through the worker report route. */
+const reportRoute = (id: string, claimId: string) =>
+  report(
+    new Request(`https://example.org/api/worker/jobs/${id}/report`, {
+      method: 'POST',
+      body: JSON.stringify({
+        claimId,
+        suggestions: ['blue'],
+        backend: 'fixture',
+        model: 'test',
+        promptVersion: 'v1',
+        durationMs: 10,
+      }),
+    }),
+    { params: Promise.resolve({ id }) }
+  )
+
+/** Queue one stage and let the worker claim it through the claim route. */
+async function claimedStage() {
+  await POST(post())
+  const [run] = await deps.store.transaction((tx) => tx.runs())
+  const token = 'local-pipeline-stage'
+  await dispatchQueueStage(deps, run.id, 1, 0, token)
+  const claimed = await (
+    await claim(
+      new Request('https://example.org/api/worker/claim', { method: 'POST' })
+    )
+  ).json()
+  expect(mocks.resume).toHaveBeenCalledWith(token, { jobId: claimed.job.id })
+  mocks.resume.mockClear()
+  return { run, token, claimed }
+}
+
+test('reads never wake the workflow, even when the report wake was lost', async () => {
+  const { run, claimed } = await claimedStage()
+  await GET(get())
+  // The worker's report commits, but its wake never reaches the workflow.
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  await getDetail(run.id)
+  await GET(get())
+  mocks.jobs.mockReturnValue({ ...deps, now: () => 100 + 60 * 60_000 })
+  await getDetail(run.id)
+  expect(mocks.resume).not.toHaveBeenCalled()
+})
+
+test('a repeated wake only re-reads the stage: observing twice settles it once', async () => {
+  const { run, claimed } = await claimedStage()
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  const first = await observeQueueStage(deps, run.id, 1, 0)
+  const runs = await deps.store.transaction((tx) => tx.runs())
+  const jobs = await deps.store.transaction((tx) => tx.list())
+  expect(await observeQueueStage(deps, run.id, 1, 0)).toEqual(first)
+  expect(await deps.store.transaction((tx) => tx.runs())).toEqual(runs)
+  expect(await deps.store.transaction((tx) => tx.list())).toEqual(jobs)
+})
+
+test('the claim and report replies never wait for their workflow wakes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    await POST(post())
+    const [run] = await deps.store.transaction((tx) => tx.runs())
+    await dispatchQueueStage(deps, run.id, 1, 0, 'local-pipeline-stage')
+    mocks.resume.mockReturnValue(new Promise(() => {}))
+    const response = await claim(
+      new Request('https://example.org/api/worker/claim', { method: 'POST' })
+    )
+    expect(response.status).toBe(200)
+    const claimed = await response.json()
+    expect((await reportRoute(claimed.job.id, claimed.claimId)).status).toBe(
+      200
+    )
+    expect(mocks.resume).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('authentication and other-owner visibility/mutations reject without exposing runs', async () => {
