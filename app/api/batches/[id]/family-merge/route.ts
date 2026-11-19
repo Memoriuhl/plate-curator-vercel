@@ -36,7 +36,7 @@ export async function POST(
     state: destinationId.split('.')[0],
     moves,
     standard,
-    keepStandardOnJoin: !standard,
+    familyEndpoint: true,
   })
   if (!outcome.ok) return respond(outcome)
   return respond({

@@ -437,12 +437,22 @@ it('Escape cancels an active drag without clearing its selection', () => {
   expect(plateSelection.snapshot()).toHaveLength(1)
 })
 
-it('filter changes remove dimmed selections from the current State and preserve other States', () => {
+it('filter changes retain the selection and only count hidden plates in the current State', () => {
   const store = createPlateSelection()
   store.register(plates)
   store.add([...plates, { ...plates[0], id: 'NJ.a', state: 'NJ' }])
   store.visible([plates[0], plates[2]])
-  expect(store.snapshot().map((plate) => plate.id)).toEqual(['a', 'c', 'NJ.a'])
+  expect(store.snapshot().map((plate) => plate.id)).toEqual([
+    'a',
+    'b',
+    'c',
+    'NJ.a',
+  ])
+  expect(store.hiddenCount()).toBe(1)
+  store.visible([])
+  expect(store.hiddenCount()).toBe(3)
+  store.all()
+  expect(store.snapshot().map((plate) => plate.id)).toEqual(['NJ.a'])
 })
 
 it('excludes deleted plates from add, select-all, toggles, ranges, and refreshed selection', () => {

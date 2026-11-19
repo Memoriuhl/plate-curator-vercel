@@ -132,12 +132,25 @@ test('story edits retain catalog shapes and clear nullable draft markers in the 
   }
 })
 
-test('refuses two standard plates in a state', async () => {
-  const f = fixture()
+test('refuses an edit that creates a second Standard in a state', async () => {
+  const f = fixture({ ...batch, plateIds: snapshot.plates.map(({ id }) => id) })
   f.deps.snapshots.read = async () => ({
     ...snapshot,
-    plates: snapshot.plates.map((plate) => ({ ...plate, isStandard: true })),
+    plates: snapshot.plates.map((plate, index) => ({
+      ...plate,
+      isStandard: index === 0,
+    })),
   })
+  f.deps.store.listEdits = async () => [
+    {
+      plateId: snapshot.plates[1].id,
+      baseRevision: 'base',
+      resultRevision: 'result',
+      authorId: 'editor',
+      updatedAt: f.deps.now(),
+      fields: { isStandard: true },
+    },
+  ]
   expect(await publishBatch(f.deps, owner, command)).toMatchObject({
     ok: false,
     error: 'invalid_snapshot',

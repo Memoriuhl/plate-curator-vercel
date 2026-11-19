@@ -468,7 +468,12 @@ export async function reviewApprovalProblems(
   const edits = await d.store.listEdits(batch.id)
   const standardPlates = await Promise.all(
     edits
-      .filter((edit) => Object.hasOwn(edit.fields, 'isStandard'))
+      .filter(
+        ({ fields }) =>
+          Object.hasOwn(fields, 'isStandard') ||
+          Object.hasOwn(fields, 'templateRole') ||
+          fields.deleted
+      )
       .map((edit) => d.baselineAtVersion(batch.baselineVersion, edit.plateId))
   )
   const touchedStates = new Set([
@@ -480,7 +485,14 @@ export async function reviewApprovalProblems(
       d.stateBaseline(batch.baselineVersion, state)
     )
   )
-  return standardOrderProblems(states.flat(), edits, batch.stateOrders)
+  return standardOrderProblems(states.flat(), edits, batch.stateOrders, {
+    ...Object.fromEntries(
+      states
+        .filter((plates) => plates.length)
+        .map((plates) => [plates[0].state, plates.map((plate) => plate.id)])
+    ),
+    ...batch.baselineOrders,
+  })
 }
 
 /**

@@ -15,10 +15,9 @@ import { FamilyCard } from '../components/plate/family-card'
 import {
   familyOrder,
   moveBlock,
-  nearestFamilySlot,
+  nearestFamilyTarget,
   promotionOrder,
   newFamilySlug,
-  orderForDrop,
   pastDragThreshold,
   targetAt,
   scrollVelocity,
@@ -128,18 +127,18 @@ afterEach(() => {
 test('moves family blocks and variants while retaining the full permutation', () => {
   const order = familyOrder(families)
   expect(
-    orderForDrop(
+    reflowForDrop(
       families,
       { kind: 'family', plate: a },
       { kind: 'family-slot', index: 2 }
-    )
+    )?.order
   ).toEqual(['AK.b', 'AK.a', 'AK.v', 'AK.w'])
   expect(
-    orderForDrop(
+    reflowForDrop(
       families,
       { kind: 'variant', plate: w },
       { kind: 'variant-slot', familyId: a.id, index: 0 }
-    )
+    )?.order
   ).toEqual(['AK.a', 'AK.w', 'AK.v', 'AK.b'])
   for (let index = 0; index <= order.length; index++)
     expect(moveBlock(order, [a.id, v.id, w.id], index).sort()).toEqual(
@@ -306,15 +305,12 @@ test('keyboard lifts, moves, drops once and removes the global cursor', async ()
   expect(document.body.classList.contains('plate-dragging')).toBe(false)
 })
 
-test('a drag in a fresh Batch can keep the inherited Standard first', async () => {
+test('a drag that keeps the displayed first plate skips a legacy Standard warning', async () => {
   const displayed = [
-    { template: { ...a, isStandard: true }, variants: [v, w] },
-    { template: b, variants: [] },
+    { template: a, variants: [v, w] },
+    { template: { ...b, isStandard: true }, variants: [] },
   ]
-  const baseline = [{ ...b, isStandard: true }, a, v, w]
   const reorder = vi.fn().mockResolvedValue(success)
-  const standard = { from: b.id, to: a.id }
-  confirmStandard.mockResolvedValueOnce(standard)
   function Harness() {
     const drag = usePlateDrag({
       families: displayed,
@@ -323,7 +319,6 @@ test('a drag in a fresh Batch can keep the inherited Standard first', async () =
       query: '',
       edits: { edit: vi.fn(), pending: false },
       ordering: { reorder, pending: false },
-      orderBaseline: () => ({ first: b.id, plates: baseline }),
       targets: () => [],
       closePreview: vi.fn(),
       reload: vi.fn(),
@@ -344,21 +339,21 @@ test('a drag in a fresh Batch can keep the inherited Standard first', async () =
   fireEvent.keyDown(handle, { key: 'ArrowUp' })
   fireEvent.keyDown(handle, { key: ' ' })
   await waitFor(() =>
-    expect(reorder).toHaveBeenCalledExactlyOnceWith(
+    expect(reorder.mock.calls[0]?.slice(0, 4)).toEqual([
       w.state,
       [a.id, w.id, v.id, b.id],
-      standard,
+      undefined,
       [
         {
           plateIds: [w.id],
           placement: { kind: 'before-plate', anchorId: v.id },
         },
-      ]
-    )
+      ],
+    ])
   )
-  expect(confirmStandard).toHaveBeenCalledWith(baseline, a.id)
+  expect(confirmStandard).not.toHaveBeenCalled()
 })
-test('escape cancels and filters and roles prevent lifting', () => {
+test('escape cancels, editing roles are required, and filters and search allow lifting', () => {
   const { handle, reorder } = setup()
   fireEvent.keyDown(handle, { key: ' ' })
   fireEvent.keyDown(handle, { key: 'Escape' })
@@ -368,8 +363,7 @@ test('escape cancels and filters and roles prevent lifting', () => {
   cleanup()
   const filtered = setup({ show: 'changed' })
   fireEvent.keyDown(filtered.handle, { key: ' ' })
-  expect(screen.queryByText(/Lifted/)).toBeNull()
-  expect(filtered.handle.title).toBe('Clear filters to reorder')
+  expect(screen.getByText(/Lifted Army family/)).toBeTruthy()
   cleanup()
   const readonly = setup({ canEdit: false })
   fireEvent.keyDown(readonly.handle, { key: ' ' })
@@ -377,7 +371,7 @@ test('escape cancels and filters and roles prevent lifting', () => {
   cleanup()
   const searched = setup({ query: 'Army' })
   fireEvent.keyDown(searched.handle, { key: ' ' })
-  expect(screen.queryByText(/Lifted/)).toBeNull()
+  expect(screen.getByText(/Lifted Army family/)).toBeTruthy()
 })
 test('failed reorder snaps back, announces the error and reloads', async () => {
   const { handle, reload } = setup({ error: true })
@@ -656,6 +650,21 @@ test('variant previews shift within a family and promotion opens a family gap; m
       { kind: 'merge', familyId: b.id }
     )
   ).toBeNull()
+})
+
+test('a family slot preserves the order of selected heads, promotes explicit Variants and keeps other Variants with their Templates', () => {
+  const preview = reflowForDrop(
+    families,
+    { kind: 'family', plate: a },
+    { kind: 'family-slot', index: 2 },
+    [v, a, { ...b, id: 'ON.a', state: 'ON' }]
+  )
+  expect(preview?.order).toEqual([b.id, a.id, w.id, v.id])
+  expect(preview?.families.map(({ template }) => template.id)).toEqual([
+    b.id,
+    a.id,
+    v.id,
+  ])
 })
 
 test('keyboard arrows update the gap, cancel restores it, and drop commits exactly the preview', async () => {
@@ -1087,7 +1096,7 @@ test('family and variant ids remain available on hover without visible id lines'
   ).toBe(v.displayName + ' · ' + v.id)
 })
 
-test('handles expose grab and disabled cursors while image hover retains preview', () => {
+test('handles expose grab while filtered and image hover retains preview', () => {
   const preview = vi.fn()
   /**
    * Render drag handles with the preview spy so cursor and hover behavior can be
@@ -1124,7 +1133,7 @@ test('handles expose grab and disabled cursors while image hover retains preview
   expect(preview).toHaveBeenCalledWith(a, expect.any(HTMLElement), false)
   view.rerender(<Harness query="army" />)
   for (const handle of view.container.querySelectorAll('[data-plate-row]'))
-    expect(handle.className).toContain('cursor-pointer')
+    expect(handle.className).toContain('cursor-grab!')
 })
 
 test.each([false, true])(
@@ -1250,6 +1259,94 @@ function pointerDrag(handle: HTMLElement, x: number) {
   dragPointer(handle, 'pointerup', x)
 }
 
+test('pointer and keyboard refuse a Variant slot for a selection containing the first Template', () => {
+  for (const input of ['pointer', 'keyboard']) {
+    plateSelection.add([a, v])
+    const { handle, edit, reorder, move, mergeSave } = setup({
+      variant: true,
+      rows: input === 'keyboard',
+      targets: () => [
+        {
+          target: { kind: 'variant-slot', familyId: a.id, index: 2 },
+          rect: { left: 105, right: 160, top: 0, bottom: 500 },
+        },
+      ],
+    })
+    if (input === 'pointer') {
+      dragPointer(handle, 'pointerdown', 100)
+      dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+    } else {
+      fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
+      fireEvent.keyDown(window, { key: 'ArrowDown' })
+    }
+    const preview = screen.getByTestId('gap').textContent
+    if (input === 'pointer') dragPointer(handle, 'pointerup', 110)
+    else fireEvent.keyDown(window, { key: ' ' })
+
+    expect(reorder, input).not.toHaveBeenCalled()
+    expect(move, input).not.toHaveBeenCalled()
+    expect(mergeSave, input).not.toHaveBeenCalled()
+    expect(edit, input).not.toHaveBeenCalled()
+    expect(confirmStandard, input).not.toHaveBeenCalled()
+    expect(preview, input).toBe('')
+    expect(screen.getByRole('status').textContent, input).toBe(
+      'Only Variants from this family can be reordered here.'
+    )
+    expect(plateSelection.snapshot().map(({ id }) => id)).toEqual([a.id, v.id])
+    cleanup()
+  }
+})
+
+test('moving between adjacent card edges keeps the gap and saves the newly hovered anchor', async () => {
+  let rightEdgeVisible = true
+  const { handle, move } = setup({
+    variant: true,
+    show: 'noFamily',
+    targets: () => [
+      rightEdgeVisible
+        ? {
+            target: {
+              kind: 'family-slot',
+              index: 1,
+              anchor: { kind: 'after', anchorId: a.id },
+            },
+            rect: { left: 105, right: 160, top: 0, bottom: 500 },
+          }
+        : {
+            target: {
+              kind: 'family-slot',
+              index: 1,
+              anchor: { kind: 'before', anchorId: b.id },
+            },
+            rect: { left: 200, right: 250, top: 0, bottom: 500 },
+          },
+    ],
+  })
+  dragPointer(handle, 'pointerdown', 100)
+  dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+  const gap = [a.id, w.id, v.id, b.id].join(',')
+  expect(screen.getByTestId('gap').textContent).toBe(gap)
+
+  // The next edge can be measured after the first has left the virtualized rows.
+  rightEdgeVisible = false
+  dwellPointer(() => dragPointer(handle, 'pointermove', 210))
+  expect(screen.getByTestId('gap').textContent).toBe(gap)
+  dragPointer(handle, 'pointerup', 210)
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
+  expect(move).toHaveBeenCalledWith(
+    v.state,
+    [
+      {
+        plateIds: [v.id],
+        placement: { kind: 'before', anchorId: b.id },
+        promote: true,
+      },
+    ],
+    expect.any(Object),
+    undefined
+  )
+})
+
 test('pointer lift is immediate and small movements leave the gap dwell running', () => {
   vi.useFakeTimers()
   try {
@@ -1349,7 +1446,11 @@ test('card zones scale with width and its own Variant rows take precedence', () 
     new DOMRect(40, 140, 300, 60)
   )
   const targets = collectDragTargets(root, families)
-  expect(targetAt(100, 100, targets)).toEqual({ kind: 'family-slot', index: 0 })
+  expect(targetAt(100, 100, targets)).toEqual({
+    kind: 'family-slot',
+    index: 0,
+    anchor: { kind: 'before', anchorId: a.id },
+  })
   expect(targetAt(110.1, 100, targets)).toEqual({
     kind: 'merge',
     familyId: a.id,
@@ -1358,7 +1459,11 @@ test('card zones scale with width and its own Variant rows take precedence', () 
     kind: 'merge',
     familyId: a.id,
   })
-  expect(targetAt(280, 100, targets)).toEqual({ kind: 'family-slot', index: 1 })
+  expect(targetAt(280, 100, targets)).toEqual({
+    kind: 'family-slot',
+    index: 1,
+    anchor: { kind: 'after', anchorId: a.id },
+  })
   expect(targetAt(70, 156, targets)).toEqual({
     kind: 'variant-slot',
     familyId: a.id,
@@ -1366,9 +1471,9 @@ test('card zones scale with width and its own Variant rows take precedence', () 
   })
 })
 
-test('background drop promotes selected variants and ignores selected templates', async () => {
+test('background drop moves Templates and promotes explicit Variants as one block', async () => {
   plateSelection.visible([a, v, w])
-  plateSelection.add([a, v, w])
+  plateSelection.add([a, v, w, { ...w, id: 'NY.other', state: 'NY' }])
   const { handle, edit, reorder, move } = setup({ variant: true })
   pointerDrag(handle, 700)
   await waitFor(() => expect(move).toHaveBeenCalledOnce())
@@ -1377,17 +1482,20 @@ test('background drop promotes selected variants and ignores selected templates'
     v.state,
     [
       {
-        plateIds: [v.id, w.id],
+        plateIds: [a.id, v.id, w.id],
         placement: { kind: 'after', anchorId: b.id },
         promote: true,
       },
     ],
     expect.any(Object),
-    undefined
+    undefined,
+    [v.id, w.id]
   )
   expect(reorder).not.toHaveBeenCalled()
   await waitFor(() =>
-    expect(screen.getByText('2 plates are now Templates')).toBeTruthy()
+    expect(
+      screen.getByText('Dropped. Skipped 1 plate from another state')
+    ).toBeTruthy()
   )
 })
 
@@ -1419,13 +1527,13 @@ test('Shift selection from rendered rows is captured at pointer-down and sent as
   expect(edit).not.toHaveBeenCalled()
 })
 
-test('selected family-slot drags retain the family reorder path', async () => {
+test('lifting a selected Template into a family slot also promotes its explicitly selected Variant', async () => {
   plateSelection.add([a, v])
   const { handle, edit, reorder, move } = setup()
   pointerDrag(handle, 110)
-  await waitFor(() => expect(reorder).toHaveBeenCalledOnce())
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
   expect(edit).not.toHaveBeenCalled()
-  expect(move).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
 })
 
 test('a stale merge reloads and retains the selection for a fresh gesture', async () => {
@@ -1648,13 +1756,11 @@ test('multi-merge skips selected plates from other States', async () => {
   ])
 })
 
-test('background drop with only Templates selected reports No Variants selected', async () => {
+test('background drop with all Templates selected leaves their relative order intact', async () => {
   plateSelection.add([a, b])
   const { handle, edit, move, reorder } = setup()
   pointerDrag(handle, 700)
-  await waitFor(() =>
-    expect(screen.getByText('No Variants selected')).toBeTruthy()
-  )
+  await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
   expect(edit).not.toHaveBeenCalled()
   expect(move).not.toHaveBeenCalled()
   expect(reorder).not.toHaveBeenCalled()
@@ -1988,21 +2094,10 @@ test('background placement uses the nearest family slot or the end past the grid
       rect: { left: 550, right: 580, top: 0, bottom: 200 },
     },
   ]
-  expect(nearestFamilySlot(290, 100, targets, 2)).toBe(1)
-  expect(nearestFamilySlot(900, 100, targets, 2)).toBe(2)
-  expect(nearestFamilySlot(10, 400, targets, 2)).toBe(2)
-  expect(promotionOrder(families, [v.id, w.id], 1)).toEqual([
-    a.id,
-    v.id,
-    w.id,
-    b.id,
-  ])
-  expect(promotionOrder(families, [v.id], undefined)).toEqual([
-    a.id,
-    w.id,
-    v.id,
-    b.id,
-  ])
+  expect(nearestFamilyTarget(290, 100, targets, 2).index).toBe(1)
+  expect(nearestFamilyTarget(900, 100, targets, 2).index).toBe(2)
+  expect(nearestFamilyTarget(10, 400, targets, 2).index).toBe(2)
+  expect(promotionOrder(families, [v.id])).toEqual([a.id, w.id, v.id, b.id])
 })
 
 test('move buttons exclude deleted, foreign, blocked and fully selected families', () => {

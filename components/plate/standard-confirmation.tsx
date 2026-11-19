@@ -20,7 +20,7 @@ type Plate = {
   isStandard?: boolean
   deleted?: boolean
 }
-type Confirmation = { old: string; next: Plate; resolve(value: boolean): void }
+type Confirmation = { old?: Plate; next: Plate; resolve(value: boolean): void }
 
 /** Request confirmation when an ordering change would switch a state's standard plate. */
 export function useStandardConfirmation() {
@@ -32,13 +32,15 @@ export function useStandardConfirmation() {
    */
   async function confirm(
     plates: readonly Plate[],
-    to: string
+    to: string,
+    firstChanged = false
   ): Promise<StandardChange | false | undefined> {
     const standards = plates.filter(
       (plate) => plate.isStandard && !plate.deleted
     )
     const old = standards.find((plate) => plate.id !== to) ?? standards[0]
-    if (standards.length === 1 && old?.id === to) return undefined
+    if (!firstChanged && standards.length === 1 && old?.id === to)
+      return undefined
     const next = plates.find((plate) => plate.id === to)
     if (!next) return false
     restoreFocus.current =
@@ -46,7 +48,7 @@ export function useStandardConfirmation() {
         ? document.activeElement
         : null
     const accepted = await new Promise<boolean>((resolve) =>
-      setConfirmation({ old: old?.displayName ?? 'No plate', next, resolve })
+      setConfirmation({ old, next, resolve })
     )
     return accepted ? { from: old?.id ?? null, to } : false
   }
@@ -55,6 +57,7 @@ export function useStandardConfirmation() {
     confirmation?.resolve(value)
     setConfirmation(null)
   }
+  const alreadyStandard = confirmation?.old?.id === confirmation?.next.id
   const dialog = confirmation ? (
     <AlertDialog
       open
@@ -71,12 +74,17 @@ export function useStandardConfirmation() {
       >
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Make {confirmation.next.displayName} the {confirmation.next.state}{' '}
-            Standard?
+            {alreadyStandard
+              ? `Move ${confirmation.next.displayName}, the ${confirmation.next.state} Standard, to first?`
+              : `Make ${confirmation.next.displayName} the ${confirmation.next.state} Standard?`}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {confirmation.old} stops being the Standard. This is part of your
-            Batch until it&apos;s published.
+            {alreadyStandard
+              ? 'This moves the current Standard to the first position.'
+              : confirmation.old
+                ? `${confirmation.old.displayName} stops being the Standard.`
+                : 'This state gains a Standard plate.'}{' '}
+            The change is part of the draft until it&apos;s published.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -84,7 +92,7 @@ export function useStandardConfirmation() {
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction onClick={() => finish(true)}>
-            Make Standard
+            {alreadyStandard ? 'Move to first' : 'Make Standard'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
