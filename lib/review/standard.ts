@@ -1,5 +1,6 @@
 import { orderedStatePlates } from '../catalog/order'
 import { familyRole } from '../catalog/families'
+import { checkStandardOrder } from '../catalog/standard-position'
 import type { Plate } from '../catalog/types'
 import { batchPlateLimit, editableKeys } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
@@ -26,7 +27,11 @@ export async function standardEdits(
   order: string[],
   changes: Map<string, EditableFields>,
   acknowledgement?: StandardChange,
-  options?: { existingEdits: ProposedEdit[]; preserveStandard: boolean }
+  options?: {
+    existingEdits: ProposedEdit[]
+    preserveStandard: boolean
+    firstId: string | undefined
+  }
 ): Promise<
   Outcome<{
     edits: ProposedEdit[]
@@ -44,8 +49,12 @@ export async function standardEdits(
     ...plate,
     ...changes.get(plate.id),
   }))
-  const first = effective.find((plate) => plate.id === order[0])
-  if (!first || first.deleted || familyRole(first) !== 'template')
+  const firstId = options ? options.firstId : order[0]
+  const first = effective.find((plate) => plate.id === firstId)
+  if (
+    !options?.preserveStandard &&
+    (!first || first.deleted || familyRole(first) !== 'template')
+  )
     return { ok: false, error: 'standard_invalid_template' }
   const standards = before.filter((plate) => plate.isStandard && !plate.deleted)
   const confirmedFrom = standards.length
@@ -53,8 +62,8 @@ export async function standardEdits(
     : acknowledgement?.from === null
   if (
     !options?.preserveStandard &&
-    (standards.length !== 1 || standards[0].id !== first.id) &&
-    (!confirmedFrom || acknowledgement?.to !== first.id)
+    (options || standards.length !== 1 || standards[0].id !== firstId) &&
+    (!confirmedFrom || acknowledgement?.to !== firstId)
   ) {
     return { ok: false, error: 'standard_change_unconfirmed' }
   }
@@ -66,7 +75,7 @@ export async function standardEdits(
     const current = effective[index]
     if (!current.deleted && base.deleted === undefined) delete current.deleted
     if (!options?.preserveStandard) {
-      if (current.id === first.id) current.isStandard = true
+      if (current.id === firstId) current.isStandard = true
       else if (current.isStandard) current.isStandard = false
     }
     if (
@@ -107,38 +116,45 @@ export async function standardEdits(
 export function standardOrderProblems(
   plates: Plate[],
   edits: ProposedEdit[],
-  orders: Record<string, string[]>
+  orders: Record<string, string[]>,
+  baselineOrders: Record<string, string[]> = {}
 ): string[] {
   const fields = new Map(edits.map((edit) => [edit.plateId, edit.fields]))
-  const effective = plates.map((plate) => ({
-    ...plate,
-    ...fields.get(plate.id),
-  }))
-  const checkedOrders = { ...orders }
-  for (const edit of edits) {
-    if (!Object.hasOwn(edit.fields, 'isStandard')) continue
-    const state = plates.find((plate) => plate.id === edit.plateId)?.state
-    if (state && !checkedOrders[state])
-      checkedOrders[state] = orderedStatePlates({ version: 0, plates }, state, {
-        stateOrder: {},
+  const byState = Map.groupBy(plates, (plate) => plate.state)
+  const checkedStates = new Set([
+    ...Object.keys(orders),
+    ...plates
+      .filter((plate) => {
+        const edit = fields.get(plate.id)
+        return (
+          edit &&
+          (Object.hasOwn(edit, 'isStandard') ||
+            (plate.isStandard &&
+              (Object.hasOwn(edit, 'templateRole') || edit.deleted)))
+        )
+      })
+      .map((plate) => plate.state),
+  ])
+  return [...checkedStates].flatMap((state) => {
+    const before = byState.get(state) ?? []
+    const after = before.map((plate) => ({ ...plate, ...fields.get(plate.id) }))
+    const standard = checkStandardOrder(
+      orderedStatePlates({ version: 0, plates: before }, state, {
+        stateOrder: baselineOrders,
         stateProgress: {},
-      }).map((plate) => plate.id)
-  }
-  return Object.entries(checkedOrders).flatMap(([state, order]) => {
-    const members = effective.filter(
-      (plate) => plate.state === state && !plate.deleted
+      }),
+      orderedStatePlates({ version: 0, plates: after }, state, {
+        stateOrder: orders[state] ? orders : baselineOrders,
+        stateProgress: {},
+      })
     )
-    const standards = members.filter((plate) => plate.isStandard)
-    const first = members.find((plate) => plate.id === order[0])
-    return first &&
-      familyRole(first) === 'template' &&
-      standards.length === 1 &&
-      standards[0].id === first.id
+    return standard.valid
       ? []
       : [
           state +
             ': use Standard plate issues to make ' +
-            (first?.displayName ?? 'the first Template') +
+            (after.find((plate) => plate.id === standard.first)?.displayName ??
+              'the first Template') +
             ' the Standard before submitting.',
         ]
   })

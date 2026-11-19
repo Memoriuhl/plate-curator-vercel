@@ -11,7 +11,12 @@ export function createStableDragTargets() {
     for (const { target, rect, scrollElement } of targets) {
       const identity =
         target.kind === 'family-slot'
-          ? `family:${target.index}`
+          ? JSON.stringify([
+              'family',
+              target.index,
+              target.anchor?.anchorId,
+              target.anchor?.kind,
+            ])
           : target.kind === 'variant-slot'
             ? `variant:${target.familyId}:${target.index}`
             : `merge:${target.familyId}`
@@ -86,7 +91,11 @@ export function collectDragTargets(
     const edge = (rect.right - rect.left) / 4
     targets.push(
       {
-        target: { kind: 'family-slot', index },
+        target: {
+          kind: 'family-slot',
+          index,
+          anchor: { kind: 'before', anchorId: familyId! },
+        },
         rect: {
           left: rect.left - 8,
           right: rect.left + edge,
@@ -95,7 +104,11 @@ export function collectDragTargets(
         },
       },
       {
-        target: { kind: 'family-slot', index: index + 1 },
+        target: {
+          kind: 'family-slot',
+          index: index + 1,
+          anchor: { kind: 'after', anchorId: familyId! },
+        },
         rect: {
           left: rect.right - edge,
           right: rect.right + 8,

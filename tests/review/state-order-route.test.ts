@@ -5,6 +5,10 @@ import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { GET } from '../../app/api/batches/[id]/route'
 import { plateRevision } from '../../lib/review/revision'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
+import { POST as joinFamily } from '../../app/api/batches/[id]/family-merge/route'
+import { reviewApprovalProblems } from '../../lib/review/batch'
+import { applyReleaseEdits } from '../../lib/publish/apply-edits'
+import { validateSnapshot } from '../../lib/publish/validation'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 import type { Plate } from '../../lib/catalog/types'
@@ -105,6 +109,229 @@ function statePlates(state: string, ids: string[]): Plate[] {
   }))
 }
 
+test('a move below a legacy first plate saves without a Standard edit and remains publishable', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c']).map(
+    (plate, index) => ({
+      ...plate,
+      sortOrder: index,
+      isStandard: index === 1,
+    })
+  )
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  const response = await put({ moves: [before('AK.c', 'AK.b')] })
+  expect(response.status).toBe(200)
+  const saved = (await deps.store.getBatch(batch.id))!
+  expect(saved.stateOrders.AK).toEqual(['AK.a', 'AK.c', 'AK.b'])
+  expect(await deps.store.listEdits(batch.id)).toEqual([])
+  expect(await reviewApprovalProblems(deps, saved)).toEqual([])
+  expect(
+    validateSnapshot(
+      { version: 7, plates },
+      { version: 8, plates },
+      new Set(),
+      saved.stateOrders,
+      saved.baselineOrders
+    )
+  ).toEqual([])
+})
+
+test('a filtered edge drop saves after the displayed family when Add to family leaves its Variant beyond a hidden family', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', [
+    'AK.first',
+    'AK.a',
+    'AK.hidden',
+    'AK.c',
+    'AK.d',
+  ]).map((plate, sortOrder) => ({
+    ...plate,
+    sortOrder,
+    templateFamily: plate.id,
+  }))
+  const [first, a, hidden, c, d] = plates
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  deps.baselineAtVersion = async (_, id) =>
+    plates.find((plate) => plate.id === id) ?? null
+
+  const added = await patchPlate(c.id, {
+    baseRevision: plateRevision(c),
+    fields: {
+      templateRole: 'variant',
+      templateFamily: a.templateFamily,
+      variantOfPlateId: a.id,
+    },
+  })
+  expect(added.status).toBe(200)
+  expect(await deps.store.getEdit(batch.id, c.id)).toMatchObject({
+    fields: { variantOfPlateId: a.id },
+  })
+  const afterAdd = (await deps.store.getBatch(batch.id))!
+  expect(afterAdd.stateOrders).toEqual({})
+
+  const command = {
+    operationId: randomUUID(),
+    moves: [{ plateIds: [d.id], placement: { kind: 'after', anchorId: a.id } }],
+  }
+  const saved = await put(command)
+  expect(saved.status).toBe(200)
+  const receipt = await saved.json()
+  const order = [first.id, a.id, c.id, d.id, hidden.id]
+  expect(receipt).toMatchObject({ revision: afterAdd.revision + 1, order })
+  expect(await deps.store.getBatch(batch.id)).toMatchObject({
+    revision: afterAdd.revision + 1,
+    stateOrders: { AK: order },
+  })
+  expect(await (await put(command)).json()).toEqual(receipt)
+})
+
+test('moving below a regrouped first family preserves the existing Standard through Publish', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', [
+    'AK.f',
+    'AK.a',
+    'AK.b',
+    'AK.c',
+    'AK.s',
+  ]).map((plate, sortOrder) => ({
+    ...plate,
+    sortOrder,
+    templateFamily: plate.id,
+    isStandard: plate.id === 'AK.s',
+  }))
+  const [f, a, b, c, standard] = plates
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  deps.baselineAtVersion = async (_, id) =>
+    plates.find((plate) => plate.id === id) ?? null
+
+  const added = await patchPlate(f.id, {
+    baseRevision: plateRevision(f),
+    fields: {
+      templateRole: 'variant',
+      templateFamily: a.templateFamily,
+      variantOfPlateId: a.id,
+    },
+  })
+  expect(added.status).toBe(200)
+  const afterAdd = (await deps.store.getBatch(batch.id))!
+  expect(afterAdd.stateOrders).toEqual({})
+  expect(await reviewApprovalProblems(deps, afterAdd)).toEqual([])
+
+  const saved = await put({
+    moves: [{ plateIds: [b.id], placement: { kind: 'after', anchorId: c.id } }],
+  })
+  expect(saved.status).toBe(200)
+  const order = [a.id, f.id, c.id, b.id, standard.id]
+  expect(await saved.json()).toMatchObject({
+    revision: afterAdd.revision + 1,
+    order,
+  })
+  const draft = (await deps.store.getBatch(batch.id))!
+  expect(draft.stateOrders.AK).toEqual(order)
+  const edits = await deps.store.listEdits(batch.id)
+  expect(edits).toHaveLength(1)
+  expect(edits[0]).toMatchObject({
+    plateId: f.id,
+    fields: { templateRole: 'variant', variantOfPlateId: a.id },
+  })
+  const candidate = applyReleaseEdits(plates, edits, draft.stateOrders)
+  expect(
+    candidate.plates.filter(({ isStandard }) => isStandard).map(({ id }) => id)
+  ).toEqual([standard.id])
+  expect(await reviewApprovalProblems(deps, draft)).toEqual([])
+  expect(
+    validateSnapshot(
+      { version: 7, plates },
+      { version: 8, plates: candidate.plates },
+      candidate.deleted,
+      draft.stateOrders,
+      draft.baselineOrders
+    )
+  ).toEqual([])
+})
+
+test.each(['AK.a', 'AK.b'])(
+  'the join endpoint requires confirmation to demote Standard %s and then saves the whole selection',
+  async (flag) => {
+    const deps: ReviewDeps = context.reviewDeps()
+    const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c', 'AK.d']).map(
+      (plate) => ({
+        ...plate,
+        templateFamily: plate.id,
+        isStandard: plate.id === flag,
+      })
+    )
+    deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+    const join = (standard?: { from: string; to: string }) =>
+      joinFamily(
+        new Request('https://example.com/api/batches/batch/family-merge', {
+          method: 'POST',
+          body: JSON.stringify({
+            operationId: randomUUID(),
+            destinationId: 'AK.c',
+            plateIds: [flag, 'AK.d'],
+            standard,
+          }),
+        }),
+        { params: Promise.resolve({ id: batch.id }) }
+      )
+    const unconfirmed = await join()
+    expect(unconfirmed.status).toBe(409)
+    expect(await unconfirmed.json()).toMatchObject({
+      error: 'standard_change_unconfirmed',
+    })
+    expect(await deps.store.listEdits(batch.id)).toEqual([])
+    const confirmed = await join({
+      from: flag,
+      to: flag === 'AK.a' ? 'AK.b' : 'AK.a',
+    })
+    expect(confirmed.status).toBe(200)
+    expect(await confirmed.json()).toMatchObject({
+      moved: [flag, 'AK.d'],
+      standard: 0,
+    })
+    expect(await deps.store.getEdit(batch.id, flag)).toMatchObject({
+      fields: {
+        isStandard: false,
+        templateRole: 'variant',
+        variantOfPlateId: 'AK.c',
+      },
+    })
+  }
+)
+
+test('mixed placement promotes an explicit Variant and moves unselected siblings with their Template', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', ['a', 'b', 'v', 'w', 'c']).map((plate) =>
+    ['v', 'w'].includes(plate.id)
+      ? {
+          ...plate,
+          templateFamily: 'b',
+          templateRole: 'variant' as const,
+          variantOfPlateId: 'b',
+        }
+      : { ...plate, templateFamily: plate.id }
+  )
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  const response = await put({
+    moves: [
+      {
+        plateIds: ['b', 'v'],
+        promote: true,
+        placement: { kind: 'after', anchorId: 'c' },
+      },
+    ],
+  })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({
+    order: ['a', 'c', 'b', 'w', 'v'],
+  })
+  expect(await deps.store.getEdit(batch.id, 'v')).toMatchObject({
+    fields: { templateRole: 'template', variantOfPlateId: null },
+  })
+  expect(await deps.store.getEdit(batch.id, 'w')).toBeNull()
+})
+
 test('replays the original move receipt without overtaking an intervening placement', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   deps.stateBaseline = async () => statePlates('AK', ['a', 'b', 'c', 'd', 'e'])
@@ -126,7 +353,7 @@ test('replays the original move receipt without overtaking an intervening placem
   })
 })
 
-test('refuses zero or multiple Standards on an ordinary reorder until a repair is confirmed', async () => {
+test('an ordinary reorder preserves zero or multiple Standards until a repair is confirmed', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   for (const invalidCount of [0, 2]) {
     deps.store = createMemoryStore([batch])
@@ -136,8 +363,9 @@ test('refuses zero or multiple Standards on an ordinary reorder until a repair i
     }))
     deps.stateBaseline = async () => plates
     const moves = [before('c', 'b')]
-    expect((await put({ moves })).status).toBe(409)
-    expect((await deps.store.getBatch('batch'))?.revision).toBe(4)
+    expect((await put({ moves })).status).toBe(200)
+    expect((await deps.store.getBatch('batch'))?.revision).toBe(5)
+    expect(await deps.store.listEdits('batch')).toEqual([])
     expect(
       (
         await put({

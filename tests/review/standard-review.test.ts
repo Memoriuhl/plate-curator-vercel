@@ -1,6 +1,10 @@
 import { respond } from '../../lib/server/respond'
 import { expect, test, vi } from 'vitest'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import {
+  proposeEdit,
+  reorderState,
+  reviewApprovalProblems,
+} from '../../lib/review/batch'
 import { submitBatch } from '../helpers/legacy-approval'
 import { editableKeys } from '../../lib/review/fields'
 import { copyBatch } from '../../lib/review/copy'
@@ -51,7 +55,7 @@ function setup() {
   }
   return { batch, store, deps }
 }
-test('legacy mismatches allow unrelated edits and reorders; submit requires an explicit repair', async () => {
+test('legacy mismatches allow unrelated edits, reorders and submit without a repair', async () => {
   const { deps, store } = setup()
   const tag = await proposeEdit(deps, actor, {
     batchId: 'legacy',
@@ -73,9 +77,9 @@ test('legacy mismatches allow unrelated edits and reorders; submit requires an e
   expect(await store.listEdits('legacy')).toMatchObject([
     { plateId: 'first', fields: { tags: ['draft'] } },
   ])
-  expect(await submitBatch(deps, actor, 'legacy', 2)).toMatchObject({
-    error: 'standard_change_unconfirmed',
-  })
+  expect(
+    await reviewApprovalProblems(deps, (await store.getBatch('legacy'))!)
+  ).toEqual([])
   const first = { ...plates[0], tags: ['draft'] }
   expect(
     (
@@ -341,7 +345,10 @@ test('submit returns per-state reasons through the API response', async () => {
   await store.commit(batch.id, 0, {
     batch: {
       ...batch,
-      stateOrders: { ...batch.stateOrders, NY: ny.map((plate) => plate.id) },
+      stateOrders: {
+        CA: ['third', 'old', 'first'],
+        NY: ['NY.third', 'NY.old', 'NY.first'],
+      },
     },
   })
   const result = await submitBatch(deps, actor, batch.id, 0)

@@ -202,7 +202,8 @@ async function publishAttempt(
         baseline,
         next,
         deleted,
-        batch.stateOrders
+        batch.stateOrders,
+        batch.baselineOrders
       )
       for (const [state, order] of Object.entries(batch.stateOrders)) {
         const ids = new Set(

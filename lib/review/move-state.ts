@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
-import { familyRole, groupFamilies } from '../catalog/families'
+import { familyRole, groupFamiliesInOrder } from '../catalog/families'
 import { JURISDICTIONS } from '../catalog/jurisdictions'
-import { hasValidStandard } from '../publish/validation'
+import {
+  hasValidStandard,
+  preservesStandardPosition,
+} from '../catalog/standard-position'
 import { canEdit, editableStates } from './access'
 import { validRegroup } from './batch'
 import { orderOnto, resolveConflicts, sameList } from './draft'
@@ -23,7 +26,7 @@ type Input = {
   state: string
   moves: StateMove[]
   standard?: StandardChange
-  keepStandardOnJoin?: boolean
+  familyEndpoint?: true
 }
 
 type Plan = Parameters<ReviewStore['transactStateMove']>[3]
@@ -50,11 +53,17 @@ function loadMoveCatalog(
 
 /** Apply placements to the current draft in Firestore commit order. */
 export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
-  const { batchId, operationId, state, moves, standard, keepStandardOnJoin } =
-    input
+  const { batchId, operationId, state, moves, standard, familyEndpoint } = input
+  // Keep the fingerprint of requests that may already have a committed receipt.
   const fingerprint = createHash('sha256')
     .update(
-      JSON.stringify([actor.uid, state, moves, standard, keepStandardOnJoin])
+      JSON.stringify([
+        actor.uid,
+        state,
+        moves,
+        standard,
+        familyEndpoint ? !standard : undefined,
+      ])
     )
     .digest('hex')
   const prepared = new Map<number, ReturnType<typeof loadMoveCatalog>>()
@@ -78,7 +87,7 @@ export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
 async function planStateMove(
   d: ReviewDeps,
   actor: Actor,
-  { state, moves, standard, keepStandardOnJoin = false }: Input,
+  { state, moves, standard }: Input,
   detail: Parameters<Plan>[0],
   load: (version: number) => ReturnType<typeof loadMoveCatalog>
 ): ReturnType<Plan> {
@@ -101,6 +110,7 @@ async function planStateMove(
       { ...plate, ...editsById.get(plate.id) },
     ])
   )
+  const before = [...effective.values()]
   const changes = new Map<string, EditableFields>()
   const affectedFamilies = new Set<string | undefined>()
   const otherLabels = new Set<string>()
@@ -130,6 +140,9 @@ async function planStateMove(
     effective.set(id, { ...current, ...fields })
   }
 
+  const groupedOrder = (ids: readonly string[]) =>
+    groupFamiliesInOrder(ids.map((id) => effective.get(id)!))
+  const firstBefore = groupedOrder(previousOrder)[0]?.template.id
   let order = previousOrder
   let merge: FamilyMergeResult | undefined
   for (const { plateIds, placement, promote } of moves) {
@@ -139,12 +152,7 @@ async function planStateMove(
         error: 'invalid_state',
         reasons: ['Every moved plate must belong to this state.'],
       }
-    const families = groupFamilies(
-      order.map((id, sortOrder) => {
-        const plate = effective.get(id)!
-        return { ...plate, sortOrder, templateRole: familyRole(plate) }
-      })
-    )
+    const families = groupedOrder(order)
     const familyByHead = new Map(
       families.map((family) => [family.template.id, family])
     )
@@ -178,8 +186,8 @@ async function planStateMove(
         families,
         family!,
         plateIds,
-        order[0],
-        keepStandardOnJoin,
+        undefined,
+        false,
         family!.template.templateFamily || allocateLabel(family!.template.id)
       )
       for (const [id, fields] of plan.changes) changePlate(id, fields)
@@ -244,8 +252,25 @@ async function planStateMove(
         error: 'invalid_state',
         reasons: ['A moved plate cannot be its own destination.'],
       }
-    const block = order.filter((id) => moving.has(id))
-    const remaining = order.filter((id) => !moving.has(id))
+    // Family edges refer to the displayed blocks. An ordinary family edit can
+    // attach a Variant without changing its stored position.
+    const placementOrder =
+      placement.kind === 'before' || placement.kind === 'after'
+        ? families.flatMap(({ template, variants }) => [
+            template.id,
+            ...variants.map(({ id }) => id),
+          ])
+        : order
+    let block = placementOrder.filter((id) => moving.has(id))
+    if (promote) {
+      // Explicitly promoted Variants get their own blocks. Retained Variants stay
+      // beside their selected Template, even when a former sibling preceded them.
+      block = groupedOrder(block).flatMap(({ template, variants }) => [
+        template.id,
+        ...variants.map(({ id }) => id),
+      ])
+    }
+    const remaining = placementOrder.filter((id) => !moving.has(id))
     const after = placement.kind === 'after' || placement.kind === 'join'
     const familyMembers = new Set([
       anchorId,
@@ -279,9 +304,15 @@ async function planStateMove(
       error: 'invalid_state',
       reasons: ['The move would leave an inconsistent family or Variant link.'],
     }
-  const first = effective.get(order[0])
-  if (!first || first.deleted || familyRole(first) !== 'template')
-    return { ok: false, error: 'standard_invalid_template' }
+  const firstAfter = groupedOrder(order)[0]?.template.id
+  const preserveStandard =
+    !standard &&
+    preservesStandardPosition(
+      before,
+      [...effective.values()],
+      firstBefore,
+      firstAfter
+    )
   const orderChanged = !sameList(previousOrder, order)
   const combined = await standardEdits(
     d,
@@ -293,7 +324,8 @@ async function planStateMove(
     standard,
     {
       existingEdits: edits,
-      preserveStandard: false,
+      preserveStandard,
+      firstId: firstAfter,
     }
   )
   if (!combined.ok) return combined
@@ -302,6 +334,7 @@ async function planStateMove(
   )
   const removed = new Set(combined.value.deleteEditsFor)
   if (
+    !preserveStandard &&
     !hasValidStandard(
       baseline.map((plate) => ({
         ...plate,
@@ -309,7 +342,7 @@ async function planStateMove(
           ? undefined
           : (changedFields.get(plate.id) ?? editsById.get(plate.id))),
       })),
-      order[0]
+      firstAfter
     )
   )
     return { ok: false, error: 'standard_invalid_template' }

@@ -71,3 +71,14 @@ export function groupFamilies<T extends FamilyMember>(plates: readonly T[]) {
   }
   return [...families.values()].sort((a, b) => compare(a.template, b.template))
 }
+
+/** Group a state whose plates are already in effective catalog or draft order. */
+export function groupFamiliesInOrder(plates: readonly Plate[]) {
+  return groupFamilies(
+    plates.map((plate, sortOrder) => ({
+      ...plate,
+      sortOrder,
+      templateRole: familyRole(plate),
+    }))
+  )
+}

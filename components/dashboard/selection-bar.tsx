@@ -6,7 +6,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { plateSelection, useSelectedPlates } from './plate-selection'
+import {
+  plateSelection,
+  useHiddenSelectionCount,
+  useSelectedPlates,
+} from './plate-selection'
 import { useSelectionAction } from './selection-actions'
 
 /**
@@ -15,6 +19,7 @@ import { useSelectionAction } from './selection-actions'
  */
 export function SelectionBar() {
   const plates = useSelectedPlates()
+  const hiddenCount = useHiddenSelectionCount()
   const promote = useSelectionAction('promote')
   const runPipeline = useSelectionAction('runPipeline')
   if (!plates.length) return null
@@ -27,7 +32,10 @@ export function SelectionBar() {
     >
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline">{plates.length} selected</Button>
+          <Button variant="outline">
+            {plates.length} selected
+            {hiddenCount > 0 ? `, ${hiddenCount} hidden by filter` : ''}
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           aria-label="Selected plates"

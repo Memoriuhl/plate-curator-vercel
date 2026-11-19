@@ -1,6 +1,11 @@
 import { validTarget } from './allocation'
 import type { Plate, Snapshot } from '../catalog/types'
 import { familyRole } from '../catalog/families'
+import { orderedStatePlates } from '../catalog/order'
+import {
+  checkStandardOrder,
+  preservesStandardFlags,
+} from '../catalog/standard-position'
 import {
   colorFieldKeys,
   parseColorFields,
@@ -15,21 +20,6 @@ const groupingFields = [
   'variantOfPlateId',
 ] as const
 
-/** Check the Standard of the active plates in a state. */
-export function hasValidStandard(
-  plates: readonly Plate[],
-  firstId: string | undefined
-) {
-  const standards = plates.filter(
-    (plate) => !plate.deleted && plate.isStandard === true
-  )
-  return (
-    standards.length === 1 &&
-    standards[0].id === firstId &&
-    familyRole(standards[0]) === 'template'
-  )
-}
-
 /**
  * Validate a candidate snapshot against baseline membership, ordering and plate
  * requirements before publishing.
@@ -38,7 +28,8 @@ export function validateSnapshot(
   baseline: Snapshot,
   candidate: unknown,
   deleted: ReadonlySet<string> = new Set(),
-  stateOrders: Record<string, string[]> = {}
+  stateOrders: Record<string, string[]> = {},
+  baselineOrders: Record<string, string[]> = {}
 ): string[] {
   if (
     !candidate ||
@@ -56,7 +47,7 @@ export function validateSnapshot(
   )
     reasons.push('Snapshot version must be a greater safe integer')
   const ids = new Set<string>()
-  const standards = new Map<string, number>()
+  const platesByState = new Map<string, Plate[]>()
   const families = new Map<string, number>()
   const baselinePlates = new Map(
     baseline.plates.map((plate) => [plate.id, plate])
@@ -97,8 +88,11 @@ export function validateSnapshot(
       if (ids.has(plate.id)) reasons.push(`Duplicate plate id: ${plate.id}`)
       ids.add(plate.id)
     }
-    if (plate.isStandard === true && typeof plate.state === 'string')
-      standards.set(plate.state, (standards.get(plate.state) ?? 0) + 1)
+    if (typeof plate.state === 'string' && typeof plate.id === 'string') {
+      const state = platesByState.get(plate.state)
+      if (state) state.push(plate)
+      else platesByState.set(plate.state, [plate])
+    }
     const previous = baselinePlates.get(plate.id)
     for (const key of colorFieldKeys) {
       if (
@@ -150,8 +144,6 @@ export function validateSnapshot(
     )
       touchedFamilies.add(plate.templateFamily)
   }
-  for (const [state, count] of standards)
-    if (count > 1) reasons.push(`Multiple standard plates in state: ${state}`)
   for (const plate of candidate.plates) {
     if (
       plate &&
@@ -175,11 +167,35 @@ export function validateSnapshot(
     )
       reasons.push(`Family must retain exactly one template: ${family}`)
   }
-  for (const [state, order] of Object.entries(stateOrders)) {
-    const plates = candidate.plates.filter(
-      (plate) => plate && typeof plate === 'object' && plate.state === state
+  const baselineByState = Map.groupBy(baseline.plates, (plate) => plate.state)
+  for (const state of new Set([
+    ...Object.keys(stateOrders),
+    ...baselineByState.keys(),
+    ...platesByState.keys(),
+  ])) {
+    const before = baselineByState.get(state) ?? []
+    const after = platesByState.get(state) ?? []
+    const flagsPreserved = preservesStandardFlags(before, after)
+    if (
+      !flagsPreserved &&
+      after.filter((plate) => plate.isStandard === true && !plate.deleted)
+        .length > 1
+    ) {
+      reasons.push(`Multiple standard plates in state: ${state}`)
+      if (!stateOrders[state]) continue
+    }
+    if (!stateOrders[state] && flagsPreserved) continue
+    const standard = checkStandardOrder(
+      orderedStatePlates({ version: baseline.version, plates: before }, state, {
+        stateOrder: baselineOrders,
+        stateProgress: {},
+      }),
+      orderedStatePlates({ version: baseline.version, plates: after }, state, {
+        stateOrder: stateOrders[state] ? stateOrders : baselineOrders,
+        stateProgress: {},
+      })
     )
-    if (!hasValidStandard(plates, order[0]))
+    if (!standard.valid)
       reasons.push('Standard must be the first Template in state: ' + state)
   }
   return reasons

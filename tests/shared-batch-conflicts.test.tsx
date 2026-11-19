@@ -6,6 +6,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  screen,
   waitFor,
   within,
 } from '@testing-library/react'
@@ -1027,7 +1028,7 @@ test.each(['background', 'background gap', 'Backspace'] as const)(
       )
       await waitFor(() =>
         expect(view.container.textContent).toContain(
-          '1 plate is now a Template'
+          mode === 'Backspace' ? '1 plate is now a Template' : 'Dropped'
         )
       )
       expect(frames.some((frame) => frame.includes('AK.v'))).toBe(true)
@@ -1050,7 +1051,7 @@ test.each(['background', 'background gap', 'Backspace'] as const)(
   }
 )
 
-test('the destination Template context menu moves the selection through the existing family merge', async () => {
+test('the Template context menu confirms demoting the Standard and moves the whole eligible selection', async () => {
   const view = render(<Workspace actor={editor} />)
   await ready(view)
   const variant = view.container.querySelector('[data-plate-row="AK.v"]')!
@@ -1064,16 +1065,38 @@ test('the destination Template context menu moves the selection through the exis
   })
   expect(plateSelection.has('AK.v')).toBe(true)
   fireEvent.click(menu)
+  let dialog = await screen.findByRole('alertdialog', {
+    name: /Make .* Standard/,
+  })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(
+    requests.filter((request) => request.path.endsWith('/family-merge'))
+  ).toEqual([])
+  expect(plateSelection.snapshot().map(({ id }) => id)).toEqual([
+    'AK.v',
+    'AK.a',
+    foreign.id,
+  ])
+  fireEvent.contextMenu(destination, { clientX: 320, clientY: 30 })
+  fireEvent.click(
+    screen.getByRole('menuitem', {
+      name: 'Move selection (3) to this Template',
+    })
+  )
+  dialog = await screen.findByRole('alertdialog', { name: /Make .* Standard/ })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Make Standard' }))
   await waitFor(async () => {
     expect((await saved()).proposed.variantOfPlateId).toBe('AK.b')
     expect(plateSelection.has('AK.v')).toBe(false)
   })
-  expect(plateSelection.has('AK.a')).toBe(true)
+  expect(plateSelection.has('AK.a')).toBe(false)
   expect(plateSelection.has(foreign.id)).toBe(true)
-  expect((await saved('AK.a')).proposed.isStandard).toBe(true)
-  expect(view.container.textContent).toContain(
-    'Skipped 1 selection protected by the Standard rule'
-  )
+  expect((await saved('AK.a')).proposed).toMatchObject({
+    isStandard: false,
+    variantOfPlateId: 'AK.b',
+  })
+  expect((await saved('AK.b')).proposed.isStandard).toBe(true)
   expect(view.container.textContent).toContain(
     'Skipped 1 plate from another state'
   )
@@ -1085,6 +1108,7 @@ test('the destination Template context menu moves the selection through the exis
         operationId: expect.any(String),
         destinationId: 'AK.b',
         plateIds: ['AK.v', 'AK.a'],
+        standard: { from: 'AK.a', to: 'AK.b' },
       }),
     }),
   ])

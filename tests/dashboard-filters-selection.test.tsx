@@ -173,6 +173,7 @@ function Keyboard() {
 
 test('Cmd+A selects exactly the filtered set', () => {
   render(<Keyboard />)
+  act(() => plateSelection.replace(plates))
   const filtered = plates.filter((plate) =>
     matchesPlate(plate, 'missingImage,nofunfacts', '', none)
   )
@@ -184,6 +185,22 @@ test('Cmd+A selects exactly the filtered set', () => {
   act(() => plateSelection.visible(plates))
   fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
   expect(plateSelection.snapshot()).toHaveLength(4)
+})
+
+test('the selection bar keeps the total and updates the hidden count as filters change', () => {
+  act(() => {
+    plateSelection.register(plates)
+    plateSelection.visible(plates)
+    plateSelection.replace(plates)
+  })
+  render(<SelectionBar />)
+  expect(screen.getByRole('button', { name: '4 selected' })).toBeTruthy()
+  act(() => plateSelection.visible(plates.slice(0, 1)))
+  expect(
+    screen.getByRole('button', { name: '4 selected, 3 hidden by filter' })
+  ).toBeTruthy()
+  act(() => plateSelection.visible(plates))
+  expect(screen.getByRole('button', { name: '4 selected' })).toBeTruthy()
 })
 
 test('the selection bar runs the pipeline, makes Templates and clears', () => {

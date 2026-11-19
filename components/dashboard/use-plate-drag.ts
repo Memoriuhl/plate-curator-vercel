@@ -24,16 +24,16 @@ import {
   placementsForOrder,
 } from '@/lib/client/state-moves'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
+import type { StateMove } from '@/lib/review/state-move'
 import {
   planFamilyMerge,
   type FamilyMergeResult,
 } from '@/lib/review/family-merge-plan'
 import {
   familyOrder,
-  nearestFamilySlot,
+  nearestFamilyTarget,
   promotionOrder,
   newFamilySlug,
-  orderForDrop,
   pastDragThreshold,
   scrollVelocity,
   targetAt,
@@ -42,7 +42,11 @@ import {
   type DropTarget,
   type TargetRect,
 } from './drop-targets'
-import { reflowForDrop, sameDropTarget } from './drag-reflow'
+import {
+  canReorderVariants,
+  reflowForDrop,
+  sameDropTarget,
+} from './drag-reflow'
 import {
   dragElement,
   measureDragGeometry,
@@ -61,21 +65,11 @@ type Options = {
   edits: ReturnType<typeof useEditPlate>
   ordering: Pick<ReturnType<typeof useReorderState>, 'reorder' | 'pending'> &
     Partial<
-      Pick<
-        ReturnType<typeof useReorderState>,
-        'capture' | 'move' | 'merge' | 'stateOrders'
-      >
+      Pick<ReturnType<typeof useReorderState>, 'capture' | 'move' | 'merge'>
     >
-  orderBaseline?(state: string):
-    | {
-        first: string
-        plates: Parameters<
-          ReturnType<typeof useStandardConfirmation>['confirm']
-        >[0]
-      }
-    | undefined
   targets(): TargetRect[]
   holdOverlay?(held: boolean): void
+  onDropSaved?(state: string): void
   closePreview(): void
   reload(): Promise<unknown>
 }
@@ -102,6 +96,8 @@ const errors = {
   not_found: 'This plate or batch could not be found.',
   stale_plate: 'Someone changed this while you were editing.',
 }
+const variantSlotRefused =
+  'Only Variants from this family can be reordered here.'
 
 /**
  * Coordinate pointer and keyboard reordering, family changes and optimistic draft
@@ -112,10 +108,6 @@ export function usePlateDrag(options: Options) {
   const [active, setActive] = useState<Active | null>(null)
   const [announcement, announce] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null)
-  const [optimisticEdit, setOptimisticEdit] = useState<{
-    plateId: string
-    fields: EditableFields
-  } | null>(null)
   const [optimisticEdits, setOptimisticEdits] = useState<
     Map<string, EditableFields>
   >(new Map())
@@ -149,8 +141,6 @@ export function usePlateDrag(options: Options) {
   })
   const enabled =
     options.canEdit &&
-    options.show === 'all' &&
-    !options.query &&
     !options.edits.pending &&
     !options.ordering.pending &&
     !saving &&
@@ -285,13 +275,7 @@ export function usePlateDrag(options: Options) {
               target.familyId === source?.template.id))
       )
     )
-    return (
-      hit ?? {
-        kind: 'family-slot',
-        index: nearestFamilySlot(x, y, stable, families.length),
-        background: true,
-      }
-    )
+    return hit ?? nearestFamilyTarget(x, y, stable, families.length)
   }
   /** Move the lifted card immediately and accept a new destination after its dwell. */
   function trackPointer(x: number, y: number) {
@@ -328,16 +312,23 @@ export function usePlateDrag(options: Options) {
     ]
   }
   function confirmOrder(
-    state: string,
     previousFirst: string | undefined,
     first: string,
-    plates: readonly PlateCardData[]
+    plates: readonly PlateCardData[],
+    demoted: ReadonlySet<string> = new Set()
   ) {
-    const baseline = latest.current.orderBaseline?.(state)
-    if (baseline && baseline.first !== first)
-      return standardConfirmation.confirm(baseline.plates, first)
-    if (previousFirst !== first)
-      return standardConfirmation.confirm(plates, first)
+    const firstChanged = previousFirst !== first
+    if (
+      firstChanged ||
+      plates.some(
+        (plate) =>
+          plate.isStandard &&
+          !plate.deleted &&
+          plate.templateRole !== 'variant' &&
+          demoted.has(plate.id)
+      )
+    )
+      return standardConfirmation.confirm(plates, first, true)
   }
 
   /**
@@ -346,7 +337,6 @@ export function usePlateDrag(options: Options) {
    */
   async function editSelection(
     plates: readonly PlateCardData[],
-    placement?: { index: number; origin?: MoveOrigin },
     notify: (message: string) => void = announce
   ) {
     const { reload, ordering } = latest.current
@@ -395,10 +385,7 @@ export function usePlateDrag(options: Options) {
           initialFamilies.filter((family) => family.template.state === state),
           moving
             .filter((plate) => plate.state === state)
-            .map((plate) => plate.id),
-          state === latest.current.families[0]?.template.state
-            ? placement?.index
-            : undefined
+            .map((plate) => plate.id)
         ),
       ])
     )
@@ -408,7 +395,6 @@ export function usePlateDrag(options: Options) {
         .filter((family) => family.template.state === state)
         .flatMap((family) => [family.template, ...family.variants])
       const confirmation = confirmOrder(
-        state,
         previousOrders.get(state)?.[0],
         order[0],
         statePlates
@@ -445,10 +431,7 @@ export function usePlateDrag(options: Options) {
       for (const state of states) {
         const members = moving.filter((plate) => plate.state === state)
         const order = orders.get(state)!
-        const origin =
-          succeeded.length === 0 && placement?.origin
-            ? placement.origin
-            : ordering.capture()
+        const origin = ordering.capture()
         const standard = acknowledgements.get(state)
         const moves = placementsForOrder(
           order,
@@ -598,9 +581,14 @@ export function usePlateDrag(options: Options) {
     )
   }
 
+  function skippedOtherStates(count: number) {
+    if (count === 1) return 'Skipped 1 plate from another state'
+    return count ? `Skipped ${count} plates from other states` : ''
+  }
+
   /** Summarize the moved and skipped plates for the drag result announcement. */
   function mergeAnnouncement(
-    { moved, alreadyInFamily, standard, deleted }: FamilyMergeResult,
+    { moved, alreadyInFamily, deleted }: FamilyMergeResult,
     skipped: string
   ) {
     return [
@@ -609,9 +597,6 @@ export function usePlateDrag(options: Options) {
         : moved.length
           ? `${moved.length} plates moved`
           : 'No plates moved',
-      standard
-        ? `Skipped ${standard} selection${standard === 1 ? '' : 's'} protected by the Standard rule`
-        : '',
       alreadyInFamily ? `${alreadyInFamily} already in this family` : '',
       deleted ? `${deleted} deleted` : '',
       skipped,
@@ -629,8 +614,16 @@ export function usePlateDrag(options: Options) {
     origin: MoveOrigin | undefined,
     family: DragFamily | undefined
   ) {
-    const { families, ordering, reload, holdOverlay, catalogVersion } =
-      latest.current
+    const {
+      families,
+      ordering,
+      reload,
+      holdOverlay,
+      catalogVersion,
+      onDropSaved,
+      show,
+      query,
+    } = latest.current
     try {
       if (!family || !validMerge(family)) {
         announce('Drop onto an active Template family.')
@@ -640,26 +633,18 @@ export function usePlateDrag(options: Options) {
       const local = selection.filter(
         (plate) => plate.state === destination.state
       )
-      const elsewhere = selection.length - local.length
-      const skipped =
-        elsewhere === 1
-          ? 'Skipped 1 plate from another state'
-          : elsewhere
-            ? `Skipped ${elsewhere} plates from other states`
-            : ''
+      const skipped = skippedOtherStates(selection.length - local.length)
+      const stateFamilies = families.filter(
+        ({ template }) => template.state === destination.state
+      )
       const plan = planFamilyMerge(
-        families,
+        stateFamilies,
         family,
         local.map((plate) => plate.id),
-        ordering.stateOrders?.[destination.state]?.[0]
+        undefined,
+        false
       )
-      if (
-        !plan.changes.size &&
-        plan.result.alreadyInFamily +
-          plan.result.standard +
-          plan.result.deleted ===
-          local.length
-      ) {
+      if (!plan.changes.size) {
         announce(
           local.length && plan.result.alreadyInFamily === local.length
             ? ['The selected plates are already in this family', skipped]
@@ -673,18 +658,49 @@ export function usePlateDrag(options: Options) {
         announce('Reload before moving plates into a family.')
         return
       }
+      const demoted = new Set(plan.result.moved)
+      const before = familyOrder(stateFamilies)
+      const remaining = before.filter((id) => !demoted.has(id))
+      const destinationIds = new Set([
+        destination.id,
+        ...family.variants.map(({ id }) => id),
+      ])
+      const insertion =
+        remaining.findLastIndex((id) => destinationIds.has(id)) + 1
+      const order = [
+        ...remaining.slice(0, insertion),
+        ...before.filter((id) => demoted.has(id)),
+        ...remaining.slice(insertion),
+      ]
+      const statePlates = stateFamilies.flatMap(({ template, variants }) => [
+        template,
+        ...variants,
+      ])
+      const standard = await confirmOrder(
+        before[0],
+        order[0],
+        statePlates,
+        demoted
+      )
+      if (standard === false) {
+        announce('Cancelled')
+        return
+      }
       setSaving(true)
+      setOptimisticOrder(order)
       setOptimisticEdits(plan.changes)
       announce('Saving family move…')
-      const result = await ordering.merge(
-        {
-          destination: { id: destination.id, revision: destination.revision },
-          members: local.map(({ id, revision }) => ({ id, revision })),
-          catalogVersion,
-        },
-        origin
-      )
+      const request = {
+        destination: { id: destination.id, revision: destination.revision },
+        members: local.map(({ id, revision }) => ({ id, revision })),
+        catalogVersion,
+      }
+      const result = standard
+        ? await ordering.merge(request, origin, standard)
+        : await ordering.merge(request, origin)
       if (result.ok) {
+        if (result.value.moved.length && (show !== 'all' || query))
+          onDropSaved?.(destination.state)
         const movedIds = new Set(result.value.moved)
         if (plateSelection.snapshot().some((plate) => movedIds.has(plate.id))) {
           plateSelection.replace(
@@ -713,6 +729,7 @@ export function usePlateDrag(options: Options) {
         announce('Refresh the Batch to check whether the move was saved.')
       }
     } finally {
+      setOptimisticOrder(null)
       setOptimisticEdits(new Map())
       setSaving(false)
       holdOverlay?.(false)
@@ -737,70 +754,102 @@ export function usePlateDrag(options: Options) {
       return
     }
     const { item } = drag
-    const { families, ordering, reload } = latest.current
-    const source = families.find(
-      (family) =>
-        family.template.id === item.plate.id ||
-        family.variants.some((plate) => plate.id === item.plate.id)
+    const { families, ordering, reload, onDropSaved, show, query } =
+      latest.current
+    const state = item.plate.state
+    const stateFamilies = families.filter(
+      ({ template }) => template.state === state
     )
     if (target.kind === 'merge') {
       await dropIntoFamily(
-        drag.selection,
+        selected,
         drag.origin,
-        families.find((family) => family.template.id === target.familyId)
+        stateFamilies.find((family) => family.template.id === target.familyId)
       )
       return
     }
-    if (!source || item.plate.deleted) {
+    const plan = reflowForDrop(stateFamilies, item, target, selected)
+    if (!plan && target.kind === 'variant-slot') {
       latest.current.holdOverlay?.(false)
-      announce('Cancelled')
+      announce(variantSlotRefused)
       return
     }
+    const before = familyOrder(stateFamilies)
+    const skipped = skippedOtherStates(
+      selected.filter((plate) => plate.state !== state).length
+    )
     if (
-      target.kind === 'family-slot' &&
-      (target.background || (item.kind === 'variant' && selected.length > 1))
-    ) {
-      await editSelection(selected, {
-        index: target.index,
-        origin: drag.origin,
-      })
-      return
-    }
-    const order =
-      reflowForDrop(families, item, target)?.order ??
-      orderForDrop(families, item, target)
-    const promote = item.kind === 'variant' && target.kind === 'family-slot'
-    if (
-      !order ||
-      (!promote &&
-        order.every((id, index) => id === familyOrder(families)[index]))
+      !plan ||
+      (!plan.promoted.length &&
+        plan.order.every((id, index) => id === before[index]))
     ) {
       latest.current.holdOverlay?.(false)
-      announce('Dropped')
+      announce(['Dropped', skipped].filter(Boolean).join('. '))
       return
     }
-    const statePlates = families.flatMap((family) => [
-      family.template,
-      ...family.variants,
+    const { order, promoted, plateIds } = plan
+    const firstBefore = stateFamilies[0]?.template.id
+    const firstAfter = plan.families[0].template.id
+    const statePlates = stateFamilies.flatMap(({ template, variants }) => [
+      template,
+      ...variants,
     ])
-    const currentFirst = latest.current.orderBaseline?.(item.plate.state)?.first
     if (
-      (!currentFirst || order.includes(currentFirst)) &&
+      firstBefore !== firstAfter &&
       !allowsFirstPlacement(
-        statePlates.find(({ id }) => id === order[0]),
-        promote && order[0] === item.plate.id
+        statePlates.find(({ id }) => id === firstAfter),
+        promoted.some(({ id }) => id === firstAfter)
       )
     ) {
       latest.current.holdOverlay?.(false)
       announce('The first plate must be an active Template.')
       return
     }
-    const confirmation = confirmOrder(
-      item.plate.state,
-      familyOrder(families)[0],
-      order[0],
-      statePlates
-    )
+
+    let moves: StateMove[]
+    if (target.kind === 'family-slot') {
+      const anchor = target.anchor
+      const hovered = stateFamilies.find(
+        ({ template }) => template.id === anchor?.anchorId
+      )?.template
+      moves =
+        anchor &&
+        hovered &&
+        !hovered.deleted &&
+        !plateIds.includes(anchor.anchorId)
+          ? [
+              {
+                plateIds,
+                placement:
+                  hovered.templateRole === 'variant'
+                    ? {
+                        kind:
+                          anchor.kind === 'before'
+                            ? 'before-plate'
+                            : 'after-plate',
+                        anchorId: anchor.anchorId,
+                      }
+                    : anchor,
+                ...(promoted.length > 0 && { promote: true }),
+              },
+            ]
+          : placementsForOrder(order, plateIds, {
+              familyHeads: placementHeads(stateFamilies),
+              ...(promoted.length > 0 && { promote: true }),
+            })
+    } else {
+      const family = plan.families.find(
+        ({ template }) => template.id === target.familyId
+      )!
+      moves = placementsForOrder(
+        [family.template, ...family.variants]
+          .filter((plate) => !plate.deleted)
+          .map(({ id }) => id),
+        plateIds
+      )
+    }
+
+    const confirmation = confirmOrder(firstBefore, firstAfter, statePlates)
     const standard = confirmation ? await confirmation : undefined
     if (standard === false) {
       latest.current.holdOverlay?.(false)
@@ -811,59 +860,49 @@ export function usePlateDrag(options: Options) {
     setOptimisticOrder(order)
     try {
       let result: EditResult
-      if (promote) {
-        const fields: EditableFields = {
-          templateRole: 'template',
-          variantOfPlateId: null,
-          templateFamily: newFamilySlug(item.plate, families),
-        }
-        setOptimisticEdit({ plateId: item.plate.id, fields })
+      if (promoted.length) {
         if (!ordering.move || !drag.origin)
           throw new Error('Reload before moving a Variant')
-        result = await ordering.move(
-          item.plate.state,
-          placementsForOrder(order, [item.plate.id], {
-            familyHeads: placementHeads(families),
-            promote: true,
-          }),
-          drag.origin,
-          standard
-        )
-      } else
-        result = await ordering.reorder(
-          item.plate.state,
-          order,
-          standard,
-          placementsForOrder(
-            item.kind === 'variant'
-              ? order.filter(
-                  (id) =>
-                    (id === source.template.id && !source.template.deleted) ||
-                    source.variants.some(
-                      (variant) => variant.id === id && !variant.deleted
-                    )
-                )
-              : order,
-            [item.plate.id],
-            item.kind === 'family'
-              ? { familyHeads: placementHeads(families) }
-              : undefined
+        setOptimisticEdits(
+          new Map(
+            promoted.map((plate) => [
+              plate.id,
+              {
+                templateRole: 'template',
+                variantOfPlateId: null,
+                templateFamily: newFamilySlug(plate, stateFamilies),
+              },
+            ])
           )
         )
+        result =
+          promoted.length === plateIds.length
+            ? await ordering.move(state, moves, drag.origin, standard)
+            : await ordering.move(
+                state,
+                moves,
+                drag.origin,
+                standard,
+                promoted.map(({ id }) => id)
+              )
+      } else result = await ordering.reorder(state, order, standard, moves)
       if (!result.ok) {
         announce(
           ('message' in result && result.message) || errors[result.error]
         )
         if (result.error === 'superseded_revision') {
           setOptimisticOrder(null)
-          setOptimisticEdit(null)
+          setOptimisticEdits(new Map())
           await reload()
           announce(
             result.message ??
               'This Batch changed. Drag again to choose a position in the latest order.'
           )
         }
-      } else announce('Dropped')
+      } else {
+        if (show !== 'all' || query) onDropSaved?.(state)
+        announce(['Dropped', skipped].filter(Boolean).join('. '))
+      }
     } catch {
       announce(
         'The move response was interrupted. Refreshing the saved Batch to check its result.'
@@ -877,7 +916,7 @@ export function usePlateDrag(options: Options) {
       }
     } finally {
       setOptimisticOrder(null)
-      setOptimisticEdit(null)
+      setOptimisticEdits(new Map())
       setSaving(false)
       latest.current.holdOverlay?.(false)
       if (drag.keyboard)
@@ -1100,6 +1139,10 @@ export function usePlateDrag(options: Options) {
         event.key !== 'ArrowLeft' &&
         event.key !== 'ArrowRight' &&
         drag.target?.kind !== 'family-slot'
+      if (within && !canReorderVariants(family, item, drag.selection)) {
+        announce(variantSlotRefused)
+        return
+      }
       const previous =
         item.kind === 'variant' &&
         family &&
@@ -1151,7 +1194,6 @@ export function usePlateDrag(options: Options) {
       selection.some(
         (plate) =>
           !plate.deleted &&
-          !plate.isStandard &&
           plate.state === family.template.state &&
           !inFamily.has(plate.id)
       )
@@ -1183,31 +1225,23 @@ export function usePlateDrag(options: Options) {
   }
   const item = active?.item
   const target = active?.target
-  // Background placement still promotes Variants only.
-  const previewPlate =
-    active &&
-    target?.kind === 'family-slot' &&
-    target.background &&
-    item?.kind === 'family'
-      ? active.selection.find(
-          (plate) =>
-            !plate.deleted &&
-            plate.state === item.plate.state &&
-            plate.templateRole === 'variant'
-        )
-      : item?.plate
-  const previewKind = previewPlate === item?.plate ? item?.kind : 'variant'
-  // Pointer motion within a drop slot can reuse the same reflowed family layout.
+  const selection = active?.selection
+  // Adjacent card edges can share a preview slot while specifying different anchors.
+  const familySlotIndex = target?.kind === 'family-slot' ? target.index : null
+  const nonFamilyTarget = target?.kind === 'family-slot' ? null : target
   const reflow = useMemo(
     () =>
-      previewPlate && previewKind
+      item && selection
         ? reflowForDrop(
             options.families,
-            { kind: previewKind, plate: previewPlate },
-            target ?? null
+            item,
+            familySlotIndex === null
+              ? (nonFamilyTarget ?? null)
+              : { kind: 'family-slot', index: familySlotIndex },
+            selection
           )
         : null,
-    [options.families, previewPlate, previewKind, target]
+    [options.families, item, selection, familySlotIndex, nonFamilyTarget]
   )
   return {
     standardDialog: standardConfirmation.dialog,
@@ -1221,11 +1255,10 @@ export function usePlateDrag(options: Options) {
     /** Promote the current selection and optionally report the outcome in a toast. */
     promote(notify?: (message: string) => void) {
       if (notify) announce('')
-      return editSelection(plateSelection.snapshot(), undefined, notify)
+      return editSelection(plateSelection.snapshot(), notify)
     },
     selectionCount: active?.selection.length ?? 0,
     optimisticOrder,
-    optimisticEdit,
     saving,
     enabled,
     canMergeInto,
@@ -1245,9 +1278,6 @@ export function usePlateDrag(options: Options) {
         suppress.current = false
       }
     },
-    handleTitle:
-      options.show !== 'all' || options.query
-        ? 'Clear filters to reorder'
-        : 'Drag or press Shift+Space to reorder',
+    handleTitle: 'Drag or press Shift+Space to reorder',
   }
 }
