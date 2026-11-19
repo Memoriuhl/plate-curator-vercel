@@ -39,7 +39,7 @@ import { sameEditableValue } from '../review/story'
 import { plateEditVersion } from '../review/edit-history'
 import { canEdit, editableStates } from '../review/access'
 import type { RunRevertTarget } from '../jobs/revert-target'
-import { isSharedDraft } from '../review/draft-id'
+import { isSharedDraft, SHARED_DRAFT_ALIAS } from '../review/draft-id'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type {
   Abandonment,
@@ -47,10 +47,15 @@ import type {
   PublishStop,
   RequesterAuthority,
 } from '../publish/types'
-import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
+import {
+  ApiError,
+  apiErrorReasons,
+  batchApiPath,
+  dashboardDraftPath,
+  type ApiClient,
+} from './api'
 import { useSession } from './session'
-import { useLiveRefresh } from './live-signal'
-import { draftTopic } from '../live/topics'
+import { useDashboardDraftSignal, useLiveRefresh } from './live-signal'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../review/write-budget'
 
@@ -105,11 +110,13 @@ export function useDashboardDraft(code?: string, catalogVersion?: number) {
   const { cache, mutate } = useSWRConfig()
   const selectedId = useSelectedBatchId()
   const draftId = useSharedDraftId()
-  const path = `/api/batches?dashboard=${code}`
+  const path = dashboardDraftPath(code ?? '')
   const scoped =
     !!code &&
     catalogVersion !== undefined &&
-    (selectedId === null || selectedId === draftId)
+    (selectedId === null ||
+      selectedId === draftId ||
+      selectedId === SHARED_DRAFT_ALIAS)
   const key =
     user && scoped && draftId
       ? `${path}&catalogVersion=${catalogVersion}`
@@ -146,10 +153,7 @@ export function useDashboardDraft(code?: string, catalogVersion?: number) {
       revalidateOnReconnect: false,
     }
   )
-  useLiveRefresh(code ? [draftTopic(code)] : [], () => state.mutate(), {
-    enabled: key !== null,
-    key: key ?? undefined,
-  })
+  useDashboardDraftSignal(key && code ? code : null, state.mutate)
   const snapshot = state.data?.draft
   useEffect(() => {
     if (!draftId || !snapshot?.orderStates) return

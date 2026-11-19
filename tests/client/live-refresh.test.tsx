@@ -271,6 +271,59 @@ test('an unresolved run revert target waits for a pipeline signal', async () => 
   expect(view.result.current.data).toEqual(target)
 })
 
+test('the Dashboard recovers dropped state bumps on resume and at the visible safety interval', async () => {
+  const path = '/api/batches?dashboard=AK&catalogVersion=1'
+  const id = 'shared-draft-development'
+  let revision = 1
+  const draft = () => ({
+    draft: { batch: { id, revision, baselineVersion: 1 }, plates: [] },
+  })
+  const cache = new Map<string, State>([
+    ['/api/me', { data: { draftId: id } }],
+    [path, { data: draft() }],
+  ])
+  mocks.get.mockReset().mockImplementation(async (url: string) => {
+    if (url === '/api/me') return { draftId: id }
+    if (url === path) return draft()
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  const stateReads = () => mocks.get.mock.calls.filter(([url]) => url === path)
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+      <LiveSignalProvider value={source}>{children}</LiveSignalProvider>
+    </SWRConfig>
+  )
+  const view = renderHook(() => useDashboardDraft('AK', 1), { wrapper })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+    active('topic:draft:AK')[0].next(1)
+    await vi.advanceTimersByTimeAsync(2001)
+  })
+  expect(view.result.current?.draft.batch.revision).toBe(1)
+
+  act(() => setVisibility('hidden'))
+  revision = 2
+  mocks.get.mockClear()
+  await act(() => vi.advanceTimersByTimeAsync(600_000))
+  expect(stateReads()).toHaveLength(0)
+  await act(async () => {
+    setVisibility('visible')
+    await vi.advanceTimersByTimeAsync(0)
+    active('topic:draft:AK')[0].next(1)
+    await vi.advanceTimersByTimeAsync(1)
+  })
+  expect(view.result.current?.draft.batch.revision).toBe(2)
+  expect(stateReads()).toHaveLength(1)
+
+  revision = 3
+  mocks.get.mockClear()
+  await act(() => vi.advanceTimersByTimeAsync(599_998))
+  expect(stateReads()).toHaveLength(0)
+  await act(() => vi.advanceTimersByTimeAsync(2))
+  expect(stateReads()).toHaveLength(1)
+  expect(view.result.current?.draft.batch.revision).toBe(3)
+})
+
 test('the Dashboard catches up on its own state and an older request cannot replace it', async () => {
   const key = (state: string) =>
     `/api/batches?dashboard=${state}&catalogVersion=1`
@@ -347,7 +400,10 @@ test('the Dashboard catches up on its own state and an older request cannot repl
     await vi.advanceTimersByTimeAsync(1)
   })
   expect(
-    mocks.get.mock.calls.filter(([url]) => url.startsWith('/api/batches'))
-  ).toEqual([[key('AL')]])
+    mocks.get.mock.calls
+      .filter(([url]) => url.startsWith('/api/batches'))
+      .map(([url]) => url)
+      .sort()
+  ).toEqual([key('AK'), key('AL')])
   expect(view.result.current.al?.draft.batch.revision).toBe(4)
 })

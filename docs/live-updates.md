@@ -114,7 +114,9 @@ deliver that state's new catalog cards so published changes stay visible when
 their pending edits disappear.
 
 The shared hub limits state refresh rounds to one every two seconds and pauses
-hidden tabs. During a drag, the grid holds the visible cards and their edit
+hidden tabs. Both default and linked shared-draft Dashboards reconcile the visible
+state once on resume and every ten minutes while visible, including when a state
+signal is lost. During a drag, the grid holds the visible cards and their edit
 versions through the drop request. The existing reflow animation applies the
 latest layout when the drop settles.
 
@@ -138,8 +140,8 @@ A scripted worker then completed Tag and Describe on three plates.
 Across the whole sample, the counter recorded 83 app requests, 502 Firestore
 document reads, 154 query results and 126 writes. These totals include the
 worker, workflow and open Owner pipeline drawer. Each visible Dashboard reads
-once per refresh round that serves it. An idle tab adds no periodic state-detail
-requests while its listener is healthy. The Owner recorded eight state signal
+once per refresh round that serves it. The idle sample ended before a safety
+refresh was due. The Owner recorded eight state signal
 snapshots including the initial snapshot. The short sample describes this
 scenario and is reported as raw counts.
 

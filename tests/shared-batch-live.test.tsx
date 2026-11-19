@@ -381,7 +381,7 @@ function Workspace({
         }}
       >
         <LiveSignalProvider value={source}>
-          <SelectedBatchBar />
+          <SelectedBatchBar stateScope={scoped} />
           <TooltipProvider>
             <FamilyGrid
               plates={gridPlates}
@@ -519,6 +519,47 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
+test('a linked Alaska Dashboard does not refetch after an Alabama draft edit', async () => {
+  vi.useFakeTimers()
+  const alabama: Plate = { ...plates[0], id: 'AL.a', state: 'AL' }
+  deps = {
+    ...deps,
+    store: createMemoryStore([batch()]),
+    baselineAtVersion: async (_version, id) =>
+      id === alabama.id
+        ? alabama
+        : (plates.find((plate) => plate.id === id) ?? null),
+  }
+  render(<Workspace value={session(owner, 'shared')} scoped />)
+  await act(() => vi.advanceTimersByTimeAsync(1))
+  await act(() => vi.advanceTimersByTimeAsync(2500))
+  const path = owner.uid + '/api/batches?dashboard=AK&catalogVersion=1'
+  const before = reads.get(path)!
+  expect(before).toBeGreaterThan(0)
+
+  await act(async () => {
+    const saved = await proposeEdit(deps, editor, {
+      batchId: 'shared',
+      plateId: alabama.id,
+      baseRevision: plateRevision(alabama),
+      fields: { tags: ['remote'] },
+    })
+    expect(saved.ok).toBe(true)
+    emit('shared', 1)
+    emit('topic:draft:AL', 1)
+    await vi.advanceTimersByTimeAsync(2500)
+  })
+  expect(reads.get(path)).toBe(before)
+  expect(listeners.get('shared')?.size ?? 0).toBe(0)
+
+  await act(async () => {
+    emit('topic:draft:AK', 1)
+    await vi.advanceTimersByTimeAsync(2500)
+  })
+  expect(reads.get(path)).toBe(before + 1)
 })
 
 test('Editor regroup is optimistic, commits only to the selected Batch, and reaches the Owner live', async () => {
