@@ -14,6 +14,7 @@ import {
 
 /** How long a waiting stage goes without a wake before it re-checks its own state. */
 const backstopWait = '90s'
+const backstopMs = 90_000
 
 /**
  * Drive the queue attempt through its stages and wait for worker events, retries or
@@ -29,9 +30,10 @@ export async function localPipelineRun(
   const { workflowRunId } = getWorkflowMetadata()
   if (!(await bind(id, attempt, workflowRunId)))
     return { outcome: 'superseded' }
-  // One backstop timer serves every wait until it fires. Each sleep left pending costs a
-  // replay when it elapses, so a fresh timer per wake would double the run's invocations.
-  let backstop: Promise<void> | undefined
+  // The run keeps one re-check timer. A sleep cannot be cancelled, and each one left
+  // pending costs a workflow call when it elapses, so wakes reuse the pending timer and a
+  // new one starts only after it fires.
+  let recheck: Promise<void> | undefined
   for (let index = startIndex; index < stepCount; index++) {
     using hook = createHook<{ jobId?: string }>({
       token: `local-pipeline:${id}:${attempt}:${index}`,
@@ -58,20 +60,24 @@ export async function localPipelineRun(
         index = (state.nextIndex ?? index + 1) - 1
         break
       }
-      // Routes wake the stage after each change. The backstop re-checks it anyway, so a
-      // lost wake costs at most `backstopWait` and needs no browser to recover.
-      backstop ??= sleep(backstopWait)
-      const waits: Promise<'event' | 'backstop' | 'deadline'>[] = [
+      // Routes wake the stage after each change. The timer re-checks it anyway, at a
+      // claimed job's lease deadline or after `backstopWait`, whichever is earlier, so a
+      // lost wake costs at most that long and needs no browser to recover. A pending timer
+      // is due within `backstopWait` of when it started and a lease runs ten minutes, so a
+      // lease never ends before the timer already pending.
+      if (!recheck) {
+        const lease = state.phase === 'claimed' ? state.deadline : undefined
+        recheck =
+          lease !== undefined && lease < Date.now() + backstopMs
+            ? sleep(new Date(lease))
+            : sleep(backstopWait)
+      }
+      const wake = await Promise.race([
         event.then(() => 'event' as const),
-        backstop.then(() => 'backstop' as const),
-      ]
-      if (state.phase === 'claimed' && state.deadline)
-        waits.push(
-          sleep(new Date(state.deadline)).then(() => 'deadline' as const)
-        )
-      const wake = await Promise.race(waits)
+        recheck.then(() => 'recheck' as const),
+      ])
       if (wake === 'event') event = events.next()
-      if (wake === 'backstop') backstop = undefined
+      else recheck = undefined
     }
   }
   return { outcome: 'completed' }
