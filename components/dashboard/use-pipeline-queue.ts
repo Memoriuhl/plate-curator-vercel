@@ -116,6 +116,7 @@ export function usePipelineQueue(
   // worker going quiet, which changes what the drawer shows without any write.
   const live = useLiveRefresh(['pipeline'], () => list.mutate(), {
     enabled: enabled && local && uid !== null,
+    key,
     safetyMs: 60_000,
   })
   const snapshot = list.data

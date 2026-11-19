@@ -17,27 +17,42 @@ export type LiveSignalSource = {
 export type LiveHubOptions = {
   source: LiveSignalSource
   now?: () => number
-  /** Smallest gap between two refreshes of the same subscriber. */
+  /** Smallest gap between two refresh rounds in the tab. */
   throttleMs?: number
-  /** Refresh interval used only after a topic's listener fails. */
+  /** Polling interval used only while a topic's listener has failed. */
   fallbackMs?: number
   /** Report whether the page is visible, and announce visibility changes. */
   visible?: () => boolean
   watchVisibility?: (changed: () => void) => () => void
 }
 
-export type LiveSubscription = {
-  topics: readonly ChangeTopic[]
-  refresh: () => unknown
+/** The parts of a subscription a view can change without subscribing again. */
+export type LiveSettings = {
+  /** The request the refresh makes. Views with the same key share one refresh per round. */
+  key?: string
   /** Optional slow refresh while visible, for state that changes without a write. */
   safetyMs?: number
+}
+
+export type LiveSubscription = LiveSettings & {
+  topics: readonly ChangeTopic[]
+  refresh: () => unknown
   onStatus?: (status: LiveStatus) => void
 }
 
+/** Stop the subscription by calling it; `update` changes its key or safety interval. */
+export type LiveHandle = (() => void) & {
+  update(settings: LiveSettings): void
+}
+
 type Subscriber = LiveSubscription & {
-  last: number
-  timer: ReturnType<typeof setTimeout> | null
-  safety: ReturnType<typeof setInterval> | null
+  /** Earliest refresh: one throttle window after the view's own first fetch. */
+  notBefore: number
+  /** A refresh is owed, kept while hidden so the tab catches up once when shown. */
+  dirty: boolean
+  /** The one polling schedule for this view: its safety interval, or the fallback. */
+  poll: ReturnType<typeof setInterval> | null
+  pollMs: number | null
   status: LiveStatus | null
 }
 
@@ -48,10 +63,12 @@ type Topic = {
   seen: number | null
   status: LiveStatus
   retried: boolean
-  fallback: ReturnType<typeof setInterval> | null
   /** Bumped on every connect so a slow grant cannot attach an outdated listener. */
   attempt: number
 }
+
+/** Renew a grant this long before it expires. */
+const renewEarlyMs = 60_000
 
 const defaultVisible = () =>
   typeof document === 'undefined' || document.visibilityState !== 'hidden'
@@ -63,11 +80,11 @@ const defaultWatchVisibility = (changed: () => void) => {
 }
 
 /**
- * Share one listener per change topic across every subscriber in the tab. A signal makes
- * each subscriber refresh at most once per throttle window. Hidden tabs stop listening
- * and compare revisions when they become visible again, so they refresh only if something
- * changed. A failed listener falls back to one slow refresh loop for that topic, and
- * reports 'unavailable' so the view can say so.
+ * Share one listener per change topic across every view in the tab. Signals mark views
+ * as owing a refresh, and the tab runs owed refreshes in rounds at most once per throttle
+ * window, one request per key. Hidden tabs stop listening, polling and renewing, keep
+ * what they owe, and catch up once when shown. A failed listener moves each of its views
+ * to one slow polling schedule and reports 'unavailable' so the view can say so.
  */
 export function createLiveHub(options: LiveHubOptions) {
   const now = options.now ?? (() => Date.now())
@@ -76,24 +93,73 @@ export function createLiveHub(options: LiveHubOptions) {
   const visible = options.visible ?? defaultVisible
   const watchVisibility = options.watchVisibility ?? defaultWatchVisibility
   const topics = new Map<ChangeTopic, Topic>()
+  const subscribers = new Set<Subscriber>()
+  let lastRound = -Infinity
+  let round: ReturnType<typeof setTimeout> | null = null
+  let roundAt = Infinity
   let requestGrant: (() => Promise<LiveGrant>) | null = null
   let grant: Promise<LiveGrant> | null = null
+  let grantExpires: number | null = null
   let renewal: ReturnType<typeof setTimeout> | null = null
   let unwatch: (() => void) | null = null
 
-  /** Refresh now, or once at the end of the throttle window if one just ran. */
-  function request(subscriber: Subscriber) {
-    if (subscriber.timer) return
-    const wait = subscriber.last + throttleMs - now()
-    const run = () => {
-      subscriber.timer = null
-      subscriber.last = now()
+  /** Run the next round as soon as the tab's throttle window and the views allow. */
+  function schedule() {
+    if (!visible()) return
+    let earliest = Infinity
+    for (const subscriber of subscribers)
+      if (subscriber.dirty) earliest = Math.min(earliest, subscriber.notBefore)
+    if (earliest === Infinity) return
+    // A round due now still waits for the current task, so signals and polls that
+    // arrive together share it.
+    const due = Math.max(lastRound + throttleMs, earliest, now())
+    if (round && roundAt <= due) return
+    cancelRound()
+    roundAt = due
+    round = setTimeout(runRound, due - now())
+  }
+
+  function cancelRound() {
+    if (round) clearTimeout(round)
+    round = null
+    roundAt = Infinity
+  }
+
+  /** Refresh every view that owes one and is ready, once per request key. */
+  function runRound() {
+    round = null
+    roundAt = Infinity
+    const at = now()
+    const ready = [...subscribers].filter(
+      (subscriber) => subscriber.dirty && subscriber.notBefore <= at
+    )
+    if (ready.length) lastRound = at
+    const keys = new Set<string>()
+    for (const subscriber of ready) {
+      if (!subscriber.dirty) continue
+      subscriber.dirty = false
+      if (subscriber.key !== undefined) {
+        // This request also serves every other view of the same key.
+        for (const other of subscribers)
+          if (other.key === subscriber.key) other.dirty = false
+        if (keys.has(subscriber.key)) continue
+        keys.add(subscriber.key)
+      }
       void Promise.resolve()
         .then(subscriber.refresh)
         .catch(() => undefined)
     }
-    if (wait <= 0) run()
-    else subscriber.timer = setTimeout(run, wait)
+    schedule()
+  }
+
+  function owe(subscriber: Subscriber) {
+    subscriber.dirty = true
+    schedule()
+  }
+
+  function refreshAll(topic: Topic) {
+    for (const subscriber of topic.subscribers) subscriber.dirty = true
+    schedule()
   }
 
   function statusOf(subscriber: Subscriber): LiveStatus {
@@ -103,8 +169,27 @@ export function createLiveHub(options: LiveHubOptions) {
     return 'live'
   }
 
+  /**
+   * Keep one polling schedule per view: the fallback interval while a topic is down, or
+   * its own safety interval if that is shorter or the topics are live. Off while hidden.
+   */
+  function setPoll(subscriber: Subscriber) {
+    const fallback = statusOf(subscriber) === 'unavailable' ? fallbackMs : null
+    const safety = subscriber.safetyMs || null
+    const ms = !visible()
+      ? null
+      : fallback && safety
+        ? Math.min(fallback, safety)
+        : (fallback ?? safety)
+    if (ms === subscriber.pollMs) return
+    if (subscriber.poll) clearInterval(subscriber.poll)
+    subscriber.pollMs = ms
+    subscriber.poll = ms ? setInterval(() => owe(subscriber), ms) : null
+  }
+
   function announce(topic: Topic) {
     for (const subscriber of topic.subscribers) {
+      setPoll(subscriber)
       const status = statusOf(subscriber)
       if (status === subscriber.status) continue
       subscriber.status = status
@@ -112,8 +197,23 @@ export function createLiveHub(options: LiveHubOptions) {
     }
   }
 
-  function refreshAll(topic: Topic) {
-    for (const subscriber of topic.subscribers) request(subscriber)
+  function scheduleRenewal() {
+    if (renewal) clearTimeout(renewal)
+    renewal = null
+    if (grantExpires === null || !visible()) return
+    renewal = setTimeout(
+      () => {
+        renewal = null
+        void currentGrant(true).then(
+          () => {
+            for (const [name, topic] of topics)
+              if (topic.stop) listen(name, topic)
+          },
+          () => undefined
+        )
+      },
+      Math.max(1000, grantExpires - now() - renewEarlyMs)
+    )
   }
 
   /** Fetch a live grant once and renew it shortly before it expires. */
@@ -125,27 +225,16 @@ export function createLiveHub(options: LiveHubOptions) {
     pending.then(
       (value) => {
         if (grant !== pending) return
-        if (renewal) clearTimeout(renewal)
-        renewal = null
         const expires = Date.parse(value?.expiresAt ?? '')
         if (typeof value?.envKey !== 'string' || !Number.isFinite(expires)) {
           // A malformed grant: forget it so the next listen asks again.
           grant = null
+          grantExpires = null
+          scheduleRenewal()
           return
         }
-        renewal = setTimeout(
-          () => {
-            renewal = null
-            void currentGrant(true).then(
-              () => {
-                for (const [name, topic] of topics)
-                  if (topic.stop) listen(name, topic)
-              },
-              () => undefined
-            )
-          },
-          Math.max(1000, expires - now() - 60_000)
-        )
+        grantExpires = expires
+        scheduleRenewal()
       },
       () => {
         if (grant === pending) grant = null
@@ -157,15 +246,13 @@ export function createLiveHub(options: LiveHubOptions) {
   function startFallback(topic: Topic) {
     topic.status = 'unavailable'
     announce(topic)
-    if (!topic.fallback && visible())
-      topic.fallback = setInterval(() => refreshAll(topic), fallbackMs)
+    // Anything owed from before a resume runs now rather than at the first poll.
+    schedule()
   }
 
   function detach(topic: Topic) {
     topic.stop?.()
     topic.stop = null
-    if (topic.fallback) clearInterval(topic.fallback)
-    topic.fallback = null
   }
 
   /** Detach the topic and cancel any connect still waiting for a grant. */
@@ -204,7 +291,9 @@ export function createLiveHub(options: LiveHubOptions) {
             }
             // The first snapshot also refreshes once (after the throttle window), since a
             // change can land between a view's first fetch and the listener attaching.
+            // Otherwise run anything owed from before the tab was hidden.
             if (previous === null || current > previous) refreshAll(topic)
+            else schedule()
           },
           (error) => {
             if (stopped) return
@@ -223,36 +312,36 @@ export function createLiveHub(options: LiveHubOptions) {
         else topic.stop = stop
       })
       .catch(() => {
-        // No grant, or the listener could not start: refresh slowly instead.
+        // No grant, or the listener could not start: poll slowly instead.
         if (topics.get(name) === topic && attempt === topic.attempt)
           startFallback(topic)
       })
   }
 
   function onVisibility() {
-    const shown = visible()
+    if (!visible()) {
+      // Owed refreshes stay marked; the round, polls and renewal wait for the tab.
+      cancelRound()
+      if (renewal) clearTimeout(renewal)
+      renewal = null
+      for (const topic of topics.values()) stopListening(topic)
+      for (const subscriber of subscribers) setPoll(subscriber)
+      return
+    }
+    // A grant that expires within the renewal margin is replaced before listening.
+    if (grantExpires !== null && grantExpires - now() <= renewEarlyMs) {
+      grant = null
+      grantExpires = null
+    } else scheduleRenewal()
     for (const [name, topic] of topics) {
-      if (!shown) {
-        stopListening(topic)
-        continue
-      }
       // Resumed: retry a failed listener, and let the first snapshot decide on catch-up.
       if (topic.status === 'unavailable') {
         topic.retried = false
-        refreshAll(topic)
+        for (const subscriber of topic.subscribers) subscriber.dirty = true
       }
       listen(name, topic)
     }
-    for (const topic of topics.values())
-      for (const subscriber of topic.subscribers) setSafety(subscriber, shown)
-  }
-
-  function setSafety(subscriber: Subscriber, on: boolean) {
-    if (subscriber.safety) clearInterval(subscriber.safety)
-    subscriber.safety =
-      on && subscriber.safetyMs
-        ? setInterval(() => request(subscriber), subscriber.safetyMs)
-        : null
+    for (const subscriber of subscribers) setPoll(subscriber)
   }
 
   function teardown() {
@@ -260,9 +349,11 @@ export function createLiveHub(options: LiveHubOptions) {
     topics.clear()
     unwatch?.()
     unwatch = null
+    cancelRound()
     if (renewal) clearTimeout(renewal)
     renewal = null
     grant = null
+    grantExpires = null
   }
 
   return {
@@ -270,17 +361,20 @@ export function createLiveHub(options: LiveHubOptions) {
     setGrant(next: () => Promise<LiveGrant>) {
       requestGrant = next
     },
-    subscribe(subscription: LiveSubscription): () => void {
+    subscribe(subscription: LiveSubscription): LiveHandle {
       const subscriber: Subscriber = {
         ...subscription,
         topics: [...new Set(subscription.topics)],
         // Treat subscribing as a fresh fetch: callers subscribe right after loading.
-        last: now(),
-        timer: null,
-        safety: null,
+        notBefore: now() + throttleMs,
+        dirty: false,
+        poll: null,
+        pollMs: null,
         status: null,
       }
+      subscribers.add(subscriber)
       unwatch ??= watchVisibility(onVisibility)
+      let late = false
       for (const name of subscriber.topics) {
         let topic = topics.get(name)
         if (!topic) {
@@ -290,20 +384,25 @@ export function createLiveHub(options: LiveHubOptions) {
             seen: null,
             status: 'connecting',
             retried: false,
-            fallback: null,
             attempt: 0,
           }
           topics.set(name, topic)
           topic.subscribers.add(subscriber)
           if (visible()) listen(name, topic)
-        } else topic.subscribers.add(subscriber)
+        } else {
+          topic.subscribers.add(subscriber)
+          // The shared listener may have consumed a change this view's fetch missed.
+          if (topic.seen !== null && topic.status === 'live') late = true
+        }
       }
       subscriber.status = statusOf(subscriber)
       subscriber.onStatus?.(subscriber.status)
-      setSafety(subscriber, visible())
-      return () => {
-        if (subscriber.timer) clearTimeout(subscriber.timer)
-        setSafety(subscriber, false)
+      setPoll(subscriber)
+      if (late) owe(subscriber)
+      const stop = () => {
+        subscribers.delete(subscriber)
+        if (subscriber.poll) clearInterval(subscriber.poll)
+        subscriber.poll = null
         for (const name of subscriber.topics) {
           const topic = topics.get(name)
           if (!topic) continue
@@ -315,6 +414,14 @@ export function createLiveHub(options: LiveHubOptions) {
         }
         if (topics.size === 0) teardown()
       }
+      return Object.assign(stop, {
+        update(settings: LiveSettings) {
+          if (!subscribers.has(subscriber)) return
+          subscriber.key = settings.key
+          subscriber.safetyMs = settings.safetyMs
+          setPoll(subscriber)
+        },
+      })
     },
   }
 }

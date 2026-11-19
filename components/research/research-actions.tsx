@@ -113,6 +113,7 @@ function ResearchRun({
   // lets the server expire a job whose deadline passed, which happens only on a read.
   useLiveRefresh(['research'], () => research.mutate(), {
     enabled: job !== undefined && ['queued', 'running'].includes(job.state),
+    key: intent?.jobId ? `/api/research/${intent.jobId}` : undefined,
     safetyMs: 60_000,
   })
   const blocked = workspace.mode === 'selected' && workspace.status !== 'ready'

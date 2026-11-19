@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   createLiveHub,
   type LiveGrant,
+  type LiveHandle,
   type LiveHub,
   type LiveSignalSource,
   type LiveStatus,
@@ -72,14 +73,15 @@ const hubs = new WeakMap<LiveSignalSource, LiveHub>()
 
 /**
  * Refetch with `refresh` when the server signals a change to any of `topics`, instead of
- * polling. Refreshes run at most once per two seconds, stop while the tab is hidden, and
- * fall back to a slow poll if the listener fails. `safetyMs` adds a slow refresh while
- * visible, for state that can change without a write, such as a worker going quiet.
+ * polling. The tab refreshes at most once per two seconds, once per request `key`, stops
+ * while hidden, and falls back to one slow poll per view if the listener fails.
+ * `safetyMs` adds a slow refresh while visible, for state that can change without a
+ * write, such as a worker going quiet. Changing `key` or `safetyMs` keeps the listener.
  */
 export function useLiveRefresh(
   topics: readonly ChangeTopic[],
   refresh: () => unknown,
-  options: { enabled?: boolean; safetyMs?: number } = {}
+  options: { enabled?: boolean; safetyMs?: number; key?: string } = {}
 ): LiveStatus {
   const selectedSource = useContext(LiveSource)
   const session = useSession(false)
@@ -90,8 +92,10 @@ export function useLiveRefresh(
     latest.current = { refresh, api }
   })
   const enabled = (options.enabled ?? true) && uid !== null && api !== undefined
-  const key = topics.join(' ')
-  const safetyMs = options.safetyMs
+  const topicKey = topics.join(' ')
+  const { safetyMs, key } = options
+  const settings = useRef({ safetyMs, key })
+  const handle = useRef<LiveHandle | null>(null)
   const [status, setStatus] = useState<LiveStatus>('connecting')
   useEffect(() => {
     if (!enabled) return
@@ -105,13 +109,22 @@ export function useLiveRefresh(
       if (!sender) throw new Error('Signed out')
       return sender.send<LiveGrant>('POST', '/api/live-access', {})
     })
-    return hub.subscribe({
-      topics: key.split(' ') as ChangeTopic[],
+    const subscription = hub.subscribe({
+      topics: topicKey.split(' ') as ChangeTopic[],
       refresh: () => latest.current.refresh(),
-      safetyMs,
+      ...settings.current,
       onStatus: setStatus,
     })
-  }, [enabled, uid, key, safetyMs, selectedSource])
+    handle.current = subscription
+    return () => {
+      handle.current = null
+      subscription()
+    }
+  }, [enabled, uid, topicKey, selectedSource])
+  useEffect(() => {
+    settings.current = { safetyMs, key }
+    handle.current?.update({ safetyMs, key })
+  }, [safetyMs, key])
   return enabled ? status : 'connecting'
 }
 

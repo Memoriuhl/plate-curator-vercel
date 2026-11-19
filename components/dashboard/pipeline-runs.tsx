@@ -344,6 +344,7 @@ export function PipelineRuns({
   )
   const gatewayLive = useLiveRefresh(['gateway'], () => gateway.mutate(), {
     enabled: Boolean(user),
+    key: gatewayRunsKey,
     safetyMs: 60_000,
   })
   const liveUnavailable =

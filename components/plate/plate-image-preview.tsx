@@ -27,8 +27,11 @@ export function useLatestEnhancement(plateId: string, enabled: boolean) {
     shouldRetryOnError: false,
   })
   // A finished enhancement job is a pipeline write, so its signal brings the new image.
+  // While the preview is open, a slow safety refresh covers a signal that never arrived.
   useLiveRefresh(['pipeline'], () => enhancement.mutate(), {
     enabled: key !== null,
+    key: key ?? undefined,
+    safetyMs: 60_000,
   })
   return enhancement.data?.result
 }
