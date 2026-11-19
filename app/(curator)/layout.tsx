@@ -3,6 +3,7 @@ import { PipelineQueueWarmup } from '@/components/dashboard/pipeline-runs/use-pi
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CuratorHeader } from '../../components/app/curator-header'
 import { SessionGate } from '../../components/app/session-gate'
+import { LaunchSplashHost } from '../../components/app/launch-splash-host'
 import { LegacyBatchLink } from '../../components/review/legacy-batch-link'
 
 /** Provide shared tooltips and enforce sign-in for routes in the curator workspace. */
@@ -13,6 +14,7 @@ export default function CuratorLayout({
 }) {
   return (
     <TooltipProvider delayDuration={300}>
+      <LaunchSplashHost />
       <CuratorHeader />
       <Suspense fallback={null}>
         <PipelineQueueWarmup />
