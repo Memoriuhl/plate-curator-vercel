@@ -18,6 +18,7 @@ import {
 } from './capabilities'
 import { liveEnvKey, signalPath } from '../review/live-signal'
 import { signalChange } from '../live/change-signals'
+import { mayClaimWake, type WakeRecord } from './wake-ledger'
 import { compareJobAge, isStandaloneDesktopJob } from './claim-eligibility'
 
 const claimPageSize = 16
@@ -66,6 +67,7 @@ export function firestoreJobsStore(
   const tokens = db.collection('workerTokens')
   const capabilities = db.collection('localPipelineCapabilities')
   const runs = db.collection('localPipelineRuns')
+  const wakes = db.collection('localPipelineWakes')
   return {
     env,
     async readEnhancedImage(id) {
@@ -98,6 +100,35 @@ export function firestoreJobsStore(
         return capabilitiesVisiblyChanged(previous, record)
       })
       if (changed) signalChange(db, reviewEnv, 'pipeline')
+    },
+    /**
+     * Take a run's wake for one job transition in a transaction, so concurrent routes
+     * and reads send it once. The ledger is not shown anywhere, so it sends no signal.
+     */
+    async claimWake(runId, key, now, holdMs) {
+      const ref = wakes.doc(`${encodeURIComponent(env)}--${runId}`)
+      return db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref)
+        const record = snapshot.exists ? (snapshot.data() as WakeRecord) : null
+        if (!mayClaimWake(record, key, now)) return false
+        transaction.set(ref, {
+          env,
+          runId,
+          key,
+          state: 'sending',
+          until: now + holdMs,
+        })
+        return true
+      })
+    },
+    /** Record the outcome of a wake unless a newer transition took the ledger. */
+    async settleWake(runId, key, delivered) {
+      const ref = wakes.doc(`${encodeURIComponent(env)}--${runId}`)
+      await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref)
+        if (snapshot.get('key') === key)
+          transaction.update(ref, { state: delivered ? 'delivered' : 'failed' })
+      })
     },
     /**
      * Run an operation against a single Firestore transaction so queue and review

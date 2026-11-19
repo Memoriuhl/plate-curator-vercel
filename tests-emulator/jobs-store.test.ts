@@ -6,6 +6,7 @@ import { localJobsEnvironment } from '../lib/jobs/local-scope'
 import type { JobsDeps, TaggingJob } from '../lib/jobs/types'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { Firestore, QuerySnapshot, Transaction } from '@google-cloud/firestore'
+import { wakeLedgerScenario } from '../tests/jobs/wake-ledger-scenario'
 import './setup'
 
 const db = new Firestore({ projectId: 'demo-plate-curator-jobs' })
@@ -142,4 +143,18 @@ afterAll(async () => {
   await db.recursiveDelete(db.collection('workerTokens'))
   await db.recursiveDelete(db.collection('reviewBatches'))
   await db.terminate()
+})
+
+test('the Firestore wake ledger hands each job transition to one waker', async () => {
+  await db.recursiveDelete(db.collection('localPipelineWakes'))
+  await wakeLedgerScenario(firestoreJobsStore(db, 'preview:wake-ledger'))
+  // Environments keep separate ledgers.
+  expect(
+    await firestoreJobsStore(db, 'preview:other-ledger').claimWake!(
+      'run',
+      'report',
+      100,
+      15_000
+    )
+  ).toBe(true)
 })

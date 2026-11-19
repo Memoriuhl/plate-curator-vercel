@@ -1,3 +1,4 @@
+import { waitUntil } from '@vercel/functions'
 import { getRun, resumeHook, start } from 'workflow/api'
 import { HookConflictError } from 'workflow/errors'
 import {
@@ -10,6 +11,8 @@ import {
 } from '../jobs/queue-engine'
 import type { PipelineRun, QueueOutcome } from '../jobs/queue-types'
 import type { TaggingJob } from '../jobs/types'
+import { getJob } from '../jobs/jobs'
+import { wakeKey } from '../jobs/wake-ledger'
 import { jobsDeps } from './context'
 import { json } from './respond'
 
@@ -59,12 +62,63 @@ export async function startQueueWorkflow(run: PipelineRun) {
   await bindQueueWorkflow(jobsDeps(), run.id, attempt.number, workflowId)
 }
 
-/** Notify the waiting queue workflow after its worker job changes state. */
+/** Notify the waiting queue workflow, for a change that is not a job transition. */
 export async function wakeLocalJob(job: TaggingJob) {
   if (job.completionHook && job.queueRunId)
     await resumeHook(job.completionHook, { jobId: job.id }).catch(
       () => undefined
     )
+}
+
+/** How long a sender holds a wake before another sender may take it over. */
+export const wakeHoldMs = 15_000
+
+/** When the server tries a failed wake again, with no request needed. */
+export const wakeRetryMs: readonly number[] = [1_000, 5_000]
+
+/**
+ * Wake the waiting queue workflow once for the job's latest transition. The claim,
+ * report and fail routes call it right after the change, and the pipeline list calls
+ * it as a watchdog. The wake ledger lets one of them send it and makes the others skip;
+ * a failed send is recorded, so the next caller takes it over at once, and the server
+ * tries again itself after `wakeRetryMs`.
+ */
+export async function wakeForTransition(
+  job: TaggingJob,
+  retries: readonly number[] = wakeRetryMs
+): Promise<void> {
+  if (!job.completionHook || !job.queueRunId) return
+  const deps = jobsDeps()
+  const { claimWake, settleWake } = deps.store
+  if (!claimWake || !settleWake) return wakeLocalJob(job)
+  const runId = job.queueRunId
+  const key = wakeKey(job)
+  // If the ledger cannot be read, send anyway: a repeated wake is cheaper than a lost one.
+  const mine = await claimWake
+    .call(deps.store, runId, key, deps.now(), wakeHoldMs)
+    .catch(() => true)
+  if (!mine) return
+  const delivered = await resumeHook(job.completionHook, {
+    jobId: job.id,
+  }).then(
+    () => true,
+    () => false
+  )
+  await settleWake
+    .call(deps.store, runId, key, delivered)
+    .catch(() => undefined)
+  if (delivered || !retries.length) return
+  const [delay, ...later] = retries
+  waitUntil(
+    new Promise((resolve) => setTimeout(resolve, delay))
+      .then(async () => {
+        // A newer transition brings its own wake; an older one must not overwrite it.
+        const latest = await getJob(jobsDeps(), job.id)
+        if (latest && wakeKey(latest) === key)
+          await wakeForTransition(latest, later)
+      })
+      .catch(() => undefined)
+  )
 }
 
 /** Check a run's linked workflow and reconcile terminal status into the queue attempt. */

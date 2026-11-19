@@ -15,7 +15,7 @@ import {
   queueResponse,
   reconcileQueueWorkflow,
   startQueueWorkflow,
-  wakeLocalJob,
+  wakeForTransition,
 } from '../../../../lib/server/local-queue'
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
 import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
@@ -23,25 +23,11 @@ import { queueProgress } from '../../../../lib/jobs/run-progress'
 import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 
 /**
- * The claim, report and fail routes wake the workflow right after a job changes. A
- * read inside this window is most likely seeing that same change, and change signals
- * make dashboard reads arrive exactly then, so the read leaves the wake to the route
- * and only recovers wakes that were lost.
+ * Reconnect the workflow and recover the current stage from persisted state. Waking the
+ * workflow here recovers a wake the claim, report or fail route lost; the wake ledger
+ * skips one that was already delivered or is being sent.
  */
-const wakeGraceMs = 10_000
-
-/** When the job last changed state, if it records that. */
-function changedAt(job: QueueRunView['jobs'][number]) {
-  return (
-    job.completedAt ??
-    job.expiredAt ??
-    job.endedAt ??
-    (job.state === 'claimed' ? job.startedAt : undefined)
-  )
-}
-
-/** Reconnect the workflow and recover the current stage from persisted state. */
-async function reconcileRun(run: QueueRunView, now: number) {
+async function reconcileRun(run: QueueRunView) {
   if (run.status !== 'queued' && run.status !== 'running') return false
   const reconciled = await reconcileQueueWorkflow(run).catch(() => false)
   await startQueueWorkflow(run).catch(() => undefined)
@@ -50,14 +36,12 @@ async function reconcileRun(run: QueueRunView, now: number) {
     (job) =>
       job.queueAttempt === attempt.number && job.queueStep === attempt.cursor
   )
-  const changed = current && changedAt(current)
   if (
     current &&
     current.state !== 'queued' &&
-    (current.state !== 'claimed' || run.waitReason === 'resource') &&
-    !(changed !== undefined && now - changed < wakeGraceMs)
+    (current.state !== 'claimed' || run.waitReason === 'resource')
   )
-    await wakeLocalJob(current)
+    await wakeForTransition(current)
   return reconciled
 }
 
@@ -144,7 +128,7 @@ export async function GET(request: Request) {
     if (!selectedId || selectedId === 'none') return badRequest()
     let result = await readPipelineRun(dependencies, auth.actor, selectedId)
     if (!result.ok) return queueResponse(result)
-    if (await reconcileRun(result.value, dependencies.now())) {
+    if (await reconcileRun(result.value)) {
       result = await readPipelineRun(dependencies, auth.actor, selectedId)
       if (!result.ok) return queueResponse(result)
     }
@@ -160,7 +144,7 @@ export async function GET(request: Request) {
   if (!result.ok) return queueResponse(result)
   let reconciled = false
   for (const run of result.value) {
-    if (await reconcileRun(run, dependencies.now())) reconciled = true
+    if (await reconcileRun(run)) reconciled = true
   }
   if (reconciled) {
     result = await listRuns(dependencies, auth.actor, worker, selectedId)

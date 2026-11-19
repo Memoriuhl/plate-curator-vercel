@@ -174,6 +174,18 @@ export interface JobsStore {
   getToken(hash: string): Promise<WorkerToken | null>
   createToken(token: WorkerToken): Promise<void>
   revokeToken(hash: string, at: number): Promise<void>
+  /**
+   * Take the workflow wake for a job transition (`wakeKey`) unless it was delivered or
+   * another sender holds it until after `now`. Stores without a ledger always send.
+   */
+  claimWake?(
+    runId: string,
+    key: string,
+    now: number,
+    holdMs: number
+  ): Promise<boolean>
+  /** Record whether a wake taken with `claimWake` reached the workflow. */
+  settleWake?(runId: string, key: string, delivered: boolean): Promise<void>
 }
 export type JobsDeps = {
   store: JobsStore
