@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { IoChevronDownOutline, IoCheckmarkOutline } from 'react-icons/io5'
 import {
   ModelSelector,
@@ -23,22 +23,23 @@ import {
 } from '@/lib/models/selection'
 
 type Preference = { id: string | null; capUsd: ModelCap; strict: boolean }
+const defaultPreference: Preference = {
+  id: null,
+  capUsd: DEFAULT_MODEL_CAP,
+  strict: false,
+}
+const subscribeToHydration = () => () => {}
 
 export function useModelPreference(
   key: string,
   catalog: HostedModelCatalog | undefined
 ) {
-  const [preference, setPreference] = useState<Preference>(() => {
-    const empty = {
-      id: null,
-      capUsd: DEFAULT_MODEL_CAP,
-      strict: false,
-    } as const
+  const [savedPreference, setPreference] = useState<Preference>(() => {
     try {
       const raw = localStorage.getItem(key)
-      if (!raw) return empty
+      if (!raw) return defaultPreference
       // Previous pickers stored the ID directly.
-      if (!raw.startsWith('{')) return { ...empty, id: raw }
+      if (!raw.startsWith('{')) return { ...defaultPreference, id: raw }
       const { id, capUsd, strict } = JSON.parse(raw)
       const options = modelOptionsSchema.safeParse({ capUsd, strict })
       return {
@@ -47,9 +48,15 @@ export function useModelPreference(
         strict: options.data?.strict ?? false,
       }
     } catch {
-      return empty
+      return defaultPreference
     }
   })
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false
+  )
+  const preference = hydrated ? savedPreference : defaultPreference
   const cap = catalog?.caps.includes(preference.capUsd)
     ? preference.capUsd
     : (catalog?.caps.filter((preset) => preset <= DEFAULT_MODEL_CAP).at(-1) ??
