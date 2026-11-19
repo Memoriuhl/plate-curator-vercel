@@ -193,9 +193,18 @@ test('claim callback wakes the persisted lease; lost completed callback is recon
     promptVersion: 'v1',
     durationMs: 10,
   })
+  mocks.resume.mockClear()
+  // A read right after the report leaves the wake to the report route, which sends it
+  // itself. Change signals make dashboard reads land in that moment.
+  await getDetail(run.id)
+  await GET(get())
+  expect(mocks.resume).not.toHaveBeenCalled()
+
+  // Once the wake had time to arrive, a read recovers one that was lost.
   mocks.resume.mockImplementation(async () =>
     expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
   )
+  mocks.jobs.mockReturnValue({ ...deps, now: () => 100 + 10_000 })
   await getDetail(run.id)
   expect(mocks.resume).toHaveBeenLastCalledWith(token, {
     jobId: claimed.job.id,
