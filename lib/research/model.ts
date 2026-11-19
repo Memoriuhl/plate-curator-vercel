@@ -105,8 +105,10 @@ export function guardedResearchModel(
         await attempt?.settle(
           reportedGatewayCost(result.providerMetadata),
           tokenUsage(result.usage),
-          result.response?.modelId ??
-            routedGatewayModel(result.providerMetadata) ??
+          // Routing attempts name the model that answered. On an error
+          // fallback, response.modelId still echoes the requested model.
+          routedGatewayModel(result.providerMetadata) ??
+            result.response?.modelId ??
             model.modelId
         )
         return result
@@ -137,8 +139,8 @@ export function guardedResearchModel(
                   await attempt?.settle(
                     reportedGatewayCost(part.providerMetadata),
                     tokenUsage(part.usage),
-                    responseModel ??
-                      routedGatewayModel(part.providerMetadata) ??
+                    routedGatewayModel(part.providerMetadata) ??
+                      responseModel ??
                       model.modelId
                   )
                 controller.enqueue(part)

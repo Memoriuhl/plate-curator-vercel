@@ -130,16 +130,31 @@ test.each([
           inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
           outputTokens: { total: 1, text: 1, reasoning: 0 },
         },
-        response: { modelId: fallback.model },
+        // Live Gateway shape (probed 2026-11-18): on an error fallback,
+        // response.modelId echoes the requested model and only the routing
+        // attempts show which model answered.
+        response: { modelId: expected ?? model },
         providerMetadata: {
           gateway: {
             routing: {
-              modelAttempts: [
-                {
-                  canonicalSlug: model,
-                  providerAttempts: [{ success: true }],
-                },
-              ],
+              modelAttempts:
+                expected === model
+                  ? [
+                      {
+                        canonicalSlug: model,
+                        providerAttempts: [{ success: false }],
+                      },
+                      {
+                        canonicalSlug: fallback.model,
+                        providerAttempts: [{ success: true }],
+                      },
+                    ]
+                  : [
+                      {
+                        canonicalSlug: expected ?? model,
+                        providerAttempts: [{ success: true }],
+                      },
+                    ],
             },
           },
         },

@@ -99,3 +99,55 @@ test('stream settlement uses each finish metadata entry instead of an aggregate'
     missingModelCosts: 0,
   })
 })
+
+test('stream settlement records the model that answered after a Gateway error fallback', async () => {
+  const settled: unknown[][] = []
+  const upstream = new MockLanguageModelV4({
+    modelId: 'openai/test-tool',
+    /** Live Gateway shape (probed 2026-11-18): response metadata echoes the requested model. */ doStream:
+      async () => ({
+        stream: new ReadableStream({
+          /** Emit the requested model id, then a finish whose routing shows the fallback answered. */ start(
+            controller
+          ) {
+            controller.enqueue({
+              type: 'response-metadata',
+              modelId: 'openai/test-tool',
+            })
+            controller.enqueue({
+              type: 'finish',
+              finishReason: response.finishReason,
+              usage: response.usage,
+              providerMetadata: {
+                gateway: {
+                  routing: {
+                    modelAttempts: [
+                      {
+                        canonicalSlug: 'openai/test-tool',
+                        providerAttempts: [{ success: false }],
+                      },
+                      {
+                        canonicalSlug: 'google/gemini-2.5-flash-lite',
+                        providerAttempts: [{ success: true }],
+                      },
+                    ],
+                  },
+                },
+              },
+            })
+            controller.close()
+          },
+        }),
+      }),
+  })
+  const model = guardedResearchModel(upstream, async () => ({
+    async settle(...args: unknown[]) {
+      settled.push(args)
+    },
+  }))
+  const result = await model.doStream({ prompt })
+  const reader = result.stream.getReader()
+  while (!(await reader.read()).done) {}
+  expect(settled).toHaveLength(1)
+  expect(settled[0][2]).toBe('google/gemini-2.5-flash-lite')
+})
