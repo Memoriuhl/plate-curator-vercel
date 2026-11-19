@@ -2,10 +2,6 @@ import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { HookNotFoundError } from 'workflow/errors'
 import { POST, GET } from '../app/api/batches/[id]/publish/route'
 import {
-  POST as markReviewed,
-  GET as recentReview,
-} from '../app/api/batches/[id]/review-checkpoint/route'
-import {
   firestorePublishControl,
   firestorePublishCurator,
   firestorePublishLock,
