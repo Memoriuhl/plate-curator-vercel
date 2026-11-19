@@ -277,14 +277,15 @@ export function usePipelineQueue(
     queueFetcher(api.get),
     { keepPreviousData: !detailId }
   )
+  const refetch = list.mutate
   const view = useMemo<QueueRefresh>(
     () => ({
       key,
       get: api.get,
       write: (target, data) => mutate(target, data, { revalidate: false }),
-      revalidate: () => list.mutate(),
+      revalidate: () => refetch(),
     }),
-    [key, api.get, mutate, list.mutate]
+    [key, api.get, mutate, refetch]
   )
   useEffect(() => {
     if (!active) return
