@@ -1,5 +1,5 @@
 import type { Plate } from '../../catalog/types'
-import { plateRevision } from '../../review/draft/revision'
+import { plateRevision } from '../../review/revision'
 import { parseFieldSuggestion } from '../suggestions'
 import type { TaggingJob } from '../types'
 

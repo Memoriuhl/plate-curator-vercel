@@ -24,7 +24,7 @@ import {
   retainedPipelineChanges,
   restoredPipelineChange,
 } from '../pipeline-changes'
-import { plateRevision } from '../draft/revision'
+import { plateRevision } from '../revision'
 import { plateEditVersion } from '../edit-history'
 import type {
   Actor,

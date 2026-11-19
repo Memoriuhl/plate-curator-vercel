@@ -3,7 +3,7 @@ import { createJob } from '../../lib/jobs/jobs'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { proposeEdit } from '../../lib/review/batches/batch'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type { JobsDeps } from '../../lib/jobs/types'
 import type { ReviewDeps } from '../../lib/review/types'
 

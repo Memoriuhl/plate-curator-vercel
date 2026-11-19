@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { PipelineQueueWarmup } from '@/components/dashboard/use-pipeline-queue'
+import { PipelineQueueWarmup } from '@/components/dashboard/pipeline-runs/use-pipeline-queue'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CuratorHeader } from '../../components/app/curator-header'
 import { SessionGate } from '../../components/app/session-gate'

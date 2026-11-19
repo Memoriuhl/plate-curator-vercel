@@ -6,7 +6,7 @@ import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { limits } from '../../lib/review/fields'
 import { validateTagging } from '../../lib/review/tagging'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type {
   ReviewBatch,
   ReviewDeps,

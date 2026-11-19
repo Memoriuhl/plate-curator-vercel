@@ -26,7 +26,7 @@ import {
 import { claimHostedQueueJob, claimNext, reportResult } from '../lib/jobs/jobs'
 import { proposeEdit, revertPipelineField } from '../lib/review/batches/batch'
 import { plateEditVersion } from '../lib/review/edit-history'
-import { plateRevision } from '../lib/review/draft/revision'
+import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue/queue-bundle'
 import { revertQueueRun } from '../lib/jobs/revert-run'
 import { sharedDraftId } from '../lib/review/draft/draft-id'

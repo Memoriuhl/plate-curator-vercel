@@ -31,7 +31,7 @@ import { createMemoryStore } from '../../../lib/review/memory-store'
 import { moveState } from '../../../lib/review/move-state'
 import { canEdit, proposeEdit } from '../../../lib/review/batches/batch'
 import { batchDetail, dashboardDraft } from '../../../lib/review/queries'
-import { plateRevision } from '../../../lib/review/draft/revision'
+import { plateRevision } from '../../../lib/review/revision'
 import type {
   Actor,
   EditableFields,

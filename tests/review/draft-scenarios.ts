@@ -16,7 +16,7 @@ import {
 } from '../../lib/review/draft/draft'
 import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import { draftCommitAttempts } from '../../lib/review/retry'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type {
   Actor,
   EditableFields,

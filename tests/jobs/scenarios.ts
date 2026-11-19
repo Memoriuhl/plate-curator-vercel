@@ -15,7 +15,7 @@ import {
   revokeWorkerToken,
 } from '../../lib/jobs/tokens'
 import type { JobsDeps, JobsStore, JobsTransaction } from '../../lib/jobs/types'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type { ReviewStore } from '../../lib/review/types'
 
 /** Register the shared job lifecycle scenarios against the supplied storage backend. */

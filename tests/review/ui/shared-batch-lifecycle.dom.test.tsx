@@ -29,7 +29,7 @@ import { proposeEdit, reorderState } from '../../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../../helpers/legacy-approval'
 import { discardPlateChanges } from '../../../lib/review/discard-changes'
 import { batchDetail } from '../../../lib/review/queries'
-import { plateRevision } from '../../../lib/review/draft/revision'
+import { plateRevision } from '../../../lib/review/revision'
 import type {
   Actor,
   DraftChangeTarget,

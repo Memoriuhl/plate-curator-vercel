@@ -1,6 +1,6 @@
 import { orderDifferences } from './order-diff'
 import type { Plate } from '../catalog/types'
-import { plateRevision } from './draft/revision'
+import { plateRevision } from './revision'
 import type {
   Actor,
   BatchState,

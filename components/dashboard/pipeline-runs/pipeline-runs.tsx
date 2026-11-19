@@ -41,7 +41,7 @@ import {
   gatewayRunsKey,
   runListSafetyMs,
   usePipelineQueue,
-} from '../use-pipeline-queue'
+} from './use-pipeline-queue'
 import { disabledRunStages } from './pipeline-stages'
 import {
   PipelineQueuePanel,

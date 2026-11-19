@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { plateRevision } from '../../../lib/review/draft/revision'
+import { plateRevision } from '../../../lib/review/revision'
 import {
   projectJob,
   projectionMatchesBatch,

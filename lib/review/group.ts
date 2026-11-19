@@ -8,7 +8,7 @@ import { canEdit } from './access'
 import { unchangedSince } from './preconditions'
 import { batchPlateLimit, editableKeys } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
-import { plateRevision } from './draft/revision'
+import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
 import type {
   Actor,

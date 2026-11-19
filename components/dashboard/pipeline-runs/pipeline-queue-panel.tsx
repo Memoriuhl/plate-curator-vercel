@@ -18,7 +18,7 @@ import type {
   QueueRunSummary,
   QueueWait,
 } from '@/lib/jobs/queue/queue-types'
-import type { usePipelineQueue } from '../use-pipeline-queue'
+import type { usePipelineQueue } from './use-pipeline-queue'
 import { PipelinePlateList } from './pipeline-run-plates'
 import {
   machineLabels,

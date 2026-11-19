@@ -8,7 +8,7 @@ import {
 } from '../../review/fields'
 import { isSharedDraft } from '../../review/draft/draft-id'
 import { retainedPipelineChanges } from '../../review/pipeline-changes'
-import { plateRevision } from '../../review/draft/revision'
+import { plateRevision } from '../../review/revision'
 import { sameEditableValue } from '../../review/story'
 import type {
   Actor,

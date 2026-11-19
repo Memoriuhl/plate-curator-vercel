@@ -8,7 +8,7 @@ import {
   hasPipelineHistory,
   retainedPipelineChanges,
 } from '../pipeline-changes'
-import { plateRevision } from '../draft/revision'
+import { plateRevision } from '../revision'
 import { sameEditableValue } from '../story'
 import type { Actor, EditableFields, Outcome, ReviewDeps } from '../types'
 

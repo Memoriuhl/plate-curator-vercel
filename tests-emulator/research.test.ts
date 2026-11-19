@@ -4,7 +4,7 @@ import { firestoreResearchStore } from '../lib/research/stores/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { claimResearch, reportResearch } from '../lib/research/jobs'
 import { acceptResearch } from '../lib/research/accept'
-import { plateRevision } from '../lib/review/draft/revision'
+import { plateRevision } from '../lib/review/revision'
 import { researchFixture } from '../tests/research/fixture'
 import './setup'
 

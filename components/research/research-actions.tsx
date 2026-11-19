@@ -18,7 +18,7 @@ import { ResearchResult } from './research-result'
 import {
   ResearchModelPicker,
   useResearchModelChoice,
-} from '@/components/dashboard/research-model-picker'
+} from '@/components/research/research-model-picker'
 import type { ModelOptions } from '@/lib/models/selection'
 import { Button } from '@/components/ui/button'
 import {

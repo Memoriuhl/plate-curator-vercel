@@ -13,7 +13,7 @@ import {
   eligiblePickerModel,
   HostedModelPicker,
   useModelPreference,
-} from './hosted-model-picker'
+} from '../dashboard/hosted-model-picker'
 import { InlineSelect } from '@/components/ui/inline-select'
 
 const storageKey = 'research-model:v1'

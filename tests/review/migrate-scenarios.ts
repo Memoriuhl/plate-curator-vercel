@@ -6,7 +6,7 @@ import {
   migrateToSharedDraft,
   type MigrationOptions,
 } from '../../lib/review/migration/migrate'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type {
   BatchState,
   ProposedEdit,

@@ -10,7 +10,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import { newSharedDraft } from '../../lib/review/draft/draft'
 import { reviewEnv } from '../../lib/server/context'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 

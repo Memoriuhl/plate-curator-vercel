@@ -4,7 +4,7 @@ import { expect, test } from 'vitest'
 import { batch, command, fixture, owner, snapshot } from '../publish/fixture'
 import { proposeEdit } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 
 reviewBatchScenarios((batch) => createMemoryStore([batch]))
 

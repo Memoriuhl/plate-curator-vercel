@@ -30,7 +30,7 @@ import { plateSelection } from '../../../components/dashboard/selection/plate-se
 import { proposeEdit, reorderState } from '../../../lib/review/batches/batch'
 import { batchDetail } from '../../../lib/review/queries'
 import { respond } from '../../../lib/server/respond'
-import { plateRevision } from '../../../lib/review/draft/revision'
+import { plateRevision } from '../../../lib/review/revision'
 import type {
   Actor,
   EditableFields,

@@ -3,7 +3,7 @@ import { publishBatch } from '../../lib/publish/publish'
 import { batch, command, fixture, owner, snapshot } from './fixture'
 import { proposeEdit } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 
 const enabled = {
   paused: false,

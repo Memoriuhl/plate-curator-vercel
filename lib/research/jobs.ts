@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { Actor, ReviewDeps } from '../review/types'
 import { canEdit, editableStates } from '../review/access'
-import { plateRevision } from '../review/draft/revision'
+import { plateRevision } from '../review/revision'
 import { validateResearchResult, researchDraftSchema } from './validate'
 import type { ResearchStore } from './stores/store'
 import type {

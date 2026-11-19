@@ -9,7 +9,7 @@ import {
   useSharedDraftId,
 } from '@/lib/client/hooks'
 import { PublishButton } from '../publish-button'
-import { RunMenu } from '../run-menu'
+import { RunMenu } from '../pipeline-runs/run-menu'
 import { TagRunBanner } from '../tagging/tag-run-banner'
 import { useTagRun, type RunPlate } from '../tagging/use-tag-run'
 import { useDashboardPipeline } from '../pipeline-runs/pipeline-runs'

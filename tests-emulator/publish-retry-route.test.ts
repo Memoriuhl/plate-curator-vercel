@@ -18,7 +18,7 @@ import {
   newSharedDraft,
 } from '../lib/review/draft/draft'
 import { proposeEdit } from '../lib/review/batches/batch'
-import { plateRevision } from '../lib/review/draft/revision'
+import { plateRevision } from '../lib/review/revision'
 import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
 import { sharedDraftId } from '../lib/review/draft/draft-id'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'

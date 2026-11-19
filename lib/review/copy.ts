@@ -3,7 +3,7 @@ import { standardOrderProblems } from './standards/standard'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../catalog/types'
 import { orderedStatePlates } from '../catalog/order'
-import { plateRevision } from './draft/revision'
+import { plateRevision } from './revision'
 import type {
   Actor,
   CopyCommitResult,

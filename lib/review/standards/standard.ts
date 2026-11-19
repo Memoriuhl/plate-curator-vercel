@@ -7,7 +7,7 @@ import {
   hasPipelineHistory,
   retainedPipelineChanges,
 } from '../pipeline-changes'
-import { plateRevision } from '../draft/revision'
+import { plateRevision } from '../revision'
 import type {
   Actor,
   EditableFields,

@@ -10,7 +10,7 @@ import {
 } from '../draft/draft'
 import { sharedDraftId } from '../draft/draft-id'
 import { draftCommitAttempts, draftRetryPause } from '../retry'
-import { plateRevision } from '../draft/revision'
+import { plateRevision } from '../revision'
 import { sameEditableValue } from '../story'
 import { draftWriteBudget, mib, writeBytes } from '../write-budget'
 import type {

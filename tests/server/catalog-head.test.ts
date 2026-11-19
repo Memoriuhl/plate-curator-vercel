@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type { ReviewDeps } from '../../lib/review/types'
 import type { Plate } from '../../lib/catalog/types'
 

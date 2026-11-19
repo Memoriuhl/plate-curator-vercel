@@ -1,7 +1,7 @@
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import type { Plate } from '../catalog/types'
 import { editableKeys } from './fields'
-import { plateRevision } from './draft/revision'
+import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
 import type {
   EditableFields,

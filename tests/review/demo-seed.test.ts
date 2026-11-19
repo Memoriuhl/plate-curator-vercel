@@ -4,7 +4,7 @@ import { proposeEdit } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { seedDemo } from '../../lib/review/demo-seed'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type { ReviewDeps } from '../../lib/review/types'
 
 const editor = {

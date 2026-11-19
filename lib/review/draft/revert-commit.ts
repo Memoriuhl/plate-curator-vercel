@@ -6,7 +6,7 @@ import { deletionPublishing, resolveConflicts } from './draft'
 import { draftGroupingFields } from '../fields'
 import { hasPipelineHistory } from '../pipeline-changes'
 import { retryDraft } from '../preconditions'
-import { plateRevision } from './revision'
+import { plateRevision } from '../revision'
 import { writeBytes } from '../write-budget'
 import type {
   Actor,

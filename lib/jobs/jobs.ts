@@ -4,7 +4,7 @@ import {
 } from './image-enhancement'
 import type { Actor, Outcome as ReviewOutcome } from '../review/types'
 import { sortedJsonValue } from '../review/canonical-value'
-import { plateRevision } from '../review/draft/revision'
+import { plateRevision } from '../review/revision'
 import type {
   JobsDeps,
   JobsTransaction,

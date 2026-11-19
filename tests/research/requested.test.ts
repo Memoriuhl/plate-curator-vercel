@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import { claimResearch, reportResearch } from '../../lib/research/jobs'
 import { acceptResearch } from '../../lib/research/accept'
 import {

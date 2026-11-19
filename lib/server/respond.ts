@@ -1,4 +1,4 @@
-import { plateRevision } from '../review/draft/revision'
+import { plateRevision } from '../review/revision'
 import type { Outcome, ReviewError } from '../review/types'
 
 // Keep authenticated API responses out of HTTP caches so clients can revalidate live state.

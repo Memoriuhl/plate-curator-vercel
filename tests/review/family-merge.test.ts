@@ -4,7 +4,7 @@ import { validateSnapshot } from '../../lib/publish/validation'
 import { mergeFamily } from '../../lib/review/families/family-merge'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { batchDetail } from '../../lib/review/queries'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import type { Actor, ReviewBatch } from '../../lib/review/types'
 
 const actor: Actor = { uid: 'editor', name: 'Editor', role: 'editor' }

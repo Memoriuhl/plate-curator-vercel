@@ -10,7 +10,7 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { plateSelection } from '../../components/dashboard/selection/plate-selection'
 import { plateCards } from '../../fixtures/plate-cards'
-import { RunMenu } from '../../components/dashboard/run-menu'
+import { RunMenu } from '../../components/dashboard/pipeline-runs/run-menu'
 import { TagRunBanner } from '../../components/dashboard/tagging/tag-run-banner'
 import {
   useTagRun,

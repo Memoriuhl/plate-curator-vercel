@@ -12,7 +12,7 @@ import { claimNext, createJob, getJob } from '../../lib/jobs/jobs'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import { retryAfterMs, type ModelAdapter } from '../../worker/model'
 
 /**

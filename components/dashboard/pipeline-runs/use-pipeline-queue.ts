@@ -21,7 +21,7 @@ import {
   snapshotPipelineOptions,
   type PipelineOptions,
 } from '@/lib/jobs/pipeline/pipeline-options'
-import type { RunPlate } from './tagging/use-tag-run'
+import type { RunPlate } from '../tagging/use-tag-run'
 import type { RunModelOptions } from '@/lib/models/selection'
 import type { TaggingJob } from '@/lib/jobs/types'
 import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'

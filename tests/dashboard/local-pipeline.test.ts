@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { planTagRun } from '../../components/dashboard/local-pipeline'
+import { planTagRun } from '../../components/dashboard/pipeline-runs/local-pipeline'
 import { localPipelineReason } from '../../lib/local-pipeline'
 
 afterEach(() => vi.unstubAllEnvs())

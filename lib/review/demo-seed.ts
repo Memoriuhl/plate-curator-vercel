@@ -1,5 +1,5 @@
 import { proposeEdit, reorderState } from './batches/batch'
-import { plateRevision } from './draft/revision'
+import { plateRevision } from './revision'
 import type { Actor, EditableFields, ReviewBatch, ReviewDeps } from './types'
 import type { Plate } from '../catalog/types'
 

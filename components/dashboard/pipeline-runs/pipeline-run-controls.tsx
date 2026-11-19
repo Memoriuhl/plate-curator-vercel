@@ -60,9 +60,9 @@ import {
 import {
   ResearchModelPicker,
   useResearchModelChoice,
-} from '../research-model-picker'
+} from '../../research/research-model-picker'
 import type { RunPlate } from '../tagging/use-tag-run'
-import type { usePipelineQueue } from '../use-pipeline-queue'
+import type { usePipelineQueue } from './use-pipeline-queue'
 import {
   estimateStageMs,
   formatEstimate,

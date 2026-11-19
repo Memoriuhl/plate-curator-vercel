@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { Plate } from '../../catalog/types'
-import { sortedJsonValue } from '../canonical-value'
+import type { Plate } from '../catalog/types'
+import { sortedJsonValue } from './canonical-value'
 
 /**
  * Fingerprint the plate's canonical data so edits and worker results can detect stale

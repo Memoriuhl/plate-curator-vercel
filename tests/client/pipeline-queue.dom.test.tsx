@@ -17,7 +17,7 @@ import {
   pipelineRunDetailKey,
   PipelineQueueWarmup,
   usePipelineQueue,
-} from '../../components/dashboard/use-pipeline-queue'
+} from '../../components/dashboard/pipeline-runs/use-pipeline-queue'
 import { PipelineQueuePanel } from '../../components/dashboard/pipeline-runs/pipeline-queue-panel'
 import {
   PipelineRunResults,
@@ -25,7 +25,7 @@ import {
 } from '../../components/dashboard/pipeline-runs/pipeline-run-results'
 import type { QueueRunView } from '../../lib/jobs/queue/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-runs/pipeline-run-controls'
-import { RunMenu } from '../../components/dashboard/run-menu'
+import { RunMenu } from '../../components/dashboard/pipeline-runs/run-menu'
 import { SelectionBar } from '../../components/dashboard/selection/selection-bar'
 import { runTimingKey } from '../../lib/jobs/run-timings'
 import { PipelineOptionSelect } from '../../components/dashboard/pipeline-runs/pipeline-option-select'

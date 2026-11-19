@@ -7,7 +7,7 @@ import {
 } from '../../review/fields'
 import { validGroupContext } from '../../review/group-context'
 import { pipelineImageFields } from '../../review/pipeline-changes'
-import { plateRevision } from '../../review/draft/revision'
+import { plateRevision } from '../../review/revision'
 import { sameEditableValue } from '../../review/story'
 import type { ProposedEdit } from '../../review/types'
 import { queueGroupContext, queueRecordFits } from './queue'

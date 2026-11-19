@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { createJob, claimNext, reportResult } from '../../lib/jobs/jobs'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/draft/revision'
+import { plateRevision } from '../../lib/review/revision'
 import { groupProposal } from '../../worker/image-group'
 import type { JobsDeps } from '../../lib/jobs/types'
 

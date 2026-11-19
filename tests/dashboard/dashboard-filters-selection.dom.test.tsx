@@ -1,27 +1,27 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { FilterBarControls } from '../components/dashboard/filter-bar'
-import { TooltipProvider } from '../components/ui/tooltip'
+import { FilterBarControls } from '../../components/dashboard/filter-bar'
+import { TooltipProvider } from '../../components/ui/tooltip'
 import {
   filterCounts,
   matchesPlate,
   parseShow,
   serializeShow,
-} from '../components/dashboard/family-grid/family-data'
+} from '../../components/dashboard/family-grid/family-data'
 import {
   plateSelection,
   useSelectionKeyboard,
-} from '../components/dashboard/selection/plate-selection'
-import { SelectionBar } from '../components/dashboard/selection/selection-bar'
-import { selectionActions } from '../components/dashboard/selection/selection-actions'
+} from '../../components/dashboard/selection/plate-selection'
+import { SelectionBar } from '../../components/dashboard/selection/selection-bar'
+import { selectionActions } from '../../components/dashboard/selection/selection-actions'
 import {
   disabledRunStages,
   newRunStages,
   pipelineStages,
   stageAvailability,
-} from '../components/dashboard/pipeline-runs/pipeline-stages'
-import { alaskaFixture } from '../fixtures/dashboard-frame'
-import type { PlateCardData } from '../lib/catalog/dashboard-types'
+} from '../../components/dashboard/pipeline-runs/pipeline-stages'
+import { alaskaFixture } from '../../fixtures/dashboard-frame'
+import type { PlateCardData } from '../../lib/catalog/dashboard-types'
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),

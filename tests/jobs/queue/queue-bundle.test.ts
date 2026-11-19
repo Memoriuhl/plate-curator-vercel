@@ -5,7 +5,7 @@ import { localJobsEnvironment } from '../../../lib/jobs/local-scope'
 import { enqueueRun } from '../../../lib/jobs/queue/queue'
 import { snapshotProjection } from '../../../lib/jobs/queue/queue-projection'
 import { applyQueueBundle } from '../../../lib/jobs/queue/queue-bundle'
-import { plateRevision } from '../../../lib/review/draft/revision'
+import { plateRevision } from '../../../lib/review/revision'
 import type { JobsDeps } from '../../../lib/jobs/types'
 import type { ReviewDeps } from '../../../lib/review/types'
 

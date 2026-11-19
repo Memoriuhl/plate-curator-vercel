@@ -6,7 +6,7 @@ import {
   queueRecordFits,
   queueGroupContext,
 } from './queue'
-import { plateRevision } from '../../review/draft/revision'
+import { plateRevision } from '../../review/revision'
 import { projectJob, type ProjectedPlate } from './queue-projection'
 import type { Actor } from '../../review/types'
 import { canEdit } from '../../review/access'

@@ -18,7 +18,7 @@ import type { QueueRunView } from '@/lib/jobs/queue/queue-types'
 import type { RunPlateDetail } from '@/lib/jobs/run-plates'
 import { plateOutcomes, type StepProgress } from '@/lib/jobs/run-progress'
 import { pipelineStepReason, pipelineStages } from './pipeline-stages'
-import { pipelineRunDetailKey, queueFetcher } from '../use-pipeline-queue'
+import { pipelineRunDetailKey, queueFetcher } from './use-pipeline-queue'
 import styles from './pipeline-runs.module.css'
 
 type Plates = {
