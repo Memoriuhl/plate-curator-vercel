@@ -253,18 +253,25 @@ export function useBatchRun(id: string | null) {
     }
   }, [id])
   // Share each batch's run status between review and publish.
-  const run = useSWR<BatchRun>(
-    user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null,
-    api.get
-  )
-  // During active publishing and the short window after a publish request, refetch on
-  // publish change signals. Workflow status is not a Firestore write, so a 5 s safety
-  // refresh catches the run finishing.
+  const runKey =
+    user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null
+  const run = useSWR<BatchRun>(runKey, api.get)
+  // Refetch on publish change signals while the view is open, so a publish started in
+  // another tab appears. Workflow status is not a Firestore write, so while a workflow is
+  // waiting to publish or publishing, a 5 s safety refresh catches the run finishing.
+  // A finished run ends the safety refresh at once, even inside the request window.
+  const phase = run.data?.phase
+  const finished =
+    phase != null &&
+    ['published', 'failed', 'superseded', 'timed-out'].includes(phase)
   useLiveRefresh(['publish'], () => run.mutate(), {
-    enabled:
-      run.data?.phase === 'publishing' ||
-      (run.data?.phase === 'waiting-for-publish' && pending),
-    safetyMs: 5000,
+    enabled: runKey !== null,
+    key: runKey ?? undefined,
+    safetyMs:
+      !finished &&
+      (pending || phase === 'publishing' || phase === 'waiting-for-publish')
+        ? 5000
+        : undefined,
   })
   useEffect(() => {
     const phase = run.data?.phase
@@ -355,6 +362,7 @@ export function usePublishControl() {
   }>(user ? '/api/publish/control' : null, api.get)
   useLiveRefresh(['publish'], () => status.mutate(), {
     enabled: Boolean(user),
+    key: '/api/publish/control',
     safetyMs: 300_000,
   })
   return {
@@ -382,19 +390,21 @@ export function usePublishControl() {
 
 /**
  * Share publish eligibility by batch and refetch on pipeline or publish change signals
- * while active pipeline work or the publish lock can change it.
+ * while the view is open, so work another curator starts appears. The slow safety
+ * refresh runs only while active pipeline work or the publish lock can change it.
  */
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
-  const baseline = useSWR<PublishBaselineStatus>(
-    user && id ? `${batchApiPath(id)}/publish` : null,
-    api.get
-  )
+  const baselineKey = user && id ? `${batchApiPath(id)}/publish` : null
+  const baseline = useSWR<PublishBaselineStatus>(baselineKey, api.get)
   useLiveRefresh(['pipeline', 'publish'], () => baseline.mutate(), {
-    enabled:
+    enabled: baselineKey !== null,
+    key: baselineKey ?? undefined,
+    safetyMs:
       baseline.data?.pipelineBusy === true ||
-      baseline.data?.retryReason === 'locked',
-    safetyMs: 60_000,
+      baseline.data?.retryReason === 'locked'
+        ? 60_000
+        : undefined,
   })
   return baseline
 }

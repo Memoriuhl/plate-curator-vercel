@@ -961,10 +961,11 @@ export function firestorePublishRecords(
     },
     /**
      * Attach the started workflow to its command only while the persisted claim still
-     * matches.
+     * matches. A link changes the run status other tabs show, so it tells publish
+     * listeners after the commit.
      */
     async bindRun(command, runId, now) {
-      return db.runTransaction(async (transaction) => {
+      const bound = await db.runTransaction(async (transaction) => {
         const ref = db.doc(`publishCommands/${publishCommandKey(command)}`)
         const batchRef = db.doc(`reviewBatches/${command.batchId}`)
         const [accepted, batch, receipt, stopped] = await transaction.getAll(
@@ -1011,6 +1012,8 @@ export function firestorePublishRecords(
         transaction.update(ref, { runId })
         return true
       })
+      if (bound) signalChange(db, env, 'publish')
+      return bound
     },
     /**
      * Adopt an existing receipt for the active command when its ownership fences allow
