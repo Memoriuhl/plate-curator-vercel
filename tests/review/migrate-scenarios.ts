@@ -408,8 +408,8 @@ export function migrationScenarios(
         folded: [],
         plates: [],
         removed: [],
-        orders: {},
       })
+      expect(again).toHaveProperty('orders', {})
       expect(await store.readBatch(draftId)).toEqual(after)
     },
     timeout

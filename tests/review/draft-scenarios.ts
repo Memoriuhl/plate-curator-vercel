@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
+import { orderedStatePlates } from '../../lib/catalog/order'
 import { applyReleaseEdits } from '../../lib/publish/apply-edits'
 import { validateSnapshot } from '../../lib/publish/validation'
 import { proposeEdit, reorderState } from '../../lib/review/batch'
@@ -27,20 +28,21 @@ import type {
 const owner: Actor = { uid: 'owner', name: 'Owner', role: 'owner' }
 /** A curator with their own uid. */
 const editor = (uid: string): Actor => ({ uid, name: uid, role: 'editor' })
-/** A plate fixture with no tags. */
-const plate = (id: string): Plate => ({
+/** A plate fixture with no tags at a catalog position. */
+const plate = (id: string, sortOrder: number): Plate => ({
   id,
   state: id.split('.')[0],
   slug: id,
   displayName: id,
   image: `${id}.png`,
   tags: [],
+  sortOrder,
 })
 const v1 = [
-  ...['one', 'two', 'three', 'four', 'five', 'six'].map((n) =>
-    plate(`AK.${n}`)
+  ...['one', 'two', 'three', 'four', 'five', 'six'].map((n, i) =>
+    plate(`AK.${n}`, i)
   ),
-  ...['one', 'two', 'three'].map((n) => plate(`AL.${n}`)),
+  ...['one', 'two', 'three'].map((n, i) => plate(`AL.${n}`, i)),
 ]
 
 /**
@@ -58,6 +60,9 @@ export function sharedDraftScenarios(
     const versions = new Map<number, Plate[]>([[1, v1]])
     // Committed publish receipts by the version they moved the pointer to.
     const origins = new Map<number, VersionOrigin>()
+    // The curator order Publish projects after each commit. Like production, it is not
+    // versioned: it always holds the latest projection, whatever version is asked for.
+    const curatorOrder: Record<string, string[]> = {}
     let live = 1
     const d: ReviewDeps = {
       store,
@@ -65,8 +70,15 @@ export function sharedDraftScenarios(
         versions.get(live)!.find((entry) => entry.id === id) ?? null,
       baselineAtVersion: async (version, id) =>
         versions.get(version)?.find((entry) => entry.id === id) ?? null,
-      stateBaseline: async (version, state) =>
-        (versions.get(version) ?? []).filter((entry) => entry.state === state),
+      stateBaseline: async (version, state, order) =>
+        orderedStatePlates(
+          { version, plates: versions.get(version) ?? [] },
+          state,
+          {
+            stateOrder: order === 'snapshot' ? {} : curatorOrder,
+            stateProgress: {},
+          }
+        ),
       liveVersion: async () => live,
       versionOrigin: async (version) => origins.get(version) ?? null,
       now: () => new Date().toISOString(),
@@ -114,6 +126,7 @@ export function sharedDraftScenarios(
       )
       if (reasons.length) throw new Error(reasons.join('; '))
       versions.set(next, plates)
+      Object.assign(curatorOrder, release.batch.stateOrders)
       origins.set(next, {
         batchId: releaseId,
         revision: release.batch.revision,
@@ -121,6 +134,30 @@ export function sharedDraftScenarios(
         toVersion: next,
         by: by.uid,
         byName: by.email,
+        at: `2026-11-18T12:00:0${next}.000Z`,
+        settled: false,
+      })
+      live = next
+      return next
+    }
+    /**
+     * Commit a publish from outside this draft (an old Batch) that ships state orders,
+     * with its receipt unsettled like `commit`.
+     */
+    const publishElsewhere = (stateOrders: Record<string, string[]>) => {
+      const next = live + 1
+      versions.set(
+        next,
+        applyReleaseEdits(versions.get(live)!, [], stateOrders).plates
+      )
+      Object.assign(curatorOrder, stateOrders)
+      origins.set(next, {
+        batchId: `elsewhere-${next}`,
+        revision: 1,
+        fromVersion: live,
+        toVersion: next,
+        by: 'ben',
+        byName: 'ben@x',
         at: `2026-11-18T12:00:0${next}.000Z`,
         settled: false,
       })
@@ -158,6 +195,7 @@ export function sharedDraftScenarios(
       commit,
       settle,
       outsideChange,
+      publishElsewhere,
     }
   }
 
@@ -416,6 +454,37 @@ export function sharedDraftScenarios(
       expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
         'AK.one': { description: null },
       })
+    },
+    timeout
+  )
+
+  test(
+    'a state order the draft published is not reintroduced after another publish restores the earlier order',
+    async () => {
+      const { store, d, draftId, env, commit, settle, publishElsewhere } =
+        await setup()
+      const draft = await ensureDraft(d, env, owner)
+      expect(
+        await reorderState(d, owner, {
+          batchId: draftId,
+          state: 'AL',
+          batchRevision: draft.revision,
+          order: ['AL.one', 'AL.three', 'AL.two'],
+        })
+      ).toMatchObject({ ok: true }) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      settle(await commit(frozen.value.id))
+      // Before the draft settles, an old Batch puts Alabama back the way it was.
+      settle(publishElsewhere({ AL: ['AL.one', 'AL.two', 'AL.three'] }))
+
+      const settled = await ensureDraft(d, env, editor('cy'))
+      expect(settled).toMatchObject({
+        baselineVersion: 3,
+        lastPublish: { releaseId: frozen.value.id, version: 2 },
+      })
+      expect(settled.stateOrders).toEqual({})
+      expect((await store.getBatch(draftId))!.conflicts).toBeUndefined()
     },
     timeout
   )

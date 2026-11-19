@@ -485,6 +485,46 @@ export function clearedValue(key: string): unknown {
   return null
 }
 
+/** A state's plate ids in the given order source at a catalog version. */
+async function stateIds(
+  d: ReviewDeps,
+  version: number,
+  state: string,
+  order?: 'snapshot'
+) {
+  return (await d.stateBaseline(version, state, order)).map((plate) => plate.id)
+}
+
+/** Ids of `order` that `other` also lists, in `order`'s sequence. */
+function shared(order: string[], other: string[]) {
+  const ids = new Set(other)
+  return order.filter((id) => ids.has(id))
+}
+
+/**
+ * A state's order on live right after a move. The curator order is not versioned (it
+ * holds the latest projection), so a committed publish is replayed from its immutable
+ * Snapshot order when it shipped an order for the state, and otherwise keeps the order
+ * live had before it. An outside move has no record, so it reads the curator order.
+ */
+async function orderAfter(
+  d: ReviewDeps,
+  move: CatalogMove,
+  state: string,
+  release: DraftSnapshot | undefined,
+  before: string[] | undefined
+) {
+  if (!move.origin) return stateIds(d, move.to, state)
+  const after = await stateIds(d, move.to, state, 'snapshot')
+  const shipped = release
+    ? Object.hasOwn(release.batch.stateOrders ?? {}, state)
+    : await stateIds(d, move.from, state, 'snapshot').then(
+        (prior) => !sameList(shared(prior, after), shared(after, prior))
+      )
+  if (shipped) return after
+  return before ? orderOnto(before, after) : stateIds(d, move.to, state)
+}
+
 /** Apply one catalog move to the working draft. */
 async function moveOnto(
   d: ReviewDeps,
@@ -607,7 +647,13 @@ async function moveOnto(
           release.batch.baselineOrders?.[state])
         : undefined)
     if (!saved) continue
-    const live = (await d.stateBaseline(to, state)).map((plate) => plate.id)
+    const live = await orderAfter(
+      d,
+      move,
+      state,
+      release,
+      working.baselineOrders[state] ?? release?.batch.baselineOrders?.[state]
+    )
     if (!live.length) continue
     const order = orderOnto(saved, live)
     if (sameList(order, live)) continue
