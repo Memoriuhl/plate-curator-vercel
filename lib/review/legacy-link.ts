@@ -31,11 +31,16 @@ export function resolvesBatchLinks(pathname: string) {
   return /^\/(states|review)(\/|$)/.test(pathname)
 }
 
-/** The URL a `?batch=` link on this page should become, or null to stay. */
+/**
+ * The URL a `?batch=` link on this page should become, or null to stay. A link that
+ * stays on its page keeps its fragment (such as the Dashboard's `#families`); history
+ * opens in Review, which has no such anchor.
+ */
 export function batchLinkRedirect(
   pathname: string,
   query: URLSearchParams,
-  link: BatchLink
+  link: BatchLink,
+  hash = ''
 ): string | null {
   const id = query.get('batch')
   if (!id || link === 'draft') return null
@@ -51,5 +56,5 @@ export function batchLinkRedirect(
   const next = new URLSearchParams(query)
   next.delete('batch')
   next.set(OLD_BATCH_NOTICE, '1')
-  return `${pathname}?${next}`
+  return `${pathname}?${next}${hash}`
 }

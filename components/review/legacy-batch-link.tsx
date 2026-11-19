@@ -26,12 +26,16 @@ export function LegacyBatchLink() {
   const detail = useBatch(watched ? id : null, { reuse: true })
   const missing =
     detail.error instanceof ApiError && detail.error.status === 404
+  // The fragment never reaches the server, and a link is only resolved once its Batch
+  // has loaded in the browser.
+  const hash = typeof window === 'undefined' ? '' : window.location.hash
   const target =
     watched && (detail.data || missing)
       ? batchLinkRedirect(
           pathname,
           query,
-          batchLink(id, detail.data?.batch ?? null)
+          batchLink(id, detail.data?.batch ?? null),
+          hash
         )
       : null
   useEffect(() => {
@@ -42,7 +46,9 @@ export function LegacyBatchLink() {
   const dismiss = () => {
     const next = new URLSearchParams(query)
     next.delete(OLD_BATCH_NOTICE)
-    router.replace(next.size ? `${pathname}?${next}` : pathname)
+    router.replace(
+      `${next.size ? `${pathname}?${next}` : pathname}${window.location.hash}`
+    )
   }
   return (
     <div

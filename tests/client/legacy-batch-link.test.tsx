@@ -49,6 +49,7 @@ function open(url: string, batch?: Partial<ReviewBatch>, error?: Error) {
 beforeEach(() => {
   mocks.replace.mockReset()
   mocks.requested = []
+  window.history.replaceState(null, '', '/')
 })
 afterEach(cleanup)
 
@@ -115,6 +116,29 @@ test('the notice explains where the changes went and can be dismissed', () => {
   )
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
   expect(mocks.replace).toHaveBeenCalledWith('/review?state=AK')
+})
+
+test('a migrated Dashboard link keeps its Families anchor, including when the notice is dismissed', () => {
+  window.history.replaceState(null, '', '/states/AK#families')
+  open('/states/AK?batch=old&plate=AK.one', {
+    state: 'folded',
+    foldedInto: 'shared-draft-test',
+  })
+  expect(mocks.replace).toHaveBeenCalledWith(
+    '/states/AK?plate=AK.one&oldBatch=1#families'
+  )
+  cleanup()
+  open('/states/AK?plate=AK.one&oldBatch=1')
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  expect(mocks.replace).toHaveBeenLastCalledWith(
+    '/states/AK?plate=AK.one#families'
+  )
+  // History opens on another page, which has no Families section to scroll to.
+  cleanup()
+  open('/states/AK?batch=shipped&plate=AK.one', { state: 'published' })
+  expect(mocks.replace).toHaveBeenLastCalledWith(
+    '/review?state=AK&plate=AK.one&batch=shipped'
+  )
 })
 
 test('a load error other than not found leaves the link as it is', () => {
