@@ -1,6 +1,7 @@
 import type {
   PublishCommand,
   PublishDeps,
+  ReleaseFence,
 } from '../../../../../lib/publish/types'
 import { validCommandId } from '../../../../../lib/publish/types'
 import { sameRequester } from '../../../../../lib/publish/authority'
@@ -243,6 +244,8 @@ async function publishDraft(
   }
   if (await publishing.records.pipelineBusy?.())
     return await pipelineBusyResponse(publishing)
+  // Read the fence before the check, so a release accepted after it refuses this one.
+  const fence = await readReleaseFence(publishing, draftId)
   if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
     return json({ error: 'release_in_progress' }, 409)
   const draft = await ensureDraft(deps, env, actor)
@@ -269,8 +272,19 @@ async function publishDraft(
     requestedBy,
     frozen.value,
     frozen.value.revision,
-    commandId
+    commandId,
+    fence
   )
+}
+
+/** The shared draft's accepted-release count, when the records keep one. */
+async function readReleaseFence(
+  publishing: PublishDeps,
+  draftId: string
+): Promise<ReleaseFence | undefined> {
+  return publishing.records.releaseFence
+    ? { draftId, seq: await publishing.records.releaseFence(draftId) }
+    : undefined
 }
 
 /**
@@ -284,7 +298,8 @@ async function confirmBatch(
   requestedBy: ReturnType<typeof requesterAuthority>,
   batch: ReviewBatch,
   revision: number,
-  commandId?: string
+  commandId?: string,
+  checkedFence?: ReleaseFence
 ) {
   const id = batch.id
   // Old Batches can still finish a publish they started, but only a release made from
@@ -302,9 +317,17 @@ async function confirmBatch(
     )
     return json({ error: 'superseded_revision', confirmation }, 409)
   }
+  let fence = checkedFence
   if (confirmDraft) {
-    // A new command for an unaccepted release follows the draft's latest conflicts and
-    // floor, whether it came through the draft or the release's own page.
+    // A new command for an unaccepted release waits for any release holding its draft
+    // and follows the draft's latest conflicts and floor, whether it came through the
+    // draft or the release's own page.
+    const draftId = batch.source?.batchId
+    if (!fence && draftId) {
+      fence = await readReleaseFence(publishing, draftId)
+      if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
+        return json({ error: 'release_in_progress' }, 409)
+    }
     const acceptable = await releaseAcceptable(deps, batch)
     if (!acceptable.ok)
       return json(
@@ -340,7 +363,7 @@ async function confirmBatch(
       },
       409
     )
-  const accepted = await publishing.records.accept(command, deps.now())
+  const accepted = await publishing.records.accept(command, deps.now(), fence)
   if (!accepted.ok) {
     if (accepted.error !== 'superseded_revision')
       return json({ error: accepted.error }, 409)

@@ -123,6 +123,7 @@ beforeEach(async () => {
   await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.recursiveDelete(db.collection('publishRecords'))
   await db.recursiveDelete(db.collection('publishVersionBurns'))
+  await db.recursiveDelete(db.collection('releaseFences'))
   await db.doc('locks/publish').delete()
   await db.recursiveDelete(db.doc('reviewBatches/batch'))
   await db.recursiveDelete(db.doc(`reviewBatches/${draftId}`))
@@ -201,6 +202,7 @@ afterAll(async () => {
   await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.recursiveDelete(db.collection('publishRecords'))
   await db.recursiveDelete(db.collection('publishVersionBurns'))
+  await db.recursiveDelete(db.collection('releaseFences'))
   await db.recursiveDelete(db.doc('reviewBatches/batch'))
   await db.doc('curatorLive/retry-route/batchRevisions/batch').delete()
   await db.doc('config/catalog').delete()
@@ -871,6 +873,50 @@ test('a stale freeze brought back by a rollback waits for the Owner at both entr
     })
   ).toMatchObject({ ok: true })
   await refused('superseded_revision', 'kept')
+})
+
+test('two Publish requests racing on one draft accept and start only one revision', async () => {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  // Hold the first request right after it found no release holding the draft.
+  const list = deps.store.list
+  let paused = false
+  let reached!: () => void
+  let resume!: () => void
+  const atPause = new Promise<void>((resolve) => (reached = resolve))
+  const resumed = new Promise<void>((resolve) => (resume = resolve))
+  deps.store.list = async (filter: { states?: string[] }) => {
+    const result = await list(filter)
+    if (!paused && filter.states?.includes('approved')) {
+      paused = true
+      reached()
+      await resumed
+    }
+    return result
+  }
+  const stale = POST(draftRequest(1, 'race-one'), draftCtx)
+  await atPause
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['second']),
+    by,
+  })
+  expect((await POST(draftRequest(2, 'race-two'), draftCtx)).status).toBe(202)
+  resume()
+  const response = await stale
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'release_in_progress' })
+  expect(mocks.start).toHaveBeenCalledTimes(1)
+  expect(await deps.records.command('race-one')).toBeNull()
+  expect(await deps.records.command('race-two')).not.toBeNull()
 })
 
 test('undoing a deletion waits while its release runs, and is accepted once that release fails before preparing a Snapshot', async () => {

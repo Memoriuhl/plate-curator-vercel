@@ -206,6 +206,11 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
   }
 }
 
+/** The fence document counting accepted releases of one shared draft. */
+function releaseFencePath(draftId: string) {
+  return `releaseFences/${draftId}`
+}
+
 /** Build the transactional publish receipt adapter that fences competing workflows. */
 export function firestorePublishRecords(
   db: Firestore,
@@ -771,7 +776,11 @@ export function firestorePublishRecords(
      * Accept a publish command transactionally, resolving concurrent claims against
      * refreshed evidence.
      */
-    async accept(command, now) {
+    async releaseFence(draftId) {
+      const seq = (await db.doc(releaseFencePath(draftId)).get()).get('seq')
+      return typeof seq === 'number' ? seq : 0
+    },
+    async accept(command, now, fence) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const evidence = await resolveRun(command, now)
         const result = await db.runTransaction<
@@ -792,6 +801,13 @@ export function firestorePublishRecords(
               return { ok: false, error: PUBLISH_STOPS.superseded }
             command = data.command as PublishCommand
           }
+          const fenceRef = fence
+            ? db.doc(releaseFencePath(fence.draftId))
+            : null
+          const fenced =
+            fenceRef && !accepted.exists
+              ? await transaction.get(fenceRef)
+              : null
           const {
             eligibility,
             batch,
@@ -819,6 +835,20 @@ export function firestorePublishRecords(
               ...(runId ? { runId: runId as string } : {}),
             }
           }
+          // Only one release of a shared draft is accepted per fence reading: a request
+          // that checked for a holding release before another was accepted refuses.
+          const sourceDraft = confirmed
+            ? batch.get('source.batchId')
+            : undefined
+          const seq = fenced?.get('seq')
+          if (
+            typeof sourceDraft === 'string' &&
+            (!fence ||
+              !fenceRef ||
+              fence.draftId !== sourceDraft ||
+              (typeof seq === 'number' ? seq : 0) !== fence.seq)
+          )
+            return { ok: false, error: 'release_in_progress' }
           if (
             input.claim &&
             input.claim.command.commandId !== command.commandId &&
@@ -852,6 +882,15 @@ export function firestorePublishRecords(
               }
             )
           }
+          if (typeof sourceDraft === 'string')
+            transaction.set(fenceRef!, {
+              env,
+              seq: fence!.seq + 1,
+              releaseId: command.batchId,
+              revision: command.confirmedDraftRevision,
+              commandId: command.commandId,
+              at: now,
+            })
           if (confirmed) {
             transaction.update(batch.ref, confirmed)
             transaction.set(
