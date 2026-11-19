@@ -24,6 +24,7 @@ import {
   type EligibilityInput,
   type PublishRunLookup,
 } from './eligibility'
+import { sharedDraftId } from '../review/draft-id'
 import { liveEnvKey, signalPath } from '../review/live-signal'
 import {
   deletionPublishFenceRef,
@@ -834,7 +835,8 @@ export function firestorePublishRecords(
           const runId = accepted.get('runId') ?? input.claim?.runId
           const sourceId = batch.get('source.batchId') as string | undefined
           if (
-            sourceId &&
+            batch.get('kind') === 'release' &&
+            sourceId === sharedDraftId(env) &&
             (!accepted.exists || !runId) &&
             batch.get('state') !== 'published'
           ) {

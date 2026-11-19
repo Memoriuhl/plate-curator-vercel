@@ -1021,6 +1021,38 @@ test('deletion undo and Publish acceptance are serialized in either commit order
   })
 })
 
+test('Retry starts a stopped Publish for a legacy approved copy with a deletion', async () => {
+  const original = db.doc('reviewBatches/legacy-copy-source')
+  const copy = db.doc(`reviewBatches/${batch.id}`)
+  await db
+    .batch()
+    .set(original, { ...batch, id: original.id, env })
+    .update(copy, {
+      source: { batchId: original.id, revision: batch.revision },
+    })
+    .set(copy.collection('edits').doc('one'), {
+      ...tagEdit('one', []),
+      fields: { deleted: true },
+    })
+    .commit()
+  try {
+    mocks.status.mockResolvedValue('failed')
+    expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({
+      canRetry: true,
+    })
+    const response = await POST(request('retry-legacy-deletion'), ctx)
+    expect({
+      status: response.status,
+      body: await response.json(),
+    }).toMatchObject({
+      status: 202,
+      body: { status: 'publishing', runId: 'fresh-run' },
+    })
+  } finally {
+    await original.delete()
+  }
+})
+
 test('an Editor cannot confirm a Publish', async () => {
   mocks.actor.mockResolvedValue({
     ok: false,
