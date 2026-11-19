@@ -448,6 +448,90 @@ export function migrationScenarios(
   )
 
   test(
+    'dry run, apply and a run stopped after folding pick the same order for mixed legacy timestamps',
+    async () => {
+      const ana = ['AK.two', 'AK.one', 'AK.three']
+      const ben = ['AK.three', 'AK.one', 'AK.two']
+      // Ana's order is timed only by her Batch's last save; Ben's by its own stamp.
+      const mixed = () =>
+        seeded([
+          {
+            batch: legacy('ana', 'open', 'Ana', at(1), {
+              lastChangedAt: at(10),
+              stateOrders: { AK: ana },
+              baselineOrders: { AK: liveOrder('AK') },
+            }),
+            edits: [],
+          },
+          {
+            batch: legacy('ben', 'open', 'Ben', at(2), {
+              lastChangedAt: at(11),
+              stateOrders: { AK: ben },
+              baselineOrders: { AK: liveOrder('AK') },
+              stateOrderChangedAt: { AK: at(11) },
+            }),
+            edits: [],
+          },
+        ])
+
+      const dry = await mixed()
+      expect((await dry.migrate({ apply: false })).orders).toEqual({
+        AK: dry.id('ben'),
+      })
+
+      const applied = await mixed()
+      expect((await applied.migrate()).orders).toEqual({
+        AK: applied.id('ben'),
+      })
+      expect(
+        (await applied.store.getBatch(applied.draftId))!.stateOrders
+      ).toEqual({ AK: ben })
+      // Folding closes the Batch but keeps its own last-save time.
+      expect(await applied.store.getBatch(applied.id('ana'))).toMatchObject({
+        state: 'folded',
+        lastChangedAt: at(10),
+      })
+
+      const stopped = await mixed()
+      // The first run closes both Batches, then stops before the draft write.
+      const stopping = new Proxy(stopped.store, {
+        get(target, key, receiver) {
+          if (key !== 'commit') return Reflect.get(target, key, receiver)
+          return (
+            id: string,
+            ...rest: Parameters<ReviewStore['commit']> extends [
+              string,
+              ...infer R,
+            ]
+              ? R
+              : never
+          ) => {
+            if (id === stopped.draftId)
+              throw new Error('stopped before the draft write')
+            return target.commit(id, ...rest)
+          }
+        },
+      })
+      await expect(
+        migrateToSharedDraft(deps(stopping), stopped.env, {
+          apply: true,
+          actor,
+        })
+      ).rejects.toThrow('stopped')
+      expect(await stopped.store.getBatch(stopped.id('ana'))).toMatchObject({
+        state: 'folded',
+      })
+      expect((await stopped.migrate()).orders).toEqual({
+        AK: stopped.id('ben'),
+      })
+      expect(
+        (await stopped.store.getBatch(stopped.draftId))!.stateOrders
+      ).toEqual({ AK: ben })
+    },
+    timeout
+  )
+
+  test(
     'a tie between a Batch and the draft keeps the draft value',
     async () => {
       const { store, draftId, migrate } = await seeded(

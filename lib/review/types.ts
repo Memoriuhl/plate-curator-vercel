@@ -84,6 +84,8 @@ export type ReviewBatch = {
   conflicts?: DraftConflict[]
   migratedBatchIds?: string[]
   foldedInto?: string
+  /** When the migration closed this Batch to edits; lastChangedAt keeps its last save. */
+  foldedAt?: string
 }
 export type EditableFields = Partial<
   Pick<

@@ -379,7 +379,8 @@ async function markFolded(d: ReviewDeps, id: string, draftId: string) {
         state: 'folded',
         foldedInto: draftId,
         revision: batch.revision + 1,
-        lastChangedAt: d.now(),
+        // lastChangedAt stays: it times this Batch's state orders in the fold.
+        foldedAt: d.now(),
       },
       history: false,
     })
