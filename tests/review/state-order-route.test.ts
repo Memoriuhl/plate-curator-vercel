@@ -20,6 +20,7 @@ vi.mock('next/cache', () => ({
 vi.mock('../../lib/server/context', () => context)
 const batch = {
   id: 'batch',
+  kind: 'shared-draft' as const,
   name: 'Order',
   createdBy: 'editor',
   createdByName: null,
@@ -231,6 +232,8 @@ test.each([
   expect((await put(body)).status).toBe(400)
 })
 test('returns conflict for stale revisions and unprocessable for non-permutations', async () => {
+  // A revision below the draft's rebase floor can no longer be replayed.
+  context.reviewDeps().store = createMemoryStore([{ ...batch, rebaseFloor: 4 }])
   const stale = await put({ batchRevision: 3, order: ['two', 'one'] })
   expect(stale.status).toBe(409)
   expect(await stale.json()).toEqual({ error: 'superseded_revision' })
@@ -238,18 +241,41 @@ test('returns conflict for stale revisions and unprocessable for non-permutation
     422
   )
 })
-test('returns forbidden and missing batch statuses', async () => {
-  context.currentActor.mockResolvedValue({
-    ok: true,
-    actor: { uid: 'other', role: 'editor', name: null },
-  })
-  expect((await put({ batchRevision: 4, order: ['one', 'two'] })).status).toBe(
-    403
-  )
+test('an old Batch answers 409 as read-only history and a missing one 404', async () => {
+  const { kind: _kind, ...legacy } = batch
+  context.reviewDeps().store = createMemoryStore([legacy])
+  const old = await put({ batchRevision: 4, order: ['one', 'two'] })
+  expect(old.status).toBe(409)
+  expect(await old.json()).toMatchObject({ error: 'history_read_only' })
   context.reviewDeps().store = createMemoryStore([])
   expect((await put({ batchRevision: 4, order: ['one', 'two'] })).status).toBe(
     404
   )
+})
+
+test('a plate PATCH from a tab still on an old Batch answers 409 and saves nothing', async () => {
+  const { kind: _kind, ...legacy } = batch
+  const store = createMemoryStore([legacy])
+  context.reviewDeps().store = store
+  const plate = {
+    id: 'one',
+    state: 'AK',
+    slug: 'one',
+    displayName: 'One',
+    image: '',
+    tags: [],
+  }
+  context.reviewDeps().baseline = async () => plate
+  context.reviewDeps().baselineAtVersion = async () => plate
+  // The creator, with the plate's current revision: only the target is wrong.
+  const response = await patchPlate('one', {
+    baseRevision: plateRevision(plate),
+    fields: { tags: ['late'] },
+  })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'history_read_only' })
+  expect(await store.listEdits('batch')).toEqual([])
+  expect(await store.getBatch('batch')).toMatchObject({ revision: 4 })
 })
 
 test('PATCH persists a null variant link and detail exposes the detached template', async () => {

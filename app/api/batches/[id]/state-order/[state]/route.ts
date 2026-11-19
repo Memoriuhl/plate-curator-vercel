@@ -1,4 +1,4 @@
-import { batchTarget } from '../../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
 import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import { reorderState } from '../../../../../../lib/review/batch'
 import {
@@ -36,7 +36,9 @@ export async function PUT(
     return badRequest()
   const params = await ctx.params
   const state = params.state
-  const id = await batchTarget(params.id, auth.actor)
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const values =
     body.promotions ?? (body.promotion !== undefined ? [body.promotion] : [])
   if (

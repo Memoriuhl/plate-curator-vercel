@@ -1,4 +1,4 @@
-import { batchTarget } from '../../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
 import { acceptImage } from '@/lib/review/image'
 import { currentActor, jobsDeps, reviewDeps } from '@/lib/server/context'
 import { catalogChanged } from '@/lib/server/catalog-head'
@@ -26,7 +26,9 @@ export async function POST(
     )
   )
     return badRequest()
-  const id = await batchTarget((await ctx.params).id, auth.actor)
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const saved = await acceptImage(reviewDeps(), jobsDeps(), auth.actor, {
     batchId: id,
     jobId: body.jobId as string,

@@ -1,6 +1,5 @@
-import { isSharedDraftId } from '../../../../../lib/review/draft-id'
 import { keepDraftValues } from '../../../../../lib/review/draft'
-import { batchTarget } from '../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { currentActiveOwner, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'
 
@@ -21,9 +20,9 @@ export async function POST(
     body.revision < 0
   )
     return badRequest()
-  const { id: raw } = await ctx.params
-  if (!isSharedDraftId(raw)) return json({ error: 'not_found' }, 404)
-  const id = await batchTarget(raw, auth.actor)
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const kept = await keepDraftValues(reviewDeps(), auth.actor, {
     batchId: id,
     revision: body.revision,

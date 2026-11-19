@@ -6,7 +6,7 @@ import {
 import { pipelineSelectionLimit } from '../../../../../lib/jobs/pipeline-selection'
 import { currentActor, jobsDeps } from '../../../../../lib/server/context'
 import { SHARED_DRAFT_ALIAS } from '../../../../../lib/review/draft-id'
-import { batchTarget } from '../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import {
   queueResponse,
   startQueueWorkflow,
@@ -33,10 +33,12 @@ export async function POST(request: Request) {
     return badRequest()
   const requested =
     batchName !== undefined ? SHARED_DRAFT_ALIAS : selection.batchId
-  const batchId =
+  const target =
     typeof requested === 'string'
-      ? await batchTarget(requested, auth.actor)
-      : requested
+      ? await draftWriteTarget(requested, auth.actor)
+      : null
+  if (target && !target.ok) return target.response
+  const batchId = target ? target.id : requested
   const input = parseEnqueue({ ...selection, batchId }, pipelineSelectionLimit)
   if (!input) return badRequest()
   const result = await enqueueSelection(deps, auth.actor, input)

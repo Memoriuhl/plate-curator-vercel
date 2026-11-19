@@ -4,13 +4,16 @@ const mocks = vi.hoisted(() => ({
   choose: vi.fn(),
   validate: vi.fn(),
   start: vi.fn(),
+  batch: vi.fn(),
 }))
+// The route only reads the named batch to check it is the shared draft.
+const deps = vi.hoisted(() => ({ store: { getBatch: () => mocks.batch() } }))
 vi.mock('workflow/api', () => ({ start: mocks.start }))
 vi.mock('../../lib/server/context', () => ({
   currentActor: mocks.actor,
   chooseModel: mocks.choose,
   /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps:
-    () => ({}),
+    () => deps,
 }))
 vi.mock('../../lib/review/tagging', () => ({ validateTagging: mocks.validate }))
 vi.mock('../../workflows/pipeline', () => ({ pipelineRun: vi.fn() }))
@@ -35,6 +38,7 @@ beforeEach(() => {
   })
   mocks.validate.mockReset().mockResolvedValue({ ok: true })
   mocks.start.mockReset().mockResolvedValue({ runId: 'run' })
+  mocks.batch.mockReset().mockResolvedValue({ kind: 'shared-draft' })
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -65,7 +69,7 @@ test('validates the actor, stage, local model and Batch ownership before startin
   expect(response.status).toBe(202)
   expect(mocks.choose).toHaveBeenCalledWith('desktop-gemma4-12b', 'desktop')
   expect(mocks.validate).toHaveBeenCalledWith(
-    {},
+    deps,
     { uid: 'editor', role: 'editor' },
     'own-batch',
     'AK.one'
@@ -91,4 +95,14 @@ test('Wiki link does not require any configured model', async () => {
   expect(response.status).toBe(202)
   expect(mocks.choose).not.toHaveBeenCalled()
   expect(await response.json()).not.toHaveProperty('model')
+})
+
+test('a pipeline request on an old Batch answers 409 before starting a job', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  mocks.batch.mockResolvedValue({ state: 'open', createdBy: 'editor' })
+  const response = await POST(request({ stage: 'describe' }), ctx)
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'history_read_only' })
+  expect(mocks.validate).not.toHaveBeenCalled()
+  expect(mocks.start).not.toHaveBeenCalled()
 })

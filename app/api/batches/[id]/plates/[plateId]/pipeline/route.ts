@@ -1,4 +1,4 @@
-import { batchTarget } from '../../../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { validateTagging } from '@/lib/review/tagging'
 import { chooseModel, currentActor, reviewDeps } from '@/lib/server/context'
@@ -42,7 +42,9 @@ export async function POST(
       : respond({ ok: false, error: 'invalid_state' })
   const params = await ctx.params
   const plateId = params.plateId
-  const id = await batchTarget(params.id, auth.actor)
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const validation = await validateTagging(
     reviewDeps(),
     auth.actor,

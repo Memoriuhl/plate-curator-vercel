@@ -116,6 +116,7 @@ const plate: Plate = {
 }
 const openBatch = {
   id: 'batch',
+  kind: 'shared-draft' as const,
   name: 'AK edits',
   createdBy: 'editor',
   createdByName: null,

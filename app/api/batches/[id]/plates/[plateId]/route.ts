@@ -1,4 +1,4 @@
-import { batchTarget } from '../../../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
 import { parseStandardChange } from '../../../../../../lib/review/standard-change'
 import {
   proposeEdit,
@@ -28,7 +28,9 @@ export async function PATCH(
   const body = await readJson(request)
   const params = await ctx.params
   const plateId = params.plateId
-  const id = await batchTarget(params.id, auth.actor)
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   if (body?.discard !== undefined) {
     const { batchRevision, discard } = body
     const target =

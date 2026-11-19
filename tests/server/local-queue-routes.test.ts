@@ -13,6 +13,7 @@ import {
   observeQueueStage,
 } from '../../lib/jobs/queue-engine'
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
+import { enqueueRun } from '../../lib/jobs/queue'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { GET, POST } from '../../app/api/local-pipeline/runs/route'
 import { POST as createSelection } from '../../app/api/local-pipeline/runs/selection/route'
@@ -85,6 +86,7 @@ beforeEach(() => {
   const review = createMemoryStore([
     {
       id: 'batch',
+      kind: 'shared-draft',
       name: 'Queue',
       createdBy: actor.uid,
       createdAt: '',
@@ -208,8 +210,27 @@ test('authentication and other-owner visibility/mutations reject without exposin
   })
   expect((await POST(post())).status).toBe(401)
   expect(mocks.jobs).not.toHaveBeenCalled()
-  await POST(post())
-  const [run] = await deps.store.transaction((tx) => tx.runs())
+  // A run from before the cutover, on the creator's own Batch.
+  await mocks.review().store.create({
+    id: 'legacy',
+    name: 'Old Batch',
+    createdBy: actor.uid,
+    createdByName: null,
+    createdAt: '',
+    revision: 0,
+    state: 'open',
+    baselineVersion: 1,
+    plateIds: ['AK.one'],
+    stateOrders: {},
+    approval: null,
+  })
+  const created = await enqueueRun(deps, actor, {
+    ...body,
+    batchId: 'legacy',
+    stages: ['tag'],
+  })
+  if (!created.ok) throw new Error(created.error)
+  const run = created.value
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
   expect(await (await GET(get())).json()).toMatchObject({
     runs: [],
@@ -227,6 +248,46 @@ test('authentication and other-owner visibility/mutations reject without exposin
   expect(
     await claimNext({ ...deps, localScope: undefined }, 'production')
   ).toBeNull()
+})
+
+test('a run enqueued on an old Batch answers 409 and queues nothing', async () => {
+  await mocks.review().store.create({
+    id: 'legacy',
+    name: 'Old Batch',
+    createdBy: actor.uid,
+    createdByName: null,
+    createdAt: '',
+    revision: 0,
+    state: 'open',
+    baselineVersion: 1,
+    plateIds: ['AK.one'],
+    stateOrders: {},
+    approval: null,
+  })
+  const single = await POST(
+    new Request(get().url, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'legacy' }),
+    })
+  )
+  expect(single.status).toBe(409)
+  expect(await single.json()).toMatchObject({ error: 'history_read_only' })
+  const selection = await createSelection(
+    new Request(`${get().url}/selection`, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'legacy' }),
+    })
+  )
+  expect(selection.status).toBe(409)
+  const missing = await POST(
+    new Request(get().url, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'missing' }),
+    })
+  )
+  expect(missing.status).toBe(404)
+  expect(await deps.store.transaction((tx) => tx.runs())).toEqual([])
+  expect(mocks.start).not.toHaveBeenCalled()
 })
 
 test('detail only reads one authorized run and its saved jobs without scanning the queue', async () => {

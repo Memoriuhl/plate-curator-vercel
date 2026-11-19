@@ -10,7 +10,7 @@ import {
 import type { QueueRunView } from '../../../../lib/jobs/queue-types'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
-import { batchTarget } from '../../../../lib/server/draft-target'
+import { draftWriteTarget } from '../../../../lib/server/draft-target'
 import {
   queueResponse,
   reconcileQueueWorkflow,
@@ -169,12 +169,13 @@ export async function POST(request: Request) {
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
-  // Runs started against the shared draft alias land in the environment's draft.
-  const input = parseEnqueue(
+  // Runs land in the shared draft; an old Batch or a release is read-only history.
+  const target =
     body && typeof body === 'object' && typeof body.batchId === 'string'
-      ? { ...body, batchId: await batchTarget(body.batchId, auth.actor) }
-      : body
-  )
+      ? await draftWriteTarget(body.batchId, auth.actor)
+      : null
+  if (target && !target.ok) return target.response
+  const input = parseEnqueue(target ? { ...body, batchId: target.id } : body)
   if (!input) return badRequest()
   const result = await enqueueSelection(jobsDeps(), auth.actor, input)
   if (!result.ok) return queueResponse(result)
