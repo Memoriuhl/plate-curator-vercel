@@ -100,10 +100,7 @@ export function ResearchModelPicker({
       <HostedModelPicker
         label="Research model"
         catalog={choice.hosted}
-        localModels={choice.local.map((model) => ({
-          ...model,
-          label: researchModelLabel(model),
-        }))}
+        localModels={choice.local}
         selected={choice.model}
         options={choice.preference.options}
         onChange={choice.choose}
@@ -137,12 +134,18 @@ export function ResearchModelPicker({
           label="Research model"
           value={choice.model.id}
           onChange={choice.choose}
-          options={choice.models.map((model) => ({
-            value: model.id,
-            label: researchModelLabel(model),
-            icon:
-              model.executor === 'desktop' ? IoLaptopOutline : IoCloudOutline,
-          }))}
+          options={[...choice.models]
+            .sort(
+              (a, b) =>
+                Number(a.executor !== 'desktop') -
+                Number(b.executor !== 'desktop')
+            )
+            .map((model) => ({
+              value: model.id,
+              label: researchModelLabel(model),
+              icon:
+                model.executor === 'desktop' ? IoLaptopOutline : IoCloudOutline,
+            }))}
         />
       )}
     </div>
