@@ -41,6 +41,26 @@ export const loadJurisdiction = cache(async (code: string) => {
   return buildJurisdiction(snapshot, curator, imageUrl, code)
 })
 
+/** Read the published cards for the exact catalog version a draft rebased onto. */
+export async function loadPublishedStateCards(version: number, code: string) {
+  const source = catalog()
+  const kind = catalogSourceKind({
+    CATALOG_SOURCE: process.env.CATALOG_SOURCE,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  })
+  const snapshot = await cachedJurisdiction(version, code, kind)
+  if (snapshot.version !== version)
+    throw new Error('Baseline catalog version unavailable')
+  return (
+    buildJurisdiction(
+      snapshot,
+      { stateOrder: {}, stateProgress: {} },
+      source.imageUrl,
+      code
+    )?.plates ?? []
+  )
+}
+
 /** Memoize each plate's detail per server render so duplicate lookups reuse the projection. */
 export const loadPlate = cache(async (id: string) => {
   const { version, curator, imageUrl, kind } = await loadInputs()

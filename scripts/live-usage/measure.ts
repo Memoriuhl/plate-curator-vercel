@@ -26,10 +26,16 @@ const minutes = Number(env.USAGE_MINUTES ?? 10)
 const runAtSeconds = Number(env.USAGE_RUN_AT_SECONDS ?? 60)
 /** Observe with the drawer open and no run queued. */
 const idle = env.USAGE_IDLE === '1'
+const sharedDraft = env.USAGE_SHARED_DRAFT === '1'
 const jobMs = Number(env.USAGE_JOB_MS ?? 4000)
 const label = env.USAGE_LABEL ?? 'run'
 const output = resolve(env.USAGE_OUTPUT ?? '.next/live-usage')
-const owner = { uid: 'usage-owner', email: 'owner@example.com' }
+const owner = { uid: 'usage-owner', email: 'owner@example.com', role: 'owner' }
+const editor = {
+  uid: 'usage-editor',
+  email: 'editor@example.com',
+  role: 'editor',
+}
 const password = randomUUID()
 
 if (!project.startsWith('demo-'))
@@ -66,27 +72,29 @@ async function authEmulator(path: string, body: unknown) {
  * local pipeline scope. Every write goes to the emulators.
  */
 async function seed(db: Firestore) {
-  const created = await authEmulator(`projects/${project}/accounts`, {
-    localId: owner.uid,
-    email: owner.email,
-    password,
-  })
-  if (!created.ok)
-    await authEmulator(`projects/${project}/accounts:update`, {
-      localId: owner.uid,
+  for (const member of sharedDraft ? [owner, editor] : [owner]) {
+    const created = await authEmulator(`projects/${project}/accounts`, {
+      localId: member.uid,
+      email: member.email,
       password,
     })
-  await db.doc(`members/${encodeURIComponent(owner.email)}`).set({
-    email: owner.email,
-    role: 'owner',
-    signIn: 'password',
-    status: 'active',
-    invite: null,
-    uid: owner.uid,
-    invitedBy: null,
-    createdAt: new Date().toISOString(),
-    authorityEpoch: 1,
-  })
+    if (!created.ok)
+      await authEmulator(`projects/${project}/accounts:update`, {
+        localId: member.uid,
+        password,
+      })
+    await db.doc(`members/${encodeURIComponent(member.email)}`).set({
+      email: member.email,
+      role: member.role,
+      signIn: 'password',
+      status: 'active',
+      invite: null,
+      uid: member.uid,
+      invitedBy: null,
+      createdAt: new Date().toISOString(),
+      authorityEpoch: 1,
+    })
+  }
   const store = firestoreJobsStore(db, localJobsEnvironment(scope))
   const token = randomUUID()
   await store.createToken({
@@ -100,14 +108,14 @@ async function seed(db: Firestore) {
 }
 
 /** Sign in through the Auth emulator and return an ID token for API calls. */
-async function idToken() {
+async function idToken(account = owner) {
   const response = await fetch(
     `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: owner.email,
+        email: account.email,
         password,
         returnSecureToken: true,
       }),
@@ -270,13 +278,18 @@ async function main() {
   const catalog = JSON.parse(
     await readFile('fixtures/catalog-demo.json', 'utf8')
   ) as { plates: { id: string; state: string }[] }
+  const plateCount = sharedDraft ? 3 : 40
   const plateIds = catalog.plates
     .filter((plate) => plate.state === 'AK')
-    .slice(0, 40)
+    .slice(0, plateCount)
     .map((plate) => plate.id)
-  if (plateIds.length !== 40) throw new Error('Need 40 Alaska fixture plates')
+  if (plateIds.length !== plateCount)
+    throw new Error(`Need ${plateCount} Alaska fixture plates`)
 
   const browser = await chromium.launch({ headless: true })
+  const editorBrowser = sharedDraft
+    ? await chromium.launch({ headless: true })
+    : null
   const stop = { stopped: false }
   const progress: string[] = []
   let worker: Promise<void> | undefined
@@ -284,23 +297,41 @@ async function main() {
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1000 },
     })
+    const editorPage = await editorBrowser?.newPage({
+      viewport: { width: 1440, height: 1000 },
+    })
     const browserRequests: Record<string, number> = {}
+    const draftReads = { owner: 0, editor: 0 }
     let counting = false
-    page.on('request', (request: { url(): string; method(): string }) => {
-      const url = new URL(request.url())
-      if (!counting || url.origin !== new URL(base).origin) return
-      if (url.pathname.startsWith('/_next/static')) return
-      const key = `${request.method()} ${url.pathname}`
-      browserRequests[key] = (browserRequests[key] ?? 0) + 1
-    })
-    await page.goto(new URL('/sign-in', base).href)
-    await page.locator('#email').fill(owner.email)
-    await page.getByRole('button', { name: 'Continue', exact: true }).click()
-    await page.locator('#password').fill(password)
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await page.waitForURL((url: URL) => url.pathname !== '/sign-in', {
-      timeout: 60000,
-    })
+    function countRequest(page: typeof editorPage, role: 'owner' | 'editor') {
+      page?.on('request', (request: { url(): string; method(): string }) => {
+        const url = new URL(request.url())
+        if (!counting || url.origin !== new URL(base).origin) return
+        if (url.pathname.startsWith('/_next/static')) return
+        const key = `${request.method()} ${url.pathname}`
+        browserRequests[key] = (browserRequests[key] ?? 0) + 1
+        if (
+          request.method() === 'GET' &&
+          url.searchParams.has('catalogVersion') &&
+          url.pathname === '/api/batches' &&
+          url.searchParams.has('dashboard')
+        )
+          draftReads[role]++
+      })
+    }
+    countRequest(page, 'owner')
+    countRequest(editorPage, 'editor')
+    async function signIn(page: typeof editorPage, account: typeof owner) {
+      await page.goto(new URL('/sign-in', base).href)
+      await page.locator('#email').fill(account.email)
+      await page.getByRole('button', { name: 'Continue', exact: true }).click()
+      await page.locator('#password').fill(password)
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await page.waitForURL((url: URL) => url.pathname !== '/sign-in', {
+        timeout: 60000,
+      })
+    }
+    await signIn(page, owner)
     await page.goto(new URL('/states/AK', base).href)
     await page
       .locator('article[data-drag-family^="AK."]')
@@ -308,6 +339,19 @@ async function main() {
       .waitFor({ timeout: 120000 })
     await page.getByRole('button', { name: 'Open Plate Pipeline' }).click()
     await page.locator('[data-pipeline-drawer]').waitFor({ timeout: 60000 })
+    const editedPlate = sharedDraft
+      ? await page
+          .locator('[data-plate-row^="AK."]')
+          .first()
+          .getAttribute('data-plate-row')
+      : null
+    if (editorPage) {
+      await signIn(editorPage, editor)
+      await editorPage.goto(new URL('/states/AK', base).href)
+      await editorPage.locator('[data-plate-row^="AK."]').first().waitFor({
+        state: 'attached',
+      })
+    }
     await sleep(5000)
 
     const before = await readCounts(Date.now())
@@ -316,6 +360,47 @@ async function main() {
     counting = true
     const startedAt = Date.now()
     console.log(`[usage] observing for ${minutes} minutes`)
+    let draftMeasurement
+    if (editorPage && editedPlate) {
+      await sleep(8_000)
+      const idleReads = { ...draftReads }
+      const edit = await idToken(editor)
+      const plate = await fetch(`${base}/api/plates/${editedPlate}`, {
+        headers: { Authorization: `Bearer ${edit}` },
+      }).then((response) => response.json())
+      if (!plate.plate?.revision)
+        throw new Error('Missing fixture plate revision')
+      const saved = await fetch(
+        `${base}/api/batches/draft/plates/${editedPlate}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${edit}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            baseRevision: plate.plate.revision,
+            fields: { tags: ['shared-draft-measurement'] },
+          }),
+        }
+      )
+      if (!saved.ok) throw new Error(`Editor save failed: ${saved.status}`)
+      const savedAt = Date.now()
+      const marker = `[data-plate-row="${editedPlate}"] [data-batch-marker]`
+      await page.locator(marker).waitFor({ timeout: 10_000 })
+      const ownerLagMs = Date.now() - savedAt
+      await editorPage.locator(marker).waitFor({ timeout: 10_000 })
+      draftMeasurement = {
+        idleReads,
+        idleMs: 8000,
+        ownerLagMs,
+        editorSaveReads: {
+          owner: draftReads.owner - idleReads.owner,
+          editor: draftReads.editor - idleReads.editor,
+        },
+      }
+      console.log('[usage] Editor save appeared in both Dashboards')
+    }
     worker = fakeWorker(workerToken, stop, progress)
 
     if (!idle) await queueRun()
@@ -341,7 +426,7 @@ async function main() {
         throw new Error(
           `Enqueue failed: ${enqueue.status} ${await enqueue.text()}`
         )
-      console.log('[usage] enqueued 40 plates (tag and describe)')
+      console.log(`[usage] enqueued ${plateCount} plates (tag and describe)`)
     }
 
     const end = startedAt + minutes * 60_000
@@ -382,6 +467,22 @@ async function main() {
       jobsReported: progress.length,
       routes: perHour(routes, patterns, observedMs),
       browserRequests: perHour(browserRequests, patterns, observedMs),
+      ...(draftMeasurement && {
+        sharedDraft: {
+          ...draftMeasurement,
+          totalReads: draftReads,
+          draftRunReads: {
+            owner:
+              draftReads.owner -
+              draftMeasurement.idleReads.owner -
+              draftMeasurement.editorSaveReads.owner,
+            editor:
+              draftReads.editor -
+              draftMeasurement.idleReads.editor -
+              draftMeasurement.editorSaveReads.editor,
+          },
+        },
+      }),
       firestore,
       client,
       totals: {
@@ -401,7 +502,7 @@ async function main() {
     console.log(`[usage] wrote ${file}`)
   } finally {
     stop.stopped = true
-    await browser.close()
+    await Promise.all([browser.close(), editorBrowser?.close()])
     await Promise.race([worker, sleep(15000)])
     await db.terminate()
   }

@@ -518,10 +518,17 @@ export async function settleDraft(
     }
     let published: { release: DraftSnapshot; origin: VersionOrigin } | null =
       null
+    const publishedStates = new Set<string>()
     for (const move of moves) {
       const release = await releaseFor(d, draftId, move)
       working = await moveOnto(d, working, move, release)
-      if (release && move.origin) published = { release, origin: move.origin }
+      if (release && move.origin) {
+        published = { release, origin: move.origin }
+        for (const edit of release.edits)
+          publishedStates.add(edit.plateId.split('.')[0])
+        for (const state of Object.keys(release.batch.stateOrders))
+          publishedStates.add(state)
+      }
     }
     const before = new Map(head.edits.map((edit) => [edit.plateId, edit]))
     const dropped = [...before.keys()].filter(
@@ -555,6 +562,7 @@ export async function settleDraft(
       edits,
       deleteEditsFor: dropped,
       history: false,
+      publishedStates,
     })
     if (result === 'revision_mismatch') continue
     if (result !== 'ok') return { ok: false, error: result }

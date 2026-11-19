@@ -1,9 +1,13 @@
 import { canCopyForFreshReview } from './access'
-import type {
-  DocumentSnapshot,
-  Firestore,
-  Transaction,
+import {
+  FieldPath,
+  type DocumentSnapshot,
+  type Firestore,
+  type Transaction,
+  type ReadWriteTransactionOptions,
 } from '@google-cloud/firestore'
+import { signalChange } from '../live/change-signals'
+import { draftTopic } from '../live/topics'
 import { liveEnvKey, signalPath } from './live-signal'
 import type {
   ProposedEdit,
@@ -36,6 +40,27 @@ export function writePublishMetadata(
   transaction.update(batch.ref, fields)
 }
 
+type TouchStates = (states: Iterable<string>) => void
+
+/** Collect draft signals from the successful attempt and dispatch after the outer commit. */
+export function reviewTransaction(db: Firestore, env: string) {
+  return async function transact<T>(
+    run: (transaction: Transaction, touchStates: TouchStates) => Promise<T>,
+    options?: ReadWriteTransactionOptions
+  ): Promise<T> {
+    const { result, states } = await db.runTransaction(async (transaction) => {
+      const states = new Set<string>()
+      const result = await run(transaction, (touched) => {
+        for (const state of touched) states.add(state)
+      })
+      return { result, states }
+    }, options)
+    for (const state of states)
+      if (/^[A-Z]{2}$/.test(state)) signalChange(db, env, draftTopic(state))
+    return result
+  }
+}
+
 /**
  * Build the Firestore review adapter for a specific environment and optional existing
  * transaction.
@@ -43,9 +68,11 @@ export function writePublishMetadata(
 export function firestoreReviewStore(
   db: Firestore,
   env: string,
-  scopedTransaction?: Transaction
+  scopedTransaction?: Transaction,
+  scopedTouchStates?: TouchStates
 ): ReviewStore {
   const batches = db.collection('reviewBatches')
+  const transact = reviewTransaction(db, env)
   /** Locate the live revision signal that clients watch for changes to this batch. */
   const signal = (batchId: string) =>
     db.doc(signalPath(liveEnvKey(env), batchId))
@@ -108,9 +135,14 @@ export function firestoreReviewStore(
       if (previous.exists) return replay(previous)
       await prepare(head.get('baselineVersion'))
       try {
-        return await db.runTransaction(
-          async (transaction) => {
-            const scoped = firestoreReviewStore(db, env, transaction)
+        return await transact(
+          async (transaction, touchStates) => {
+            const scoped = firestoreReviewStore(
+              db,
+              env,
+              transaction,
+              touchStates
+            )
             const detail = await scoped.readBatch(batchId)
             if (!detail) return { ok: false, error: 'not_found' }
             const receipt = await transaction.get(receiptRef)
@@ -334,13 +366,27 @@ export function firestoreReviewStore(
         ? run(scopedTransaction)
         : db.runTransaction(run, { readOnly: true })
     },
-    /** Read a batch and all its plate edits in a consistent transaction. */
-    async readBatch(batchId) {
+    /** Read a batch and its requested plate edits in a consistent transaction. */
+    async readBatch(batchId, jurisdictions) {
       const run = async (transaction: Transaction) => {
         const ref = batches.doc(batchId)
         const snapshot = await transaction.get(ref)
         if (!snapshot.exists || snapshot.get('env') !== env) return null
-        const edits = await transaction.get(ref.collection('edits'))
+        const edits = ref.collection('edits')
+        // The range contains document IDs with the jurisdiction's `XX.` prefix.
+        const rows = jurisdictions
+          ? (
+              await Promise.all(
+                [...jurisdictions].map((state) =>
+                  transaction.get(
+                    edits
+                      .where(FieldPath.documentId(), '>=', `${state}.`)
+                      .where(FieldPath.documentId(), '<', `${state}0`)
+                  )
+                )
+              )
+            ).flatMap(({ docs }) => docs)
+          : (await transaction.get(edits)).docs
         const batch = snapshot.data()!
         delete batch.env
         delete batch.publishReservation
@@ -350,7 +396,7 @@ export function firestoreReviewStore(
             createdByName: batch.createdByName ?? null,
             stateOrders: batch.stateOrders ?? {},
           } as ReviewBatch,
-          edits: edits.docs.map((doc) => doc.data() as ProposedEdit),
+          edits: rows.map((doc) => doc.data() as ProposedEdit),
         }
       }
       return scopedTransaction
@@ -480,7 +526,10 @@ export function firestoreReviewStore(
        * Check the expected revision and publish fences, then write the batch, edits and
        * live signal together.
        */
-      const run = async (transaction: Transaction) => {
+      const run = async (
+        transaction: Transaction,
+        touchStates?: TouchStates
+      ) => {
         const batchRef = batches.doc(batchId)
         const batch = await transaction.get(batchRef)
         if (
@@ -584,6 +633,9 @@ export function firestoreReviewStore(
               : recordEditAuthors(edit, beforeEdits.get(edit.plateId))),
             revision: next.batch.revision,
           }))
+        const before = draft
+          ? changeBefore(previous, next.batch, beforeEdits)
+          : undefined
         const change =
           next.history === false
             ? null
@@ -593,9 +645,7 @@ export function firestoreReviewStore(
                 updates,
                 deletes,
                 next.by,
-                draft
-                  ? changeBefore(previous, next.batch, beforeEdits)
-                  : undefined
+                before
               )
         if (change)
           transaction.set(
@@ -635,9 +685,19 @@ export function firestoreReviewStore(
         for (const edit of updates) {
           transaction.set(batchRef.collection('edits').doc(edit.plateId), edit)
         }
+        if (before) {
+          touchStates?.([
+            ...(change?.states ?? touched.map((id) => id.split('.')[0])),
+            ...Object.keys(before.stateOrders),
+            ...Object.keys(before.baselineOrders),
+            ...(next.publishedStates ?? []),
+          ])
+        }
         return 'ok'
       }
-      return scopedTransaction ? run(scopedTransaction) : db.runTransaction(run)
+      return scopedTransaction
+        ? run(scopedTransaction, scopedTouchStates)
+        : transact(run)
     },
   }
 }

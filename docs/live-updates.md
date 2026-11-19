@@ -103,6 +103,53 @@ causes, both fixed before the run above:
 2. Gateway runs listened to the `pipeline` topic, so it refetched on every local job
    change. It now listens to `gateway`, which only hosted jobs bump.
 
+## Shared draft Dashboard (#224)
+
+The rehearsal checkpoint left an Owner's open Alaska grid on its old revision for
+the entire 14-second observation after an Editor save. The default Dashboard now
+listens to `draft:AK`. Each committed draft change signals the jurisdictions it
+touched after the Firestore transaction succeeds. The state read includes its
+draft revision even after the last edit or order is reverted. A publish can also
+deliver that state's new catalog cards so published changes stay visible when
+their pending edits disappear.
+
+The shared hub limits state refresh rounds to one every two seconds and pauses
+hidden tabs. Both default and linked shared-draft Dashboards reconcile the visible
+state once on resume and every ten minutes while visible, including when a state
+signal is lost. During a drag, the grid holds the visible cards and their edit
+versions through the drop request. The existing reflow animation applies the
+latest layout when the drop settles.
+
+The pipeline run's Revert action reads its target again on a pipeline signal
+while the target is still pending.
+
+### Two-role measurement
+
+The same emulator counters and headless Chromium method measured one Owner and one
+Editor Dashboard on Alaska for 75 seconds after warm-up. The Editor saved a tag
+through the authenticated edit API while both Dashboards stayed open. The tag's
+change marker appeared on the Owner's grid **222 ms** after the save response.
+A scripted worker then completed Tag and Describe on three plates.
+
+| Phase | Draft state GETs, Owner | Draft state GETs, Editor |
+| --- | ---: | ---: |
+| 8 seconds idle after warm-up | 0 | 0 |
+| One Editor save | 1 | 1 |
+| Three-plate pipeline run, six applied results | 6 | 6 |
+
+Across the whole sample, the counter recorded 83 app requests, 502 Firestore
+document reads, 154 query results and 126 writes. These totals include the
+worker, workflow and open Owner pipeline drawer. Each visible Dashboard reads
+once per refresh round that serves it. The idle sample ended before a safety
+refresh was due. The Owner recorded eight state signal
+snapshots including the initial snapshot. The short sample describes this
+scenario and is reported as raw counts.
+
+Repeat the method below with `USAGE_SHARED_DRAFT=1 USAGE_MINUTES=1.25
+USAGE_RUN_AT_SECONDS=1 USAGE_JOB_MS=1500 USAGE_LABEL=shared-draft`. The two
+browser roles use the Auth and Firestore emulators in the same demo project.
+[Raw shared-draft measurement](live-updates/shared-draft.json)
+
 ## Method
 
 Both runs used the same scripts and settings on one development machine. Nothing ran
@@ -191,6 +238,7 @@ signal carries only a revision number.
 
 | Topic | Bumped when | Listeners |
 | --- | --- | --- |
+| `draft:<state>` | a committed shared-draft edit, move, merge, result, revert or rebase touches the state | that state's Dashboard |
 | `pipeline` | a jobs transaction writes a job, run, draft batch or enhanced image; a worker's visible capabilities change | pipeline queue and run detail, plate image previews, Publish eligibility |
 | `gateway` | a jobs transaction writes a hosted (Gateway) job | Gateway runs |
 | `research` | a research job is written | research job status |

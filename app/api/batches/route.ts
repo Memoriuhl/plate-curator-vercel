@@ -1,8 +1,17 @@
 import { connection } from 'next/server'
-import { SHARED_DRAFT_ALIAS } from '../../../lib/review/draft-id'
-import { dashboardDrafts, listBatches } from '../../../lib/review/queries'
+import { loadPublishedStateCards } from '@/lib/catalog/dashboard'
+import { SHARED_DRAFT_ALIAS, sharedDraftId } from '../../../lib/review/draft-id'
+import {
+  dashboardDraft,
+  dashboardDrafts,
+  listBatches,
+} from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
-import { currentActor, reviewDeps } from '../../../lib/server/context'
+import {
+  currentActor,
+  reviewDeps,
+  reviewEnv,
+} from '../../../lib/server/context'
 import { batchTarget } from '../../../lib/server/draft-target'
 import { badRequest, json } from '../../../lib/server/respond'
 import { batchStepRetired } from '../../../lib/server/retired'
@@ -34,6 +43,34 @@ export async function GET(request: Request) {
       jurisdictions.some((state) => !/^[A-Z]{2}$/.test(state))
     )
       return badRequest()
+    const catalogVersion = params.get('catalogVersion')
+    if (catalogVersion !== null) {
+      if (
+        jurisdictions.length !== 1 ||
+        !/^\d+$/.test(catalogVersion) ||
+        !Number.isSafeInteger(Number(catalogVersion))
+      )
+        return badRequest()
+      const deps = reviewDeps()
+      const id = sharedDraftId(reviewEnv())
+      const scope = new Set(jurisdictions)
+      let draft = await dashboardDraft(deps, id, scope)
+      if (!draft) {
+        await batchTarget(SHARED_DRAFT_ALIAS, auth.actor)
+        draft = await dashboardDraft(deps, id, scope)
+      }
+      if (!draft) return json({ error: 'not_found' }, 404)
+      const version = draft.batch.baselineVersion
+      return json({
+        draft,
+        ...(version > Number(catalogVersion) && {
+          catalog: {
+            catalogVersion: version,
+            plates: await loadPublishedStateCards(version, jurisdictions[0]),
+          },
+        }),
+      })
+    }
     return json({
       drafts: await dashboardDrafts(
         reviewDeps(),

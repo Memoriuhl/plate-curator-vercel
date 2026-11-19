@@ -75,6 +75,7 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: (id: string | null) => ({ data: id ? state.detail : undefined }),
   /** Name the shared draft the Dashboard edits without a linked Batch. */
   useSharedDraftId: () => 'shared-draft-test',
+  useDraftOverview: () => undefined,
 }))
 vi.mock('../lib/client/session', () => ({
   /** Supply the fixture session and API client to the component under test. */

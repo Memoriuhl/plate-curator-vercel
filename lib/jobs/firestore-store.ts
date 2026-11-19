@@ -8,7 +8,10 @@ import {
 } from '@google-cloud/firestore'
 import { firestoreMemberByUid } from '../members/firestore-store'
 import type { EditableFields, ProposedEdit } from '../review/types'
-import { firestoreReviewStore } from '../review/firestore-store'
+import {
+  firestoreReviewStore,
+  reviewTransaction,
+} from '../review/firestore-store'
 import type { PipelineRun } from './queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import {
@@ -105,12 +108,13 @@ export function firestoreJobsStore(
      * and Gateway listeners too when it wrote a hosted job.
      */
     async transaction(run) {
+      const transact = reviewTransaction(db, reviewEnv)
       let wrote = false
       let hosted = false
-      const result = await db.runTransaction(async (transaction) => {
+      const result = await transact(async (transaction, touch) => {
         wrote = false
         hosted = false
-        const review = firestoreReviewStore(db, reviewEnv, transaction)
+        const review = firestoreReviewStore(db, reviewEnv, transaction, touch)
         return run({
           /** Check for a publish lock in the review environment before queueing work. */
           canQueue: () => canQueueDuringPublish(db, transaction, reviewEnv),
