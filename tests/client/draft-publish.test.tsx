@@ -232,6 +232,39 @@ test('an outside catalog change lists each conflict, links to Review and lets th
   expect(mocks.mutate).toHaveBeenCalled()
 })
 
+test('an untraceable catalog move and a removed plate say what the Owner must review', () => {
+  mocks.view = view({
+    canPublish: false,
+    conflicts: [
+      { kind: 'catalog', fromVersion: 7, toVersion: 9 },
+      {
+        kind: 'removed',
+        plateId: 'AK.one',
+        fields: { tags: ['draft'], description: 'Draft text' },
+        fromVersion: 7,
+        toVersion: 9,
+      },
+    ],
+  })
+  render(<DraftPublish draftId="shared-draft-test" />)
+  const alert = within(
+    screen.getByText(
+      'The live Catalog changed values this draft would publish.'
+    ).parentElement!
+  )
+  expect(
+    alert.getByText(
+      /^Catalog changed outside the draft between v7 and v9: review conflicts/
+    )
+  ).toBeTruthy()
+  expect(
+    alert.getByText(
+      'AK.one: Catalog v9 removed this plate, so its pending tags, description cannot be published.'
+    )
+  ).toBeTruthy()
+  expect(alert.queryByRole('link')).toBeNull()
+})
+
 test('a release that stopped after preparing its Snapshot links to its recovery page', () => {
   mocks.view = view({
     canPublish: false,

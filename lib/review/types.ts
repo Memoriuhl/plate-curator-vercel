@@ -54,6 +54,27 @@ export type DraftConflict =
       fromVersion: number
       toVersion: number
     }
+  | {
+      /**
+       * A catalog change outside the draft removed a plate with pending values. The
+       * values are kept here so the Owner sees what cannot be published.
+       */
+      kind: 'removed'
+      plateId: string
+      fields: EditableFields
+      fromVersion: number
+      toVersion: number
+    }
+  | {
+      /**
+       * The live pointer moved in a way the publish receipts cannot explain (a rollback
+       * or repair between publishes), so the draft could not tell which of its values
+       * were already published. The Owner reviews the draft before Publish.
+       */
+      kind: 'catalog'
+      fromVersion: number
+      toVersion: number
+    }
 export type ReviewBatch = {
   id: string
   name: string

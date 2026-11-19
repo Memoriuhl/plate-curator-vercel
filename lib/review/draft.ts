@@ -279,15 +279,29 @@ export async function freezeRelease(
 /** How many publishes a rebase traces back before treating the rest as one outside move. */
 const traceLimit = 20
 
-/** One move of the live pointer, with the committed publish that made it when known. */
-type CatalogMove = { from: number; to: number; origin: VersionOrigin | null }
+/**
+ * One move of the live pointer, with the committed publish that made it when known.
+ * `uncertain` marks an outside move whose span holds publishes the receipts cannot
+ * place in order.
+ */
+type CatalogMove = {
+  from: number
+  to: number
+  origin: VersionOrigin | null
+  uncertain?: true
+}
 
 /**
  * Trace how live moved from the draft's baseline to `to`, one committed publish at a
- * time, oldest first. A version no receipt explains (an outside change to the pointer)
- * ends the trace and the rest becomes one outside move. Returns 'settling' while a
- * publish on the way has moved the pointer but not finished, so its release and state
- * order projection are not final yet.
+ * time, oldest first. Returns 'settling' while a publish on the way has moved the
+ * pointer but not finished, so its release and state order projection are not final.
+ *
+ * Tracing runs back from `to` until a version no receipt explains (an outside change to
+ * the pointer). The versions before it are then searched for committed publishes, so a
+ * release that shipped before the outside change is still replayed as itself and its
+ * put-backs survive. When those publishes do not chain (the pointer went back between
+ * them) or the gap is too long to search, the span becomes one uncertain outside move:
+ * the draft keeps its values and the Owner reviews it before Publish.
  */
 async function catalogMoves(
   origin: (version: number) => Promise<VersionOrigin | null>,
@@ -296,21 +310,37 @@ async function catalogMoves(
 ): Promise<CatalogMove[] | 'settling'> {
   const moves: CatalogMove[] = []
   let at = to
+  let unexplained = false
   for (let step = 0; step < traceLimit && at !== from; step += 1) {
     const found = await origin(at)
-    if (
-      !found ||
-      found.toVersion !== at ||
-      found.fromVersion < from ||
-      found.fromVersion >= at
-    )
+    if (!found || found.toVersion !== at) {
+      unexplained = true
       break
+    }
+    if (found.fromVersion < from || found.fromVersion >= at) {
+      return [{ from, to, origin: null, uncertain: true }]
+    }
     if (!found.settled) return 'settling'
     moves.unshift({ from: found.fromVersion, to: at, origin: found })
     at = found.fromVersion
   }
-  if (at !== from) moves.unshift({ from, to: at, origin: null })
-  return moves
+  if (at === from) return moves
+  if (!unexplained || at < from || at - from - 1 > traceLimit)
+    return [{ from, to, origin: null, uncertain: true }]
+  const gap: CatalogMove[] = []
+  let current = from
+  for (let version = from + 1; version < at; version += 1) {
+    const found = await origin(version)
+    if (!found || found.toVersion !== version) continue
+    if (found.fromVersion < current || found.fromVersion >= version)
+      return [{ from, to, origin: null, uncertain: true }]
+    if (!found.settled) return 'settling'
+    if (found.fromVersion > current)
+      gap.push({ from: current, to: found.fromVersion, origin: null })
+    gap.push({ from: found.fromVersion, to: version, origin: found })
+    current = version
+  }
+  return [...gap, { from: current, to: at, origin: null }, ...moves]
 }
 
 /** The draft's own release that made a move, or undefined for any other publish. */
@@ -540,6 +570,8 @@ async function moveOnto(
   const conflicts = [...working.conflicts]
   const warnings = [...working.warnings]
   const outside = !release
+  if (move.uncertain)
+    conflicts.push({ kind: 'catalog', fromVersion: from, toVersion: to })
   for (const plateId of new Set([
     ...working.edits.keys(),
     ...releaseEdits.keys(),
@@ -555,8 +587,17 @@ async function moveOnto(
           fromVersion: from,
           toVersion: to,
         })
-      else if (edit && !edit.fields.deleted)
+      else if (edit && !edit.fields.deleted) {
+        // Keep what the draft would have published so the Owner sees the loss.
+        conflicts.push({
+          kind: 'removed',
+          plateId,
+          fields: omit(edit.fields, 'deleted'),
+          fromVersion: from,
+          toVersion: to,
+        })
         warnings.push(`Plate no longer in the catalog: ${plateId}`)
+      }
       continue
     }
     const old = await d.baselineAtVersion(from, plateId)
@@ -722,10 +763,14 @@ export function resolveConflicts(
   resolved: { plateId: string; fields?: string[] } | { state: string }
 ): ReviewBatch {
   if (!batch.conflicts?.length) return batch
+  // A removed plate or an untraceable catalog move has nothing left to edit; only the
+  // Owner's keep clears them.
   const left = batch.conflicts.filter((conflict) =>
     'state' in resolved
       ? !(conflict.kind === 'order' && conflict.state === resolved.state)
       : conflict.kind === 'order' ||
+        conflict.kind === 'removed' ||
+        conflict.kind === 'catalog' ||
         conflict.plateId !== resolved.plateId ||
         (conflict.kind === 'field' &&
           !!resolved.fields &&

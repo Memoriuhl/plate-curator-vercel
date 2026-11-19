@@ -81,7 +81,21 @@ export function conflictLabel(conflict: DraftConflict) {
     return `${conflict.state} plate order: Catalog v${conflict.toVersion} changed it after v${conflict.fromVersion}.`
   if (conflict.kind === 'deleted')
     return `${conflict.plateId}: Catalog v${conflict.toVersion} deleted this plate after its deletion was undone here.`
+  if (conflict.kind === 'removed')
+    return `${conflict.plateId}: Catalog v${conflict.toVersion} removed this plate, so its pending ${Object.keys(conflict.fields).join(', ')} cannot be published.`
+  if (conflict.kind === 'catalog')
+    return `Catalog changed outside the draft between v${conflict.fromVersion} and v${conflict.toVersion}: review conflicts before publishing, as some draft values may already be live or may undo a published change.`
   return `${conflict.plateId} · ${conflict.field}: Catalog v${conflict.toVersion} changed it after v${conflict.fromVersion}.`
+}
+
+/** A stable list key for one conflict. */
+function conflictKey(conflict: DraftConflict) {
+  if (conflict.kind === 'order') return `order:${conflict.state}`
+  if (conflict.kind === 'catalog')
+    return `catalog:${conflict.fromVersion}:${conflict.toVersion}`
+  if (conflict.kind === 'field')
+    return `field:${conflict.plateId}:${conflict.field}`
+  return `${conflict.kind}:${conflict.plateId}`
 }
 
 /**
@@ -129,18 +143,20 @@ export function DraftConflicts({
           const state =
             conflict.kind === 'order'
               ? conflict.state
-              : conflict.plateId.split('.')[0]
+              : conflict.kind === 'catalog'
+                ? null
+                : conflict.plateId.split('.')[0]
           return (
-            <li
-              key={`${conflict.kind}:${conflict.kind === 'order' ? conflict.state : conflict.plateId}:${conflict.kind === 'field' ? conflict.field : ''}`}
-            >
+            <li key={conflictKey(conflict)}>
               {conflictLabel(conflict)}{' '}
-              <Link
-                className="underline"
-                href={`/review?state=${encodeURIComponent(state)}`}
-              >
-                Review {state}
-              </Link>
+              {state && conflict.kind !== 'removed' && (
+                <Link
+                  className="underline"
+                  href={`/review?state=${encodeURIComponent(state)}`}
+                >
+                  Review {state}
+                </Link>
+              )}
             </li>
           )
         })}

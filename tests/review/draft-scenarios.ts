@@ -113,7 +113,7 @@ export function sharedDraftScenarios(
       by: { uid: string; email: string } = { uid: 'owner', email: 'owner@x' }
     ) => {
       const release = (await store.readBatch(releaseId))!
-      const next = live + 1
+      const next = Math.max(...versions.keys()) + 1
       const { deleted, plates } = applyReleaseEdits(
         versions.get(live)!,
         release.edits,
@@ -145,7 +145,7 @@ export function sharedDraftScenarios(
      * with its receipt unsettled like `commit`.
      */
     const publishElsewhere = (stateOrders: Record<string, string[]>) => {
-      const next = live + 1
+      const next = Math.max(...versions.keys()) + 1
       versions.set(
         next,
         applyReleaseEdits(versions.get(live)!, [], stateOrders).plates
@@ -164,6 +164,10 @@ export function sharedDraftScenarios(
       live = next
       return next
     }
+    /** Point live back at an existing version outside any publish, as a repair would. */
+    const repoint = (version: number) => {
+      live = version
+    }
     /** Finish the publish that moved the pointer to this version. */
     const settle = (version: number) => {
       origins.set(version, { ...origins.get(version)!, settled: true })
@@ -174,12 +178,18 @@ export function sharedDraftScenarios(
       settle(next)
       return afterPublish(d, releaseId, next)
     }
-    /** Move the pointer outside any release of this draft, changing some plates. */
-    const outsideChange = (changes: Record<string, Partial<Plate>>) => {
-      const next = live + 1
+    /**
+     * Move the pointer outside any release of this draft, changing some plates; null
+     * removes a plate.
+     */
+    const outsideChange = (changes: Record<string, Partial<Plate> | null>) => {
+      const next = Math.max(...versions.keys()) + 1
       versions.set(
         next,
-        versions.get(live)!.map((entry) => ({ ...entry, ...changes[entry.id] }))
+        versions
+          .get(live)!
+          .filter((entry) => changes[entry.id] !== null)
+          .map((entry) => ({ ...entry, ...changes[entry.id] }))
       )
       live = next
       return next
@@ -196,6 +206,7 @@ export function sharedDraftScenarios(
       settle,
       outsideChange,
       publishElsewhere,
+      repoint,
     }
   }
 
@@ -453,6 +464,112 @@ export function sharedDraftScenarios(
       expect(rebased).toMatchObject({ ok: true, warnings: [] })
       expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
         'AK.one': { description: null },
+      })
+    },
+    timeout
+  )
+
+  test(
+    'an outside change after a committed release still replays that release and keeps a reset made after it',
+    async () => {
+      const { store, d, draftId, env, tag, commit, settle, outsideChange } =
+        await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['Reviewed']) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      await tag(editor('ben'), 'AK.one', []) // revision 2: put back
+      const version = await commit(frozen.value.id)
+      // Before Publish finishes, an outside update touches a different plate.
+      outsideChange({ 'AK.two': { tags: ['live'] } })
+
+      // The release is still finishing, so the draft waits rather than skip it.
+      expect(await ensureDraft(d, env, editor('cy'))).toMatchObject({
+        baselineVersion: 1,
+      })
+      settle(version)
+      const settled = await ensureDraft(d, env, editor('cy'))
+      expect(settled).toMatchObject({
+        baselineVersion: 3,
+        lastPublish: { releaseId: frozen.value.id, version: 2 },
+      })
+      expect(settled.conflicts).toBeUndefined()
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { tags: [] },
+      })
+    },
+    timeout
+  )
+
+  test(
+    'publishes the receipts cannot put in order leave the draft for the Owner to review before Publish',
+    async () => {
+      const setupResult = await setup()
+      const { store, d, draftId, env, tag, commit, settle } = setupResult
+      const { publishElsewhere, outsideChange, repoint } = setupResult
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['Reviewed']) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      settle(await commit(frozen.value.id)) // v2 from v1
+      // A repair puts the pointer back on v1, an old Batch publishes from there, and an
+      // outside update follows, all before the draft settles.
+      repoint(1)
+      settle(publishElsewhere({})) // v3 from v1
+      outsideChange({ 'AK.two': { tags: ['live'] } }) // v4
+
+      const draft = await ensureDraft(d, env, editor('cy'))
+      expect(draft).toMatchObject({ baselineVersion: 4 })
+      expect(draft.conflicts).toEqual([
+        { kind: 'catalog', fromVersion: 1, toVersion: 4 },
+      ])
+      expect(await freezeRelease(d, env, owner, draft.revision)).toEqual({
+        ok: false,
+        error: 'draft_conflicts',
+      })
+      // A curator's save does not clear it; the Owner's review does.
+      await tag(editor('ana'), 'AK.three', ['three'])
+      const edited = (await store.getBatch(draftId))!
+      expect(edited.conflicts).toHaveLength(1)
+      expect(
+        await keepDraftValues(d, owner, {
+          batchId: draftId,
+          revision: edited.revision,
+        })
+      ).toMatchObject({ ok: true })
+      expect((await store.getBatch(draftId))!.conflicts).toBeUndefined()
+    },
+    timeout
+  )
+
+  test(
+    'an outside change that removes a plate with pending values keeps them as a conflict for the Owner',
+    async () => {
+      const { store, d, draftId, env, save, tag, outsideChange } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.one', {
+        tags: ['draft'],
+        description: 'Draft text',
+      })
+      await tag(editor('ben'), 'AK.two', ['two'])
+      outsideChange({ 'AK.one': null })
+
+      const draft = await ensureDraft(d, env, owner)
+      expect(draft.conflicts).toEqual([
+        {
+          kind: 'removed',
+          plateId: 'AK.one',
+          fields: { tags: ['draft'], description: 'Draft text' },
+          fromVersion: 1,
+          toVersion: 2,
+        },
+      ])
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.two': { tags: ['two'] },
+      })
+      expect(await freezeRelease(d, env, owner, draft.revision)).toEqual({
+        ok: false,
+        error: 'draft_conflicts',
       })
     },
     timeout
