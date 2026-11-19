@@ -10,6 +10,7 @@ import {
   PIPELINE_BUSY_MESSAGE,
   PUBLISH_ERRORS,
   PUBLISH_STOP_MESSAGES,
+  RELEASE_SUPERSEDED_MESSAGE,
 } from '../publish/stop'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -513,7 +514,8 @@ export function useReviewActions() {
           [PUBLISH_ERRORS.notWaiting]:
             'This run is no longer waiting for Publish. Refresh to see its status.',
           release_in_progress:
-            'An earlier revision is still publishing or waits for Retry or Abandon. Reload the Publish view to follow it.',
+            'Another revision is still publishing or waits for Retry or Abandon. Reload the Publish view to follow it.',
+          release_superseded: RELEASE_SUPERSEDED_MESSAGE,
           forbidden: 'Only the Owner can Publish.',
           not_found: 'The draft could not be found.',
         }
