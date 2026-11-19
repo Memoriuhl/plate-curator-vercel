@@ -88,7 +88,7 @@ export function collectDragTargets(
       })
       continue
     }
-    const edge = (rect.right - rect.left) / 4
+    const edge = (rect.right - rect.left) / 6
     targets.push(
       {
         target: {
