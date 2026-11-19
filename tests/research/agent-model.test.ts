@@ -93,12 +93,32 @@ test('Eve refuses a session model that differs from the stored run model', async
 })
 
 test.each([
-  { env: 'preview', strict: false, expected: 'google/gemini-2.5-flash-lite' },
-  { env: 'preview', strict: true, expected: null },
-  { env: 'production', strict: false, expected: 'openai/test-tool' },
+  // Preview: the fault switch sends an id the Gateway can't serve, so the
+  // Gateway's own fallback answers.
+  {
+    env: 'preview',
+    strict: false,
+    requested: 'openai/test-tool-forced-failure',
+    fallbackList: ['google/gemini-2.5-flash-lite'],
+  },
+  // Preview Strict: no fallback list, so the Gateway's model_not_found
+  // becomes the named Strict failure.
+  {
+    env: 'preview',
+    strict: true,
+    requested: 'openai/test-tool-forced-failure',
+    fallbackList: undefined,
+  },
+  // Production ignores the switch; a real primary failure still falls back.
+  {
+    env: 'production',
+    strict: false,
+    requested: 'openai/test-tool',
+    fallbackList: ['google/gemini-2.5-flash-lite'],
+  },
 ])(
-  'simulates a failed Research primary only outside production ($env, strict $strict)',
-  async ({ env, strict, expected }) => {
+  'routes a failed Research primary through the Gateway ($env, strict $strict)',
+  async ({ env, strict, requested, fallbackList }) => {
     vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true')
     vi.stubEnv('FORCE_MODEL_FAILURE', 'openai/test-tool')
     vi.stubEnv('VERCEL_ENV', env)
@@ -121,29 +141,45 @@ test.each([
       modelAttempt: async () => ({ settle }),
     })
     const upstream = new MockLanguageModelV4({
-      modelId: expected ?? model,
-      doGenerate: {
-        content: [],
-        finishReason: { unified: 'stop', raw: 'stop' },
-        warnings: [],
-        usage: {
-          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-          outputTokens: { total: 1, text: 1, reasoning: 0 },
-        },
-        response: { modelId: fallback.model },
-        providerMetadata: {
-          gateway: {
-            routing: {
-              modelAttempts: [
-                {
-                  canonicalSlug: model,
-                  providerAttempts: [{ success: true }],
+      modelId: requested,
+      doGenerate: strict
+        ? async () => {
+            throw new Error(`Model '${requested}' not found`)
+          }
+        : {
+            content: [],
+            finishReason: { unified: 'stop', raw: 'stop' },
+            warnings: [],
+            usage: {
+              inputTokens: {
+                total: 1,
+                noCache: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+              outputTokens: { total: 1, text: 1, reasoning: 0 },
+            },
+            // Live Gateway shape (probed 2026-11-18): on an error fallback,
+            // response.modelId echoes the requested model and only the
+            // routing attempts show which model answered.
+            response: { modelId: requested },
+            providerMetadata: {
+              gateway: {
+                routing: {
+                  modelAttempts: [
+                    {
+                      canonicalSlug: requested,
+                      providerAttempts: [{ success: false }],
+                    },
+                    {
+                      canonicalSlug: fallback.model,
+                      providerAttempts: [{ success: true }],
+                    },
+                  ],
                 },
-              ],
+              },
             },
           },
-        },
-      },
     })
     mocks.gateway.mockClear().mockReturnValue(upstream)
     const { resolve } = researchAgent.model as unknown as {
@@ -152,21 +188,25 @@ test.each([
         turn: { id: string }
       }): Promise<{ model: MockLanguageModelV4 }>
     }
-    const result = resolve({ session: { id: 'session' }, turn: { id: 'turn' } })
-    if (!expected) {
-      await expect(result).rejects.toThrow('strict_model_failed')
-      expect(mocks.gateway).not.toHaveBeenCalled()
-      return
+    const resolved = await resolve({
+      session: { id: 'session' },
+      turn: { id: 'turn' },
+    })
+    expect(mocks.gateway).toHaveBeenCalledWith(requested)
+    const call = resolved.model.doGenerate({ prompt: [] })
+    if (strict) {
+      await expect(call).rejects.toThrow('strict_model_failed')
+      expect(settle).not.toHaveBeenCalled()
+    } else {
+      await call
+      expect(settle).toHaveBeenCalledWith(
+        undefined,
+        { inputTokens: 1, outputTokens: 1 },
+        fallback.model
+      )
     }
-    await (await result).model.doGenerate({ prompt: [] })
-    expect(mocks.gateway).toHaveBeenCalledWith(expected)
     expect(
       upstream.doGenerateCalls[0].providerOptions?.gateway?.models
-    ).toEqual(env === 'production' ? [fallback.model] : undefined)
-    expect(settle).toHaveBeenCalledWith(
-      undefined,
-      { inputTokens: 1, outputTokens: 1 },
-      fallback.model
-    )
+    ).toEqual(fallbackList)
   }
 )

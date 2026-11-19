@@ -10,20 +10,35 @@ export class HostedModelFailure extends Error {
   }
 }
 
+/** Suffix that makes AI Gateway answer `model_not_found` for a forced primary. */
+export const FORCED_FAILURE_SUFFIX = '-forced-failure'
+
+/**
+ * Route a bound model through AI Gateway. Outside production,
+ * FORCE_MODEL_FAILURE=<model id> sends that model under an id the Gateway
+ * can't serve, so the Gateway's own fallback (or, in Strict mode, its error)
+ * runs end to end instead of being simulated here.
+ */
 export function hostedModelRoute(model: string, binding?: HostedModelBinding) {
   const fallback = binding?.strict ? undefined : binding?.fallback?.model
   const forced = (id: string) =>
     !!binding &&
     process.env.VERCEL_ENV !== 'production' &&
     process.env.FORCE_MODEL_FAILURE === id
-  if (forced(model)) {
-    if (!fallback) throw new HostedModelFailure(!!binding?.strict)
-    return { model: fallback }
-  }
   return {
-    model,
-    ...(fallback && !forced(fallback)
-      ? { providerOptions: { gateway: { models: [fallback] } } }
+    model: forced(model) ? `${model}${FORCED_FAILURE_SUFFIX}` : model,
+    ...(fallback
+      ? {
+          providerOptions: {
+            gateway: {
+              models: [
+                forced(fallback)
+                  ? `${fallback}${FORCED_FAILURE_SUFFIX}`
+                  : fallback,
+              ],
+            },
+          },
+        }
       : {}),
   }
 }
