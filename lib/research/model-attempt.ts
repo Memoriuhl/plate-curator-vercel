@@ -57,7 +57,11 @@ export async function createResearchModelAttempt(
   }))
   return {
     /** Settle the attempt by recording actual spend and usage for the run's totals. */
-    async settle(costUsd: number | undefined, usage?: Record<string, number>) {
+    async settle(
+      costUsd: number | undefined,
+      usage?: Record<string, number>,
+      model?: string
+    ) {
       await settleResearchModelSpend(store, options.campaign, id, costUsd)
       if (costUsd !== undefined)
         await store.update<Attempt[], null>(
@@ -69,6 +73,11 @@ export async function createResearchModelAttempt(
             result: null,
           })
         )
+      if (model)
+        await store.update(`served-model/${runId}`, () => ({
+          value: model,
+          result: null,
+        }))
       if (usage)
         await store.update(`usage/${runId}`, () => ({
           value: usage,

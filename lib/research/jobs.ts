@@ -363,10 +363,13 @@ export function normalizeResearchReport(
   const parsed = resultSchema.safeParse(raw)
   if (!parsed.success) return null
   const data = parsed.data
+  const servedByFallback =
+    !job.hostedModel?.strict &&
+    data.provenance.model === job.hostedModel?.fallback?.model
   if (
     JSON.stringify(data.input) !== JSON.stringify(job.input) ||
     data.provenance.executor !== job.executor ||
-    data.provenance.model !== job.model ||
+    (data.provenance.model !== job.model && !servedByFallback) ||
     (job.legacyRevision && data.provenance.codeRevision !== job.legacyRevision)
   )
     return null
@@ -389,6 +392,9 @@ export function normalizeResearchReport(
   )
   return {
     ...data,
+    ...(servedByFallback
+      ? { provenance: { ...data.provenance, servedByFallback: true as const } }
+      : {}),
     ...screened,
     rejected: [...data.rejected, ...screened.rejected],
     missing: outcome.missing,

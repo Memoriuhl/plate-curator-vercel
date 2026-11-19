@@ -304,14 +304,7 @@ export async function hostedTaggingDeps(
     adapter: gatewayAdapter({
       apiKey: process.env.AI_GATEWAY_API_KEY || (await getVercelOidcToken()),
       model,
-      ...(binding
-        ? {
-            pricing: {
-              input: String(binding.price.input),
-              output: String(binding.price.output),
-            },
-          }
-        : {}),
+      ...(binding ? { binding } : {}),
     }),
     /** Resolve the job's pinned input plate and its image URL for hosted inference. */
     async plate(job) {

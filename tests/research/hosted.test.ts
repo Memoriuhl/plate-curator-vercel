@@ -6,7 +6,7 @@ import {
 import { createMemoryResearchStore } from '../../lib/research/memory-store'
 import { createResearchMemoryState } from '../../lib/research/state'
 import type { ResearchDeps } from '../../lib/research/jobs'
-import type { ResearchJob } from '../../lib/research/types'
+import { emptyResearchDraft, type ResearchJob } from '../../lib/research/types'
 import type { ResearchStore } from '../../lib/research/store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 
@@ -121,4 +121,50 @@ test('a submitted draft waits for turn settlement so reported usage is retained'
   expect(
     await finishEveResearch(dependencies(store), 'job', state)
   ).toMatchObject({ state: 'running' })
+})
+
+test('hosted Research attribution preserves the serving fallback model', async () => {
+  const store = createMemoryResearchStore()
+  const state = createResearchMemoryState()
+  const model = 'openai/test-tool'
+  const fallback = 'google/gemini-2.5-flash-lite'
+  const price = { input: 0.0000001, output: 0.0000004 }
+  await store.transaction(async (tx) =>
+    tx.set({
+      id: 'job',
+      env: 'development',
+      state: 'running',
+      executor: 'eve',
+      requestedBy: 'owner',
+      deadline: 300000,
+      model,
+      hostedModel: {
+        model,
+        price,
+        capUsd: 0.01,
+        strict: false,
+        fallback: { model: fallback, price },
+      },
+      input: {
+        plateId: 'AZ.one',
+        displayName: 'Wildlife',
+        state: 'AZ',
+        inputRevision: 'r1',
+        baselineVersion: 14,
+      },
+      createdAt: 1,
+    } as ResearchJob)
+  )
+  for (const [key, value] of [
+    ['draft/job', { draft: emptyResearchDraft(), sources: [], rejected: [] }],
+    ['eve-outcome/job', { outcome: 'completed' }],
+    ['served-model/job', fallback],
+  ] as const)
+    await state.update(key, () => ({ value, result: null }))
+
+  expect(
+    await finishEveResearch(dependencies(store), 'job', state)
+  ).toMatchObject({
+    result: { provenance: { model: fallback, servedByFallback: true } },
+  })
 })

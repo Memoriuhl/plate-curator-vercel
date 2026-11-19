@@ -40,6 +40,7 @@ export type ResearchResult = {
   provenance: {
     executor: ResearchExecutor
     model: string
+    servedByFallback?: true
     promptVersion: string
     codeRevision: string
   }

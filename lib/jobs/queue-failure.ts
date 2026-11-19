@@ -2,11 +2,13 @@ import { localQueueEnabled } from './queue'
 import type { JobsDeps, Outcome, TaggingJob } from './types'
 import { canEdit } from '../review/access'
 import type { Actor } from '../review/types'
+import { STRICT_MODEL_FAILURE } from '../models/routing'
 
 const reasons = new Set([
   'no_handler',
   'stage_failed',
   'research_budget_exhausted',
+  STRICT_MODEL_FAILURE,
   'missing_image',
   'lease_expired',
   'stale_input',

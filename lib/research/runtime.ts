@@ -131,6 +131,7 @@ export async function researchTurn(
   const price =
     hostedModel?.price ??
     LEGACY_RESEARCH_PRICES[model as keyof typeof LEGACY_RESEARCH_PRICES]
+  if (!price) throw Error('Research model pricing is unavailable')
   return {
     store,
     runId,

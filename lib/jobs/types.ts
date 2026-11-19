@@ -48,6 +48,7 @@ export type JobResult = {
   stageError?: StageError
   backend: string
   model: string
+  servedByFallback?: true
   promptVersion: string
   durationMs: number
   usage?: Record<string, number>
@@ -55,7 +56,11 @@ export type JobResult = {
 }
 export type ReportInput = Omit<
   JobResult,
-  'suggestions' | 'fieldSuggestion' | 'stageError' | 'skippedPhases'
+  | 'suggestions'
+  | 'fieldSuggestion'
+  | 'stageError'
+  | 'skippedPhases'
+  | 'servedByFallback'
 > & {
   suggestions?: unknown
   fieldSuggestion?: unknown

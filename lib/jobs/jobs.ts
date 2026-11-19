@@ -463,8 +463,15 @@ export async function reportResult(
         }
       }
     }
+    const servedByFallback =
+      !job.hostedModel?.strict &&
+      result.model === job.hostedModel?.fallback?.model
+    if (servedByFallback) result.servedByFallback = true
     if (job.stage === 'research') {
-      if (!job.researchModel || result.model !== job.researchModel.model)
+      if (
+        !job.researchModel ||
+        (result.model !== job.researchModel.model && !servedByFallback)
+      )
         return { ok: false, error: 'invalid_result' }
       if (result.fieldSuggestion?.kind === 'fields') {
         result.fieldSuggestion.fields = filterEnrichmentFields(

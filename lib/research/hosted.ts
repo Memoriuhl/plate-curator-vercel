@@ -69,9 +69,6 @@ export async function finishEveResearch(
 ): Promise<ResearchJob | null> {
   const current = await deps.store.transaction((tx) => tx.get(id))
   if (!current || current.state !== 'running') return current
-  const output = await state.read<
-    Pick<ResearchResult, 'draft' | 'sources' | 'rejected'>
-  >(`draft/${id}`)
   const settled = await state.read<{
     outcome: string
     error?: string
@@ -79,6 +76,10 @@ export async function finishEveResearch(
     missingModelCosts?: number
   }>(`eve-outcome/${id}`)
   if (!settled && current.deadline > deps.now()) return current
+  const output = await state.read<
+    Pick<ResearchResult, 'draft' | 'sources' | 'rejected'>
+  >(`draft/${id}`)
+  const model = await state.read<string>(`served-model/${id}`)
   const counters =
     (await state.read<Record<string, number>>(`limits/${id}`)) ?? {}
   const nativeCost = await state.read<{ usd: number; missing: number }>(
@@ -103,7 +104,7 @@ export async function finishEveResearch(
         hostedResearchResult(job.input, output, {
           durationMs: Math.max(0, deps.now() - job.createdAt),
           counters,
-          model: job.model,
+          model: model ?? job.model,
         }),
         job
       )

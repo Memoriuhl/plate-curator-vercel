@@ -143,21 +143,28 @@ tagChunk.maxRetries = 5
 async function expireJobs(jobIds: string[]) {
   'use step'
   const d = jobsDeps()
-  for (const id of jobIds) await expireJob(d, id)
+  for (const id of jobIds) {
+    const job = await getJob(d, id)
+    if (job?.state === 'claimed' || job?.state === 'queued')
+      await expireJob(d, id)
+  }
 }
 
 /** Resolve one hosted tagging job to its final status and suggestions. */
 async function finishHosted(jobId: string, outcome: FinalOutcome | undefined) {
   'use step'
   const d = jobsDeps()
+  const current = await getJob(d, jobId)
   const job =
-    outcome !== 'completed'
+    outcome !== 'completed' &&
+    (current?.state === 'claimed' || current?.state === 'queued')
       ? await expireJob(d, jobId).then((result) =>
           result.ok ? result.value : null
         )
-      : await getJob(d, jobId)
+      : current
   return {
     outcome: job?.state ?? 'missing',
+    ...(job?.failure ? { error: job.failure } : {}),
     suggestions: job?.result?.suggestions ?? [],
   }
 }

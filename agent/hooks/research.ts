@@ -1,4 +1,5 @@
 import { defineHook } from 'eve/hooks'
+import { STRICT_MODEL_FAILURE } from '../../lib/models/routing'
 
 export default defineHook({
   events: {
@@ -70,7 +71,9 @@ export default defineHook({
                 error:
                   event.data.error?.message === researchBudgetError
                     ? 'research_budget_exhausted'
-                    : event.data.outcome,
+                    : event.data.error?.message === STRICT_MODEL_FAILURE
+                      ? STRICT_MODEL_FAILURE
+                      : event.data.outcome,
               }
             : {}),
           ...costs,

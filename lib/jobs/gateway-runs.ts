@@ -22,6 +22,8 @@ export type GatewayRun = {
     plateName: string
     inputHash: string
     suggestions: string[]
+    model?: string
+    servedByFallback?: true
   }[]
 }
 
@@ -93,6 +95,9 @@ function gatewayRunsInStore(d: JobsDeps, actor: Actor): Promise<GatewayRun[]> {
                 : job.state,
           ...(job.result ? { durationMs: job.result.durationMs } : {}),
           ...(job.failure ? { reason: job.failure } : {}),
+          ...(job.result?.servedByFallback
+            ? { servedByFallback: job.result.model }
+            : {}),
         }))
         const active = steps.some((step) =>
           ['queued', 'running'].includes(step.status)
@@ -141,6 +146,10 @@ function gatewayRunsInStore(d: JobsDeps, actor: Actor): Promise<GatewayRun[]> {
               plateName: job.inputPlate?.displayName ?? job.plateId,
               inputHash: job.inputHash,
               suggestions: job.result?.suggestions ?? [],
+              ...(job.result ? { model: job.result.model } : {}),
+              ...(job.result?.servedByFallback
+                ? { servedByFallback: true }
+                : {}),
             })),
         }
       })

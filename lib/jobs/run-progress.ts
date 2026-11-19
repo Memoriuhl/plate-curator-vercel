@@ -13,6 +13,7 @@ export type StepProgress = {
   skippedPhases?: number[]
   durationMs?: number
   reason?: string
+  servedByFallback?: string
   workerId?: string
 }
 export type PipelineProgress = {
@@ -96,6 +97,9 @@ export function queueProgress(
       ...(job?.phaseIndex !== undefined ? { phaseIndex: job.phaseIndex } : {}),
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(job?.workerId ? { workerId: job.workerId } : {}),
+      ...(job?.result?.servedByFallback
+        ? { servedByFallback: job.result.model }
+        : {}),
       ...(skippedPhases?.length ? { skippedPhases } : {}),
       ...((step.reason ?? job?.result?.stageError ?? job?.failure)
         ? { reason: step.reason ?? job?.result?.stageError ?? job?.failure }

@@ -71,6 +71,10 @@ export async function executeHostedQueueAttempt(
   )
   if (result.outcome === 'waiting' || result.outcome === 'retry')
     return { outcome: result.outcome, retryAfterMs: result.retryAfterMs }
-  if (result.outcome !== 'completed') await expireJob(jobs, id)
+  if (
+    result.outcome !== 'completed' &&
+    (await getJob(jobs, id))?.state === 'claimed'
+  )
+    await expireJob(jobs, id)
   return { outcome: 'settled' }
 }

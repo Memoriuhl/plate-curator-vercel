@@ -4,10 +4,12 @@ import {
   RESEARCH_INPUT_BYTES_LIMIT,
   RESEARCH_OUTPUT_TOKENS_LIMIT,
 } from './budget'
+import { HostedModelFailure, routedGatewayModel } from '../models/routing'
 type Attempt = {
   settle(
     costUsd: number | undefined,
-    usage?: Record<string, number>
+    usage?: Record<string, number>,
+    model?: string
   ): Promise<void>
 }
 
@@ -37,8 +39,17 @@ function tokenUsage(usage: unknown): Record<string, number> {
 export function guardedResearchModel(
   model: Parameters<typeof wrapLanguageModel>[0]['model'],
   beforeRequest: () => Promise<void | Attempt>,
-  capturedOnly = false
+  capturedOnly = false,
+  routing?: { gatewayOptions?: { models: string[] }; strict?: boolean }
 ) {
+  async function call<T>(invoke: () => PromiseLike<T>) {
+    try {
+      return await invoke()
+    } catch (error) {
+      if (routing?.strict) throw new HostedModelFailure(true, error)
+      throw error
+    }
+  }
   return wrapLanguageModel({
     model,
     middleware: {
@@ -59,12 +70,25 @@ export function guardedResearchModel(
           : undefined
         if (capturedOnly && !submit)
           throw Error('Research requires the structured submit_draft tool')
+        const { models: _fallbacks, ...otherGatewayOptions } =
+          params.providerOptions?.gateway ?? {}
         return {
           ...params,
           maxOutputTokens: Math.min(
             params.maxOutputTokens ?? RESEARCH_OUTPUT_TOKENS_LIMIT,
             RESEARCH_OUTPUT_TOKENS_LIMIT
           ),
+          ...(routing
+            ? {
+                providerOptions: {
+                  ...params.providerOptions,
+                  gateway: {
+                    ...otherGatewayOptions,
+                    ...routing.gatewayOptions,
+                  },
+                },
+              }
+            : {}),
           ...(submit
             ? {
                 reasoning: 'none' as const,
@@ -77,10 +101,13 @@ export function guardedResearchModel(
       /** Reserve and settle one budgeted attempt around a complete model response. */
       async wrapGenerate({ doGenerate }) {
         const attempt = await beforeRequest()
-        const result = await doGenerate()
+        const result = await call(doGenerate)
         await attempt?.settle(
           reportedGatewayCost(result.providerMetadata),
-          tokenUsage(result.usage)
+          tokenUsage(result.usage),
+          routedGatewayModel(result.providerMetadata) ??
+            result.response?.modelId ??
+            model.modelId
         )
         return result
       },
@@ -90,8 +117,9 @@ export function guardedResearchModel(
        */
       async wrapStream({ doStream }) {
         const attempt = await beforeRequest()
-        const result = await doStream()
-        if (!attempt) return result
+        const result = await call(doStream)
+        if (!attempt && !routing?.strict) return result
+        let responseModel: string | undefined
         return {
           ...result,
           stream: result.stream.pipeThrough(
@@ -101,10 +129,17 @@ export function guardedResearchModel(
                * the consumer.
                */
               async transform(part, controller) {
+                if (part.type === 'error' && routing?.strict)
+                  throw new HostedModelFailure(true, part.error)
+                if (part.type === 'response-metadata')
+                  responseModel = part.modelId
                 if (part.type === 'finish')
-                  await attempt.settle(
+                  await attempt?.settle(
                     reportedGatewayCost(part.providerMetadata),
-                    tokenUsage(part.usage)
+                    tokenUsage(part.usage),
+                    routedGatewayModel(part.providerMetadata) ??
+                      responseModel ??
+                      model.modelId
                   )
                 controller.enqueue(part)
               },

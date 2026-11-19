@@ -1,6 +1,7 @@
 import type { ModelAdapter } from '../../worker/model'
 import { claimJob, claimHostedQueueJob, getJob, reportResult } from './jobs'
 import type { JobsDeps, TaggingJob } from './types'
+import { HostedModelFailure } from '../models/routing'
 
 export const HOSTED_WORKER = 'hosted'
 export const CHUNK_SIZE = 5
@@ -65,6 +66,7 @@ export async function tagHostedJob(
 
   const start = d.jobs.now()
   let backend = d.adapter.backend
+  let model = d.adapter.model
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
   try {
@@ -74,8 +76,24 @@ export async function tagHostedJob(
       const result = await d.adapter.suggest({ imageB64: image, plate })
       suggestions = result.tags
       usage = result.usage
+      model = result.model ?? model
     }
   } catch (error) {
+    if (error instanceof HostedModelFailure) {
+      await d.jobs.store.transaction(async (tx) => {
+        const job = await tx.get(jobId)
+        if (job?.state !== 'claimed' || job.claimId !== claim.value.claimId)
+          return
+        const run = job.queueRunId ? await tx.getRun(job.queueRunId) : null
+        tx.set({
+          ...job,
+          state: run?.cancelRequestedAt !== undefined ? 'cancelled' : 'failed',
+          endedAt: d.jobs.now(),
+          failure: error.message,
+        })
+      })
+      return { outcome: 'failed' }
+    }
     if (!transient(errorStatus(error))) return { outcome: 'failed' }
     const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs
     return {
@@ -92,7 +110,7 @@ export async function tagHostedJob(
     {
       suggestions,
       backend,
-      model: d.adapter.model,
+      model,
       promptVersion: d.adapter.promptVersion,
       durationMs: Math.max(0, d.jobs.now() - start),
       ...(usage ? { usage } : {}),
