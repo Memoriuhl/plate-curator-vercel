@@ -1,6 +1,7 @@
 # Prose and generated artifacts
 *.md
 /Plate Curator - Vercel Take Home Walkthrough Artifact.html
+/docs/take-home/
 /app/.well-known/workflow/
 /build/
 /coverage/
