@@ -15,8 +15,8 @@ const sample = (
 })
 
 const data = [
-  sample('google/gemma-4-26b-a4b-it'),
-  sample('google/gemini-2.5-flash-lite', ['tool-use']),
+  sample('google/gemma-4-26b-a4b-it', ['vision', 'tool-use', 'reasoning']),
+  sample('google/gemini-2.5-flash-lite', ['tool-use', 'reasoning']),
   sample('google/gemini-3.8-flash', ['vision'], '0.00001'),
   sample('openai/vision-only', ['vision']),
   sample('openai/tool-only', ['tool-use']),
@@ -69,6 +69,54 @@ test('curated models keep order and measured data and omit unavailable and over-
     'google/gemma-4-26b-a4b-it',
   ])
 })
+
+test('the picker includes a reasoning model whose typical estimate fits the cap', async () => {
+  const { searchable } = await import('../../lib/models/catalog')
+  const models = await searchable('research', 0.002)
+  const pinned = models.find(({ id }) => id === 'google/gemini-2.5-flash-lite')
+  expect(pinned?.estimatedUsd).toBeCloseTo(0.0016, 10)
+})
+
+test.each([
+  {
+    primary: ['tool-use', 'reasoning'],
+    fallback: ['tool-use'],
+    holds: [8000, 1000],
+  },
+  {
+    primary: ['tool-use'],
+    fallback: ['tool-use', 'reasoning'],
+    holds: [1000, 8000],
+  },
+])(
+  'snapshots $holds output tokens for the primary and fallback',
+  async ({ primary, fallback, holds }) => {
+    fetchCatalog.mockResolvedValueOnce(
+      Response.json({
+        data: [
+          sample('openai/tool-only', primary),
+          sample('google/gemini-2.5-flash-lite', fallback),
+        ],
+      })
+    )
+    const { bindHostedModel } = await import('../../lib/jobs/model-binding')
+    await expect(
+      bindHostedModel('research', 'openai/tool-only', {})
+    ).resolves.toMatchObject({
+      ok: true,
+      binding: {
+        model: 'openai/tool-only',
+        price: { input: 0.0000001, output: 0.0000004 },
+        outputTokensBound: holds[0],
+        fallback: {
+          model: 'google/gemini-2.5-flash-lite',
+          price: { input: 0.0000001, output: 0.0000004 },
+          outputTokensBound: holds[1],
+        },
+      },
+    })
+  }
+)
 
 test('includes the scored Tag benchmark metrics for an available curated model', async () => {
   const id = 'google/gemini-3.5-flash-lite'
@@ -137,6 +185,7 @@ test('binds only the pinned defaults with code prices when the cold catalog fail
       binding: {
         model: id,
         price: { input, output },
+        outputTokensBound: 8000,
         capUsd: 0.002,
         strict: true,
       },

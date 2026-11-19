@@ -1,15 +1,21 @@
 import type { ResearchStateStore } from './state'
-import type { ModelPrice } from '../models/catalog'
+import {
+  REASONING_OUTPUT_TOKENS_BOUND,
+  type ModelPriceSnapshot,
+} from '../models/selection'
 
 export const RESEARCH_INPUT_BYTES_LIMIT = 60_000
 export const RESEARCH_OUTPUT_TOKENS_LIMIT = 1_000
 
 /** Use one token per input byte as a conservative bound for text and tool payloads. */
-export function researchCallReservation(price: ModelPrice, fallback = price) {
-  const worstCase = (rates: ModelPrice) =>
-    RESEARCH_INPUT_BYTES_LIMIT * rates.input +
-    RESEARCH_OUTPUT_TOKENS_LIMIT * rates.output
-  return Math.max(0.000001, worstCase(price), worstCase(fallback))
+export function researchCallReservation(
+  primary: ModelPriceSnapshot,
+  fallback = primary
+) {
+  const worstCase = ({ price, outputTokensBound }: ModelPriceSnapshot) =>
+    RESEARCH_INPUT_BYTES_LIMIT * price.input +
+    (outputTokensBound ?? REASONING_OUTPUT_TOKENS_BOUND) * price.output
+  return Math.max(0.000001, worstCase(primary), worstCase(fallback))
 }
 
 type Entry = {

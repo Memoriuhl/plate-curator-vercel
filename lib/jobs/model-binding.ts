@@ -57,7 +57,13 @@ export async function bindHostedModel(
       return {
         ok: true,
         label: pinned.label,
-        binding: { model, price: pinned.price, capUsd, strict },
+        binding: {
+          model,
+          price: pinned.price,
+          outputTokensBound: pinned.outputTokensBound,
+          capUsd,
+          strict,
+        },
       }
     }
     const selected = models.find(({ id }) => id === model)
@@ -76,10 +82,17 @@ export async function bindHostedModel(
       binding: {
         model,
         price: selected.price,
+        outputTokensBound: selected.outputTokensBound,
         capUsd,
         strict,
         ...(fallback
-          ? { fallback: { model: fallback.id, price: fallback.price } }
+          ? {
+              fallback: {
+                model: fallback.id,
+                price: fallback.price,
+                outputTokensBound: fallback.outputTokensBound,
+              },
+            }
           : {}),
       },
     }

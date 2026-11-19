@@ -3,6 +3,8 @@ import type { HostedStep, ModelPrice } from './catalog'
 
 export const MODEL_CAP_PRESETS = [0.002, 0.005, 0.01, 0.02] as const
 export const DEFAULT_MODEL_CAP = 0.01
+export const REASONING_OUTPUT_TOKENS_BOUND = 8_000
+export const STANDARD_OUTPUT_TOKENS_BOUND = 1_000
 export const gatewayModelId = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/
 
 export const modelOptionsSchema = z.strictObject({
@@ -17,12 +19,16 @@ export const runModelOptionsSchema = z.strictObject({
 
 export type ModelOptions = z.infer<typeof modelOptionsSchema>
 export type RunModelOptions = z.infer<typeof runModelOptionsSchema>
-export type HostedModelBinding = {
-  model: string
+export type ModelPriceSnapshot = {
   price: ModelPrice
+  /** Older runs did not store an output bound. */
+  outputTokensBound?: number
+}
+type HostedModelSnapshot = ModelPriceSnapshot & { model: string }
+export type HostedModelBinding = HostedModelSnapshot & {
   capUsd: number
   strict: boolean
-  fallback?: { model: string; price: ModelPrice }
+  fallback?: HostedModelSnapshot
 }
 export type RunModelBindings = Partial<Record<HostedStep, HostedModelBinding>>
 

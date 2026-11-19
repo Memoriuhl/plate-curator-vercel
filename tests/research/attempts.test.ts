@@ -51,7 +51,7 @@ test('mixed known, unreported, and failed physical attempts retain unknown reser
   await model.doGenerate({ prompt })
   await expect(model.doGenerate({ prompt })).rejects.toThrow('network failure')
   expect(await state.read('budget/campaign')).toMatchObject({
-    committedMicros: 22800,
+    committedMicros: 28400,
   })
   expect(await researchModelCosts(state, 'run')).toEqual({
     costUsd: 0.01,

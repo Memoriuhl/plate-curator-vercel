@@ -5,13 +5,13 @@ const catalog = {
     [
       'google/gemini-2.5-flash-lite',
       'Gemini 2.5 Flash Lite',
-      ['vision', 'tool-use'],
+      ['vision', 'tool-use', 'reasoning'],
       '0.0000001',
     ],
     [
       'google/gemma-4-26b-a4b-it',
       'Gemma 4 26B',
-      ['vision', 'tool-use'],
+      ['vision', 'tool-use', 'reasoning'],
       '0.00000015',
     ],
     ['openai/test-vision', 'Test Vision', ['vision'], '0.0000002'],

@@ -132,6 +132,10 @@ export async function researchTurn(
     hostedModel?.price ??
     LEGACY_RESEARCH_PRICES[model as keyof typeof LEGACY_RESEARCH_PRICES]
   if (!price) throw Error('Research model pricing is unavailable')
+  const priceSnapshot = {
+    price,
+    outputTokensBound: hostedModel?.outputTokensBound,
+  }
   return {
     store,
     runId,
@@ -149,8 +153,8 @@ export async function researchTurn(
         campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117',
         limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'),
         deadline,
-        price,
-        fallbackPrice: hostedModel?.fallback?.price,
+        ...priceSnapshot,
+        fallback: hostedModel?.fallback,
         ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}),
       }),
     /**
@@ -174,7 +178,7 @@ export async function researchTurn(
         runId,
         kind === 'model' ? 'model' : 'search',
         kind === 'model'
-          ? researchCallReservation(price, hostedModel?.fallback?.price)
+          ? researchCallReservation(priceSnapshot, hostedModel?.fallback)
           : 0.01,
         Number(process.env.RESEARCH_BUDGET_USD ?? '2')
       )

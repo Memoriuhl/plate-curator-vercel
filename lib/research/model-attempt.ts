@@ -5,7 +5,7 @@ import {
   reserveResearchSpend,
   settleResearchModelSpend,
 } from './budget'
-import type { ModelPrice } from '../models/catalog'
+import type { ModelPriceSnapshot } from '../models/selection'
 
 export const researchBudgetError = 'Research campaign budget exhausted'
 
@@ -14,13 +14,12 @@ type Attempt = { id: string; costUsd?: number }
 export async function createResearchModelAttempt(
   store: ResearchStateStore,
   runId: string,
-  options: {
+  options: ModelPriceSnapshot & {
     campaign: string
     limitUsd: number
     deadline: number
     maxCalls?: number
-    price: ModelPrice
-    fallbackPrice?: ModelPrice
+    fallback?: ModelPriceSnapshot
   }
 ) {
   const sequence = await store.update<Record<string, number>, number | null>(
@@ -46,7 +45,7 @@ export async function createResearchModelAttempt(
       options.campaign,
       id,
       'model',
-      researchCallReservation(options.price, options.fallbackPrice),
+      researchCallReservation(options, options.fallback),
       options.limitUsd
     ))
   )
