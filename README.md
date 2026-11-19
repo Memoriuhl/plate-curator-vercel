@@ -20,7 +20,7 @@ Plate Curator is a web workspace for the license-plate spotting game's catalog. 
 | --- | --- |
 | **Dashboard** | Browse plates by jurisdiction, group variants into families, edit catalog fields and arrange the state order. Editors can do this without a writable game checkout. |
 | **Plate Pipeline** | Run tagging, research, image and grouping tasks. Results enter the review flow as suggestions or draft changes. Configured stages can use a desktop worker or hosted execution. |
-| **Review** | See every unpublished change in the shared draft against its catalog baseline, with who made it and when. |
+| **Review** | See every unpublished change in the shared draft against its catalog baseline, with who made each change. |
 | **Publish** | Inspect the draft at its current revision, broken down by state, and its publication status. An Owner's publish ships that revision: it writes an immutable snapshot and advances the catalog pointer that the game reads. |
 
 ## How it works

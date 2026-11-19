@@ -401,3 +401,57 @@ test('All review changes keeps one row per plate and scopes removal to the share
   )
   expect(list.queryByRole('link', { name: 'Shared plate · CA' })).toBeNull()
 })
+
+test('default Review shows who made each change, not who started the shared draft', async () => {
+  state.params = new URLSearchParams()
+  const proposal = (
+    name: string,
+    id: string,
+    authorId: string,
+    authorName?: string
+  ) => {
+    const baseline = { ...snapshot.plates[0], id, displayName: name }
+    return {
+      baseline,
+      proposed: { ...baseline, tags: [name] },
+      edit: {
+        plateId: id,
+        fields: { tags: [name] },
+        baseRevision: 'before',
+        resultRevision: 'after',
+        updatedAt: '2026-11-18T12:00:00Z',
+        authorId,
+        ...(authorName ? { authorName } : {}),
+      },
+      revision: 'saved',
+    }
+  }
+  state.extra = [
+    {
+      batch: {
+        ...batch,
+        id: 'draft',
+        kind: 'shared-draft' as const,
+        name: 'Shared draft',
+        state: 'open' as const,
+        createdBy: 'owner',
+        createdByName: 'Olive Owner',
+      },
+      plates: [
+        proposal('Ana change', 'CA.ana', 'ana', 'Ana Curator'),
+        proposal('Owner change', 'CA.owner', 'owner'),
+      ],
+    },
+  ]
+  render(
+    <ReviewWorkspace
+      states={[{ code: 'CA', name: 'California', plates: [] }]}
+    />
+  )
+  const ana = await screen.findByRole('link', { name: 'Ana change · CA' })
+  expect(within(ana).getByLabelText('Ana Curator')).toBeTruthy()
+  expect(within(ana).queryByLabelText('Olive Owner')).toBeNull()
+  // An edit saved before names were recorded falls back to the draft creator's name.
+  const own = screen.getByRole('link', { name: 'Owner change · CA' })
+  expect(within(own).getByLabelText('Olive Owner')).toBeTruthy()
+})

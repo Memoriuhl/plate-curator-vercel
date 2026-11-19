@@ -13,7 +13,7 @@ Plate Curator is invite-only. Only Members can sign in, and an Owner adds Member
 1. Sign in with the demo Editor account and open AK at `/states/AK`.
 2. Open a Plate, add or remove a Tag, and wait for **Saved to your batch**. Every curator's changes go into one shared draft; there is no Batch to pick.
 3. Return to AK and drag a Plate into another position; the order saves to the same draft.
-4. Open `/review?state=AK`. Review lists every unpublished change in the draft, yours included, with who made it and when.
+4. Open `/review?state=AK`. Review lists every unpublished change in the draft, yours included, with who made each change.
 5. Sign out, then sign in with the demo Owner account. Open `/publish` and inspect the draft at its current revision, broken down by state. Publishing ships that revision; changes saved after it stay in the draft. The walkthrough stops at inspection.
 
 ## Reset the example

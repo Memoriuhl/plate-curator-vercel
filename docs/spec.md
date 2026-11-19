@@ -36,7 +36,7 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 16. As an Editor, I want suggestions that are already present or invalid for the taxonomy marked or excluded, so that I don't add duplicates or junk.
 17. As an Editor, I want to finish a Plate by hand when the GPU server is offline, so that the model is never a hard dependency.
 18. As an Editor, I want every change I save, and every pipeline result applied, to land in one shared working draft, so that I never pick a Batch and nobody's work waits behind someone else's.
-19. As an Editor, I want Review to list every unpublished change with who made it and when, so that I know what the next Publish will ship.
+19. As an Editor, I want Review to list every unpublished change with who made it, so that I know what the next Publish will ship.
 20. As an Owner, I want to see the draft at its current revision as a frozen diff against the live catalog, broken down by state, so that I publish exactly what I reviewed.
 21. As an Owner, I want each Publish to record the draft revision, me, the time, and the baseline Snapshot version, so that there's an audit trail.
 22. As an Owner, I want Publish to ship the revision I reviewed even when curators saved more since, and keep those later changes in the draft, so that curators never stop working while I release.

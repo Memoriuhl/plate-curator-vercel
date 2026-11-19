@@ -133,6 +133,23 @@ function Author({ uid, name }: { uid: string; name?: string | null }) {
 }
 
 /**
+ * Name whoever last saved this change. Everyone edits the same shared draft, so the
+ * draft's creator is only a fallback for an edit saved before names were recorded.
+ */
+function changeAuthor(item: {
+  batch: { createdBy: string; createdByName: string | null }
+  edit?: { authorId: string; authorName?: string | null } | null
+}) {
+  const uid = item.edit?.authorId ?? item.batch.createdBy
+  return {
+    uid,
+    name:
+      item.edit?.authorName ??
+      (uid === item.batch.createdBy ? item.batch.createdByName : null),
+  }
+}
+
+/**
  * Load one batch detail and communicate its current data or failure to the review
  * workspace.
  */
@@ -794,12 +811,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                     <PlateChangeIcons entries={group} />
                   </span>
                 </span>
-                {!batchId && (
-                  <Author
-                    uid={item.batch.createdBy}
-                    name={item.batch.createdByName}
-                  />
-                )}
+                {!batchId && <Author {...changeAuthor(item)} />}
               </Link>
             )
             if (!filters.run) return row
