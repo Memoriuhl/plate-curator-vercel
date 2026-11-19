@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/demo-pages.yml
       - docs/take-home/part-1.html
+      - docs/take-home/demo-cut-sheet.html
       - Plate Curator - Vercel Take Home Walkthrough Artifact.html
   workflow_dispatch:
 
@@ -33,6 +34,7 @@ jobs:
         run: |
           mkdir site
           cp docs/take-home/part-1.html site/index.html
+          cp docs/take-home/demo-cut-sheet.html site/demo-cut-sheet.html
           cp 'Plate Curator - Vercel Take Home Walkthrough Artifact.html' site/walkthrough.html
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:

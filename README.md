@@ -8,7 +8,7 @@ Plate Curator is the web workspace behind State Spotter, a mobile license-plate 
 
 The workspace runs on Vercel. The game, its Firebase catalog and the local GPU server stay where they are.
 
-[Open the app](https://plate-curator-vercel.vercel.app) · [Read the write-up](https://memoriuhl.github.io/plate-curator-vercel/) · [Find your way around](#where-to-go)
+[Open the app](https://plate-curator-vercel.vercel.app) · [Demo cut sheet](https://memoriuhl.github.io/plate-curator-vercel/demo-cut-sheet.html) · [Read the write-up](https://memoriuhl.github.io/plate-curator-vercel/) · [Find your way around](#where-to-go)
 
 ## Why it exists
 
@@ -26,7 +26,7 @@ Plate Curator gives each person their own account and role, keeps every change n
 
 ## Try the demo
 
-Use the demo credentials from the private submission to [sign in](https://plate-curator-vercel.vercel.app/sign-in). Use the Owner account for the full walkthrough, or use separate Editor and Owner browser sessions to see the handoff.
+Open the [illustrated demo cut sheet](https://memoriuhl.github.io/plate-curator-vercel/demo-cut-sheet.html) and use the demo credentials from the submission email to [sign in](https://plate-curator-vercel.vercel.app/sign-in). Use the Owner account for the full walkthrough, or use separate Editor and Owner browser sessions to see the handoff.
 
 1. Open Alaska. Select Army, then **Shift**-click Navy to select the range.
 2. Open **Run pipeline** and select **Research** and hosted **Tag**. Please go easy on the AI credits when trying the pipeline.
