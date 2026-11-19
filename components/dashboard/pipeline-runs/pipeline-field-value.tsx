@@ -25,7 +25,7 @@ export function pipelineFieldLabel(field: string) {
 }
 
 /** Accept an HTTP or HTTPS value as a clickable pipeline result link. */
-function href(value: unknown) {
+export function externalHref(value: unknown) {
   if (typeof value !== 'string') return undefined
   try {
     const url = new URL(value)
@@ -71,7 +71,7 @@ export function PipelineFieldValue({
                   sourceTitle?: string
                 })
               : { text: String(raw) }
-          const source = href(fact.sourceUrl)
+          const source = externalHref(fact.sourceUrl)
           return (
             <li key={index}>
               <p>{fact.text}</p>
@@ -98,7 +98,7 @@ export function PipelineFieldValue({
             raw && typeof raw === 'object'
               ? (raw as { title?: string; site?: string; url?: string })
               : { title: String(raw) }
-          const source = href(link.url)
+          const source = externalHref(link.url)
           return (
             <li key={index}>
               {source ? (
@@ -119,11 +119,14 @@ export function PipelineFieldValue({
         })}
       </ul>
     )
-  if (['wikiUrl', 'imageUrl', 'sourceUrl'].includes(field) && href(value))
+  if (
+    ['wikiUrl', 'imageUrl', 'sourceUrl'].includes(field) &&
+    externalHref(value)
+  )
     return (
       <a
         className="break-words underline"
-        href={href(value)}
+        href={externalHref(value)}
         target="_blank"
         rel="noreferrer"
       >

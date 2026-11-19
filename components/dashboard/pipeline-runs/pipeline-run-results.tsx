@@ -1,10 +1,22 @@
 'use client'
 
-import { useState, type ReactNode, type RefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import Link from 'next/link'
 import { Dialog } from 'radix-ui'
 import { IoArrowBack, IoClose } from 'react-icons/io5'
 import { FamilyCard } from '@/components/plate/family-card'
+import { ReadyPlatePreview } from '@/components/plate/ready-plate-preview'
+import type {
+  PlateCardData,
+  PlateCheckKey,
+} from '@/lib/catalog/dashboard-types'
 import { Button } from '@/components/ui/button'
 import { JURISDICTIONS } from '@/lib/catalog/jurisdictions'
 import type { Plate } from '@/lib/catalog/types'
@@ -67,6 +79,66 @@ function StateResultLists({ cards }: { cards: ResultCard[] }) {
       ))}
     </>
   )
+}
+
+type ResultPreview = {
+  plate: PlateCardData
+  anchor: HTMLElement
+  immediate: boolean
+  checkKey?: PlateCheckKey
+}
+
+/**
+ * Give result cards the Dashboard's hover previews: the plate card on the image and a
+ * tooltip on each check icon. Cards hold the plate as the run left it, so the previews
+ * show the run's values instead of loading the saved plate.
+ */
+function useResultPreview() {
+  const [preview, setPreview] = useState<ResultPreview | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const opened = useRef(false)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const close = useCallback(() => {
+    clearTimeout(timer.current)
+    setPreview(null)
+  }, [])
+  const leave = useCallback(() => {
+    if (!opened.current) return close()
+    clearTimeout(timer.current)
+    timer.current = setTimeout(close, 230)
+  }, [close])
+  const open = (next: ResultPreview) => {
+    clearTimeout(timer.current)
+    opened.current = false
+    if (next.anchor.isConnected) setPreview(next)
+  }
+  const cardProps = {
+    onPreview: (
+      plate: PlateCardData,
+      anchor: HTMLElement,
+      immediate: boolean
+    ) => open({ plate, anchor, immediate }),
+    onCheck: (
+      plate: PlateCardData,
+      checkKey: PlateCheckKey,
+      anchor: HTMLElement
+    ) => open({ plate, anchor, immediate: false, checkKey }),
+    onClosePreview: leave,
+    onDismissPreview: close,
+    onLeaveCheck: () => (preview?.checkKey === 'image' ? leave() : close()),
+  }
+  const element = preview ? (
+    <ReadyPlatePreview
+      {...preview}
+      localOnly
+      onReady={() => {
+        opened.current = true
+      }}
+      onMouseEnter={() => clearTimeout(timer.current)}
+      onMouseLeave={leave}
+    />
+  ) : null
+  return { cardProps, element }
 }
 
 function collectFields(
@@ -146,6 +218,7 @@ export function PipelineRunResults({
   byState?: boolean
 }) {
   const [verifiedClaim, setVerifiedClaim] = useState<string | null>(null)
+  const hover = useResultPreview()
   const attempt = run.attempts.at(-1)!
   const progress = run.progress ?? queueProgress(run)
   const steps = stage
@@ -406,7 +479,13 @@ export function PipelineRunResults({
         plateSteps?.[0]?.plateState ??
         id.split('.')[0],
       content: card ? (
-        <FamilyCard template={card} variants={[]} browseOnly footer={footer} />
+        <FamilyCard
+          template={card}
+          variants={[]}
+          browseOnly
+          footer={footer}
+          {...hover.cardProps}
+        />
       ) : (
         <article className="rounded-[var(--radius-lg)] bg-[var(--card)] p-4">
           <h3 className="plate-name">{name}</h3>
@@ -560,6 +639,7 @@ export function PipelineRunResults({
             </Button>
           </details>
         )}
+      {hover.element}
     </>
   )
 }

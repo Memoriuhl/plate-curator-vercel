@@ -5,7 +5,10 @@ import Image from 'next/image'
 import { cn } from '@/components/utils'
 import type { BatchDetail } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
-import { pipelineFieldLabel } from '@/components/dashboard/pipeline-runs/pipeline-field-value'
+import {
+  externalHref,
+  pipelineFieldLabel,
+} from '@/components/dashboard/pipeline-runs/pipeline-field-value'
 import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { changedDraftField, sameEditableValue } from '@/lib/review/story'
 import { FieldAttribution } from './field-attribution'
@@ -63,6 +66,55 @@ const linkText = (links: unknown) =>
         )
         .join('\n\n')
     : undefined
+
+/** Open evidence links from either side of the diff in a new tab. */
+function LinkList({
+  links,
+  className,
+}: {
+  links: { title?: string; site?: string; url?: string }[]
+  className?: string
+}) {
+  if (!links.length) return <span className={className}>none</span>
+  return (
+    <ul className={cn('grid gap-2', className)}>
+      {links.map((link, index) => {
+        const href = externalHref(link.url)
+        const text = link.title || link.site || link.url || 'Link'
+        return (
+          <li key={`${link.url ?? ''}:${index}`} className="min-w-0">
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="underline [overflow-wrap:anywhere]"
+              >
+                {text}
+              </a>
+            ) : (
+              <span className="[overflow-wrap:anywhere]">{text}</span>
+            )}
+            {link.site && link.title ? (
+              <span className="caption block">{link.site}</span>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** The plate's read-more links, or its source and reference links, as link entries. */
+function rowLinks(label: string, plate: Plate) {
+  if (label === 'Read more')
+    return (Array.isArray(plate.readMore) ? plate.readMore : []).map((link) =>
+      link && typeof link === 'object' ? link : { url: String(link ?? '') }
+    )
+  return [plate.sourceUrl, plate.wikiUrl]
+    .filter((url): url is string => !!url)
+    .map((url) => ({ url }))
+}
 
 /** Summarize a plate's visible field, deletion and order changes for the batch review. */
 export function changeSummary(
@@ -421,6 +473,11 @@ export function DiffTable({
                       ))}
                       {!tags.length && <span className="caption">None</span>}
                     </div>
+                  ) : label === 'Read more' || label === 'Links' ? (
+                    <LinkList
+                      links={rowLinks(label, plate)}
+                      className={cn('break-words', changed && tint)}
+                    />
                   ) : (
                     <span
                       className={cn(

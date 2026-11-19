@@ -88,6 +88,98 @@ export function tagDelta(before: string[] = [], after: string[] = []) {
   }
 }
 
+/** Keep a long value readable in a tooltip by keeping its beginning. */
+function brief(value: unknown, limit = 90): string {
+  if (value === null || value === undefined || value === '') return 'none'
+  const text = String(value).replace(/\s+/g, ' ').trim()
+  return text.length > limit ? text.slice(0, limit - 1) + '…' : text
+}
+
+/** Show a value change as "before → after", or just the new value when one was added. */
+function transition(before: unknown, after: unknown) {
+  const from = brief(before)
+  const to = brief(after)
+  return from === 'none' ? `Added: ${to}` : `${from} → ${to}`
+}
+
+/** The changed fields of the named field group. */
+const changedOf = (entry: Entry, key: PlateChangeKey) => {
+  const change = FIELD_CHANGES.find((item) => item.key === key)
+  return change ? changedFields(entry, change) : []
+}
+const count = (value: unknown) => (Array.isArray(value) ? value.length : 0)
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/**
+ * Describe what one kind of change did to a plate, one line per changed field, for the
+ * tooltip on its Review and Publish icon.
+ */
+export function changeDetail(entry: Entry, key: PlateChangeKey): string[] {
+  const { baseline: before, proposed: after } = entry
+  switch (key) {
+    case 'image':
+      return ['New image']
+    case 'description':
+      return [transition(before.description, after.description)]
+    case 'name':
+      return [transition(before.displayName, after.displayName)]
+    case 'funFacts': {
+      const added = (Array.isArray(after.funFacts) ? after.funFacts : []).find(
+        (fact) =>
+          !(Array.isArray(before.funFacts) ? before.funFacts : []).some(
+            (old) => JSON.stringify(old) === JSON.stringify(fact)
+          )
+      )
+      const text =
+        added && typeof added === 'object' ? added.text : (added ?? undefined)
+      return [
+        `${plural(count(before.funFacts), 'fact')} → ${plural(count(after.funFacts), 'fact')}`,
+        ...(text ? [`New: ${brief(text)}`] : []),
+      ]
+    }
+    case 'tags': {
+      const delta = tagDelta(before.tags, after.tags)
+      return [
+        ...(delta.added.length ? [`Added: ${delta.added.join(', ')}`] : []),
+        ...(delta.removed.length
+          ? [`Removed: ${delta.removed.join(', ')}`]
+          : []),
+      ]
+    }
+    case 'link':
+      return changedOf(entry, 'link').map((field) =>
+        field === 'readMore'
+          ? `Read more: ${plural(count(before.readMore), 'link')} → ${plural(count(after.readMore), 'link')}`
+          : `${field === 'wikiUrl' ? 'Reference page' : 'Image source'}: ${transition(before[field], after[field])}`
+      )
+    case 'family':
+      return changedOf(entry, 'family').map((field) =>
+        field === 'isStandard'
+          ? `Standard: ${before.isStandard ? 'yes' : 'no'} → ${after.isStandard ? 'yes' : 'no'}`
+          : `${{ templateFamily: 'Family', templateRole: 'Role', variantOfPlateId: 'Variant of' }[field] ?? field}: ${transition(before[field], after[field])}`
+      )
+    case 'firstIssued':
+      return [transition(before.firstIssuedYear, after.firstIssuedYear)]
+    case 'colors':
+      return changedOf(entry, 'colors').map(
+        (field) =>
+          `${field === 'colorDetail' ? 'Background' : 'Broad color'}: ${transition(before[field], after[field])}`
+      )
+    case 'order':
+      return entry.order
+        ? [
+            `Position ${entry.order.before + 1} → ${entry.order.after + 1} of ${entry.order.total}`,
+          ]
+        : [
+            `Position ${(before.sortOrder ?? 0) + 1} → ${(after.sortOrder ?? 0) + 1}`,
+          ]
+    case 'deleted':
+      return ['Removed from the catalog at the next Publish']
+    case 'restored':
+      return ['Returns to the catalog at the next Publish']
+  }
+}
+
 /**
  * The template plate of a plate's family: the plate it is a variant of, or itself when
  * it is the template. Families are named after their template plate.
