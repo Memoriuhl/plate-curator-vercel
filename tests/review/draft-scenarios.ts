@@ -518,8 +518,9 @@ export function sharedDraftScenarios(
       settle(publishElsewhere({})) // v3 from v1
       outsideChange({ 'AK.two': { tags: ['live'] } }) // v4
 
+      // The draft stays on its baseline with its edits until the Owner reviews it.
       const draft = await ensureDraft(d, env, editor('cy'))
-      expect(draft).toMatchObject({ baselineVersion: 4 })
+      expect(draft).toMatchObject({ baselineVersion: 1, rebaseFloor: 0 })
       expect(draft.conflicts).toEqual([
         { kind: 'catalog', fromVersion: 1, toVersion: 4 },
       ])
@@ -537,7 +538,111 @@ export function sharedDraftScenarios(
           revision: edited.revision,
         })
       ).toMatchObject({ ok: true })
-      expect((await store.getBatch(draftId))!.conflicts).toBeUndefined()
+      const kept = (await store.readBatch(draftId))!
+      expect(kept.batch).toMatchObject({ baselineVersion: 4 })
+      expect(kept.batch.conflicts).toBeUndefined()
+      expect(fieldsOf(kept.edits)).toEqual({
+        'AK.one': { tags: ['Reviewed'] },
+        'AK.three': { tags: ['three'] },
+      })
+    },
+    timeout
+  )
+
+  test(
+    'a put-back made after a publishing revision waits for the Owner when the receipts cannot trace the span',
+    async () => {
+      const { store, d, draftId, env, tag, commit, settle, outsideChange } =
+        await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['shipped']) // revision 1
+      expect(
+        await reorderState(d, owner, {
+          batchId: draftId,
+          state: 'AL',
+          batchRevision: 1,
+          order: ['AL.one', 'AL.three', 'AL.two'],
+        })
+      ).toMatchObject({ ok: true }) // revision 2
+      const frozen = await freezeRelease(d, env, owner, 2)
+      if (!frozen.ok) throw new Error(frozen.error)
+      // The Publish command is accepted.
+      await store.commit(frozen.value.id, 0, {
+        batch: {
+          ...frozen.value,
+          state: 'approved',
+          revision: 1,
+          approval: { revision: 0, by: owner.uid, at: d.now() },
+        },
+      })
+      await tag(editor('ben'), 'AK.one', []) // revision 3: put back
+      expect(
+        await discardPlateChanges(d, editor('ben'), {
+          batchId: draftId,
+          plateId: 'AL.three',
+          batchRevision: 3,
+          target: 'order',
+        })
+      ).toMatchObject({ ok: true }) // revision 4: order put back
+      await tag(editor('cy'), 'AK.three', ['three']) // revision 5
+      settle(await commit(frozen.value.id)) // v2
+      // More outside updates than a rebase traces, all to a different plate.
+      for (let step = 0; step < 21; step += 1)
+        outsideChange({ 'AK.two': { tags: [`live${step}`] } }) // v3 to v23
+
+      const held = await ensureDraft(d, env, owner)
+      expect(held).toMatchObject({ baselineVersion: 1, rebaseFloor: 0 })
+      expect(held.conflicts).toEqual([
+        {
+          kind: 'catalog',
+          fromVersion: 1,
+          toVersion: 23,
+          resets: [{ plateId: 'AK.one', fields: { tags: [] } }],
+          orderResets: { AL: ['AL.one', 'AL.two', 'AL.three'] },
+        },
+      ])
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.three': { tags: ['three'] },
+      })
+      expect(await freezeRelease(d, env, owner, held.revision)).toEqual({
+        ok: false,
+        error: 'draft_conflicts',
+      })
+      // A curator's save keeps the decision waiting for the Owner.
+      await tag(editor('ana'), 'AK.four', ['four'])
+      const edited = await ensureDraft(d, env, editor('ana'))
+      expect(edited.conflicts).toEqual(held.conflicts)
+      // Settling again leaves the same decision on the same revision.
+      expect((await ensureDraft(d, env, owner)).revision).toBe(edited.revision)
+      expect(
+        await keepDraftValues(d, editor('ana'), {
+          batchId: draftId,
+          revision: edited.revision,
+        })
+      ).toEqual({ ok: false, error: 'forbidden' })
+
+      expect(
+        await keepDraftValues(d, owner, {
+          batchId: draftId,
+          revision: edited.revision,
+        })
+      ).toMatchObject({ ok: true })
+      const kept = (await store.readBatch(draftId))!
+      expect(kept.batch).toMatchObject({ baselineVersion: 23 })
+      expect(kept.batch.conflicts).toBeUndefined()
+      expect(kept.batch.stateOrders).toEqual({
+        AL: ['AL.one', 'AL.two', 'AL.three'],
+      })
+      expect(fieldsOf(kept.edits)).toEqual({
+        'AK.one': { tags: [] },
+        'AK.three': { tags: ['three'] },
+        'AK.four': { tags: ['four'] },
+      })
+      const next = await freezeRelease(d, env, owner, kept.batch.revision)
+      if (!next.ok) throw new Error(next.error)
+      const release = (await store.readBatch(next.value.id))!
+      expect(fieldsOf(release.edits)).toEqual(fieldsOf(kept.edits))
+      expect(release.batch.stateOrders).toEqual(kept.batch.stateOrders)
     },
     timeout
   )

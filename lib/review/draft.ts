@@ -6,6 +6,7 @@ import { retainedPipelineChanges } from './pipeline-changes'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
+import { sortedJsonValue } from './canonical-value'
 import { draftWriteBudget, writeBytes } from './write-budget'
 import type {
   Actor,
@@ -356,7 +357,7 @@ type CatalogMove = {
  * release that shipped before the outside change is still replayed as itself and its
  * put-backs survive. When those publishes do not chain (the pointer went back between
  * them) or the gap is too long to search, the span becomes one uncertain outside move:
- * the draft keeps its values and the Owner reviews it before Publish.
+ * the draft stays on its baseline, untouched, until the Owner reviews it.
  */
 async function catalogMoves(
   origin: (version: number) => Promise<VersionOrigin | null>,
@@ -440,6 +441,11 @@ function lastPublishOf(
  * (an old Batch, another environment, an outside change), a pending value whose field
  * live also changed is kept and recorded as a conflict for the Owner.
  *
+ * When the receipts cannot trace the span, the draft is not moved: its baseline, edits
+ * and history stay as they are, and a catalog conflict lists the span and every value
+ * the draft put back after a release that may have published, until the Owner keeps the
+ * draft's values.
+ *
  * The draft is read before the pointer and committed against its revision, so a rebase
  * that read an older pointer can never move a newer draft backward.
  */
@@ -469,8 +475,40 @@ export async function settleDraft(
       warnings: [],
     }
     if (live === undefined || batch.baselineVersion === live) return unchanged
-    const moves = await catalogMoves(origin, batch.baselineVersion, live)
+    // Once the receipts could not trace the span, the draft waits for the Owner, even
+    // if a later pointer move would trace again.
+    const holding = batch.conflicts?.some(
+      (conflict) => conflict.kind === 'catalog'
+    )
+    const moves = holding
+      ? null
+      : await catalogMoves(origin, batch.baselineVersion, live)
     if (moves === 'settling') return unchanged
+    if (!moves || moves.some((move) => move.uncertain)) {
+      const conflicts = [
+        ...(batch.conflicts ?? []).filter(
+          (conflict) => conflict.kind !== 'catalog'
+        ),
+        await catalogHold(d, head, live),
+      ]
+      if (
+        JSON.stringify(sortedJsonValue(conflicts)) ===
+        JSON.stringify(sortedJsonValue(batch.conflicts ?? []))
+      )
+        return unchanged
+      const next: ReviewBatch = {
+        ...batch,
+        revision: batch.revision + 1,
+        conflicts,
+      }
+      const result = await d.store.commit(batch.id, batch.revision, {
+        batch: next,
+        history: false,
+      })
+      if (result === 'revision_mismatch') continue
+      if (result !== 'ok') return { ok: false, error: result }
+      return { ...unchanged, value: next, changed: true }
+    }
     let working: Working = {
       edits: new Map(head.edits.map((edit) => [edit.plateId, edit])),
       stateOrders: structuredClone(batch.stateOrders ?? {}),
@@ -531,6 +569,71 @@ export async function settleDraft(
     }
   }
   return { ok: false, error: 'superseded_revision' }
+}
+
+/**
+ * The conflict that holds the draft on its baseline when the receipts cannot trace how
+ * live moved. A release of the draft from this baseline that was accepted (and not
+ * abandoned) may have published, so live may now hold a value the draft put back after
+ * freezing it. Each such put-back is listed with the value the draft wants, for the
+ * Owner to decide, instead of being guessed.
+ */
+async function catalogHold(
+  d: ReviewDeps,
+  head: DraftSnapshot,
+  live: number
+): Promise<DraftConflict> {
+  const { batch } = head
+  const releases = (
+    await d.store.list({ states: ['approved', 'published'] })
+  ).filter(
+    (release) =>
+      isRelease(release) &&
+      release.source?.batchId === batch.id &&
+      release.baselineVersion === batch.baselineVersion &&
+      !release.publishAbandonment
+  )
+  const pending = new Map(head.edits.map((edit) => [edit.plateId, edit]))
+  const resets = new Map<string, EditableFields>()
+  const orderResets: Record<string, string[]> = {}
+  for (const release of releases) {
+    for (const published of await d.store.listEdits(release.id)) {
+      const kept = pending.get(published.plateId)?.fields ?? {}
+      const old = await d.baselineAtVersion(
+        batch.baselineVersion,
+        published.plateId
+      )
+      for (const [key, value] of Object.entries(published.fields)) {
+        if (Object.hasOwn(kept, key)) continue
+        const before = old?.[key as keyof typeof old]
+        if (sameLiveValue(key, value, before)) continue
+        resets.set(published.plateId, {
+          ...resets.get(published.plateId),
+          [key]: before === undefined ? clearedValue(key) : before,
+        })
+      }
+    }
+    for (const [state, order] of Object.entries(release.stateOrders ?? {})) {
+      if (Object.hasOwn(batch.stateOrders ?? {}, state)) continue
+      const before =
+        release.baselineOrders?.[state] ??
+        (await stateIds(d, batch.baselineVersion, state, 'snapshot'))
+      if (!sameList(before, order)) orderResets[state] = before
+    }
+  }
+  return {
+    kind: 'catalog',
+    fromVersion: batch.baselineVersion,
+    toVersion: live,
+    ...(resets.size
+      ? {
+          resets: [...resets]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([plateId, fields]) => ({ plateId, fields })),
+        }
+      : {}),
+    ...(Object.keys(orderResets).length ? { orderResets } : {}),
+  }
 }
 
 /**
@@ -625,8 +728,6 @@ async function moveOnto(
   const conflicts = [...working.conflicts]
   const warnings = [...working.warnings]
   const outside = !release
-  if (move.uncertain)
-    conflicts.push({ kind: 'catalog', fromVersion: from, toVersion: to })
   for (const plateId of new Set([
     ...working.edits.keys(),
     ...releaseEdits.keys(),
@@ -845,24 +946,106 @@ export async function keepDraftValues(
   input: { batchId: string; revision: number }
 ): Promise<Outcome<ReviewBatch>> {
   if (actor.role !== 'owner') return { ok: false, error: 'forbidden' }
-  const batch = await d.store.getBatch(input.batchId)
-  if (!batch || !isSharedDraft(batch)) return { ok: false, error: 'not_found' }
+  const head = await d.store.readBatch(input.batchId)
+  if (!head || !isSharedDraft(head.batch))
+    return { ok: false, error: 'not_found' }
+  const { batch } = head
   if (batch.revision !== input.revision)
     return { ok: false, error: 'superseded_revision' }
   if (!batch.conflicts?.length) return { ok: true, value: batch }
-  const next: ReviewBatch = {
-    ...omit(batch, 'conflicts'),
-    revision: batch.revision + 1,
-    lastChangedAt: d.now(),
-  }
+  const held = batch.conflicts.find((conflict) => conflict.kind === 'catalog')
+  const write = held
+    ? await reconcileCatalog(d, actor, head, held)
+    : {
+        batch: {
+          ...omit(batch, 'conflicts'),
+          revision: batch.revision + 1,
+          lastChangedAt: d.now(),
+        },
+      }
+  const next = write.batch
   const result = await d.store.commit(batch.id, batch.revision, {
-    batch: next,
+    ...write,
     by: actor,
   })
   if (result === 'revision_mismatch')
     return { ok: false, error: 'superseded_revision' }
   if (result !== 'ok') return { ok: false, error: result }
   return { ok: true, value: next }
+}
+
+/**
+ * The Owner's review of a span the receipts could not trace. The put-backs it listed
+ * join the draft's values, and the draft moves onto live as after an outside change,
+ * keeping every pending value without asking again about the span. Plates live no
+ * longer has stay as conflicts, so the Owner sees what cannot be published.
+ */
+async function reconcileCatalog(
+  d: ReviewDeps,
+  actor: Actor,
+  head: DraftSnapshot,
+  held: Extract<DraftConflict, { kind: 'catalog' }>
+) {
+  const { batch } = head
+  const live = d.liveVersion ? await d.liveVersion() : batch.baselineVersion
+  const now = d.now()
+  const edits = new Map(head.edits.map((edit) => [edit.plateId, edit]))
+  for (const reset of held.resets ?? []) {
+    const edit = edits.get(reset.plateId)
+    edits.set(reset.plateId, {
+      ...(edit ?? {
+        plateId: reset.plateId,
+        authorId: actor.uid,
+        authorName: actor.name,
+        baseRevision: '',
+        resultRevision: '',
+      }),
+      fields: { ...reset.fields, ...edit?.fields },
+      updatedAt: now,
+    })
+  }
+  const stateOrders = structuredClone(batch.stateOrders ?? {})
+  const baselineOrders = structuredClone(batch.baselineOrders ?? {})
+  for (const [state, order] of Object.entries(held.orderResets ?? {})) {
+    if (Object.hasOwn(stateOrders, state)) continue
+    stateOrders[state] = [...order]
+    baselineOrders[state] = [...order]
+  }
+  const moved = await moveOnto(
+    d,
+    { edits, stateOrders, baselineOrders, conflicts: [], warnings: [] },
+    { from: batch.baselineVersion, to: live, origin: null }
+  )
+  const conflicts = moved.conflicts.filter(
+    (conflict) => conflict.kind === 'removed' || conflict.kind === 'deleted'
+  )
+  const before = new Map(head.edits.map((edit) => [edit.plateId, edit]))
+  const next: ReviewBatch = {
+    ...omit(batch, 'pipelineApplications', 'conflicts'),
+    revision: batch.revision + 1,
+    lastChangedAt: now,
+    baselineVersion: live,
+    stateOrders: moved.stateOrders,
+    baselineOrders: moved.baselineOrders,
+    stateOrderChangedAt: Object.fromEntries(
+      Object.entries(batch.stateOrderChangedAt ?? {}).filter(
+        ([state]) => state in moved.stateOrders
+      )
+    ),
+    plateIds: trackedPlateIds(batch.plateIds, moved.edits.keys()),
+    rebaseFloor: batch.revision + 1,
+    ...(conflicts.length ? { conflicts } : {}),
+  }
+  return {
+    batch: next,
+    edits: [...moved.edits.values()].filter(
+      (edit) => edit !== before.get(edit.plateId)
+    ),
+    deleteEditsFor: [...before.keys()].filter(
+      (plateId) => !moved.edits.has(plateId)
+    ),
+    history: false as const,
+  }
 }
 
 /**

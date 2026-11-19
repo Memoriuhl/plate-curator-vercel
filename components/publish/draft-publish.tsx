@@ -88,7 +88,7 @@ export function conflictLabel(conflict: DraftConflict) {
   if (conflict.kind === 'removed')
     return `${conflict.plateId}: Catalog v${conflict.toVersion} removed this plate, so its pending ${Object.keys(conflict.fields).join(', ')} cannot be published.`
   if (conflict.kind === 'catalog')
-    return `Catalog changed outside the draft between v${conflict.fromVersion} and v${conflict.toVersion}: review conflicts before publishing, as some draft values may already be live or may undo a published change.`
+    return `Catalog moved from v${conflict.fromVersion} to v${conflict.toVersion} in a way the publish receipts cannot trace, so the draft stays on v${conflict.fromVersion} until you review it.`
   return `${conflict.plateId} · ${conflict.field}: Catalog v${conflict.toVersion} changed it after v${conflict.fromVersion}.`
 }
 
@@ -126,9 +126,68 @@ function OmittedValues({
 }
 
 /**
+ * The values the draft put back after a revision that may have published, which keeping
+ * the draft publishes because live may now hold the published value.
+ */
+function PutBacks({
+  conflict,
+}: {
+  conflict: Extract<DraftConflict, { kind: 'catalog' }>
+}) {
+  const orders = Object.entries(conflict.orderResets ?? {})
+  if (!conflict.resets?.length && !orders.length) return null
+  return (
+    <div className="mt-1 space-y-1">
+      <p>
+        The draft put these back after a revision that may have published.
+        Keeping the draft&apos;s values publishes them:
+      </p>
+      <dl className="grid gap-1">
+        {conflict.resets?.map((reset) => (
+          <div key={reset.plateId}>
+            <dt className="font-bold">{reset.plateId}</dt>
+            {Object.entries(reset.fields).map(([field, value]) => (
+              <dd key={field}>
+                <span className="caption">{pipelineFieldLabel(field)}</span>
+                <PipelineFieldValue field={field} value={value} />
+              </dd>
+            ))}
+          </div>
+        ))}
+        {orders.map(([state, order]) => (
+          <div key={state}>
+            <dt className="font-bold">{state} plate order</dt>
+            <dd>{order.join(', ')}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+/** Name what keeping the draft's values does beyond keeping them. */
+function keepLabel(conflicts: DraftConflict[]) {
+  const effects = [
+    ...(conflicts.some(
+      (conflict) =>
+        conflict.kind === 'catalog' &&
+        (conflict.resets?.length ||
+          Object.keys(conflict.orderResets ?? {}).length)
+    )
+      ? ['publish the put-backs']
+      : []),
+    ...(conflicts.some((conflict) => conflict.kind === 'removed')
+      ? ["omit the removed plates' edits"]
+      : []),
+  ]
+  return ["Keep the draft's values", ...effects].join(' and ')
+}
+
+/**
  * List the pending values an outside catalog change touched. Changing or discarding a
  * value clears its conflict; the Owner can instead keep every draft value as it is,
- * which omits the pending values of plates the catalog removed.
+ * which omits the pending values of plates the catalog removed and, after a span the
+ * receipts cannot trace, publishes the values the draft put back.
  */
 export function DraftConflicts({
   draftId,
@@ -188,6 +247,7 @@ export function DraftConflicts({
               {conflict.kind === 'removed' && (
                 <OmittedValues fields={conflict.fields} />
               )}
+              {conflict.kind === 'catalog' && <PutBacks conflict={conflict} />}
             </li>
           )
         })}
@@ -198,9 +258,7 @@ export function DraftConflicts({
         disabled={busy}
         onClick={() => void keep()}
       >
-        {conflicts.some((conflict) => conflict.kind === 'removed')
-          ? "Keep the draft's values and omit the removed plates' edits"
-          : "Keep the draft's values"}
+        {keepLabel(conflicts)}
       </Button>
       {message && <p role="status">{message}</p>}
     </div>

@@ -254,7 +254,7 @@ test('an untraceable catalog move and a removed plate say what the Owner must re
   )
   expect(
     alert.getByText(
-      /^Catalog changed outside the draft between v7 and v9: review conflicts/
+      'Catalog moved from v7 to v9 in a way the publish receipts cannot trace, so the draft stays on v7 until you review it.'
     )
   ).toBeTruthy()
   expect(
@@ -296,6 +296,53 @@ test('a removed plate shows its pending values and the keep button says they wil
   fireEvent.click(
     alert.getByRole('button', {
       name: "Keep the draft's values and omit the removed plates' edits",
+    })
+  )
+  await waitFor(() =>
+    expect(mocks.keepDraftValues).toHaveBeenCalledExactlyOnceWith(
+      'shared-draft-test',
+      7
+    )
+  )
+})
+
+test('an untraceable span lists the put-backs the keep button will publish', async () => {
+  mocks.view = view({
+    canPublish: false,
+    conflicts: [
+      {
+        kind: 'catalog',
+        fromVersion: 1,
+        toVersion: 23,
+        resets: [{ plateId: 'AK.one', fields: { tags: [] } }],
+        orderResets: { AL: ['AL.one', 'AL.two', 'AL.three'] },
+      },
+    ],
+  })
+  render(<DraftPublish draftId="shared-draft-test" />)
+  const alert = within(
+    screen.getByText(
+      'The live Catalog changed values this draft would publish.'
+    ).parentElement!
+  )
+  expect(
+    alert.getByText(
+      'Catalog moved from v1 to v23 in a way the publish receipts cannot trace, so the draft stays on v1 until you review it.'
+    )
+  ).toBeTruthy()
+  const resets = within(
+    alert.getByText(
+      "The draft put these back after a revision that may have published. Keeping the draft's values publishes them:"
+    ).parentElement!
+  )
+  expect(resets.getByText('AK.one')).toBeTruthy()
+  expect(resets.getByText('Tags')).toBeTruthy()
+  expect(resets.getByText('None')).toBeTruthy()
+  expect(resets.getByText('AL plate order')).toBeTruthy()
+  expect(resets.getByText('AL.one, AL.two, AL.three')).toBeTruthy()
+  fireEvent.click(
+    alert.getByRole('button', {
+      name: "Keep the draft's values and publish the put-backs",
     })
   )
   await waitFor(() =>

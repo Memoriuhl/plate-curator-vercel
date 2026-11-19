@@ -68,12 +68,20 @@ export type DraftConflict =
   | {
       /**
        * The live pointer moved in a way the publish receipts cannot explain (a rollback
-       * or repair between publishes), so the draft could not tell which of its values
-       * were already published. The Owner reviews the draft before Publish.
+       * or repair between publishes, or more publishes than a rebase traces), so the
+       * draft could not tell which of its values were already published. The draft
+       * keeps its baseline, edits and history until the Owner reviews it.
        */
       kind: 'catalog'
       fromVersion: number
       toVersion: number
+      /**
+       * Values the draft put back after a release of it that may have published. Live
+       * may now hold the published value, so keeping the draft's values publishes these.
+       */
+      resets?: { plateId: string; fields: EditableFields }[]
+      /** State orders the draft put back after such a release, as it had them before. */
+      orderResets?: Record<string, string[]>
     }
 /** What a release of the shared draft is doing; null when it no longer holds the draft. */
 export type ReleaseActivity = 'publishing' | 'interrupted' | null
