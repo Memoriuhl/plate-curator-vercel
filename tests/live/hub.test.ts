@@ -455,6 +455,54 @@ test('in fallback a view with a shorter safety interval keeps only that schedule
   ])
 })
 
+test('in fallback, views of one request share one poll schedule however far apart they subscribed', async () => {
+  const start = Date.now()
+  const at: number[] = []
+  const refresh = () => at.push(Date.now() - start)
+  const live = hub()
+  live.subscribe({ topics: ['pipeline'], refresh, key: 'queue' })
+  await settle()
+  active('topic:pipeline')[0].next(1)
+  active('topic:pipeline')[0].error({ code: 'unavailable' })
+  await vi.advanceTimersByTimeAsync(10_000)
+  live.subscribe({ topics: ['pipeline'], refresh, key: 'queue' })
+  await vi.advanceTimersByTimeAsync(65_000)
+  // Not 30, 40, 60 and 70 seconds: the later view joins the first one's schedule.
+  expect(at).toEqual([2000, 30_000 + pollTask, 60_000 + pollTask])
+})
+
+test('views of one request poll at the shortest interval any of them asks for, once per poll', async () => {
+  const start = Date.now()
+  const at: number[] = []
+  const refresh = () => at.push(Date.now() - start)
+  const live = hub()
+  live.subscribe({
+    topics: ['pipeline'],
+    refresh,
+    key: 'queue',
+    safetyMs: 60_000,
+  })
+  const fast = live.subscribe({
+    topics: ['pipeline'],
+    refresh,
+    key: 'queue',
+    safetyMs: 15_000,
+  })
+  await settle()
+  active('topic:pipeline')[0].next(1)
+  await vi.advanceTimersByTimeAsync(61_000)
+  expect(at).toEqual([
+    2000,
+    ...[15_000, 30_000, 45_000, 60_000].map((ms) => ms + pollTask),
+  ])
+
+  // When the fast view leaves, the request falls back to the slower interval.
+  at.length = 0
+  fast()
+  await vi.advanceTimersByTimeAsync(120_000 + pollTask)
+  expect(at).toEqual([121_000 + pollTask, 181_000 + pollTask])
+})
+
 test('renews the grant once after a permission error before falling back', async () => {
   const refresh = vi.fn()
   const statuses: LiveStatus[] = []

@@ -50,11 +50,12 @@ type Subscriber = LiveSubscription & {
   notBefore: number
   /** A refresh is owed, kept while hidden so the tab catches up once when shown. */
   dirty: boolean
-  /** The one polling schedule for this view: its safety interval, or the fallback. */
-  poll: ReturnType<typeof setInterval> | null
-  pollMs: number | null
   status: LiveStatus | null
 }
+
+/** One polling schedule per request key; a view without a key has its own. */
+type PollGroup = string | Subscriber
+type Poll = { timer: ReturnType<typeof setInterval>; ms: number }
 
 type Topic = {
   subscribers: Set<Subscriber>
@@ -83,8 +84,9 @@ const defaultWatchVisibility = (changed: () => void) => {
  * Share one listener per change topic across every view in the tab. Signals mark views
  * as owing a refresh, and the tab runs owed refreshes in rounds at most once per throttle
  * window, one request per key. Hidden tabs stop listening, polling and renewing, keep
- * what they owe, and catch up once when shown. A failed listener moves each of its views
- * to one slow polling schedule and reports 'unavailable' so the view can say so.
+ * what they owe, and catch up once when shown. Each request polls on one schedule, the
+ * shortest any of its views asks for: a safety interval, or the slow fallback while one
+ * of its topics' listeners has failed, which also reports 'unavailable' to the view.
  */
 export function createLiveHub(options: LiveHubOptions) {
   const now = options.now ?? (() => Date.now())
@@ -94,6 +96,7 @@ export function createLiveHub(options: LiveHubOptions) {
   const watchVisibility = options.watchVisibility ?? defaultWatchVisibility
   const topics = new Map<ChangeTopic, Topic>()
   const subscribers = new Set<Subscriber>()
+  const polls = new Map<PollGroup, Poll>()
   let lastRound = -Infinity
   let round: ReturnType<typeof setTimeout> | null = null
   let roundAt = Infinity
@@ -169,27 +172,54 @@ export function createLiveHub(options: LiveHubOptions) {
     return 'live'
   }
 
+  const pollGroup = (subscriber: Subscriber): PollGroup =>
+    subscriber.key ?? subscriber
+
   /**
-   * Keep one polling schedule per view: the fallback interval while a topic is down, or
-   * its own safety interval if that is shorter or the topics are live. Off while hidden.
+   * The interval a view asks for: the fallback while one of its topics is down, or its
+   * own safety interval if that is shorter or the topics are live. None while hidden.
    */
-  function setPoll(subscriber: Subscriber) {
+  function wantedMs(subscriber: Subscriber) {
+    if (!visible()) return null
     const fallback = statusOf(subscriber) === 'unavailable' ? fallbackMs : null
     const safety = subscriber.safetyMs || null
-    const ms = !visible()
-      ? null
-      : fallback && safety
-        ? Math.min(fallback, safety)
-        : (fallback ?? safety)
-    if (ms === subscriber.pollMs) return
-    if (subscriber.poll) clearInterval(subscriber.poll)
-    subscriber.pollMs = ms
-    subscriber.poll = ms ? setInterval(() => owe(subscriber), ms) : null
+    return fallback && safety
+      ? Math.min(fallback, safety)
+      : (fallback ?? safety)
+  }
+
+  /**
+   * Keep one polling schedule per request, at the shortest interval its views ask for. A
+   * schedule keeps its phase while its interval stays the same, so a view that joins
+   * later polls with the others rather than on its own clock.
+   */
+  function syncPoll(group: PollGroup) {
+    let ms: number | null = null
+    for (const subscriber of subscribers) {
+      if (pollGroup(subscriber) !== group) continue
+      const wanted = wantedMs(subscriber)
+      if (wanted && (ms === null || wanted < ms)) ms = wanted
+    }
+    const current = polls.get(group)
+    if ((current?.ms ?? null) === ms) return
+    if (current) clearInterval(current.timer)
+    polls.delete(group)
+    if (ms === null) return
+    const timer = setInterval(() => {
+      for (const subscriber of subscribers)
+        if (pollGroup(subscriber) === group) subscriber.dirty = true
+      schedule()
+    }, ms)
+    polls.set(group, { timer, ms })
+  }
+
+  function syncPolls(views: Iterable<Subscriber> = subscribers) {
+    for (const group of new Set([...views].map(pollGroup))) syncPoll(group)
   }
 
   function announce(topic: Topic) {
+    syncPolls(topic.subscribers)
     for (const subscriber of topic.subscribers) {
-      setPoll(subscriber)
       const status = statusOf(subscriber)
       if (status === subscriber.status) continue
       subscriber.status = status
@@ -325,7 +355,7 @@ export function createLiveHub(options: LiveHubOptions) {
       if (renewal) clearTimeout(renewal)
       renewal = null
       for (const topic of topics.values()) stopListening(topic)
-      for (const subscriber of subscribers) setPoll(subscriber)
+      syncPolls()
       return
     }
     // A grant that expires within the renewal margin is replaced before listening.
@@ -341,7 +371,7 @@ export function createLiveHub(options: LiveHubOptions) {
       }
       listen(name, topic)
     }
-    for (const subscriber of subscribers) setPoll(subscriber)
+    syncPolls()
   }
 
   function teardown() {
@@ -368,8 +398,6 @@ export function createLiveHub(options: LiveHubOptions) {
         // Treat subscribing as a fresh fetch: callers subscribe right after loading.
         notBefore: now() + throttleMs,
         dirty: false,
-        poll: null,
-        pollMs: null,
         status: null,
       }
       subscribers.add(subscriber)
@@ -397,12 +425,11 @@ export function createLiveHub(options: LiveHubOptions) {
       }
       subscriber.status = statusOf(subscriber)
       subscriber.onStatus?.(subscriber.status)
-      setPoll(subscriber)
+      syncPoll(pollGroup(subscriber))
       if (late) owe(subscriber)
       const stop = () => {
         subscribers.delete(subscriber)
-        if (subscriber.poll) clearInterval(subscriber.poll)
-        subscriber.poll = null
+        syncPoll(pollGroup(subscriber))
         for (const name of subscriber.topics) {
           const topic = topics.get(name)
           if (!topic) continue
@@ -417,9 +444,11 @@ export function createLiveHub(options: LiveHubOptions) {
       return Object.assign(stop, {
         update(settings: LiveSettings) {
           if (!subscribers.has(subscriber)) return
+          const before = pollGroup(subscriber)
           subscriber.key = settings.key
           subscriber.safetyMs = settings.safetyMs
-          setPoll(subscriber)
+          syncPoll(before)
+          syncPoll(pollGroup(subscriber))
         },
       })
     },
