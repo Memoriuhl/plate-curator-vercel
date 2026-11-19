@@ -126,8 +126,9 @@ function OmittedValues({
 }
 
 /**
- * The values the draft put back after a revision that may have published, which keeping
- * the draft publishes because live may now hold the published value.
+ * The values the draft put back after a revision that may have published. Keeping the
+ * draft's values keeps them, and the next Publish ships them, because live may now hold
+ * the published value.
  */
 function PutBacks({
   conflict,
@@ -140,7 +141,8 @@ function PutBacks({
     <div className="mt-1 space-y-1">
       <p>
         The draft put these back after a revision that may have published.
-        Keeping the draft&apos;s values publishes them:
+        Keeping the draft&apos;s values keeps them, and the next Publish ships
+        them:
       </p>
       <dl className="grid gap-1">
         {conflict.resets?.map((reset) => (
@@ -174,7 +176,7 @@ function keepLabel(conflicts: DraftConflict[]) {
         (conflict.resets?.length ||
           Object.keys(conflict.orderResets ?? {}).length)
     )
-      ? ['publish the put-backs']
+      ? ['keep the put-backs for the next Publish']
       : []),
     ...(conflicts.some((conflict) => conflict.kind === 'removed')
       ? ["omit the removed plates' edits"]
