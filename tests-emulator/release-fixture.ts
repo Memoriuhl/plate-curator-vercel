@@ -20,6 +20,7 @@ export const collections = [
   'publishVersionBurns',
   'publishCommands',
   'publishCommandStops',
+  'releaseFences',
   'catalogPushes',
   'reviewBatches',
   'curatorLive',

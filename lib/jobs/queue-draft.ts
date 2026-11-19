@@ -1,6 +1,10 @@
 import type { Plate } from '../catalog/types'
 import { canEdit } from '../review/access'
-import { editableKeys, limits, parseEditableFields } from '../review/fields'
+import {
+  batchPlateLimit,
+  editableKeys,
+  parseEditableFields,
+} from '../review/fields'
 import { validGroupContext } from '../review/group-context'
 import { pipelineImageFields } from '../review/pipeline-changes'
 import { plateRevision } from '../review/revision'
@@ -209,7 +213,7 @@ export async function saveQueueDraft(
     attempts: [...run.attempts.slice(0, -1), { ...attempt, projection }],
   })
   if (!fits) return { error: 'payload_too_large' }
-  if (plateIds.size > limits.plates) return { error: 'invalid_result' }
+  if (plateIds.size > batchPlateLimit(batch)) return { error: 'invalid_result' }
   if (edits.length) {
     const result = await tx.commitDraft(batch.id, batch.revision, {
       batch: {

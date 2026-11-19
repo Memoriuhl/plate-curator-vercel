@@ -1,4 +1,5 @@
 import { chooseRunTaggingModel } from '../../../../../../../lib/jobs/model-binding'
+import { draftWriteTarget } from '../../../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { validateTagging } from '../../../../../../../lib/review/tagging'
 import {
@@ -33,7 +34,11 @@ export async function POST(
       ? badRequest()
       : json({ error: 'unavailable' }, 422)
 
-  const { id, plateId } = await ctx.params
+  const params = await ctx.params
+  const plateId = params.plateId
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const validation = await validateTagging(
     reviewDeps(),
     auth.actor,

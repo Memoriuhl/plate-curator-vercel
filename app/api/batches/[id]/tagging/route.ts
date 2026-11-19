@@ -1,4 +1,5 @@
 import { chooseRunTaggingModel } from '../../../../../lib/jobs/model-binding'
+import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { canEdit } from '../../../../../lib/review/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
@@ -25,7 +26,9 @@ export async function POST(
 
   if (auth.actor.role !== 'owner') return json({ error: 'forbidden' }, 403)
 
-  const { id } = await ctx.params
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const body = await readJson(request)
   if (!body) return badRequest()
   const choice = await chooseRunTaggingModel(

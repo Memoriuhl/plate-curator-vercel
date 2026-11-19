@@ -1,11 +1,12 @@
 import type { Plate } from '../catalog/types'
 import { canEdit } from '../review/access'
 import {
+  batchPlateLimit,
   editableFieldKeys,
   editableKeys,
-  limits,
   parseEditableFields,
 } from '../review/fields'
+import { isSharedDraft } from '../review/draft-id'
 import { retainedPipelineChanges } from '../review/pipeline-changes'
 import { plateRevision } from '../review/revision'
 import { sameEditableValue } from '../review/story'
@@ -59,7 +60,8 @@ export async function applyQueueBundle(
     run.status !== 'completed' ||
     attempt.outcome === 'no_result' ||
     !attempt.projection ||
-    Object.keys(batch.pipelineApplications ?? {}).length >= 50 ||
+    Object.keys(batch.pipelineApplications ?? {}).length >=
+      (isSharedDraft(batch) ? 500 : 50) ||
     attempt.projection.baselineVersion !== batch.baselineVersion ||
     attempt.cursor !== attempt.steps.length
   )
@@ -249,7 +251,7 @@ export async function applyQueueBundle(
       ],
     })
   }
-  if (plateIds.size > limits.plates)
+  if (plateIds.size > batchPlateLimit(batch))
     return { ok: false, error: 'invalid_state' }
   const next: ReviewBatch = {
     ...batch,

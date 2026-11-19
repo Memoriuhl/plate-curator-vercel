@@ -17,6 +17,7 @@ import { publishBaselineStatus } from '../lib/publish/baseline-status'
 const mocks = vi.hoisted(() => ({
   query: '',
   selectedState: 'approved' as import('../lib/review/types').BatchState,
+  kind: undefined as import('../lib/review/types').ReviewBatch['kind'],
   empty: false,
   pipelineBusy: false,
   enabledHere: true,
@@ -75,7 +76,7 @@ vi.mock('../lib/client/hooks', () => ({
     }
     return {
       data: {
-        batch: { ...batch, state: mocks.selectedState },
+        batch: { ...batch, state: mocks.selectedState, kind: mocks.kind },
         plates: mocks.empty
           ? []
           : [
@@ -172,12 +173,18 @@ vi.mock('../lib/client/hooks', () => ({
     publish: mocks.publish,
     abandon: mocks.abandon,
   }),
+  /** Name the shared draft Publish opens without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
+  /** Keep the shared draft unloaded; these cases cover releases and older Batches. */
+  useDraftPublishView: () => ({ mutate: mocks.refresh }),
 }))
 beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(mocks, {
-    query: '',
+    // Recovery covers a release or an older Batch opened from Publish history.
+    query: 'batch=batch',
     selectedState: 'approved',
+    kind: undefined,
     empty: false,
     listLoading: false,
     pipelineBusy: false,
@@ -295,8 +302,8 @@ test('server eligibility hides Publish again while a live run owns the claim', (
 })
 
 test.each([false, true])(
-  'Owner sees reviewed and live versions and opens a fresh review (Workflow failure: %s)',
-  async (failedRun) => {
+  'Owner sees reviewed and live versions and is sent to the shared draft (Workflow failure: %s)',
+  (failedRun) => {
     mocks.run = failedRun
     render(<PublishWorkspace />)
     expect(
@@ -306,59 +313,23 @@ test.each([false, true])(
       screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
         .disabled
     ).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-    await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
-    await waitFor(() =>
-      expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh')
-    )
+    // Copy to new Batch is retired: the changes are still in the shared draft.
+    expect(
+      screen.queryByRole('button', { name: 'Copy to new Batch' })
+    ).toBeNull()
+    expect(
+      screen.getByText(/baseline changed. These changes are still in/)
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByRole('link', { name: 'the shared draft' })
+        .getAttribute('href')
+    ).toBe('/publish')
+    expect(mocks.copy).not.toHaveBeenCalled()
   }
 )
 
-test('a head race requires another explicit copy request with the new version', async () => {
-  mocks.copy.mockRejectedValueOnce(
-    new ApiError(409, 'head_moved', { liveVersion: 3 })
-  )
-  render(<PublishWorkspace />)
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-  await screen.findByText(/The Catalog moved to v3/)
-  expect(mocks.push).not.toHaveBeenCalled()
-  expect(mocks.copy).toHaveBeenCalledTimes(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-  await waitFor(() =>
-    expect(mocks.copy).toHaveBeenLastCalledWith(batch.id, 2, 3)
-  )
-})
-
-test('incompatible proposals display affected items and retain the original Batch', async () => {
-  mocks.copy.mockRejectedValueOnce(
-    new ApiError(409, 'incompatible', {
-      reasons: [
-        'Missing Plate: one',
-        'State order no longer matches Jurisdiction: CA',
-      ],
-    })
-  )
-  render(<PublishWorkspace />)
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-  await screen.findByText('Missing Plate: one')
-  expect(
-    screen.getByText('State order no longer matches Jurisdiction: CA')
-  ).toBeTruthy()
-  expect(screen.getByText(/The original Batch is preserved/)).toBeTruthy()
-  expect(mocks.push).not.toHaveBeenCalled()
-})
-
-test('copy service unavailability gives a retry message without navigating away', async () => {
-  mocks.copy.mockRejectedValueOnce(new ApiError(503, 'unavailable', {}))
-  render(<PublishWorkspace />)
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-  await screen.findByText(
-    'The current Catalog is temporarily unavailable. Try Copy to new Batch again.'
-  )
-  expect(mocks.push).not.toHaveBeenCalled()
-})
-
-test('a pointer_moved failure with an effectively stale baseline offers Copy to new Batch', async () => {
+test('a pointer_moved failure with an effectively stale baseline points to the shared draft', async () => {
   const f = fixture()
   f.records.set('batch@2', {
     id: 'batch@2',
@@ -374,11 +345,8 @@ test('a pointer_moved failure with an effectively stale baseline offers Copy to 
   mocks.runError = 'pointer_moved'
   mocks.baselineError = (await publishBaselineStatus(f.deps, batch)).error
   render(<PublishWorkspace />)
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-  await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(batch.id, 2, 2))
-  await waitFor(() =>
-    expect(mocks.push).toHaveBeenCalledWith('/review?batch=fresh')
-  )
+  expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+  expect(screen.getByRole('link', { name: 'the shared draft' })).toBeTruthy()
 })
 
 test('a stopped command leaves the approved Batch visible and requires a fresh Publish request', () => {
@@ -389,7 +357,7 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
   expect(screen.getAllByText(batch.name).length).toBeGreaterThan(0)
   expect(
     screen.getByText(
-      /The Batch remains approved. Resume does not restart this command/
+      /The changes stay in the shared draft. Resume does not restart this command/
     )
   ).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Publish to Game' })).toBeNull()
@@ -397,7 +365,7 @@ test('a stopped command leaves the approved Batch visible and requires a fresh P
   expect(screen.getByRole('button', { name: 'Publish again' })).toBeTruthy()
 })
 
-test('paused Publish explains the stop; after Resume stale proposals still offer Copy', () => {
+test('paused Publish explains the stop; after Resume a stale release points to the shared draft', () => {
   mocks.baselineError = 'paused'
   const view = render(<PublishWorkspace />)
   expect(
@@ -409,10 +377,10 @@ test('paused Publish explains the stop; after Resume stale proposals still offer
     screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
       .disabled
   ).toBe(true)
-  expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'the shared draft' })).toBeNull()
   mocks.baselineError = 'stale_baseline'
   view.rerender(<PublishWorkspace />)
-  expect(screen.getByRole('button', { name: 'Copy to new Batch' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'the shared draft' })).toBeTruthy()
 })
 
 test.each([
@@ -433,9 +401,7 @@ test.each([
   render(<PublishWorkspace />)
   expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull()
   if (condition === 'stale_baseline')
-    expect(
-      screen.getByRole('button', { name: 'Copy to new Batch' })
-    ).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'the shared draft' })).toBeTruthy()
 })
 
 test('Editor cannot enter Publish or trigger Batch preflight', () => {
@@ -451,12 +417,14 @@ test('Editor cannot enter Publish or trigger Batch preflight', () => {
   expect(mocks.readBatch).not.toHaveBeenCalled()
 })
 
-test.each(['open', 'submitted', 'approved'] as const)(
-  'Owner can explicitly confirm the exact %s Batch for staging',
+test.each(['open', 'approved'] as const)(
+  'Owner can explicitly confirm the exact %s release for staging',
   async (state) => {
     mocks.query = 'batch=batch'
     mocks.listLoading = true
     mocks.selectedState = state
+    // A release frozen from the shared draft starts open; an approved one is retrying.
+    if (state === 'open') mocks.kind = 'release'
     mocks.baselineError = null
     if (state === 'approved') {
       mocks.canRetry = false
@@ -503,18 +471,40 @@ test('an unavailable direct link stays on its requested Batch even with an appro
   expect(mocks.readBatch).toHaveBeenCalledExactlyOnceWith('missing')
 })
 
-test('blocked drafts expose repair and refresh actions for the same Batch', () => {
+test.each(['open', 'submitted'] as const)(
+  'a %s Batch from before the shared draft is read-only and points to the draft',
+  (state) => {
+    mocks.selectedState = state
+    mocks.baselineError = null
+    render(<PublishWorkspace />)
+    expect(
+      screen.getByText(/This Batch is from before the shared draft/)
+    ).toBeTruthy()
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
+        .disabled
+    ).toBe(true)
+    expect(
+      screen
+        .getByRole('link', { name: 'Open the shared draft' })
+        .getAttribute('href')
+    ).toBe('/publish')
+  }
+)
+
+test('blocked releases expose the shared draft and refresh actions', () => {
   mocks.query = 'batch=batch'
   mocks.selectedState = 'open'
+  mocks.kind = 'release'
   mocks.baselineError = null
   mocks.empty = true
   const view = render(<PublishWorkspace />)
   expect(screen.getByText(/no changes to publish/)).toBeTruthy()
   expect(
     screen
-      .getByRole('link', { name: 'Open Batch on Dashboard' })
+      .getByRole('link', { name: 'Open the shared draft' })
       .getAttribute('href')
-  ).toBe('/?batch=batch')
+  ).toBe('/publish')
   expect(
     screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
       .disabled
@@ -558,26 +548,6 @@ test('an approved Batch cannot confirm when the deployment disallows Publish', (
   ).toBe(true)
 })
 
-test.each(['open', 'submitted'] as const)(
-  'an Owner can copy the stale %s Batch for fresh review',
-  async (state) => {
-    mocks.selectedState = state
-    render(<PublishWorkspace />)
-    expect(
-      screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
-        .disabled
-    ).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to new Batch' }))
-    await waitFor(() =>
-      expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(
-        batch.id,
-        batch.revision,
-        2
-      )
-    )
-  }
-)
-
 test('an intervening edit refreshes the warning and requires a new explicit confirmation', async () => {
   mocks.baselineError = null
   mocks.publish.mockResolvedValueOnce({
@@ -607,6 +577,7 @@ test('an intervening edit refreshes the warning and requires a new explicit conf
   try {
     batch.revision += 1
     mocks.selectedState = 'open'
+    mocks.kind = 'release'
     mocks.confirmation = {
       revision: previous + 1,
       since: previous,

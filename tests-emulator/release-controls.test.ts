@@ -4,7 +4,7 @@ import { firestoreCatalogPushStore } from '../lib/publish/catalog-push'
 import { abandonPreparedSnapshot } from '../lib/publish/abandon'
 import { firestoreMembersStore } from '../lib/members/firestore-store'
 import { copyBatch } from '../lib/review/copy'
-import { approveBatch, submitBatch } from '../lib/review/batch'
+import { approveBatch, submitBatch } from '../tests/helpers/legacy-approval'
 import { batch, command, owner, snapshot } from '../tests/publish/fixture'
 import {
   actor,

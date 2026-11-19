@@ -1,7 +1,5 @@
 'use client'
 
-import { mostRecentBatch } from '@/lib/review/batch-selection'
-
 import {
   createContext,
   useContext,
@@ -34,7 +32,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useSession } from '@/lib/client/session'
-import { useBatches, useMe } from '@/lib/client/hooks'
+import { useMe, useSharedDraftId } from '@/lib/client/hooks'
+import { useSearchParams } from 'next/navigation'
 import type { GatewayRun } from '@/lib/jobs/gateway-runs'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { gatewayRunsKey, usePipelineQueue } from './use-pipeline-queue'
@@ -75,10 +74,12 @@ export function DashboardPipelineProvider({
   children: ReactNode
 }) {
   const local = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
-  const batches = useBatches(['open'], { mine: true, enabled: local })
-  const batch = mostRecentBatch(batches.data)
-  const queue = usePipelineQueue(batch?.id, batch?.name)
-  const [open, setOpen] = useState(false)
+  // Runs write into the shared draft. `?pipeline=open` (linked from the Publish view
+  // while runs block Publish) opens the drawer on arrival.
+  const draftId = useSharedDraftId()
+  const params = useSearchParams()
+  const queue = usePipelineQueue(local ? draftId : null, 'Shared draft')
+  const [open, setOpen] = useState(() => params?.get('pipeline') === 'open')
   const [device, setDevice] = useState<PipelineMachineFilter>('all')
   const [requestedRun, setRequestedRun] = useState<{ id: string }>()
   const drawerId = useId()

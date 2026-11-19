@@ -3,6 +3,15 @@ import { storyFieldKeys } from './story'
 import { commonsImageUrl, commonsSourceUrl } from '../jobs/image-options'
 
 export const limits = { tags: 50, tag: 60, text: 120, plates: 1000 }
+/**
+ * The shared draft collects every unpublished change until the next Publish, so it gets
+ * a larger plate cap than one request or an old Batch.
+ */
+export const draftPlateLimit = 10_000
+/** Plate cap for the ids a batch may track. */
+export function batchPlateLimit(batch: { kind?: string }) {
+  return batch.kind === 'shared-draft' ? draftPlateLimit : limits.plates
+}
 const storyKeys = storyFieldKeys
 export const colorFieldKeys = ['colorDetail', 'lineageColor'] as const
 export const draftGroupingFields = [

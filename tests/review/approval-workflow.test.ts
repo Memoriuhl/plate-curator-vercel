@@ -1,12 +1,12 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { approvalRun, publishRun } from '../../workflows/approval'
+import { publishRun } from '../../workflows/approval'
 
 const mocks = vi.hoisted(() => ({
   getBatch: vi.fn(),
-  createHook: vi.fn(),
   publishBatch: vi.fn(),
   publishDeps: vi.fn(() => ({})),
   catalogPush: vi.fn(),
+  afterPublish: vi.fn(),
 }))
 vi.mock('../../workflows/catalog-push', () => ({
   catalogPush: mocks.catalogPush,
@@ -18,9 +18,6 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }))
 vi.mock('workflow', () => ({
-  createHook: mocks.createHook,
-  /** Control polling time through the fixture instead of waiting for a real interval. */ sleep:
-    () => new Promise(() => {}),
   RetryableError: class extends Error {},
 }))
 vi.mock('../../lib/server/context', () => ({
@@ -31,11 +28,15 @@ vi.mock('../../lib/server/context', () => ({
 vi.mock('../../lib/publish/publish', () => ({
   publishBatch: mocks.publishBatch,
 }))
+vi.mock('../../lib/review/draft', () => ({
+  afterPublish: mocks.afterPublish,
+}))
 
 const approved = { state: 'approved', revision: 2, approval: { revision: 1 } }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.getBatch.mockResolvedValue(approved)
+  mocks.afterPublish.mockResolvedValue({ ok: false, error: 'not_found' })
   mocks.publishBatch.mockResolvedValue({ ok: true, value: { toVersion: 8 } })
   mocks.catalogPush.mockResolvedValue({
     status: 'unavailable',
@@ -44,41 +45,12 @@ beforeEach(() => {
     pruned: 0,
   })
 })
-test('a superseded approval exits without Publish', async () => {
-  mocks.getBatch.mockResolvedValueOnce({ state: 'submitted', revision: 1 })
-  mocks.createHook.mockResolvedValue({ superseded: true })
-  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
-  expect(mocks.publishBatch).not.toHaveBeenCalled()
-})
-test('a superseded Publish command exits without Publish', async () => {
-  mocks.createHook.mockResolvedValue({ superseded: true })
-  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
-  expect(mocks.publishBatch).not.toHaveBeenCalled()
-})
-test('an edit during the transition to the Publish wait supersedes the run', async () => {
-  mocks.getBatch
-    .mockResolvedValueOnce(approved)
-    .mockResolvedValueOnce(approved)
-    .mockResolvedValueOnce({ state: 'open', revision: 3 })
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
-  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
-  expect(mocks.publishBatch).not.toHaveBeenCalled()
-})
-test('a stale run cannot Publish after its command arrives', async () => {
-  mocks.getBatch
-    .mockResolvedValueOnce(approved)
-    .mockResolvedValueOnce(approved)
-    .mockResolvedValueOnce(approved)
-    .mockResolvedValueOnce({ state: 'open', revision: 3 })
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
-  expect(await approvalRun('batch', 1)).toEqual({ outcome: 'superseded' })
-  expect(mocks.publishBatch).not.toHaveBeenCalled()
-})
 test('an approved command publishes inside the run and returns the version', async () => {
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
-  expect(await approvalRun('batch', 1)).toEqual({
+  const command = { ownerUid: 'owner' }
+  expect(await publishRun('batch', 2, command)).toEqual({
     outcome: 'published',
     version: 8,
+    rebased: true,
     push: { status: 'unavailable', sent: 0, failed: 0, pruned: 0 },
   })
   expect(mocks.catalogPush).toHaveBeenCalledExactlyOnceWith(8)
@@ -90,14 +62,14 @@ test('an approved command publishes inside the run and returns the version', asy
 })
 
 test('the step exposes both versions if the Catalog changed after accepting Publish', async () => {
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  const command = { ownerUid: 'owner' }
   mocks.publishBatch.mockResolvedValue({
     ok: false,
     error: 'stale_baseline',
     reviewedVersion: 7,
     liveVersion: 8,
   })
-  expect(await approvalRun('batch', 1)).toEqual({
+  expect(await publishRun('batch', 2, command)).toEqual({
     outcome: 'publish_failed',
     error: 'stale_baseline',
     reasons: [],
@@ -108,9 +80,9 @@ test('the step exposes both versions if the Catalog changed after accepting Publ
 })
 
 test('failed Publish sends no push', async () => {
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
+  const command = { ownerUid: 'owner' }
   mocks.publishBatch.mockResolvedValue({ ok: false, error: 'invalid_snapshot' })
-  expect(await approvalRun('batch', 1)).toMatchObject({
+  expect(await publishRun('batch', 2, command)).toMatchObject({
     outcome: 'publish_failed',
   })
   expect(mocks.catalogPush).not.toHaveBeenCalled()
@@ -119,13 +91,13 @@ test('failed Publish sends no push', async () => {
 test.each(['paused', 'revoked', 'superseded', 'publish_not_enabled'])(
   'a generation-bound command returns terminal %s without retrying',
   async (error) => {
-    mocks.createHook.mockResolvedValue({
+    const command = {
       ownerUid: 'owner',
       generation: 3,
       commandId: 'fresh-command',
-    })
+    }
     mocks.publishBatch.mockResolvedValue({ ok: false, error })
-    expect(await approvalRun('batch', 1)).toEqual({
+    expect(await publishRun('batch', 2, command)).toEqual({
       outcome: 'publish_failed',
       error,
       reasons: [],
@@ -146,14 +118,14 @@ test.each(['paused', 'revoked', 'superseded', 'publish_not_enabled'])(
 )
 
 test('paused and superseded Publish stops never reach catalogPush', async () => {
-  mocks.createHook.mockResolvedValue({
+  const command = {
     ownerUid: 'owner',
     generation: 3,
     commandId: 'stopped-command',
-  })
+  }
   for (const error of ['paused', 'revoked', 'superseded']) {
     mocks.publishBatch.mockResolvedValue({ ok: false, error })
-    expect(await approvalRun('batch', 1)).toEqual({
+    expect(await publishRun('batch', 2, command)).toEqual({
       outcome: 'publish_failed',
       error,
       reasons: [],
@@ -168,14 +140,14 @@ test('requester authority passes unchanged into the publisher and revoked result
     email: 'requester@example.com',
     authorityEpoch: 7,
   }
-  mocks.createHook.mockResolvedValue({
+  const command = {
     ownerUid: 'requester',
     requestedBy,
     generation: 3,
     commandId: 'request',
-  })
+  }
   mocks.publishBatch.mockResolvedValue({ ok: false, error: 'revoked' })
-  expect(await approvalRun('batch', 1)).toEqual({
+  expect(await publishRun('batch', 2, command)).toEqual({
     outcome: 'publish_failed',
     error: 'revoked',
     reasons: [],
@@ -226,5 +198,34 @@ test('dedicated fresh-command run needs no hook and only a committed outcome rea
     version: 8,
   })
   expect(mocks.catalogPush).toHaveBeenCalledExactlyOnceWith(8)
-  expect(mocks.createHook).not.toHaveBeenCalled()
+})
+
+test('a published release rebases the shared draft onto the new version', async () => {
+  mocks.afterPublish.mockResolvedValue({ ok: true })
+  expect(await publishRun('release', 2, { ownerUid: 'owner' })).toMatchObject({
+    outcome: 'published',
+    version: 8,
+    rebased: true,
+  })
+  expect(mocks.afterPublish).toHaveBeenCalledExactlyOnceWith(
+    expect.anything(),
+    'release',
+    8
+  )
+})
+
+test('a failed draft rebase never fails the publish', async () => {
+  mocks.afterPublish.mockRejectedValue(new Error('unavailable'))
+  expect(await publishRun('release', 2, { ownerUid: 'owner' })).toMatchObject({
+    outcome: 'published',
+    version: 8,
+    rebased: false,
+  })
+  expect(mocks.catalogPush).toHaveBeenCalledExactlyOnceWith(8)
+})
+
+test('a failed Publish never rebases the draft', async () => {
+  mocks.publishBatch.mockResolvedValue({ ok: false, error: 'invalid_snapshot' })
+  await publishRun('release', 2, { ownerUid: 'owner' })
+  expect(mocks.afterPublish).not.toHaveBeenCalled()
 })

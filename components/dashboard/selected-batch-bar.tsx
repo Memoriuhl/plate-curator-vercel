@@ -65,7 +65,7 @@ export function SelectedBatchBar() {
         Copy link
       </Button>
       <Link href={pathname + (back.size ? '?' + back.toString() : '')}>
-        Back to your batch
+        Back to the shared draft
       </Link>
     </div>
   )

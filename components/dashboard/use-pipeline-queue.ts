@@ -1,5 +1,6 @@
 'use client'
 
+import { isSharedDraftId } from '@/lib/review/draft-id'
 import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
@@ -281,7 +282,12 @@ export function usePipelineQueue(
         { ...input, requestId }
       )
       confirmQueueRequest(localStorage, uid!, 'enqueue', requestId)
-      if (!batchId && saved.batchId && currentUser.current === uid) {
+      if (
+        !batchId &&
+        saved.batchId &&
+        !isSharedDraftId(saved.batchId) &&
+        currentUser.current === uid
+      ) {
         const url = new URL(window.location.href)
         if (!url.searchParams.has('batch')) {
           url.searchParams.set('batch', saved.batchId)

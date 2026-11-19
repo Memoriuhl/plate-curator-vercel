@@ -4,7 +4,7 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { batchDetail } from '../../lib/review/queries'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
-import { submitBatch, approveBatch } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { batch, fixture, owner, snapshot } from '../publish/fixture'
 
 /**

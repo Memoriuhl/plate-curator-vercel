@@ -1,10 +1,7 @@
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { HookNotFoundError } from 'workflow/errors'
 import { POST, GET } from '../app/api/batches/[id]/publish/route'
-import {
-  POST as markReviewed,
-  GET as recentReview,
-} from '../app/api/batches/[id]/review-checkpoint/route'
+import { POST as abandon } from '../app/api/batches/[id]/abandon/route'
 import {
   firestorePublishControl,
   firestorePublishCurator,
@@ -13,9 +10,28 @@ import {
   firestorePublishRecords,
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
+import {
+  ensureDraft,
+  freezeRelease,
+  keepDraftValues,
+  newSharedDraft,
+} from '../lib/review/draft'
+import { proposeEdit } from '../lib/review/batch'
+import { plateRevision } from '../lib/review/revision'
+import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
+import { sharedDraftId } from '../lib/review/draft-id'
+import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
+import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
+import { releaseActivityFor } from '../lib/publish/release-activity'
 import { verifyPreparedObject } from '../lib/publish/object'
-import { batch, command, fixture, owner } from '../tests/publish/fixture'
+import {
+  batch,
+  command,
+  fixture,
+  owner,
+  snapshot,
+} from '../tests/publish/fixture'
 import { db } from './setup'
 
 const mocks = vi.hoisted(() => ({
@@ -42,6 +58,8 @@ vi.mock('../lib/server/context', () => ({
     () => true,
   publishDeps: mocks.deps,
   reviewDeps: mocks.deps,
+  /** Name the review environment whose shared draft this route test publishes. */
+  reviewEnv: () => 'retry-route',
   /** Capture the fixture owner's identity and authority epoch for publish commands. */
   requesterAuthority: (actor: {
     uid: string
@@ -64,6 +82,39 @@ const request = (commandId: string) =>
     method: 'POST',
     body: JSON.stringify({ revision: 2, commandId }),
   })
+const draftId = sharedDraftId(env)
+const draftCtx = { params: Promise.resolve({ id: 'draft' }) }
+/** Build the Owner's Publish request for one shared draft revision. */
+const draftRequest = (revision: number, commandId: string) =>
+  new Request('http://localhost/api/batches/draft/publish', {
+    method: 'POST',
+    body: JSON.stringify({ revision, commandId }),
+  })
+/** A release frozen from the shared draft at the fixture Batch's revision. */
+const release = (): ReviewBatch => ({
+  ...batch,
+  kind: 'release',
+  state: 'open',
+  approval: null,
+  source: { batchId: draftId, revision: batch.revision },
+})
+/** The shared draft `release()` was frozen from, still at that revision on v1. */
+const seedReleaseDraft = async () =>
+  expect(
+    await mocks.deps().store.create({
+      ...newSharedDraft(env, 1, owner, time),
+      revision: batch.revision,
+    })
+  ).toBe('ok')
+/** An editor's tag change, as the shared draft stores it. */
+const tagEdit = (plateId: string, tags: string[]): ProposedEdit => ({
+  plateId,
+  fields: { tags },
+  baseRevision: 'before',
+  resultRevision: 'after',
+  updatedAt: time,
+  authorId: 'editor',
+})
 
 beforeEach(async () => {
   vi.resetAllMocks()
@@ -71,8 +122,12 @@ beforeEach(async () => {
   await db.recursiveDelete(db.collection('publishCommands'))
   await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.recursiveDelete(db.collection('publishRecords'))
+  await db.recursiveDelete(db.collection('publishVersionBurns'))
+  await db.recursiveDelete(db.collection('releaseFences'))
   await db.doc('locks/publish').delete()
   await db.recursiveDelete(db.doc('reviewBatches/batch'))
+  await db.recursiveDelete(db.doc(`reviewBatches/${draftId}`))
+  await deleteReleases()
   await db.doc('reviewBatches/batch').set({
     ...batch,
     env,
@@ -97,39 +152,57 @@ beforeEach(async () => {
   mocks.getHookByToken.mockRejectedValue(new HookNotFoundError('missing'))
   mocks.start.mockResolvedValue({ runId: 'fresh-run' })
   const f = fixture()
+  const pointer = firestorePublishPointer(db, env, (record) =>
+    verifyPreparedObject(f.deps.snapshots, record)
+  )
+  const control = firestorePublishControl(db)
+  const records = firestorePublishRecords(db, env, {
+    runStatus: mocks.status,
+    /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun:
+      async (commandId) => {
+        try {
+          const run = await mocks.getHookByToken(`publish-command:${commandId}`)
+          return { runId: run.runId, status: await mocks.status(run.runId) }
+        } catch (error) {
+          if (HookNotFoundError.is(error)) return null
+          throw error
+        }
+      },
+  })
   mocks.deps.mockReturnValue({
     ...f.deps,
     /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () =>
       time,
-    control: firestorePublishControl(db),
+    control,
     store: firestoreReviewStore(db, env),
-    records: firestorePublishRecords(db, env, {
-      runStatus: mocks.status,
-      /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun:
-        async (commandId) => {
-          try {
-            const run = await mocks.getHookByToken(
-              `publish-command:${commandId}`
-            )
-            return { runId: run.runId, status: await mocks.status(run.runId) }
-          } catch (error) {
-            if (HookNotFoundError.is(error)) return null
-            throw error
-          }
-        },
-    }),
+    records,
+    releaseActivity: releaseActivityFor(records, control, () => time),
     lock: firestorePublishLock(db, env),
-    pointer: firestorePublishPointer(db, env, (record) =>
-      verifyPreparedObject(f.deps.snapshots, record)
-    ),
+    pointer,
+    /** Read the live catalog version the shared draft is based on. */
+    liveVersion: async () => (await pointer.read()).version,
     curator: firestorePublishCurator(db, env),
   })
 })
 
+/** Remove releases frozen from this environment's shared draft. */
+async function deleteReleases() {
+  const releases = await db
+    .collection('reviewBatches')
+    .where('env', '==', env)
+    .where('kind', '==', 'release')
+    .get()
+  for (const doc of releases.docs) await db.recursiveDelete(doc.ref)
+}
+
 afterAll(async () => {
+  await db.recursiveDelete(db.doc(`reviewBatches/${draftId}`))
+  await deleteReleases()
   await db.recursiveDelete(db.collection('publishCommands'))
   await db.recursiveDelete(db.collection('publishCommandStops'))
   await db.recursiveDelete(db.collection('publishRecords'))
+  await db.recursiveDelete(db.collection('publishVersionBurns'))
+  await db.recursiveDelete(db.collection('releaseFences'))
   await db.recursiveDelete(db.doc('reviewBatches/batch'))
   await db.doc('curatorLive/retry-route/batchRevisions/batch').delete()
   await db.doc('config/catalog').delete()
@@ -426,6 +499,7 @@ test('confirmation blocks a run queued from another workstation on another Batch
     })
     expect(await (await POST(request('confirm'), ctx)).json()).toEqual({
       error: 'pipeline_busy',
+      activeRuns: 1,
     })
     expect(mocks.start).not.toHaveBeenCalled()
     expect((await mocks.deps().pointer.read()).version).toBe(1)
@@ -437,10 +511,9 @@ test('confirmation blocks a run queued from another workstation on another Batch
   }
 })
 
-test('Owner can confirm the current draft revision without a separate approval', async () => {
-  await db
-    .doc('reviewBatches/batch')
-    .set({ ...batch, env, state: 'open', revision: 2, approval: null })
+test('Owner can confirm a release frozen from the shared draft without a separate approval', async () => {
+  await db.doc('reviewBatches/batch').set({ ...release(), env })
+  await seedReleaseDraft()
   const deps = mocks.deps()
   await db
     .doc('reviewBatches/batch/edits/one')
@@ -457,56 +530,434 @@ test('Owner can confirm the current draft revision without a separate approval',
   expect((await deps.pointer.read()).version).toBe(2)
 })
 
-test('the same Owner sees intervening edits and must confirm the latest revision', async () => {
+test('publishing draft revision N freezes N from the change log and leaves the later edit in the draft', async () => {
   const deps = mocks.deps()
-  const current = { ...batch, state: 'open' as const, approval: null }
-  await db.doc('reviewBatches/batch').set({ ...current, env })
-  expect((await markReviewed(request('checkpoint'), ctx)).status).toBe(200)
-  expect(await (await GET(request('opening'), ctx)).json()).toMatchObject({
-    confirmation: { revision: 2, since: 2, plateCount: 0 },
-  })
-  await deps.store.commit(batch.id, current.revision, {
-    batch: { ...current, revision: 3 },
-    by: { uid: 'editor', name: 'Dana Curator' },
-    edit: {
-      plateId: batch.plateIds[0],
-      fields: { tags: ['blue'] },
-      baseRevision: 'before',
-      resultRevision: 'after',
-      updatedAt: time,
-      authorId: 'editor',
-    },
-  })
-  expect(await (await POST(request('old-confirm'), ctx)).json()).toMatchObject({
-    error: 'superseded_revision',
-    confirmation: {
-      revision: 3,
-      since: 2,
-      plateCount: 1,
-      contributors: ['Dana Curator'],
-    },
-  })
-  expect(mocks.start).not.toHaveBeenCalled()
-  const changes = await recentReview(
-    new Request('http://localhost/api/batches/batch/review-checkpoint?since=2'),
-    ctx
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  expect(
+    await deps.store.commit(draftId, 0, {
+      batch: first,
+      edit: tagEdit('one', ['reviewed']),
+      by,
+    })
+  ).toBe('ok')
+  // The Owner reviewed revision 1; an editor then changes another plate.
+  expect(
+    await deps.store.commit(draftId, 1, {
+      batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+      edit: tagEdit('two', ['after review']),
+      by,
+    })
+  ).toBe('ok')
+  expect((await POST(draftRequest(1, 'publish-one'), draftCtx)).status).toBe(
+    202
   )
-  expect(await changes.json()).toEqual({ plateIds: [batch.plateIds[0]] })
-  const revised = new Request('http://localhost/api/batches/batch/publish', {
-    method: 'POST',
-    body: JSON.stringify({ revision: 3, commandId: 'confirmed-current' }),
+  const accepted = (await deps.records.command('publish-one'))!.command
+  expect(accepted).toMatchObject({ confirmedDraftRevision: 0, revision: 1 })
+  const frozen = await deps.store.readBatch(accepted.batchId)
+  expect(frozen?.batch).toMatchObject({
+    kind: 'release',
+    source: { batchId: draftId, revision: 1 },
   })
-  expect((await POST(revised, ctx)).status).toBe(202)
-  const accepted = (await deps.records.command('confirmed-current'))!.command
+  expect(frozen?.edits.map((edit: ProposedEdit) => edit.plateId)).toEqual([
+    'one',
+  ])
   expect(await publishBatch(deps, owner, accepted)).toMatchObject({
     ok: true,
     value: { toVersion: 2 },
   })
+  const published = await deps.snapshots.read(2)
   expect(
-    (await deps.snapshots.read(2)).plates.find(
-      (plate: { id: string }) => plate.id === batch.plateIds[0]
-    )?.tags
-  ).toEqual(['blue'])
+    published.plates.map((plate: { id: string; tags: string[] }) => [
+      plate.id,
+      plate.tags,
+    ])
+  ).toEqual([
+    ['one', ['reviewed']],
+    ['two', []],
+  ])
+  const after = await deps.store.readBatch(draftId)
+  expect(after?.batch.revision).toBe(2)
+  expect(after?.edits.map((edit: ProposedEdit) => edit.plateId).sort()).toEqual(
+    ['one', 'two']
+  )
+})
+
+test('a draft read while Publish is still finishing waits for the receipt, then drops only what shipped', async () => {
+  const base = mocks.deps()
+  /** Plates of a version this test published, or null for the fixture baseline. */
+  const published = async (version: number): Promise<Plate[] | null> =>
+    version === 1 ? null : (await base.snapshots.read(version)).plates
+  const deps = {
+    ...base,
+    versionOrigin: firestoreVersionOrigin(db),
+    /** Read a published version's plate so the rebase compares against live. */
+    async baselineAtVersion(version: number, id: string) {
+      const plates = await published(version)
+      return plates
+        ? (plates.find((plate) => plate.id === id) ?? null)
+        : base.baselineAtVersion(version, id)
+    },
+    /** Read a published version's state plates. */
+    async stateBaseline(version: number, state: string) {
+      const plates = await published(version)
+      return plates
+        ? plates.filter((plate) => plate.state === state)
+        : base.stateBaseline(version, state)
+    },
+  }
+  mocks.deps.mockReturnValue(deps)
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['after review']),
+    by,
+  })
+  expect((await POST(draftRequest(1, 'publish-mid'), draftCtx)).status).toBe(
+    202
+  )
+  const accepted = (await deps.records.command('publish-mid'))!.command
+  // Read the draft after the pointer moved but before the receipt is done.
+  const curator = deps.curator
+  let during: ReviewBatch | undefined
+  deps.curator = {
+    async writeStateOrders(
+      ...args: Parameters<typeof curator.writeStateOrders>
+    ) {
+      during = await ensureDraft(deps, env, owner)
+      return curator.writeStateOrders(...args)
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: true,
+    value: { toVersion: 2 },
+  })
+  expect((await deps.pointer.read()).version).toBe(2)
+  expect(during).toMatchObject({ baselineVersion: 1, revision: 2 })
+  expect(during?.lastPublish).toBeUndefined()
+
+  const after = await ensureDraft(deps, env, owner)
+  expect(after).toMatchObject({
+    baselineVersion: 2,
+    lastPublish: {
+      revision: 1,
+      version: 2,
+      by: 'owner',
+      byName: 'owner@example.com',
+      at: time,
+    },
+  })
+  const edits = (await deps.store.listEdits(draftId)).map(
+    (edit: ProposedEdit) => [edit.plateId, edit.fields]
+  )
+  expect(edits).toEqual([['two', { tags: ['after review'] }]])
+})
+
+/**
+ * Accept a Publish of draft revision 1, then have a curator correct the draft at
+ * revision 2, as happens after a Publish attempt goes wrong.
+ */
+async function acceptThenCorrect(commandId: string) {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  expect((await POST(draftRequest(1, commandId), draftCtx)).status).toBe(202)
+  const accepted = (await deps.records.command(commandId))!.command
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['corrected']),
+    by,
+  })
+  return { deps, accepted }
+}
+/** Read the Owner's Publish view of the shared draft. */
+const draftView = async () =>
+  (await GET(draftRequest(0, 'view'), draftCtx)).json()
+
+test('a release whose run is live holds the draft Publish; once it fails before preparing a Snapshot, the corrected revision can publish', async () => {
+  const { accepted } = await acceptThenCorrect('publish-fails-early')
+  mocks.status.mockResolvedValue('running')
+  expect(await draftView()).toMatchObject({
+    draftRevision: 2,
+    activeRelease: { id: accepted.batchId, revision: 1 },
+    canPublish: false,
+  })
+  mocks.status.mockResolvedValue('failed')
+  const view = await draftView()
+  expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
+  expect(view.activeRelease).toBeUndefined()
+  expect(view.interruptedRelease).toBeUndefined()
+  expect(
+    (await POST(draftRequest(2, 'publish-corrected'), draftCtx)).status
+  ).toBe(202)
+})
+
+test('a release that stopped after preparing its Snapshot waits for recovery, and after Abandon the corrected revision can publish', async () => {
+  const { deps, accepted } = await acceptThenCorrect('publish-prepared')
+  const pointer = deps.pointer
+  deps.pointer = {
+    ...pointer,
+    /** The run stops after the Snapshot is prepared, before the pointer moves. */
+    advance: async () => {
+      throw new Error('stopped')
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: false,
+  })
+  deps.pointer = pointer
+  mocks.status.mockResolvedValue('failed')
+  const stopped = await draftView()
+  expect(stopped).toMatchObject({
+    interruptedRelease: { id: accepted.batchId, revision: 1 },
+    canPublish: false,
+  })
+  expect(stopped.activeRelease).toBeUndefined()
+
+  const abandoned = await abandon(
+    new Request(`http://localhost/api/batches/${accepted.batchId}/abandon`, {
+      method: 'POST',
+      body: JSON.stringify({
+        revision: accepted.revision,
+        commandId: 'publish-prepared',
+        reason: 'Curators corrected the draft.',
+      }),
+    }),
+    { params: Promise.resolve({ id: accepted.batchId }) }
+  )
+  expect(abandoned.status).toBe(200)
+  const view = await draftView()
+  expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
+  expect(view.interruptedRelease).toBeUndefined()
+  expect(view.activeRelease).toBeUndefined()
+  expect(
+    (await POST(draftRequest(2, 'publish-after-abandon'), draftCtx)).status
+  ).toBe(202)
+})
+
+test('a stale Publish of a newer revision is refused while a release waits for Retry or Abandon, and the accepted command still replays', async () => {
+  const { deps, accepted } = await acceptThenCorrect('publish-stuck')
+  const pointer = deps.pointer
+  deps.pointer = {
+    ...pointer,
+    /** The run stops after the Snapshot is prepared, before the pointer moves. */
+    advance: async () => {
+      throw new Error('stopped')
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: false,
+  })
+  deps.pointer = pointer
+  mocks.status.mockResolvedValue('failed')
+  const releases = async () =>
+    (await deps.store.list({ states: ['open', 'approved'] })).filter(
+      (batch: ReviewBatch) => batch.kind === 'release'
+    )
+  const before = await releases()
+  const starts = mocks.start.mock.calls.length
+
+  // A tab opened before the run stopped still offers Publish for revision 2.
+  const stale = await POST(draftRequest(2, 'publish-stale'), draftCtx)
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({ error: 'release_in_progress' })
+  expect(await releases()).toEqual(before)
+  expect(mocks.start.mock.calls.length).toBe(starts)
+  expect(await deps.records.command('publish-stale')).toBeNull()
+
+  // The accepted command itself is not held by its own release.
+  const replay = await POST(draftRequest(1, 'publish-stuck'), draftCtx)
+  expect(await replay.json()).not.toMatchObject({
+    error: 'release_in_progress',
+  })
+})
+
+/** POST a Publish command straight to one release, as its recovery page does. */
+const releasePost = (id: string, revision: number, commandId: string) =>
+  POST(
+    new Request(`http://localhost/api/batches/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ revision, commandId }),
+    }),
+    { params: Promise.resolve({ id }) }
+  )
+
+/**
+ * Review deps whose catalog has v1 (the fixture) and a v2 where an outside change
+ * retagged plate one.
+ */
+function versionedDeps() {
+  const base = mocks.deps()
+  const versions = new Map<number, Plate[]>([
+    [1, snapshot.plates],
+    [
+      2,
+      snapshot.plates.map((plate) =>
+        plate.id === 'one' ? { ...plate, tags: ['live'] } : plate
+      ),
+    ],
+  ])
+  const deps = {
+    ...base,
+    /** Read a plate from the requested catalog version. */
+    async baselineAtVersion(version: number, id: string) {
+      return versions.get(version)?.find((plate) => plate.id === id) ?? null
+    },
+    /** Read a state's plates from the requested catalog version. */
+    async stateBaseline(version: number, state: string) {
+      return (versions.get(version) ?? []).filter(
+        (plate) => plate.state === state
+      )
+    },
+  }
+  mocks.deps.mockReturnValue(deps)
+  return deps
+}
+
+test('a stale freeze brought back by a rollback waits for the Owner at both entry points, then is superseded', async () => {
+  const deps = versionedDeps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  await deps.store.commit(draftId, 0, {
+    batch: { ...draft, plateIds: ['one'], revision: 1 },
+    edit: tagEdit('one', ['reviewed']),
+    by: { uid: 'editor', name: 'Dana Curator' },
+  })
+  // A Publish froze revision 1 on v1, but its command was never accepted.
+  const frozen = await freezeRelease(deps, env, owner, 1)
+  if (!frozen.ok) throw new Error(frozen.error)
+  // An outside change retags the same plate, then a repair points live back at v1.
+  await db.doc('config/catalog').set({ version: 2 })
+  await ensureDraft(deps, env, owner)
+  await db.doc('config/catalog').set({ version: 1 })
+  expect((await ensureDraft(deps, env, owner)).conflicts?.length).toBeTruthy()
+  const starts = mocks.start.mock.calls.length
+
+  const refused = async (error: string, suffix: string) => {
+    for (const response of [
+      await POST(draftRequest(1, `stale-draft-${suffix}`), draftCtx),
+      await releasePost(frozen.value.id, 0, `stale-release-${suffix}`),
+    ]) {
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({ error })
+    }
+    expect(mocks.start.mock.calls.length).toBe(starts)
+    expect(await deps.records.command(`stale-draft-${suffix}`)).toBeNull()
+    expect(await deps.records.command(`stale-release-${suffix}`)).toBeNull()
+    expect((await deps.store.getBatch(frozen.value.id))?.state).toBe('open')
+  }
+  await refused('draft_conflicts', 'conflicts')
+  // Once the Owner keeps the draft's values, the old freeze is still behind the draft.
+  const reviewed = (await deps.store.getBatch(draftId))!
+  expect(
+    await keepDraftValues(deps, owner, {
+      batchId: draftId,
+      revision: reviewed.revision,
+    })
+  ).toMatchObject({ ok: true })
+  await refused('superseded_revision', 'kept')
+})
+
+test('two Publish requests racing on one draft accept and start only one revision', async () => {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  // Hold the first request right after it found no release holding the draft.
+  const list = deps.store.list
+  let paused = false
+  let reached!: () => void
+  let resume!: () => void
+  const atPause = new Promise<void>((resolve) => (reached = resolve))
+  const resumed = new Promise<void>((resolve) => (resume = resolve))
+  deps.store.list = async (filter: { states?: string[] }) => {
+    const result = await list(filter)
+    if (!paused && filter.states?.includes('approved')) {
+      paused = true
+      reached()
+      await resumed
+    }
+    return result
+  }
+  const stale = POST(draftRequest(1, 'race-one'), draftCtx)
+  await atPause
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['second']),
+    by,
+  })
+  expect((await POST(draftRequest(2, 'race-two'), draftCtx)).status).toBe(202)
+  resume()
+  const response = await stale
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'release_in_progress' })
+  expect(mocks.start).toHaveBeenCalledTimes(1)
+  expect(await deps.records.command('race-one')).toBeNull()
+  expect(await deps.records.command('race-two')).not.toBeNull()
+})
+
+test('undoing a deletion waits while its release runs, and is accepted once that release fails before preparing a Snapshot', async () => {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const editor = {
+    uid: 'editor',
+    name: 'Dana Curator',
+    role: 'editor',
+  } as const
+  await deps.store.commit(draftId, 0, {
+    batch: { ...draft, plateIds: ['one'], revision: 1 },
+    edit: { ...tagEdit('one', []), fields: { deleted: true } },
+    by: editor,
+  })
+  expect((await POST(draftRequest(1, 'publish-delete'), draftCtx)).status).toBe(
+    202
+  )
+  /** The Dashboard's Undo delete: restore the plate from its current state. */
+  const undo = async () => {
+    const plate = (await deps.baselineAtVersion(1, 'one'))!
+    const edit = await deps.store.getEdit(draftId, 'one')
+    return proposeEdit(deps, editor, {
+      batchId: draftId,
+      plateId: 'one',
+      baseRevision: plateRevision({ ...plate, ...edit?.fields }),
+      fields: { deleted: false },
+    })
+  }
+
+  mocks.status.mockResolvedValue('running')
+  expect(await undo()).toMatchObject({
+    ok: false,
+    error: 'invalid_state',
+    reasons: [expect.stringContaining('Revision 1')],
+  })
+  // The run fails before preparing a Snapshot, so there is nothing to abandon.
+  mocks.status.mockResolvedValue('failed')
+  expect(await undo()).toMatchObject({ ok: true })
+  expect(await deps.store.getEdit(draftId, 'one')).toBeNull()
 })
 
 test('an Editor cannot confirm a Publish', async () => {
@@ -518,31 +969,7 @@ test('an Editor cannot confirm a Publish', async () => {
   expect(mocks.start).not.toHaveBeenCalled()
 })
 
-test('an active Batch stays open for incremental draft writes until its run settles', async () => {
-  const { submitBatch } = await import('../lib/review/batch')
-  await db
-    .doc('reviewBatches/batch')
-    .set({ ...batch, env, state: 'open', approval: null })
-  const run = db.doc('localPipelineRuns/active-batch')
-  try {
-    await run.set({ batchId: batch.id, status: 'running' })
-    expect(
-      await submitBatch(mocks.deps(), owner, batch.id, batch.revision)
-    ).toEqual({ ok: false, error: 'pipeline_busy' })
-    expect(await mocks.deps().store.getBatch(batch.id)).toMatchObject({
-      state: 'open',
-      revision: batch.revision,
-    })
-    await run.update({ status: 'failed' })
-    expect(
-      await submitBatch(mocks.deps(), owner, batch.id, batch.revision)
-    ).toMatchObject({ ok: true, value: { state: 'submitted' } })
-  } finally {
-    await run.delete()
-  }
-})
-
-test('one Owner confirmation publishes the full 1,000-Plate draft in one Snapshot', async () => {
+test('one Owner confirmation freezes and publishes a 1,000-Plate shared draft in one Snapshot', async () => {
   const deps = mocks.deps()
   const plates = Array.from({ length: 1000 }, (_, index) => ({
     id: `CA.plate-${index}`,
@@ -552,47 +979,37 @@ test('one Owner confirmation publishes the full 1,000-Plate draft in one Snapsho
     image: `plate-${index}.webp`,
     tags: ['before'],
   }))
-  let draft = {
-    ...batch,
-    state: 'open' as const,
-    approval: null,
-    revision: 0,
-    plateIds: plates.map((plate) => plate.id),
-  }
-  await db.doc('reviewBatches/batch').set({ ...draft, env })
+  let draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
   const readSnapshot = deps.snapshots.read
   deps.snapshots.read = async (version: number) =>
     version === 1 ? { version: 1, plates } : readSnapshot(version)
 
   for (let offset = 0; offset < plates.length; offset += 200) {
-    const edits = plates.slice(offset, offset + 200).map((plate) => ({
-      plateId: plate.id,
-      fields: { tags: ['after'] },
-      baseRevision: 'before',
-      resultRevision: 'after',
-      updatedAt: time,
-      authorId: 'editor',
-    }))
-    const next = { ...draft, revision: draft.revision + 1 }
+    const slice = plates.slice(offset, offset + 200)
+    const next = {
+      ...draft,
+      revision: draft.revision + 1,
+      plateIds: [...draft.plateIds, ...slice.map((plate) => plate.id)],
+    }
     expect(
-      await deps.store.commit(batch.id, draft.revision, {
+      await deps.store.commit(draftId, draft.revision, {
         batch: next,
-        edits,
+        edits: slice.map((plate) => tagEdit(plate.id, ['after'])),
         by: { uid: 'editor', name: 'Dana Curator' },
       })
     ).toBe('ok')
     draft = next
   }
 
-  const confirmed = new Request('http://localhost/api/batches/batch/publish', {
-    method: 'POST',
-    body: JSON.stringify({
-      revision: draft.revision,
-      commandId: 'state-sized-confirm',
-    }),
-  })
-  expect((await POST(confirmed, ctx)).status).toBe(202)
+  expect(
+    (await POST(draftRequest(draft.revision, 'state-sized-confirm'), draftCtx))
+      .status
+  ).toBe(202)
   const accepted = (await deps.records.command('state-sized-confirm'))!.command
+  expect((await deps.store.readBatch(accepted.batchId))?.edits.length).toBe(
+    1000
+  )
   expect(await publishBatch(deps, owner, accepted)).toMatchObject({
     ok: true,
     value: { toVersion: 2 },
@@ -601,16 +1018,16 @@ test('one Owner confirmation publishes the full 1,000-Plate draft in one Snapsho
   expect((await deps.snapshots.read(2)).plates).toEqual(
     plates.map((plate) => ({ ...plate, tags: ['after'] }))
   )
-  expect(await deps.store.getBatch(batch.id)).toMatchObject({
+  expect(await deps.store.getBatch(accepted.batchId)).toMatchObject({
+    kind: 'release',
     state: 'published',
-    revision: draft.revision + 2,
+    source: { batchId: draftId, revision: draft.revision },
   })
 })
 
-test('draft pipeline audit metadata is insufficient to publish a new Snapshot', async () => {
-  await db
-    .doc('reviewBatches/batch')
-    .set({ ...batch, env, state: 'open', approval: null })
+test('a release holding only pipeline audit metadata is insufficient to publish a new Snapshot', async () => {
+  await db.doc('reviewBatches/batch').set({ ...release(), env })
+  await seedReleaseDraft()
   await db
     .doc('reviewBatches/batch/edits/one')
     .set({ plateId: 'one', fields: {}, pipelineRunIds: ['completed-run'] })
@@ -644,8 +1061,10 @@ test('the publish gate follows Batch environment across legacy worker namespaces
     })
     writes.set(otherJob, { batchId: other.id, env, state: 'queued' })
     await writes.commit()
+    // Only the claimed job on this environment's Batch counts toward the gate.
     expect(await (await POST(requestPublish, ctx)).json()).toEqual({
       error: 'pipeline_busy',
+      activeRuns: 1,
     })
     await job.update({ state: 'completed' })
     expect((await POST(request('scope-confirmation'), ctx)).status).toBe(202)
@@ -657,49 +1076,34 @@ test('the publish gate follows Batch environment across legacy worker namespaces
   }
 })
 
-test('Owner can confirm a submitted draft while its review workflow is still running', async () => {
+test('a submitted legacy Batch with a waiting review workflow can no longer be confirmed', async () => {
   const deps = mocks.deps()
   const supersede = vi.fn(async () => undefined)
   deps.supersedeRun = supersede
-  await db.doc('reviewBatches/batch').set({
+  const submitted = {
     ...batch,
-    env,
-    state: 'submitted',
+    state: 'submitted' as const,
     approval: null,
     approvalRun: { runId: 'waiting-for-review', revision: batch.revision },
-  })
+  }
+  await db.doc('reviewBatches/batch').set({ ...submitted, env })
   await db
     .doc('reviewBatches/batch/edits/one')
     .set({ plateId: 'one', fields: { tags: ['confirmed draft'] } })
   mocks.status.mockResolvedValue('running')
 
   expect(await (await GET(request('preflight'), ctx)).json()).toMatchObject({
-    batchRevision: batch.revision,
-    canConfirmDraft: true,
-    confirmation: { revision: batch.revision },
+    canConfirmDraft: false,
   })
-  expect((await POST(request('confirm-submitted'), ctx)).status).toBe(202)
-  expect(supersede).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({
-      state: 'submitted',
-      approvalRun: { runId: 'waiting-for-review', revision: batch.revision },
-    })
-  )
+  const response = await POST(request('confirm-submitted'), ctx)
+  expect(response.status).toBe(410)
+  expect(await response.json()).toMatchObject({ error: 'batches_retired' })
+  expect(supersede).not.toHaveBeenCalled()
   expect(mocks.resumeHook).not.toHaveBeenCalled()
-  expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
-    expect.any(Function),
-    [
-      batch.id,
-      batch.revision + 1,
-      expect.objectContaining({ confirmedDraftRevision: batch.revision }),
-    ],
-    expect.any(Object)
-  )
+  expect(mocks.start).not.toHaveBeenCalled()
   expect(await deps.store.getBatch(batch.id)).toMatchObject({
-    state: 'approved',
-    revision: batch.revision + 1,
-    approval: { revision: batch.revision, by: owner.uid },
-    approvalRun: { runId: 'fresh-run', revision: batch.revision },
+    state: 'submitted',
+    revision: batch.revision,
   })
   expect((await deps.pointer.read()).version).toBe(1)
 })

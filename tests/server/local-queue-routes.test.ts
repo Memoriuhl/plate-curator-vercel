@@ -3,12 +3,17 @@ import { createEnhanceImageRunner } from '../../worker/enhance-image'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
+import { sharedDraftId } from '../../lib/review/draft-id'
+import { ensureDraft } from '../../lib/review/draft'
+import { reorderState } from '../../lib/review/batch'
+import { draftPublishSummary } from '../../lib/review/publish-view'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import {
   dispatchQueueStage,
   observeQueueStage,
 } from '../../lib/jobs/queue-engine'
 import { claimNext, getJob, reportResult } from '../../lib/jobs/jobs'
+import { enqueueRun } from '../../lib/jobs/queue'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { GET, POST } from '../../app/api/local-pipeline/runs/route'
 import { POST as createSelection } from '../../app/api/local-pipeline/runs/selection/route'
@@ -26,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   resume: vi.fn(),
   workflow: vi.fn(),
+  review: vi.fn(),
 }))
 vi.mock('../../lib/server/context', () => ({
   currentActor: mocks.auth,
@@ -33,7 +39,9 @@ vi.mock('../../lib/server/context', () => ({
   /** Authenticate a fixture worker for the queue report endpoints. */ currentWorker:
     async () => ({ ok: true, workerId: 'worker' }),
   /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps:
-    () => ({}),
+    () => mocks.review(),
+  /** Scope the shared draft to the fixture environment. */ reviewEnv: () =>
+    'route-test',
   /** Provide the catalog source needed to validate a queue selection. */ catalog:
     () => ({
       /** Return the fixed baseline version for the fixture's local queue requests. */ readSnapshot:
@@ -78,6 +86,7 @@ beforeEach(() => {
   const review = createMemoryStore([
     {
       id: 'batch',
+      kind: 'shared-draft',
       name: 'Queue',
       createdBy: actor.uid,
       createdAt: '',
@@ -88,6 +97,14 @@ beforeEach(() => {
       approval: null,
     },
   ])
+  mocks.review.mockReturnValue({
+    store: review,
+    baseline: async () => plate,
+    baselineAtVersion: async () => plate,
+    stateBaseline: async () => [plate],
+    now: () => '2026-11-18T12:00:00.000Z',
+    liveVersion: async () => 1,
+  })
   deps = {
     store: createMemoryJobsStore(review, localJobsEnvironment('route-test')),
     localScope: 'route-test',
@@ -193,8 +210,27 @@ test('authentication and other-owner visibility/mutations reject without exposin
   })
   expect((await POST(post())).status).toBe(401)
   expect(mocks.jobs).not.toHaveBeenCalled()
-  await POST(post())
-  const [run] = await deps.store.transaction((tx) => tx.runs())
+  // A run from before the cutover, on the creator's own Batch.
+  await mocks.review().store.create({
+    id: 'legacy',
+    name: 'Old Batch',
+    createdBy: actor.uid,
+    createdByName: null,
+    createdAt: '',
+    revision: 0,
+    state: 'open',
+    baselineVersion: 1,
+    plateIds: ['AK.one'],
+    stateOrders: {},
+    approval: null,
+  })
+  const created = await enqueueRun(deps, actor, {
+    ...body,
+    batchId: 'legacy',
+    stages: ['tag'],
+  })
+  if (!created.ok) throw new Error(created.error)
+  const run = created.value
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
   expect(await (await GET(get())).json()).toMatchObject({
     runs: [],
@@ -212,6 +248,46 @@ test('authentication and other-owner visibility/mutations reject without exposin
   expect(
     await claimNext({ ...deps, localScope: undefined }, 'production')
   ).toBeNull()
+})
+
+test('a run enqueued on an old Batch answers 409 and queues nothing', async () => {
+  await mocks.review().store.create({
+    id: 'legacy',
+    name: 'Old Batch',
+    createdBy: actor.uid,
+    createdByName: null,
+    createdAt: '',
+    revision: 0,
+    state: 'open',
+    baselineVersion: 1,
+    plateIds: ['AK.one'],
+    stateOrders: {},
+    approval: null,
+  })
+  const single = await POST(
+    new Request(get().url, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'legacy' }),
+    })
+  )
+  expect(single.status).toBe(409)
+  expect(await single.json()).toMatchObject({ error: 'history_read_only' })
+  const selection = await createSelection(
+    new Request(`${get().url}/selection`, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'legacy' }),
+    })
+  )
+  expect(selection.status).toBe(409)
+  const missing = await POST(
+    new Request(get().url, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, batchId: 'missing' }),
+    })
+  )
+  expect(missing.status).toBe(404)
+  expect(await deps.store.transaction((tx) => tx.runs())).toEqual([])
+  expect(mocks.start).not.toHaveBeenCalled()
 })
 
 test('detail only reads one authorized run and its saved jobs without scanning the queue', async () => {
@@ -272,7 +348,7 @@ test('GET records an actual exhausted Workflow failure as retryable failure when
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })
 
-test('a named selection creates and starts one new draft instead of using the existing Batch', async () => {
+test('a named selection from an older client lands in the shared draft instead of a new Batch', async () => {
   /** Build the POST request the route fixture passes to its handler. */
   const request = () =>
     new Request('https://example.org/api/local-pipeline/runs/selection', {
@@ -287,19 +363,32 @@ test('a named selection creates and starts one new draft instead of using the ex
   const initial = await createSelection(request())
   expect(initial.status).toBe(202)
   const value = await initial.json()
-  expect(value.batchId).not.toBe('batch')
+  expect(value.batchId).toBe(sharedDraftId('route-test'))
   expect(value).toMatchObject({
     run: { incrementalDrafts: true, batchId: value.batchId },
     runIds: [value.run.id],
   })
   expect(
     await deps.store.transaction((tx) => tx.batch(value.batchId))
-  ).toMatchObject({ name: 'New Alaska draft', plateIds: body.plateIds })
+  ).toMatchObject({ kind: 'shared-draft', state: 'open', baselineVersion: 1 })
   expect(await (await createSelection(request())).json()).toMatchObject({
     batchId: value.batchId,
     runIds: value.runIds,
   })
   expect(mocks.start).toHaveBeenCalledTimes(1)
+})
+
+test('a run started against the draft alias writes into the shared draft', async () => {
+  const response = await POST(
+    new Request('https://example.org/api/local-pipeline/runs', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, requestId: 'alias', batchId: 'draft' }),
+    })
+  )
+  expect(response.status).toBe(202)
+  expect((await response.json()).run).toMatchObject({
+    batchId: sharedDraftId('route-test'),
+  })
 })
 
 test('enhancement options reach the capable worker and the completed WebP is private to the run', async () => {
@@ -412,4 +501,114 @@ test('enhancement options reach the capable worker and the completed WebP is pri
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
   expect(await (await latest()).json()).toEqual({ result: null })
   expect((await getEnhancedImage(get(), route)).status).toBe(404)
+})
+
+test('reordering Alaska, then a pipeline run on Alabama, keeps the Alaska order and Publish shows both states', async () => {
+  const plates = [
+    {
+      id: 'AK.one',
+      state: 'AK',
+      slug: 'one',
+      displayName: 'One',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AK.two',
+      state: 'AK',
+      slug: 'two',
+      displayName: 'Two',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AK.three',
+      state: 'AK',
+      slug: 'three',
+      displayName: 'Three',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AL.one',
+      state: 'AL',
+      slug: 'al',
+      displayName: 'Al',
+      image: '',
+      tags: [],
+    },
+  ]
+  const find = async (id: string) =>
+    plates.find((plate) => plate.id === id) ?? null
+  const review = createMemoryStore([])
+  const reviewDeps = {
+    store: review,
+    baseline: find,
+    baselineAtVersion: async (_version: number, id: string) => find(id),
+    stateBaseline: async (_version: number, state: string) =>
+      plates.filter((plate) => plate.state === state),
+    now: () => '2026-11-18T12:00:00.000Z',
+    liveVersion: async () => 1,
+  }
+  mocks.review.mockReturnValue(reviewDeps)
+  deps.store = createMemoryJobsStore(review, localJobsEnvironment('route-test'))
+  deps.baseline = find
+  const draftId = sharedDraftId('route-test')
+  const draft = await ensureDraft(reviewDeps, 'route-test', actor)
+  expect(
+    await reorderState(reviewDeps, actor, {
+      batchId: draftId,
+      state: 'AK',
+      batchRevision: draft.revision,
+      order: ['AK.one', 'AK.three', 'AK.two'],
+    })
+  ).toMatchObject({ ok: true })
+
+  const started = await POST(
+    new Request('https://example.org/api/local-pipeline/runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: 'alabama',
+        batchId: 'draft',
+        plateIds: ['AL.one'],
+        stages: ['tag'],
+      }),
+    })
+  )
+  expect(started.status).toBe(202)
+  const { run } = await started.json()
+  await dispatchQueueStage(deps, run.id, 1, 0, 'alabama-stage')
+  const claimed = await (
+    await claim(
+      new Request('https://example.org/api/worker/claim', { method: 'POST' })
+    )
+  ).json()
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  // The run's Workflow settles the completed stage, which writes the result.
+  expect(await observeQueueStage(deps, run.id, 1, 0)).toMatchObject({
+    phase: 'done',
+  })
+
+  // Reload: a fresh read of the draft keeps the Alaska order and has the Alabama result.
+  const reloaded = (await review.readBatch(draftId))!
+  expect(reloaded.batch.stateOrders).toEqual({
+    AK: ['AK.one', 'AK.three', 'AK.two'],
+  })
+  expect(
+    reloaded.edits.find((edit) => edit.plateId === 'AL.one')?.fields.tags
+  ).toEqual(['blue'])
+  expect(
+    draftPublishSummary(reloaded, await review.listChanges!(draftId, 0)).map(
+      ({ state, plates, moved }) => ({ state, plates, moved })
+    )
+  ).toEqual([
+    { state: 'AK', plates: 0, moved: 1 },
+    { state: 'AL', plates: 1, moved: 0 },
+  ])
 })

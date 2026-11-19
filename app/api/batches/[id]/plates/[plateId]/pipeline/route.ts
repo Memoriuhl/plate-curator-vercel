@@ -1,3 +1,4 @@
+import { draftWriteTarget } from '../../../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { validateTagging } from '@/lib/review/tagging'
 import { chooseModel, currentActor, reviewDeps } from '@/lib/server/context'
@@ -39,7 +40,11 @@ export async function POST(
     return choice.error === 'bad_request'
       ? badRequest()
       : respond({ ok: false, error: 'invalid_state' })
-  const { id, plateId } = await ctx.params
+  const params = await ctx.params
+  const plateId = params.plateId
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const validation = await validateTagging(
     reviewDeps(),
     auth.actor,

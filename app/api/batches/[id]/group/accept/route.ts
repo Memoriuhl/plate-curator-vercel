@@ -1,3 +1,4 @@
+import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
 import { acceptGroup } from '@/lib/review/group'
 import { currentActor, jobsDeps, reviewDeps } from '@/lib/server/context'
 import { catalogChanged } from '@/lib/server/catalog-head'
@@ -24,7 +25,9 @@ export async function POST(
     !Number.isSafeInteger(body.batchRevision)
   )
     return badRequest()
-  const { id } = await ctx.params
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const saved = await acceptGroup(reviewDeps(), jobsDeps(), auth.actor, {
     batchId: id,
     jobId: body.jobId,

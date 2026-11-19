@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { canEdit } from '../review/batch'
+import { batchPlateLimit } from '../review/fields'
 import type { Actor, ReviewBatch } from '../review/types'
 import { localJobsEnvironment } from './local-scope'
 import { isPipelineStage } from './suggestions'
@@ -465,9 +466,11 @@ async function enqueueRuns(
         : { ok: false, error: 'request_mismatch' }
     if ((await tx.canQueue?.()) === false)
       return { ok: false, error: 'publish_in_progress' }
+    // The shared draft tracks every changed plate until it is published, so it gets the
+    // draft-wide cap; a single selection is still capped when the request is parsed.
     if (
       new Set([...batch.plateIds, ...parsed.plateIds]).size >
-      pipelineSelectionLimit
+      Math.max(pipelineSelectionLimit, batchPlateLimit(batch))
     )
       return { ok: false, error: 'invalid_state' }
 

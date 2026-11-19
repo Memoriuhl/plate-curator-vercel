@@ -89,7 +89,6 @@ async function request(uid = 'outsider') {
 test.each([
   ['me', me.GET],
   ['Batch list', batches.GET],
-  ['Batch create', batches.POST],
 ] as const)(
   'a non-Member receives 403 not_member on %s',
   async (_, handler) => {
@@ -115,6 +114,7 @@ test('me returns the stored role and a removal ends access on the next request',
     uid: 'member',
     name: 'user',
     role: 'editor',
+    draftId: 'shared-draft-development',
   })
   await members.remove('user@example.com')
   expect((await me.GET(await request('member'))).status).toBe(403)

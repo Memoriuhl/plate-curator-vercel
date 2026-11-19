@@ -2,7 +2,6 @@ import type { HostedModelBinding } from '../models/selection'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
-import { resumeHook } from 'workflow/api'
 import { workflowPublishRunLookup } from './publish-runs'
 import { verifyPreparedObject } from '../publish/object'
 import { authenticate, parseOwnerUids } from '../auth/actor'
@@ -36,6 +35,7 @@ import {
   firestorePublishRecords,
 } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
+import { releaseActivityFor } from '../publish/release-activity'
 import type { PublishDeps, RequesterAuthority } from '../publish/types'
 import {
   expoPushSender,
@@ -48,6 +48,7 @@ import { loadSnapshot } from '../gcp/storage'
 import type { LiveAccessDeps } from '../live/access'
 import { firestoreLiveAccessWriter } from '../live/firestore-access'
 import { firestoreReviewStore } from '../review/firestore-store'
+import { firestoreVersionOrigin } from '../review/firestore-version-origin'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
 import { cachedJurisdiction } from './snapshot-cache'
@@ -219,25 +220,21 @@ export function reviewDeps(): ReviewDeps {
           : await source.readCuratorState()
       )
     },
-    /**
-     * Wake an approval workflow when a newer batch revision displaces its saved input.
-     */
-    async supersedeRun(batch) {
-      const revision =
-        batch.approvalRun?.revision ??
-        (batch.state === 'submitted'
-          ? batch.revision
-          : batch.approval?.revision)
-      if (revision === undefined) return
-      await Promise.all([
-        resumeHook(`approval:${batch.id}:${revision}`, {
-          superseded: true,
-        }).catch(() => undefined),
-        resumeHook(`publish:${batch.id}:${revision + 1}`, {
-          superseded: true,
-        }).catch(() => undefined),
-      ])
-    },
+    /** Read the live catalog version the shared draft starts from and rebases onto. */
+    liveVersion: () => catalog().readVersion(),
+    /** Read the committed publish receipt that moved the pointer to a version. */
+    versionOrigin: firestoreVersionOrigin(stagingFirestore()),
+    /** Classify a draft release the way the Publish view does. */
+    releaseActivity: (release) =>
+      releaseActivityFor(
+        firestorePublishRecords(
+          stagingFirestore(),
+          reviewEnv(),
+          workflowPublishRunLookup()
+        ),
+        publishControl(),
+        () => new Date().toISOString()
+      )(release),
     /** Return the ISO timestamp used to record review changes. */
     now: () => new Date().toISOString(),
   }

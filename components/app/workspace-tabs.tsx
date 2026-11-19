@@ -1,10 +1,10 @@
 'use client'
 
-import { useBatches, useMe } from '@/lib/client/hooks'
+import { useMe } from '@/lib/client/hooks'
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { mostRecentBatch } from '@/lib/review/batch-selection'
+import { isSharedDraftId } from '@/lib/review/draft-id'
 import { batchHref } from '@/lib/review/href'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 
@@ -28,24 +28,8 @@ function CurrentTabs() {
     : pathname.startsWith('/review')
       ? '/review'
       : '/'
-  const personalDashboard =
-    owner &&
-    batch === null &&
-    (pathname.startsWith('/states/') || pathname.startsWith('/plates/'))
-  const personal = useBatches(['open'], {
-    mine: true,
-    enabled: personalDashboard,
-  })
-  const currentBatch =
-    batch ??
-    (personalDashboard ? (mostRecentBatch(personal.data)?.id ?? null) : null)
-  return (
-    <TabsView
-      batch={currentBatch}
-      owner={owner && !(personalDashboard && personal.isLoading)}
-      active={active}
-    />
-  )
+  // Without `?batch=` every tab shows the shared draft; Publish opens on it by default.
+  return <TabsView batch={batch} owner={owner} active={active} />
 }
 
 /** Render the navigation links and selected state for the available workspace tabs. */
@@ -64,7 +48,11 @@ function TabsView({
         <TabsList aria-label="Workspace">
           <TabsTrigger value="/" asChild>
             <Link
-              href={batchHref('/', batch)}
+              // The Dashboard shows only the shared draft; history opens in Review.
+              href={batchHref(
+                '/',
+                batch && isSharedDraftId(batch) ? batch : null
+              )}
               aria-current={active === '/' ? 'page' : undefined}
             >
               Dashboard

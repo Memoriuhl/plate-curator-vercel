@@ -11,7 +11,6 @@ export default defineConfig({
           include: [
             'tests/client/pipeline-queue.test.tsx',
             'tests/research/ui.test.tsx',
-            'tests/client/copy-recovery.test.tsx',
             'tests/standard-confirmation.test.tsx',
             'tests/publish-control-ui.test.tsx',
             'tests/shared-batch-live.test.tsx',
@@ -39,7 +38,6 @@ export default defineConfig({
             ...configDefaults.exclude,
             'tests/client/pipeline-queue.test.tsx',
             'tests/research/ui.test.tsx',
-            'tests/client/copy-recovery.test.tsx',
             'tests/standard-confirmation.test.tsx',
             'tests/publish-control-ui.test.tsx',
             'tests/shared-batch-live.test.tsx',

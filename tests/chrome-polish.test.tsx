@@ -28,12 +28,14 @@ test('only an Owner with a selected Batch sees the contextual Publish action', (
   expect(renderToStaticMarkup(<PublishButton owner />)).toBe('')
 })
 
-test('Review opens all changes while Dashboard and Publish carry the selected Batch', () => {
+test('Review opens all changes, Publish carries the selected Batch and the Dashboard only the shared draft', () => {
   const html = renderToStaticMarkup(<WorkspaceTabs />)
   expect(html).not.toContain('Strip Art')
   expect(html).toContain('href="/review"')
-  for (const path of ['/', '/publish'])
-    expect(html).toContain(`href="${path}?batch=batch%20%2FB"`)
+  expect(html).toContain('href="/publish?batch=batch%20%2FB"')
+  // An old Batch is history, which the Dashboard no longer shows.
+  expect(html).toContain('href="/"')
+  expect(html).not.toContain('href="/?batch=')
 })
 
 test('all button variants and sizes share flex alignment and fixed icon sizes', () => {
