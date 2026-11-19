@@ -48,8 +48,12 @@ export async function standardEdits(
     ...plate,
     ...changes.get(plate.id),
   }))
-  const first = effective.find((plate) => plate.id === order[0])
-  if (!first || first.deleted || familyRole(first) !== 'template')
+  const firstId = order[0]
+  const first = effective.find((plate) => plate.id === firstId)
+  if (
+    !options?.preserveStandard &&
+    (!first || first.deleted || familyRole(first) !== 'template')
+  )
     return { ok: false, error: 'standard_invalid_template' }
   const standards = before.filter((plate) => plate.isStandard && !plate.deleted)
   const confirmedFrom = standards.length
@@ -57,8 +61,8 @@ export async function standardEdits(
     : acknowledgement?.from === null
   if (
     !options?.preserveStandard &&
-    (standards.length !== 1 || standards[0].id !== first.id) &&
-    (!confirmedFrom || acknowledgement?.to !== first.id)
+    (options || standards.length !== 1 || standards[0].id !== firstId) &&
+    (!confirmedFrom || acknowledgement?.to !== firstId)
   ) {
     return { ok: false, error: 'standard_change_unconfirmed' }
   }
@@ -70,7 +74,7 @@ export async function standardEdits(
     const current = effective[index]
     if (!current.deleted && base.deleted === undefined) delete current.deleted
     if (!options?.preserveStandard) {
-      if (current.id === first.id) current.isStandard = true
+      if (current.id === firstId) current.isStandard = true
       else if (current.isStandard) current.isStandard = false
     }
     if (
@@ -121,17 +125,20 @@ export function standardOrderProblems(
     ...plates
       .filter((plate) => {
         const edit = fields.get(plate.id)
-        return edit &&
+        return (
+          edit &&
           (Object.hasOwn(edit, 'isStandard') ||
             (plate.isStandard &&
               (Object.hasOwn(edit, 'templateRole') || edit.deleted)))
+        )
       })
       .map((plate) => plate.state),
   ])
   return [...checkedStates].flatMap((state) => {
     const before = byState.get(state) ?? []
     const after = before.map((plate) => ({ ...plate, ...fields.get(plate.id) }))
-    const firstBefore = baselineOrders[state]?.[0] ??
+    const firstBefore =
+      baselineOrders[state]?.[0] ??
       orderedStatePlates({ version: 0, plates: before }, state, {
         stateOrder: {},
         stateProgress: {},

@@ -169,16 +169,24 @@ export function validateSnapshot(
       reasons.push(`Family must retain exactly one template: ${family}`)
   }
   const baselineByState = Map.groupBy(baseline.plates, (plate) => plate.state)
-  for (const state of new Set([...Object.keys(stateOrders), ...baselineByState.keys(), ...platesByState.keys()])) {
+  for (const state of new Set([
+    ...Object.keys(stateOrders),
+    ...baselineByState.keys(),
+    ...platesByState.keys(),
+  ])) {
     const before = baselineByState.get(state) ?? []
     const after = platesByState.get(state) ?? []
     const flagsPreserved = preservesStandardFlags(before, after)
-    if (!flagsPreserved && after.filter((plate) => plate.isStandard).length > 1) {
+    if (
+      !flagsPreserved &&
+      after.filter((plate) => plate.isStandard === true && !plate.deleted).length > 1
+    ) {
       reasons.push(`Multiple standard plates in state: ${state}`)
       if (!stateOrders[state]) continue
     }
     if (!stateOrders[state] && flagsPreserved) continue
-    const firstBefore = baselineOrders[state]?.[0] ??
+    const firstBefore =
+      baselineOrders[state]?.[0] ??
       orderedStatePlates({ ...baseline, plates: before }, state, {
         stateOrder: {},
         stateProgress: {},

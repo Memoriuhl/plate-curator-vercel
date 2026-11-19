@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { plateSelection } from '../components/dashboard/plate-selection'
@@ -18,6 +24,7 @@ vi.mock('../lib/client/hooks', () => ({
   useDraftOverlay: data.overlay,
   /** Supply the selected batch and its editability for this workspace scenario. */
   useWorkspaceBatch: () => ({ mode: 'personal' }),
+  useSelectedBatchId: () => null,
   /** Provide the batch list for the current workspace scenario. */
   useBatches: () => ({ data: [] }),
   /** Supply the current fixture actor for role and account-dependent behavior. */
@@ -50,7 +57,7 @@ vi.mock('next/navigation', () => ({
   /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
   /** Capture or stub navigation so the test can drive routing without Next.js. */
-  useRouter: () => ({ replace: data.replace }),
+  useRouter: () => ({ replace: data.replace, prefetch: vi.fn() }),
 }))
 vi.mock('../components/dashboard/use-drag-flip', () => ({
   useDragFlip: vi.fn(),
@@ -60,9 +67,10 @@ vi.mock('../components/dashboard/use-grid-entrance', () => ({
 }))
 vi.mock('@tanstack/react-virtual', () => ({
   /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer:
-    () => ({
+    ({ count }: { count: number }) => ({
       /** Expose the deterministic virtual rows used by the test layout. */
-      getVirtualItems: () => [{ key: 0, index: 0, start: 0 }],
+      getVirtualItems: () =>
+        Array.from({ length: count }, (_, index) => ({ key: index, index, start: index * 250 })),
       /** Report the virtual list size expected by the layout fixture. */ getTotalSize:
         () => 0,
       measureElement: vi.fn(),
@@ -101,13 +109,13 @@ test('a saved drop keeps a newly unmatched plate dimmed until the filter changes
   data.query = 'show=noFamily'
   let overlaid = [first, orphan]
   data.overlay.mockImplementation(() => overlaid)
-  const grid = (
+  const grid = () => (
     <TooltipProvider>
       <FamilyGrid code="AK" plates={plates} />
     </TooltipProvider>
   )
-  const view = render(grid)
-  const renderGrid = () => view.rerender({ ...grid })
+  const view = render(grid())
+  const renderGrid = () => view.rerender(grid())
   const save = async () => {
     overlaid = [first, { ...orphan, templateRole: 'template' as const }]
     renderGrid()

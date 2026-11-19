@@ -26,8 +26,9 @@ export function createPlateSelection() {
   const listeners = new Set<() => void>()
   const notify = () => listeners.forEach((listener) => listener())
   const countHidden = () =>
-    selected.filter((plate) => loadedIds.has(plate.id) && !visibleIds.has(plate.id))
-      .length
+    selected.filter(
+      (plate) => loadedIds.has(plate.id) && !visibleIds.has(plate.id)
+    ).length
   /** Normalize the next selection, update its ID index and notify subscribers. */
   const publish = (next: readonly PlateCardData[]) => {
     selected = next.filter((plate) => !plate.deleted)

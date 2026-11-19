@@ -487,10 +487,9 @@ export async function reviewApprovalProblems(
   )
   return standardOrderProblems(states.flat(), edits, batch.stateOrders, {
     ...Object.fromEntries(
-      states.filter((plates) => plates.length).map((plates) => [
-        plates[0].state,
-        plates.map((plate) => plate.id),
-      ])
+      states
+        .filter((plates) => plates.length)
+        .map((plates) => [plates[0].state, plates.map((plate) => plate.id)])
     ),
     ...batch.baselineOrders,
   })

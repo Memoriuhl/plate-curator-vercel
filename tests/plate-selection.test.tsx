@@ -442,7 +442,12 @@ it('filter changes retain the selection and only count hidden plates in the curr
   store.register(plates)
   store.add([...plates, { ...plates[0], id: 'NJ.a', state: 'NJ' }])
   store.visible([plates[0], plates[2]])
-  expect(store.snapshot().map((plate) => plate.id)).toEqual(['a', 'b', 'c', 'NJ.a'])
+  expect(store.snapshot().map((plate) => plate.id)).toEqual([
+    'a',
+    'b',
+    'c',
+    'NJ.a',
+  ])
   expect(store.hiddenCount()).toBe(1)
   store.visible([])
   expect(store.hiddenCount()).toBe(3)

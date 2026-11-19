@@ -1330,20 +1330,20 @@ export function useReorderState() {
     state: string,
     moves: StateMove[],
     origin: MoveOrigin,
-    standard?: StandardChange
+    standard?: StandardChange,
+    expectedPromotions = moves.flatMap(({ plateIds }) => plateIds)
   ): Promise<EditResult> {
     setPendingCount((count) => count + 1)
     try {
       const saved = await save(state, moves, standard, undefined, origin)
       if (!saved.ok) return saved
-      const ids = moves.flatMap(({ plateIds }) => plateIds)
       const entries = new Map(
         saved.detail.plates.map((entry) => [entry.proposed.id, entry])
       )
-      const plate = entries.get(ids[0])
+      const plate = entries.get(expectedPromotions[0])
       if (
         !plate ||
-        ids.some((id) => {
+        expectedPromotions.some((id) => {
           const proposed = entries.get(id)?.proposed
           return (
             proposed?.templateRole !== 'template' ||

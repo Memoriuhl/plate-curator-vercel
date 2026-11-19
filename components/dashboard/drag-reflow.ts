@@ -43,8 +43,8 @@ export function reflowForDrop(
     const byId = new Map(source.variants.map((plate) => [plate.id, plate]))
     const ids = [...byId.keys()]
     const plateIds = ids.filter((id) => selected.has(id))
-    const variants = moveBlock(ids, plateIds, target.index).map(
-      (id) => byId.get(id)!
+    const variants = moveBlock(ids, plateIds, target.index).map((id) =>
+      byId.get(id)!
     )
     const preview = families.map((family) =>
       family === source ? { ...family, variants } : family
@@ -63,7 +63,9 @@ export function reflowForDrop(
   const promoted: PlateCardData[] = []
   let insertion = 0
   for (const [index, { template, variants }] of families.entries()) {
-    const kept = variants.filter(({ id, deleted }) => deleted || !selected.has(id))
+    const kept = variants.filter(
+      ({ id, deleted }) => deleted || !selected.has(id)
+    )
     const family = { template, variants: kept }
     if (!template.deleted && selected.has(template.id)) {
       moving.push(family)
@@ -90,8 +92,6 @@ export function reflowForDrop(
     order: familyOrder(preview),
     plateIds: moving.map(({ template }) => template.id),
     promoted,
-    before: remaining[insertion]?.template,
-    after: remaining[insertion - 1]?.template,
     placeholder: {
       id: item.plate.id,
       kind: 'family' as const,

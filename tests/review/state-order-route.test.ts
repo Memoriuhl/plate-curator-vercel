@@ -5,6 +5,9 @@ import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { GET } from '../../app/api/batches/[id]/route'
 import { plateRevision } from '../../lib/review/revision'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
+import { POST as joinFamily } from '../../app/api/batches/[id]/family-merge/route'
+import { reviewApprovalProblems } from '../../lib/review/batch'
+import { validateSnapshot } from '../../lib/publish/validation'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 import type { Plate } from '../../lib/catalog/types'
@@ -105,6 +108,77 @@ function statePlates(state: string, ids: string[]): Plate[] {
   }))
 }
 
+test('a move below a legacy first plate saves without a Standard edit and remains publishable', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c']).map(
+    (plate, index) => ({
+      ...plate,
+      sortOrder: index,
+      isStandard: index === 1,
+    })
+  )
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  const response = await put({ moves: [before('AK.c', 'AK.b')] })
+  expect(response.status).toBe(200)
+  const saved = (await deps.store.getBatch(batch.id))!
+  expect(saved.stateOrders.AK).toEqual(['AK.a', 'AK.c', 'AK.b'])
+  expect(await deps.store.listEdits(batch.id)).toEqual([])
+  expect(await reviewApprovalProblems(deps, saved)).toEqual([])
+  expect(
+    validateSnapshot(
+      { version: 7, plates },
+      { version: 8, plates },
+      new Set(),
+      saved.stateOrders,
+      saved.baselineOrders
+    )
+  ).toEqual([])
+})
+
+test('the join endpoint refuses to demote a flagged Standard without confirmation and saves the whole selection after confirmation', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c', 'AK.d']).map(
+    (plate, index) => ({
+      ...plate,
+      templateFamily: plate.id,
+      isStandard: index === 1,
+    })
+  )
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  const join = (standard?: { from: string; to: string }) =>
+    joinFamily(
+      new Request('https://example.com/api/batches/batch/family-merge', {
+        method: 'POST',
+        body: JSON.stringify({
+          operationId: randomUUID(),
+          destinationId: 'AK.c',
+          plateIds: ['AK.b', 'AK.d'],
+          standard,
+        }),
+      }),
+      { params: Promise.resolve({ id: batch.id }) }
+    )
+  const unconfirmed = await join()
+  expect(unconfirmed.status).toBe(409)
+  expect(await unconfirmed.json()).toMatchObject({
+    error: 'standard_change_unconfirmed',
+  })
+  expect(await deps.store.listEdits(batch.id)).toEqual([])
+  const confirmed = await join({ from: 'AK.b', to: 'AK.a' })
+  expect(confirmed.status).toBe(200)
+  expect(await confirmed.json()).toMatchObject({
+    moved: ['AK.b', 'AK.d'],
+    standard: 0,
+  })
+  expect(await deps.store.getEdit(batch.id, 'AK.b')).toMatchObject({
+    fields: {
+      isStandard: false,
+      templateRole: 'variant',
+      variantOfPlateId: 'AK.c',
+    },
+  })
+})
+
 test('replays the original move receipt without overtaking an intervening placement', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   deps.stateBaseline = async () => statePlates('AK', ['a', 'b', 'c', 'd', 'e'])
@@ -126,7 +200,7 @@ test('replays the original move receipt without overtaking an intervening placem
   })
 })
 
-test('refuses zero or multiple Standards on an ordinary reorder until a repair is confirmed', async () => {
+test('an ordinary reorder preserves zero or multiple Standards until a repair is confirmed', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   for (const invalidCount of [0, 2]) {
     deps.store = createMemoryStore([batch])
@@ -136,8 +210,9 @@ test('refuses zero or multiple Standards on an ordinary reorder until a repair i
     }))
     deps.stateBaseline = async () => plates
     const moves = [before('c', 'b')]
-    expect((await put({ moves })).status).toBe(409)
-    expect((await deps.store.getBatch('batch'))?.revision).toBe(4)
+    expect((await put({ moves })).status).toBe(200)
+    expect((await deps.store.getBatch('batch'))?.revision).toBe(5)
+    expect(await deps.store.listEdits('batch')).toEqual([])
     expect(
       (
         await put({

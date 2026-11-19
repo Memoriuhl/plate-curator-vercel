@@ -2,13 +2,14 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 
 export type DragFamily = { template: PlateCardData; variants: PlateCardData[] }
 export type DragItem = { kind: 'family' | 'variant'; plate: PlateCardData }
+export type FamilySlot = {
+  kind: 'family-slot'
+  index: number
+  background?: true
+  anchor?: { kind: 'before' | 'after'; anchorId: string }
+}
 export type DropTarget =
-  | {
-      kind: 'family-slot'
-      index: number
-      background?: true
-      anchor?: { kind: 'before' | 'after'; anchorId: string }
-    }
+  | FamilySlot
   | { kind: 'variant-slot'; familyId: string; index: number }
   | { kind: 'merge'; familyId: string }
 export type TargetRect = {
@@ -126,16 +127,21 @@ export function scrollVelocity(y: number, height: number) {
 }
 
 /** Find the nearest family insertion slot when a drop must place a new family. */
-export function nearestFamilySlot(
+export function nearestFamilyTarget(
   x: number,
   y: number,
   targets: TargetRect[],
   familyCount: number
-) {
+): FamilySlot {
   const slots = targets.filter((entry) => entry.target.kind === 'family-slot')
+  const end: FamilySlot = {
+    kind: 'family-slot',
+    index: familyCount,
+    background: true,
+  }
   if (!slots.length || y > Math.max(...slots.map((entry) => entry.rect.bottom)))
-    return familyCount
-  let nearest = familyCount
+    return end
+  let nearest = end
   let distance = Infinity
   for (const { target, rect } of slots) {
     const dx = Math.max(rect.left - x, 0, x - rect.right)
@@ -143,7 +149,7 @@ export function nearestFamilySlot(
     const next = dx * dx + dy * dy
     if (next < distance && target.kind === 'family-slot') {
       distance = next
-      nearest = target.index
+      nearest = { ...target, background: true }
     }
   }
   return nearest

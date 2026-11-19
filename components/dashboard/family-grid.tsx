@@ -242,7 +242,6 @@ export function FamilyGrid({
     show,
     query,
     ordering,
-    orderBaseline: (state) => ordering.orderBaseline?.(state, plates),
     edits: {
       ...edits,
       edit: async (plate, fields, reviewed) => {
@@ -255,7 +254,6 @@ export function FamilyGrid({
     /** Freeze the projected grid while a drag or write is using its current geometry. */
     holdOverlay: (held) => setHeldOverlay(held ? overlaid : null),
     onDropSaved: (state: string) => {
-      if (show === 'all' && !query) return
       const before = overlaid
         .filter((plate) => plate.state === state && matchingIds.has(plate.id))
         .map((plate) => plate.id)
@@ -329,11 +327,7 @@ export function FamilyGrid({
   }
   // Reuse the optimistic grouping until the drag order, edits or overlay change.
   const families = useMemo(() => {
-    if (
-      !drag.optimisticOrder &&
-      !drag.optimisticEdit &&
-      !drag.optimisticEdits.size
-    )
+    if (!drag.optimisticOrder && !drag.optimisticEdits.size)
       return baselineFamilies
     const positions = new Map(
       drag.optimisticOrder?.map((id, index) => [id, index])
@@ -342,37 +336,25 @@ export function FamilyGrid({
       overlaid.map((plate) => ({
         ...plate,
         ...drag.optimisticEdits.get(plate.id),
-        ...(drag.optimisticEdit?.plateId === plate.id
-          ? drag.optimisticEdit.fields
-          : {}),
         sortOrder: positions.get(plate.id) ?? plate.sortOrder,
       }))
     )
-  }, [
-    baselineFamilies,
-    overlaid,
-    drag.optimisticOrder,
-    drag.optimisticEdit,
-    drag.optimisticEdits,
-  ])
+  }, [baselineFamilies, overlaid, drag.optimisticOrder, drag.optimisticEdits])
   const displayedFamilies = drag.reflow?.families ?? families
   const retained = dropVisibility?.key === filterKey ? dropVisibility : null
   const retainedBefore = new Set(retained?.before)
   // Compare with the saved overlay after the drag releases the previous layout.
-  useLayoutEffect(() => {
-    if (!dropVisibility) return
-    if (dropVisibility.key !== filterKey) {
-      setDropVisibility(null)
-    } else if (dropVisibility.before && !heldOverlay && !drag.saving) {
-      setDropVisibility({
-        key: filterKey,
-        dimmed: new Set([
-          ...dropVisibility.dimmed,
-          ...dropVisibility.before.filter((id) => !matchingIds.has(id)),
-        ]),
-      })
-    }
-  }, [dropVisibility, filterKey, heldOverlay, drag.saving, matchingIds])
+  if (dropVisibility && dropVisibility.key !== filterKey) {
+    setDropVisibility(null)
+  } else if (retained?.before && !heldOverlay && !drag.saving) {
+    setDropVisibility({
+      key: filterKey,
+      dimmed: new Set([
+        ...retained.dimmed,
+        ...retained.before.filter((id) => !matchingIds.has(id)),
+      ]),
+    })
+  }
   const visible = displayedFamilies
     .map((family, index) => ({ ...family, number: index + 1 }))
     .filter((family) =>

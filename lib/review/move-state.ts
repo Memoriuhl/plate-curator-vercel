@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
 import { familyRole, groupFamilies } from '../catalog/families'
 import { JURISDICTIONS } from '../catalog/jurisdictions'
-import { hasValidStandard } from '../publish/validation'
+import {
+  hasValidStandard,
+  preservesStandardPosition,
+} from '../catalog/standard-position'
 import { canEdit, editableStates } from './access'
 import { validRegroup } from './batch'
 import { orderOnto, resolveConflicts, sameList } from './draft'
@@ -23,7 +26,7 @@ type Input = {
   state: string
   moves: StateMove[]
   standard?: StandardChange
-  keepStandardOnJoin?: boolean
+  familyEndpoint?: true
 }
 
 type Plan = Parameters<ReviewStore['transactStateMove']>[3]
@@ -50,11 +53,17 @@ function loadMoveCatalog(
 
 /** Apply placements to the current draft in Firestore commit order. */
 export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
-  const { batchId, operationId, state, moves, standard, keepStandardOnJoin } =
-    input
+  const { batchId, operationId, state, moves, standard, familyEndpoint } = input
+  // Keep the fingerprint of requests that may already have a committed receipt.
   const fingerprint = createHash('sha256')
     .update(
-      JSON.stringify([actor.uid, state, moves, standard, keepStandardOnJoin])
+      JSON.stringify([
+        actor.uid,
+        state,
+        moves,
+        standard,
+        familyEndpoint ? !standard : undefined,
+      ])
     )
     .digest('hex')
   const prepared = new Map<number, ReturnType<typeof loadMoveCatalog>>()
@@ -78,7 +87,7 @@ export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
 async function planStateMove(
   d: ReviewDeps,
   actor: Actor,
-  { state, moves, standard, keepStandardOnJoin = false }: Input,
+  { state, moves, standard }: Input,
   detail: Parameters<Plan>[0],
   load: (version: number) => ReturnType<typeof loadMoveCatalog>
 ): ReturnType<Plan> {
@@ -101,6 +110,7 @@ async function planStateMove(
       { ...plate, ...editsById.get(plate.id) },
     ])
   )
+  const before = [...effective.values()]
   const changes = new Map<string, EditableFields>()
   const affectedFamilies = new Set<string | undefined>()
   const otherLabels = new Set<string>()
@@ -178,8 +188,8 @@ async function planStateMove(
         families,
         family!,
         plateIds,
-        order[0],
-        keepStandardOnJoin,
+        undefined,
+        false,
         family!.template.templateFamily || allocateLabel(family!.template.id)
       )
       for (const [id, fields] of plan.changes) changePlate(id, fields)
@@ -244,7 +254,20 @@ async function planStateMove(
         error: 'invalid_state',
         reasons: ['A moved plate cannot be its own destination.'],
       }
-    const block = order.filter((id) => moving.has(id))
+    let block = order.filter((id) => moving.has(id))
+    if (promote) {
+      // Explicitly promoted Variants get their own blocks. Retained Variants stay
+      // beside their selected Template, even when a former sibling preceded them.
+      block = groupFamilies(
+        block.map((id, sortOrder) => {
+          const plate = effective.get(id)!
+          return { ...plate, sortOrder, templateRole: familyRole(plate) }
+        })
+      ).flatMap(({ template, variants }) => [
+        template.id,
+        ...variants.map(({ id }) => id),
+      ])
+    }
     const remaining = order.filter((id) => !moving.has(id))
     const after = placement.kind === 'after' || placement.kind === 'join'
     const familyMembers = new Set([
@@ -279,9 +302,14 @@ async function planStateMove(
       error: 'invalid_state',
       reasons: ['The move would leave an inconsistent family or Variant link.'],
     }
-  const first = effective.get(order[0])
-  if (!first || first.deleted || familyRole(first) !== 'template')
-    return { ok: false, error: 'standard_invalid_template' }
+  const preserveStandard =
+    !standard &&
+    preservesStandardPosition(
+      before,
+      [...effective.values()],
+      previousOrder[0],
+      order[0]
+    )
   const orderChanged = !sameList(previousOrder, order)
   const combined = await standardEdits(
     d,
@@ -293,7 +321,7 @@ async function planStateMove(
     standard,
     {
       existingEdits: edits,
-      preserveStandard: false,
+      preserveStandard,
     }
   )
   if (!combined.ok) return combined
@@ -302,6 +330,7 @@ async function planStateMove(
   )
   const removed = new Set(combined.value.deleteEditsFor)
   if (
+    !preserveStandard &&
     !hasValidStandard(
       baseline.map((plate) => ({
         ...plate,
