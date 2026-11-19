@@ -1,0 +1,75 @@
+{
+  "label": "before",
+  "scenario": "run",
+  "measuredAt": "2026-11-19T00:34:39.538Z",
+  "observedMinutes": 10.1,
+  "jobsReported": 58,
+  "routes": {
+    "GET /api/local-pipeline/runs": {
+      "observed": 225,
+      "perHour": 1343
+    },
+    "GET /api/jobs/runs": {
+      "observed": 195,
+      "perHour": 1164
+    },
+    "POST /api/worker/claim": {
+      "observed": 129,
+      "perHour": 770
+    },
+    "POST /.well-known/workflow/v1/flow": {
+      "observed": 124,
+      "perHour": 740
+    },
+    "POST /api/worker/jobs/[id]/report": {
+      "observed": 58,
+      "perHour": 346
+    },
+    "POST /api/local-pipeline/runs/selection": {
+      "observed": 1,
+      "perHour": 6
+    }
+  },
+  "browserRequests": {
+    "GET /api/local-pipeline/runs": {
+      "observed": 224,
+      "perHour": 1337
+    },
+    "GET /api/jobs/runs": {
+      "observed": 194,
+      "perHour": 1158
+    }
+  },
+  "firestore": {
+    "documentReads": {
+      "localPipelineCapabilities": 354,
+      "workerTokens": 187,
+      "reviewBatches": 439,
+      "locks": 1,
+      "localPipelineRuns": 926,
+      "jobs": 18345,
+      "reviewBatches/*/edits": 58
+    },
+    "queries": {
+      "localPipelineRuns": 335,
+      "jobs": 970
+    },
+    "writes": {
+      "localPipelineCapabilities": 74,
+      "reviewBatches": 59,
+      "curatorLive/*/batchRevisions": 59,
+      "localPipelineRuns": 240,
+      "jobs": 176,
+      "reviewBatches/*/draftChanges": 58,
+      "reviewBatches/*/edits": 58
+    }
+  },
+  "client": null,
+  "totals": {
+    "requestsPerHour": 4370,
+    "browserRequestsPerHour": 2495,
+    "documentReadsPerHour": 121253,
+    "queriesPerHour": 7791,
+    "writesPerHour": 4322
+  }
+}
