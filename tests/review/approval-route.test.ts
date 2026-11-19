@@ -5,6 +5,7 @@ import {
 } from '../../app/api/batches/[id]/publish/route'
 import { GET } from '../../app/api/batches/[id]/run/route'
 import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
+import { POST as keepDraftValues } from '../../app/api/batches/[id]/conflicts/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { sharedDraftId } from '../../lib/review/draft-id'
 import { reviewEnv } from '../../lib/server/context'
@@ -728,6 +729,57 @@ test('publishing revision N ships N and leaves later edits in the draft', async 
   expect(
     draft.edits.map((edit: { plateId: string }) => edit.plateId).sort()
   ).toEqual(['AK.one', 'AL.one'])
+})
+
+test('conflicts from an outside catalog change block Publish until the Owner keeps the draft values', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  const store = mocks.reviewDeps().store
+  const id = sharedDraftId(reviewEnv())
+  const head = (await store.getBatch(id))!
+  const conflicts = [
+    {
+      kind: 'field' as const,
+      plateId: 'AK.one',
+      field: 'tags',
+      fromVersion: 6,
+      toVersion: 7,
+    },
+  ]
+  expect(
+    await store.commit(id, head.revision, {
+      batch: { ...head, revision: head.revision + 1, conflicts },
+      history: false,
+    })
+  ).toBe('ok')
+  expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
+    { draftRevision: 2, conflicts, canPublish: false }
+  )
+  const refused = await publish(
+    request({ revision: 2, commandId: 'over-conflicts' }),
+    draftCtx
+  )
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toMatchObject({ error: 'draft_conflicts' })
+  expect(mocks.start).not.toHaveBeenCalled()
+
+  mocks.currentActiveOwner.mockResolvedValueOnce({
+    ok: false,
+    response: Response.json({ error: 'forbidden' }, { status: 403 }),
+  })
+  expect((await keepDraftValues(request({ revision: 2 }), draftCtx)).status).toBe(
+    403
+  )
+  // The Owner keeps the values only for the revision they were shown.
+  expect((await keepDraftValues(request({ revision: 1 }), draftCtx)).status).toBe(
+    409
+  )
+  expect((await keepDraftValues(request({ revision: 2 }), draftCtx)).status).toBe(
+    200
+  )
+  expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
+    { draftRevision: 3, conflicts: [], canPublish: true }
+  )
 })
 
 test('a retried Publish click resumes the same release; another requester or revision cannot take it', async () => {

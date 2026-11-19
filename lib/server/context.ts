@@ -47,6 +47,7 @@ import { loadSnapshot } from '../gcp/storage'
 import type { LiveAccessDeps } from '../live/access'
 import { firestoreLiveAccessWriter } from '../live/firestore-access'
 import { firestoreReviewStore } from '../review/firestore-store'
+import { firestoreVersionOrigin } from '../review/firestore-version-origin'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
 import { cachedJurisdiction } from './snapshot-cache'
@@ -220,6 +221,8 @@ export function reviewDeps(): ReviewDeps {
     },
     /** Read the live catalog version the shared draft starts from and rebases onto. */
     liveVersion: () => catalog().readVersion(),
+    /** Read the committed publish receipt that moved the pointer to a version. */
+    versionOrigin: firestoreVersionOrigin(stagingFirestore()),
     /** Return the ISO timestamp used to record review changes. */
     now: () => new Date().toISOString(),
   }

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   view: undefined as DraftPublishView | undefined,
   error: undefined as Error | undefined,
   publish: vi.fn(),
+  keepDraftValues: vi.fn(),
   mutate: vi.fn(),
 }))
 vi.mock('../../lib/client/hooks', () => ({
@@ -28,7 +29,10 @@ vi.mock('../../lib/client/hooks', () => ({
     mutate: mocks.mutate,
   }),
   /** Record Publish requests so tests can check the confirmed revision. */
-  useReviewActions: () => ({ publish: mocks.publish }),
+  useReviewActions: () => ({
+    publish: mocks.publish,
+    keepDraftValues: mocks.keepDraftValues,
+  }),
 }))
 vi.mock('../../components/review/run-status', () => ({
   RunStatus: () => <p>Release run</p>,
@@ -63,6 +67,7 @@ beforeEach(() => {
   mocks.view = view()
   mocks.error = undefined
   mocks.publish.mockReset().mockResolvedValue({ ok: true })
+  mocks.keepDraftValues.mockReset().mockResolvedValue({ ok: true })
   mocks.mutate.mockReset().mockResolvedValue(undefined)
   HTMLDialogElement.prototype.showModal = vi.fn(function (
     this: HTMLDialogElement
@@ -146,6 +151,24 @@ test.each<[Partial<DraftPublishView>, string]>([
     'Publishing revision 5. Wait for it to finish.',
   ],
   [
+    { interruptedRelease: { id: 'release-4', revision: 4 } },
+    'Revision 4 stopped after preparing its Snapshot. Open that release to retry or abandon it.',
+  ],
+  [
+    {
+      conflicts: [
+        {
+          kind: 'field',
+          plateId: 'AK.one',
+          field: 'tags',
+          fromVersion: 7,
+          toVersion: 8,
+        },
+      ],
+    },
+    'Changes made outside this draft touched values it would publish. Check the conflicts below.',
+  ],
+  [
     { error: 'stale_baseline' },
     'The Catalog changed since the draft was last read. Refresh to move the draft onto the current version.',
   ],
@@ -166,6 +189,58 @@ test.each<[Partial<DraftPublishView>, string]>([
     document.getElementById(button.getAttribute('aria-describedby')!)
       ?.textContent
   ).toBe(message)
+})
+
+test('an outside catalog change lists each conflict, links to Review and lets the Owner keep the draft values', async () => {
+  mocks.view = view({
+    canPublish: false,
+    conflicts: [
+      {
+        kind: 'field',
+        plateId: 'AK.one',
+        field: 'tags',
+        fromVersion: 7,
+        toVersion: 8,
+      },
+      { kind: 'order', state: 'AL', fromVersion: 7, toVersion: 8 },
+    ],
+  })
+  render(<DraftPublish draftId="shared-draft-test" />)
+  const alert = within(
+    screen.getByText(
+      'The live Catalog changed values this draft would publish.'
+    ).parentElement!
+  )
+  expect(
+    alert.getByText(/AK\.one · tags: Catalog v8 changed it after v7\./)
+  ).toBeTruthy()
+  expect(
+    alert.getByText(/AL plate order: Catalog v8 changed it after v7\./)
+  ).toBeTruthy()
+  expect(
+    alert.getByRole('link', { name: 'Review AK' }).getAttribute('href')
+  ).toBe('/review?state=AK')
+  fireEvent.click(
+    alert.getByRole('button', { name: "Keep the draft's values" })
+  )
+  await waitFor(() =>
+    expect(mocks.keepDraftValues).toHaveBeenCalledExactlyOnceWith(
+      'shared-draft-test',
+      7
+    )
+  )
+  expect(mocks.mutate).toHaveBeenCalled()
+})
+
+test('a release that stopped after preparing its Snapshot links to its recovery page', () => {
+  mocks.view = view({
+    canPublish: false,
+    interruptedRelease: { id: 'release-4', revision: 4 },
+  })
+  render(<DraftPublish draftId="shared-draft-test" />)
+  expect(
+    screen.getByRole('link', { name: 'Open release' }).getAttribute('href')
+  ).toContain('release-4')
 })
 
 test('Publish ships the revision the Owner confirmed, even after the draft moves on', async () => {

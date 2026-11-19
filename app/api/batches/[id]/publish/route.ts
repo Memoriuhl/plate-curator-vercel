@@ -403,6 +403,40 @@ export async function GET(
 }
 
 /**
+ * What an approved release of the draft is doing. It holds Publish while its run is live,
+ * or after its receipt moved the pointer until that publish finishes. A run that stopped
+ * after preparing a Snapshot also holds it until the Owner retries or abandons that
+ * release. An abandoned release, or one whose run ended before preparing a Snapshot, no
+ * longer holds the draft.
+ */
+async function releaseActivity(
+  publishing: PublishDeps,
+  release: ReviewBatch,
+  requestedBy: ReturnType<typeof requesterAuthority>,
+  generation: number | undefined,
+  now: string
+): Promise<'publishing' | 'interrupted' | null> {
+  if (release.publishAbandonment) return null
+  const receipt = await publishing.records.get(
+    receiptId(release.id, release.revision)
+  )
+  if (receipt?.committedAt) return receipt.state === 'done' ? null : 'publishing'
+  const { reason } = await publishing.records.eligibility(
+    {
+      batchId: release.id,
+      revision: release.revision,
+      commandId: randomUUID(),
+      requestedBy,
+      generation,
+    },
+    now
+  )
+  if (reason === 'locked' || reason === PUBLISH_ERRORS.notWaiting)
+    return 'publishing'
+  return receipt?.state === 'uploaded' ? 'interrupted' : null
+}
+
+/**
  * The Owner's Publish view of the shared draft: the revision that Publish will ship, what
  * each state changes, and why Publish is blocked when it is. A release that is already
  * publishing is returned so the view can follow it.
@@ -410,7 +444,7 @@ export async function GET(
 async function draftPublishView(
   deps: ReviewDeps,
   publishing: PublishDeps,
-  actor: Actor
+  actor: Parameters<typeof requesterAuthority>[0]
 ) {
   const env = reviewEnv()
   const draft = await ensureDraft(deps, env, actor)
@@ -433,14 +467,33 @@ async function draftPublishView(
     ? { error: stop }
     : await publishBaselineStatus(publishing, snapshot.batch)
   const enabledHere = publishAllowed()
-  const activeRelease = active
-    .filter(
-      (batch) => isRelease(batch) && batch.source?.batchId === snapshot.batch.id
-    )
-    .sort(
-      (left, right) =>
-        (right.source?.revision ?? 0) - (left.source?.revision ?? 0)
-    )[0]
+  const releases = await Promise.all(
+    active
+      .filter(
+        (batch) =>
+          isRelease(batch) && batch.source?.batchId === snapshot.batch.id
+      )
+      .sort(
+        (left, right) =>
+          (right.source?.revision ?? 0) - (left.source?.revision ?? 0)
+      )
+      .map(async (release) => ({
+        release,
+        activity: await releaseActivity(
+          publishing,
+          release,
+          requesterAuthority(actor),
+          control?.generation,
+          deps.now()
+        ),
+      }))
+  )
+  const activeRelease = releases.find(
+    ({ activity }) => activity === 'publishing'
+  )?.release
+  const interruptedRelease = releases.find(
+    ({ activity }) => activity === 'interrupted'
+  )?.release
   const empty = states.length === 0
   const approvalProblems =
     enabledHere && !baseline.error && !busy && !empty
@@ -459,6 +512,7 @@ async function draftPublishView(
       ...(busy && activeRuns ? { activeRuns } : {}),
     },
     approvalProblems,
+    conflicts: snapshot.batch.conflicts ?? [],
     ...(snapshot.batch.lastPublish
       ? { lastPublish: snapshot.batch.lastPublish }
       : {}),
@@ -470,12 +524,22 @@ async function draftPublishView(
           },
         }
       : {}),
+    ...(interruptedRelease
+      ? {
+          interruptedRelease: {
+            id: interruptedRelease.id,
+            revision: interruptedRelease.source?.revision,
+          },
+        }
+      : {}),
     canPublish:
       enabledHere &&
       !baseline.error &&
       !busy &&
       !empty &&
       !activeRelease &&
+      !interruptedRelease &&
+      !snapshot.batch.conflicts?.length &&
       approvalProblems.length === 0,
   })
 }

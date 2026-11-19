@@ -21,6 +21,7 @@ import type { StatePublishSummary } from '../review/publish-view'
 import type {
   Actor,
   BatchState,
+  DraftConflict,
   LastPublish,
   DraftChangeTarget,
   EditableFields,
@@ -374,6 +375,10 @@ export type DraftPublishView = {
   approvalProblems: string[]
   lastPublish?: LastPublish
   activeRelease?: { id: string; revision?: number }
+  /** A release that stopped after preparing its Snapshot; retry or abandon it first. */
+  interruptedRelease?: { id: string; revision?: number }
+  /** Pending values an outside catalog change touched; Publish waits on them. */
+  conflicts?: DraftConflict[]
   canPublish: boolean
 }
 
@@ -478,6 +483,8 @@ export function useReviewActions() {
           [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
           empty_batch: 'The draft has no changes to publish.',
           empty_draft: 'The draft has no changes to publish.',
+          draft_conflicts:
+            'Changes made outside this draft touched values it would publish. Check the conflicts in the Publish view.',
           standard_change_unconfirmed:
             apiErrorReasons(error).join(' ') ||
             'Resolve the Standard plate changes before publishing.',
@@ -515,6 +522,36 @@ export function useReviewActions() {
               ? (messages[error.code] ?? 'Could not Publish. Please try again.')
               : 'Could not Publish. Please try again.',
         }
+      }
+    },
+    /**
+     * Keep the draft's pending values over the outside catalog changes the Owner was
+     * shown at this revision, then refresh the Publish view.
+     */
+    async keepDraftValues(
+      draftId: string,
+      revision: number
+    ): Promise<{ ok: true } | { ok: false; message: string }> {
+      try {
+        await api.send('POST', `${batchApiPath(draftId)}/conflicts`, {
+          revision,
+        })
+        return { ok: true }
+      } catch (error) {
+        return {
+          ok: false,
+          message:
+            error instanceof ApiError && error.code === 'superseded_revision'
+              ? 'The draft changed since you looked. Check the conflicts again.'
+              : error instanceof ApiError && error.code === 'forbidden'
+                ? 'Only the Owner can keep these values.'
+                : 'Could not save. Please try again.',
+        }
+      } finally {
+        await Promise.all([
+          refresh(draftId),
+          mutate(`${batchApiPath(draftId)}/publish`),
+        ]).catch(() => undefined)
       }
     },
     /** Save a proposed plate edit and refresh the batch detail used by review. */

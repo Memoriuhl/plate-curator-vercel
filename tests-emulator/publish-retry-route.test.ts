@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { HookNotFoundError } from 'workflow/errors'
 import { POST, GET } from '../app/api/batches/[id]/publish/route'
+import { POST as abandon } from '../app/api/batches/[id]/abandon/route'
 import {
   firestorePublishControl,
   firestorePublishCurator,
@@ -9,9 +10,11 @@ import {
   firestorePublishRecords,
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
-import { newSharedDraft } from '../lib/review/draft'
+import { ensureDraft, newSharedDraft } from '../lib/review/draft'
+import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
 import { sharedDraftId } from '../lib/review/draft-id'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
+import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
 import { verifyPreparedObject } from '../lib/publish/object'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
@@ -551,6 +554,171 @@ test('publishing draft revision N freezes N from the change log and leaves the l
   expect(after?.batch.revision).toBe(2)
   expect(after?.edits.map((edit: ProposedEdit) => edit.plateId).sort()).toEqual(
     ['one', 'two']
+  )
+})
+
+test('a draft read while Publish is still finishing waits for the receipt, then drops only what shipped', async () => {
+  const base = mocks.deps()
+  /** Plates of a version this test published, or null for the fixture baseline. */
+  const published = async (version: number): Promise<Plate[] | null> =>
+    version === 1 ? null : (await base.snapshots.read(version)).plates
+  const deps = {
+    ...base,
+    versionOrigin: firestoreVersionOrigin(db),
+    /** Read a published version's plate so the rebase compares against live. */
+    async baselineAtVersion(version: number, id: string) {
+      const plates = await published(version)
+      return plates
+        ? (plates.find((plate) => plate.id === id) ?? null)
+        : base.baselineAtVersion(version, id)
+    },
+    /** Read a published version's state plates. */
+    async stateBaseline(version: number, state: string) {
+      const plates = await published(version)
+      return plates
+        ? plates.filter((plate) => plate.state === state)
+        : base.stateBaseline(version, state)
+    },
+  }
+  mocks.deps.mockReturnValue(deps)
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['after review']),
+    by,
+  })
+  expect((await POST(draftRequest(1, 'publish-mid'), draftCtx)).status).toBe(
+    202
+  )
+  const accepted = (await deps.records.command('publish-mid'))!.command
+  // Read the draft after the pointer moved but before the receipt is done.
+  const curator = deps.curator
+  let during: ReviewBatch | undefined
+  deps.curator = {
+    async writeStateOrders(...args: Parameters<typeof curator.writeStateOrders>) {
+      during = await ensureDraft(deps, env, owner)
+      return curator.writeStateOrders(...args)
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: true,
+    value: { toVersion: 2 },
+  })
+  expect((await deps.pointer.read()).version).toBe(2)
+  expect(during).toMatchObject({ baselineVersion: 1, revision: 2 })
+  expect(during?.lastPublish).toBeUndefined()
+
+  const after = await ensureDraft(deps, env, owner)
+  expect(after).toMatchObject({
+    baselineVersion: 2,
+    lastPublish: {
+      revision: 1,
+      version: 2,
+      by: 'owner',
+      byName: 'owner@example.com',
+      at: time,
+    },
+  })
+  const edits = (await deps.store.listEdits(draftId)).map(
+    (edit: ProposedEdit) => [edit.plateId, edit.fields]
+  )
+  expect(edits).toEqual([['two', { tags: ['after review'] }]])
+})
+
+/**
+ * Accept a Publish of draft revision 1, then have a curator correct the draft at
+ * revision 2, as happens after a Publish attempt goes wrong.
+ */
+async function acceptThenCorrect(commandId: string) {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const by = { uid: 'editor', name: 'Dana Curator' }
+  const first = { ...draft, plateIds: ['one'], revision: 1 }
+  await deps.store.commit(draftId, 0, {
+    batch: first,
+    edit: tagEdit('one', ['reviewed']),
+    by,
+  })
+  expect((await POST(draftRequest(1, commandId), draftCtx)).status).toBe(202)
+  const accepted = (await deps.records.command(commandId))!.command
+  await deps.store.commit(draftId, 1, {
+    batch: { ...first, plateIds: ['one', 'two'], revision: 2 },
+    edit: tagEdit('two', ['corrected']),
+    by,
+  })
+  return { deps, accepted }
+}
+/** Read the Owner's Publish view of the shared draft. */
+const draftView = async () =>
+  (await GET(draftRequest(0, 'view'), draftCtx)).json()
+
+test('a release whose run is live holds the draft Publish; once it fails before preparing a Snapshot, the corrected revision can publish', async () => {
+  const { accepted } = await acceptThenCorrect('publish-fails-early')
+  mocks.status.mockResolvedValue('running')
+  expect(await draftView()).toMatchObject({
+    draftRevision: 2,
+    activeRelease: { id: accepted.batchId, revision: 1 },
+    canPublish: false,
+  })
+  mocks.status.mockResolvedValue('failed')
+  const view = await draftView()
+  expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
+  expect(view.activeRelease).toBeUndefined()
+  expect(view.interruptedRelease).toBeUndefined()
+  expect((await POST(draftRequest(2, 'publish-corrected'), draftCtx)).status).toBe(
+    202
+  )
+})
+
+test('a release that stopped after preparing its Snapshot waits for recovery, and after Abandon the corrected revision can publish', async () => {
+  const { deps, accepted } = await acceptThenCorrect('publish-prepared')
+  const pointer = deps.pointer
+  deps.pointer = {
+    ...pointer,
+    /** The run stops after the Snapshot is prepared, before the pointer moves. */
+    advance: async () => {
+      throw new Error('stopped')
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: false,
+  })
+  deps.pointer = pointer
+  mocks.status.mockResolvedValue('failed')
+  const stopped = await draftView()
+  expect(stopped).toMatchObject({
+    interruptedRelease: { id: accepted.batchId, revision: 1 },
+    canPublish: false,
+  })
+  expect(stopped.activeRelease).toBeUndefined()
+
+  const abandoned = await abandon(
+    new Request(`http://localhost/api/batches/${accepted.batchId}/abandon`, {
+      method: 'POST',
+      body: JSON.stringify({
+        revision: accepted.revision,
+        commandId: 'publish-prepared',
+        reason: 'Curators corrected the draft.',
+      }),
+    }),
+    { params: Promise.resolve({ id: accepted.batchId }) }
+  )
+  expect(abandoned.status).toBe(200)
+  const view = await draftView()
+  expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
+  expect(view.interruptedRelease).toBeUndefined()
+  expect(view.activeRelease).toBeUndefined()
+  expect((await POST(draftRequest(2, 'publish-after-abandon'), draftCtx)).status).toBe(
+    202
   )
 })
 

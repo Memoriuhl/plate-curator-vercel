@@ -330,8 +330,9 @@ function lastPublishOf(release: DraftSnapshot, origin: VersionOrigin): LastPubli
     releaseId: release.batch.id,
     revision: release.batch.source?.revision ?? 0,
     version: origin.toVersion,
-    by: origin.by,
-    byName: origin.byName,
+    // Receipts from before requesters were recorded name no one; fall back to the creator.
+    by: origin.by || release.batch.createdBy,
+    byName: origin.by ? origin.byName : release.batch.createdByName,
     at: origin.at,
   }
 }
@@ -730,6 +731,6 @@ export async function deletionPublishing(
   )
   for (const release of releases)
     if ((await d.store.getEdit(release.id, plateId))?.fields.deleted)
-      return `Revision ${release.source!.revision}, which deletes this plate, is publishing. Undo the deletion after that Publish finishes.`
+      return `Revision ${release.source!.revision}, which deletes this plate, is publishing or waiting for recovery. Undo the deletion after that Publish finishes or is abandoned.`
   return null
 }

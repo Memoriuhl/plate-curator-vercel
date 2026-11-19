@@ -18,6 +18,7 @@ import {
 import { batchHref } from '@/lib/review/href'
 import { Button } from '@/components/ui/button'
 import { RunStatus } from '@/components/review/run-status'
+import type { DraftConflict } from '@/lib/review/types'
 
 /** Name the Catalog the Publish writes to. */
 function destinationLabel(destination: string | null) {
@@ -42,6 +43,10 @@ export function draftPublishBlocker(view: DraftPublishView) {
   }
   if (view.activeRelease)
     return `Publishing revision ${view.activeRelease.revision ?? '?'}. Wait for it to finish.`
+  if (view.interruptedRelease)
+    return `Revision ${view.interruptedRelease.revision ?? '?'} stopped after preparing its Snapshot. Open that release to retry or abandon it.`
+  if (view.conflicts?.length)
+    return 'Changes made outside this draft touched values it would publish. Check the conflicts below.'
   if (view.pipeline.busy) return PIPELINE_BUSY
   if (!view.states.length)
     return 'The draft has no changes to publish. Edit plates on the Dashboard.'
@@ -66,6 +71,89 @@ export function PipelineBusyNotice({ activeRuns }: { activeRuns?: number }) {
       <Link className="underline" href="/?pipeline=open">
         Open pipeline runs
       </Link>
+    </div>
+  )
+}
+
+/** Describe one conflict in plain words. */
+export function conflictLabel(conflict: DraftConflict) {
+  if (conflict.kind === 'order')
+    return `${conflict.state} plate order: Catalog v${conflict.toVersion} changed it after v${conflict.fromVersion}.`
+  if (conflict.kind === 'deleted')
+    return `${conflict.plateId}: Catalog v${conflict.toVersion} deleted this plate after its deletion was undone here.`
+  return `${conflict.plateId} · ${conflict.field}: Catalog v${conflict.toVersion} changed it after v${conflict.fromVersion}.`
+}
+
+/**
+ * List the pending values an outside catalog change touched. Changing or discarding a
+ * value clears its conflict; the Owner can instead keep every draft value as it is.
+ */
+export function DraftConflicts({
+  draftId,
+  revision,
+  conflicts,
+  onChange,
+}: {
+  draftId: string
+  revision: number
+  conflicts: DraftConflict[]
+  onChange: () => void
+}) {
+  const actions = useReviewActions()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  /** Keep the draft's values for the revision on screen. */
+  async function keep() {
+    setBusy(true)
+    try {
+      const result = await actions.keepDraftValues(draftId, revision)
+      setMessage(result.ok ? '' : result.message)
+      onChange()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div role="alert" className="space-y-2 rounded-2xl border p-3 text-sm">
+      <p className="font-bold">
+        The live Catalog changed values this draft would publish.
+      </p>
+      <p>
+        Publishing now would replace those changes. Edit or discard each value in
+        Review, or keep the draft&apos;s values if you checked them.
+      </p>
+      <ul className="list-disc pl-5">
+        {conflicts.map((conflict) => {
+          const state =
+            conflict.kind === 'order'
+              ? conflict.state
+              : conflict.plateId.split('.')[0]
+          return (
+            <li
+              key={`${conflict.kind}:${conflict.kind === 'order' ? conflict.state : conflict.plateId}:${conflict.kind === 'field' ? conflict.field : ''}`}
+            >
+              {conflictLabel(conflict)}{' '}
+              <Link
+                className="underline"
+                href={`/review?state=${encodeURIComponent(state)}`}
+              >
+                Review {state}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => void keep()}
+      >
+        Keep the draft&apos;s values
+      </Button>
+      {message && <p role="status">{message}</p>}
     </div>
   )
 }
@@ -197,6 +285,27 @@ export function DraftPublish({ draftId }: { draftId: string }) {
             </p>
             <RunStatus compact batchId={data.activeRelease.id} />
           </div>
+        )}
+        {data.interruptedRelease && (
+          <p role="status">
+            Revision {data.interruptedRelease.revision ?? '?'} stopped after
+            preparing its Snapshot.{' '}
+            <Link
+              className="underline"
+              href={batchHref('/publish', data.interruptedRelease.id)}
+            >
+              Open release
+            </Link>{' '}
+            to retry or abandon it.
+          </p>
+        )}
+        {!!data.conflicts?.length && (
+          <DraftConflicts
+            draftId={draftId}
+            revision={data.draftRevision}
+            conflicts={data.conflicts}
+            onChange={() => void view.mutate()}
+          />
         )}
         {data.approvalProblems.length > 0 && (
           <div role="alert">
