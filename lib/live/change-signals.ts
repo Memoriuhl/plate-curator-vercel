@@ -46,28 +46,30 @@ export function coalesce(
   return start()
 }
 
-/** How long one topic write may hold its topic before later changes go out without it. */
+/** How long the platform keeps a function alive for one signal after its reply. */
 export const signalDeadlineMs = 10_000
 
 const pending = new Set<Promise<void>>()
 
-/** Resolve after `write`, or reject once `ms` pass without it settling. */
-function withDeadline(write: Promise<unknown>, ms: number): Promise<void> {
+/** Settle with `work`, or once `ms` pass, whichever is first. Never rejects. */
+function atMost(work: Promise<void>, ms: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)
-  })
-  return Promise.race([write.then(() => undefined), late]).finally(() =>
-    clearTimeout(timer)
-  )
+  return Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 /**
  * Tell listeners in the review environment that data under `topic` changed. Call it after
  * the change commits. It returns at once: the write runs in the background, so a slow or
- * failing topic never delays a worker reply, a workflow wake or a publish lease. On
- * Vercel the function stays alive until the write settles, at most `signalDeadlineMs`
- * per write. A failed bump is logged, and listeners keep a slow safety refresh for it.
+ * failing topic never delays a worker reply, a workflow wake or a publish lease. A topic
+ * has at most one write outstanding per instance, held until Firestore answers, so its
+ * writes go out in order; later changes share one follow-up write. The platform keeps the
+ * function alive for at most `signalDeadlineMs` per signal. A failed bump is logged, and
+ * listeners keep a slow safety refresh for it.
  */
 export function signalChange(
   db: Firestore,
@@ -75,18 +77,11 @@ export function signalChange(
   topic: ChangeTopic
 ): void {
   const path = signalPath(liveEnvKey(reviewEnv), topicSignalId(topic))
-  const dispatch = coalesce(path, () => {
+  const dispatch = coalesce(path, async () => {
     // Even a database that throws before writing must not reach the caller.
-    try {
-      return withDeadline(
-        db
-          .doc(path)
-          .set({ revision: FieldValue.increment(1) }, { merge: true }),
-        signalDeadlineMs
-      )
-    } catch (error) {
-      return Promise.reject(error)
-    }
+    await db
+      .doc(path)
+      .set({ revision: FieldValue.increment(1) }, { merge: true })
   })
     .catch((error: unknown) => {
       console.warn(
@@ -95,7 +90,7 @@ export function signalChange(
     })
     .finally(() => pending.delete(dispatch))
   pending.add(dispatch)
-  waitUntil(dispatch)
+  waitUntil(atMost(dispatch, signalDeadlineMs))
 }
 
 /** Wait until every signal dispatched so far has settled. Used by tests and scripts. */

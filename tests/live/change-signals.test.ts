@@ -89,9 +89,8 @@ test('a database that throws at once is logged like any other failed write', asy
   )
 })
 
-test('a write that never settles is abandoned at the deadline, so later changes still go out', async () => {
+test('a slow write keeps later bumps queued behind it, so one write per topic is outstanding and they stay in order', async () => {
   vi.useFakeTimers()
-  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   const writes: Gate[] = []
   const { db, set } = store(() => {
     const next = gate()
@@ -101,20 +100,26 @@ test('a write that never settles is abandoned at the deadline, so later changes 
 
   signalChange(db, 'preview:x', 'gateway')
   signalChange(db, 'preview:x', 'gateway')
+  signalChange(db, 'preview:x', 'gateway')
   expect(set).toHaveBeenCalledTimes(1)
 
+  // Past the deadline the function is no longer kept alive for the write...
+  const kept = platform.waitUntil.mock.calls.map(([work]) => work)
+  let released = 0
+  for (const work of kept) void work.then(() => released++)
   await vi.advanceTimersByTimeAsync(signalDeadlineMs)
-  // The stuck write no longer blocks the topic: the queued change starts.
-  expect(set).toHaveBeenCalledTimes(2)
-  expect(warn).toHaveBeenCalledWith(
-    expect.stringContaining('gateway change signal failed')
-  )
+  expect(released).toBe(kept.length)
+  // ...but the topic stays held: no second write starts while the first is open.
+  await vi.advanceTimersByTimeAsync(10 * signalDeadlineMs)
+  expect(set).toHaveBeenCalledTimes(1)
 
-  writes[1].open()
+  writes[0].open()
   await vi.advanceTimersByTimeAsync(0)
-  const done = settleSignals()
-  await vi.advanceTimersByTimeAsync(signalDeadlineMs)
-  await done
+  // The bumps that arrived meanwhile share one follow-up write.
+  expect(set).toHaveBeenCalledTimes(2)
+  writes[1].open()
+  await settleSignals()
+  expect(set).toHaveBeenCalledTimes(2)
 })
 
 test('coalesces signal writes to one in flight and one queued', async () => {
