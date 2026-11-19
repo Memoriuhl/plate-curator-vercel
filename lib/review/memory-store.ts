@@ -210,12 +210,15 @@ export function createMemoryStore(
       return structuredClone([...(edits.get(batchId)?.values() ?? [])])
     },
     /** Read the batch and all its edits together as a detached snapshot. */
-    async readBatch(batchId) {
+    async readBatch(batchId, jurisdictions) {
       const batch = batches.get(batchId)
       return batch
         ? structuredClone({
             batch,
-            edits: [...(edits.get(batchId)?.values() ?? [])],
+            edits: [...(edits.get(batchId)?.values() ?? [])].filter(
+              (edit) =>
+                !jurisdictions || jurisdictions.has(edit.plateId.split('.')[0])
+            ),
           })
         : null
     },

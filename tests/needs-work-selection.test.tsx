@@ -22,6 +22,7 @@ const data = vi.hoisted(() => ({
 }))
 vi.mock('../lib/client/hooks', () => ({
   useDraftOverlay: data.overlay,
+  useDashboardDraft: () => undefined,
   /** Supply the selected batch and its editability for this workspace scenario. */
   useWorkspaceBatch: () => ({ mode: 'personal' }),
   useSelectedBatchId: () => null,

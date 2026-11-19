@@ -26,7 +26,7 @@ import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
 import { moveState } from '../lib/review/move-state'
 import { canEdit, proposeEdit } from '../lib/review/batch'
-import { batchDetail } from '../lib/review/queries'
+import { batchDetail, dashboardDraft } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
 import type {
   Actor,
@@ -36,6 +36,7 @@ import type {
 } from '../lib/review/types'
 import type { Plate } from '../lib/catalog/types'
 import { plateCards } from '../fixtures/plate-cards'
+import { TooltipProvider } from '../components/ui/tooltip'
 
 const Context = createContext<ReturnType<typeof session> | null>(null)
 vi.mock('../lib/client/session', () => ({
@@ -65,9 +66,10 @@ vi.mock('../components/dashboard/use-grid-entrance', () => ({
   /** Stub grid entrance animations so the fixture does not require browser animation support. */ useGridEntrance:
     () => {},
 }))
+const flip = vi.hoisted(() => vi.fn())
 vi.mock('../components/dashboard/use-drag-flip', () => ({
   /** Stub animated grid reflow so the test can focus on drag behavior. */ useDragFlip:
-    () => {},
+    flip,
 }))
 vi.mock('@tanstack/react-virtual', () => ({
   /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer:
@@ -203,6 +205,11 @@ function session(actor: Actor, id: string | null = 'shared') {
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
         if (path === '/api/me') return { ...actor, draftId: 'shared' }
+        if (path === '/api/batches?dashboard=AK&catalogVersion=1') {
+          return {
+            draft: await dashboardDraft(deps, 'shared', new Set(['AK'])),
+          }
+        }
         if (path === '/api/jobs/tag-job')
           return {
             state: 'completed',
@@ -355,10 +362,12 @@ function Workspace({
   value,
   cache = new Map(),
   children,
+  scoped = false,
 }: {
   value: ReturnType<typeof session>
   cache?: Cache
   children?: ReactNode
+  scoped?: boolean
 }) {
   return (
     <Context.Provider value={value}>
@@ -373,7 +382,13 @@ function Workspace({
       >
         <LiveSignalProvider value={source}>
           <SelectedBatchBar />
-          <FamilyGrid plates={gridPlates} />
+          <TooltipProvider>
+            <FamilyGrid
+              plates={gridPlates}
+              code={scoped ? 'AK' : undefined}
+              catalogVersion={scoped ? 1 : undefined}
+            />
+          </TooltipProvider>
           {children}
         </LiveSignalProvider>
       </SWRConfig>
@@ -456,7 +471,10 @@ beforeEach(() => {
   const commit = store.commit.bind(store)
   store.commit = async (...args) => {
     const result = await commit(...args)
-    if (result === 'ok') emit(args[0], args[2].batch.revision)
+    if (result === 'ok') {
+      emit(args[0], args[2].batch.revision)
+      emit('topic:draft:AK', args[2].batch.revision)
+    }
     return result
   }
   deps = {
@@ -673,62 +691,94 @@ test('unavailable and read-only selections cannot edit or reorder or fall back t
   expect(requests.filter((r) => r.path !== '/api/live-access')).toEqual([])
 })
 
-test('remote revision waits for drag settlement and an already applied join becomes a no-op', async () => {
-  const view = render(<Workspace value={session(editor)} />)
-  await waitFor(() =>
-    expect(
-      view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
-    ).toBeTruthy()
-  )
-  targetRects(view.container)
-  const handle = view.container.querySelector<HTMLElement>(
-    '[data-plate-row="AK.v"]'
-  )!
-  pointer(handle, 'pointerdown', 100)
-  pointer(handle, 'pointermove', 110)
-  await act(async () => {
-    await proposeEdit(deps, owner, {
-      batchId: 'shared',
-      plateId: 'AK.v',
-      baseRevision: plateRevision(plates[1]),
-      fields: {
-        tags: ['remote'],
-        templateFamily: 'navy',
-        variantOfPlateId: 'AK.b',
-      },
-    })
-  })
-  await waitFor(() =>
-    expect(
-      view.container
-        .querySelector('[data-batch-id]')
-        ?.getAttribute('data-batch-revision')
-    ).toBe('1')
-  )
-  expect(
-    within(view.container)
-      .getByRole('article', { name: 'Army family' })
-      .querySelector('[data-drag-variant="AK.v"]')
-  ).toBeTruthy()
-  hoverDrop(handle, 400)
-  pointer(handle, 'pointerup', 400)
-  await waitFor(() =>
-    expect(view.container.textContent).toContain(
-      'No plates moved. 1 already in this family'
+test.each([false, true])(
+  'remote change waits for the drop to settle (state topic: %s)',
+  async (scoped) => {
+    const view = render(
+      <Workspace
+        value={session(editor, scoped ? null : 'shared')}
+        scoped={scoped}
+      />
     )
-  )
-  expect(
-    within(
-      within(view.container).getByRole('article', { name: 'Navy family' })
-    ).getByText('Variant')
-  ).toBeTruthy()
-  expect(
-    requests.find((r) => r.path.endsWith('/family-merge'))?.body
-  ).toMatchObject({
-    destinationId: 'AK.b',
-    plateIds: ['AK.v'],
-  })
-})
+    flip.mockClear()
+    if (scoped) {
+      await waitFor(() => expect(listeners.get('topic:draft:AK')?.size).toBe(1))
+      expect(listeners.get('shared')?.size ?? 0).toBe(0)
+    }
+    await waitFor(() =>
+      expect(
+        view.container.querySelector<HTMLElement>('[data-plate-row="AK.v"]')!
+      ).toBeTruthy()
+    )
+    targetRects(view.container)
+    const handle = view.container.querySelector<HTMLElement>(
+      '[data-plate-row="AK.v"]'
+    )!
+    pointer(handle, 'pointerdown', 100)
+    pointer(handle, 'pointermove', 110)
+    await act(async () => {
+      await proposeEdit(deps, owner, {
+        batchId: 'shared',
+        plateId: 'AK.v',
+        baseRevision: plateRevision(plates[1]),
+        fields: {
+          tags: ['remote'],
+          templateFamily: 'navy',
+          variantOfPlateId: 'AK.b',
+        },
+      })
+    })
+    if (scoped) {
+      const path = editor.uid + '/api/batches?dashboard=AK&catalogVersion=1'
+      await waitFor(() => expect(reads.get(path)).toBeGreaterThan(1), {
+        timeout: 5000,
+      })
+    } else {
+      await waitFor(() =>
+        expect(
+          view.container
+            .querySelector('[data-batch-id]')
+            ?.getAttribute('data-batch-revision')
+        ).toBe('1')
+      )
+    }
+    expect(
+      within(view.container)
+        .getByRole('article', { name: 'Army family' })
+        .querySelector('[data-drag-variant="AK.v"]')
+    ).toBeTruthy()
+    hold = new Promise((resolve) => {
+      release = resolve
+    })
+    hoverDrop(handle, 400)
+    pointer(handle, 'pointerup', 400)
+    await waitFor(() =>
+      expect(requests.some((r) => r.path.endsWith('/family-merge'))).toBe(true)
+    )
+    expect(flip.mock.lastCall?.[2]).toBe(true)
+    expect(view.container.querySelector('[data-drag-lifted]')).toBeNull()
+    await act(async () => {
+      release!()
+    })
+    await waitFor(() =>
+      expect(view.container.textContent).toContain(
+        'No plates moved. 1 already in this family'
+      )
+    )
+    expect(
+      within(
+        within(view.container).getByRole('article', { name: 'Navy family' })
+      ).getByText('Variant')
+    ).toBeTruthy()
+    expect(flip.mock.lastCall?.[2]).toBe(false)
+    expect(
+      requests.find((r) => r.path.endsWith('/family-merge'))?.body
+    ).toMatchObject({
+      destinationId: 'AK.b',
+      plateIds: ['AK.v'],
+    })
+  }
+)
 
 test('initial catch-up coalesces bursts, ignores old signals and disposes on switch and sign-out', async () => {
   const previous = await batchDetail(deps, 'shared')

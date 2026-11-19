@@ -75,8 +75,24 @@ export async function dashboardDrafts(
   draftId: string,
   jurisdictions: ReadonlySet<string>
 ): Promise<BatchDetail[]> {
-  const snapshot = await d.store.readBatch(draftId)
-  if (!snapshot || snapshot.batch.state !== 'open') return []
+  const detail = await dashboardDraft(d, draftId, jurisdictions)
+  if (
+    !detail ||
+    (!detail.plates.length && !Object.keys(detail.batch.stateOrders).length)
+  )
+    return []
+  const { batch, plates } = detail
+  return [{ batch, plates }]
+}
+
+/** Keep the head revision even when a state loses its last edit or saved order. */
+export async function dashboardDraft(
+  d: ReviewDeps,
+  draftId: string,
+  jurisdictions: ReadonlySet<string>
+): Promise<(BatchDetail & { orderStates: string[] }) | null> {
+  const snapshot = await d.store.readBatch(draftId, jurisdictions)
+  if (!snapshot || snapshot.batch.state !== 'open') return null
   const inScope = (plateId: string) => jurisdictions.has(plateId.split('.')[0])
   const { batch, edits } = snapshot
   const plates = await Promise.all(
@@ -104,9 +120,11 @@ export async function dashboardDrafts(
       jurisdictions.has(state)
     )
   )
-  const inScopePlates = plates.filter((plate) => plate !== null)
-  if (!inScopePlates.length && !Object.keys(stateOrders).length) return []
-  return [{ batch: { ...batch, stateOrders }, plates: inScopePlates }]
+  return {
+    batch: { ...batch, stateOrders },
+    plates: plates.filter((plate) => plate !== null),
+    orderStates: Object.keys(batch.stateOrders),
+  }
 }
 
 /**

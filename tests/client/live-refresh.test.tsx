@@ -1,8 +1,9 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { SWRConfig } from 'swr'
+import { SWRConfig, type State } from 'swr'
 import { useLatestEnhancement } from '../../components/plate/plate-image-preview'
+import { useDashboardDraft, useRunRevertTarget } from '../../lib/client/hooks'
 import {
   LiveSignalProvider,
   useLiveRefresh,
@@ -238,4 +239,115 @@ test('a view with a ten-minute safety refresh stays quiet while live, and polls 
     await vi.advanceTimersByTimeAsync(60_001)
   })
   expect(refresh).toHaveBeenCalledTimes(3)
+})
+
+test('an unresolved run revert target waits for a pipeline signal', async () => {
+  let target: unknown = null
+  mocks.get.mockReset().mockImplementation(async () => target)
+  const cache = new Map([
+    ['/api/local-pipeline/runs/run/revert', { data: null }],
+  ])
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+      <LiveSignalProvider value={source}>{children}</LiveSignalProvider>
+    </SWRConfig>
+  )
+  const view = renderHook(() => useRunRevertTarget('run'), { wrapper })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+    active()[0]?.next(1)
+    await vi.advanceTimersByTimeAsync(2000)
+  })
+  expect(view.result.current.data).toBeNull()
+  const initialReads = mocks.get.mock.calls.length
+  await act(() => vi.advanceTimersByTimeAsync(12_000))
+  expect(mocks.get).toHaveBeenCalledTimes(initialReads)
+
+  target = { runId: 'run', attempt: 1, jobIds: ['job'] }
+  await act(async () => {
+    active()[0].next(2)
+    await vi.advanceTimersByTimeAsync(1)
+  })
+  expect(view.result.current.data).toEqual(target)
+})
+
+test('the Dashboard catches up on its own state and an older request cannot replace it', async () => {
+  const key = (state: string) =>
+    `/api/batches?dashboard=${state}&catalogVersion=1`
+  const draft = (revision: number) => ({
+    draft: {
+      batch: { id: 'shared-draft-development', revision, baselineVersion: 1 },
+      plates: [],
+    },
+  })
+  const cache = new Map<string, State>([
+    ['/api/me', { data: { draftId: 'shared-draft-development' } }],
+    [key('AL'), { data: draft(1) }],
+    [key('AK'), { data: draft(1) }],
+  ])
+  const slow = Promise.withResolvers<ReturnType<typeof draft>>()
+  let al = 1
+  mocks.get.mockReset().mockImplementation((url: string) => {
+    if (url === '/api/me')
+      return Promise.resolve({ draftId: 'shared-draft-development' })
+    if (url === key('AK')) return Promise.resolve(draft(1))
+    if (url === key('AL'))
+      return al === 2 ? slow.promise : Promise.resolve(draft(al))
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+      <LiveSignalProvider value={source}>{children}</LiveSignalProvider>
+    </SWRConfig>
+  )
+  const view = renderHook(
+    () => ({
+      al: useDashboardDraft('AL', 1),
+      ak: useDashboardDraft('AK', 1),
+    }),
+    { wrapper }
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+    active('topic:draft:AL')[0].next(1)
+    active('topic:draft:AK')[0].next(1)
+    await vi.advanceTimersByTimeAsync(2001)
+  })
+  expect(view.result.current.al?.draft.batch.revision).toBe(1)
+  mocks.get.mockClear()
+  al = 2
+  await act(async () => {
+    active('topic:draft:AL')[0].next(2)
+    await vi.advanceTimersByTimeAsync(2000)
+  })
+  al = 3
+  await act(async () => {
+    active('topic:draft:AL')[0].next(3)
+    await vi.advanceTimersByTimeAsync(2000)
+  })
+  expect(view.result.current.al?.draft.batch.revision).toBe(3)
+  expect(view.result.current.ak?.draft.batch.revision).toBe(1)
+  expect(mocks.get.mock.calls).toEqual([[key('AL')], [key('AL')]])
+  await act(async () => {
+    slow.resolve(draft(2))
+  })
+  expect(view.result.current.al?.draft.batch.revision).toBe(3)
+
+  act(() => setVisibility('hidden'))
+  expect(active('topic:draft:AL')).toHaveLength(0)
+  al = 4
+  mocks.get.mockClear()
+  await act(() => vi.advanceTimersByTimeAsync(12_000))
+  expect(mocks.get).not.toHaveBeenCalled()
+  await act(async () => {
+    setVisibility('visible')
+    await vi.advanceTimersByTimeAsync(0)
+    active('topic:draft:AK')[0].next(1)
+    active('topic:draft:AL')[0].next(4)
+    await vi.advanceTimersByTimeAsync(1)
+  })
+  expect(
+    mocks.get.mock.calls.filter(([url]) => url.startsWith('/api/batches'))
+  ).toEqual([[key('AL')]])
+  expect(view.result.current.al?.draft.batch.revision).toBe(4)
 })

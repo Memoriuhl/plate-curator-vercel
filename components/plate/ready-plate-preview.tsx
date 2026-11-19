@@ -6,7 +6,11 @@ import type {
   PlateCardData,
   PlateCheckKey,
 } from '@/lib/catalog/dashboard-types'
-import { useDraftOverlay, usePlateDetail } from '@/lib/client/hooks'
+import {
+  useDraftOverlay,
+  usePlateDetail,
+  type DashboardDraft,
+} from '@/lib/client/hooks'
 import { CHECK_META } from './status-icon'
 import { PlateHoverContent } from './plate-hover-card'
 import { useLatestEnhancement } from './plate-image-preview'
@@ -20,6 +24,7 @@ export type ReadyPreviewProps = {
   checkKey?: PlateCheckKey
   markerName?: string
   parent?: string
+  draft?: DashboardDraft | null
   onReady?: () => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -47,7 +52,7 @@ function PendingPreview(props: ReadyPreviewProps) {
   const { data } = usePlateDetail(local ? null : props.plate.id)
   // Keep the overlay input stable while the preview's readiness timers update.
   const baselines = useMemo(() => (data ? [data.plate] : []), [data])
-  const [overlaid] = useDraftOverlay(baselines)
+  const [overlaid] = useDraftOverlay(baselines, props.draft)
   const [intent, setIntent] = useState(props.immediate)
   const [expired, setExpired] = useState(false)
   useEffect(() => {

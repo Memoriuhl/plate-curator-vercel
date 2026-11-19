@@ -10,7 +10,7 @@ import {
 import { SelectionBar } from './selection-bar'
 import { selectionActions } from './selection-actions'
 import dynamic from 'next/dynamic'
-import { FilterBar } from './filter-bar'
+import { FilterBarControls } from './filter-bar'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import {
@@ -31,6 +31,8 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import {
   useWorkspaceBatch,
   useDraftOverlay,
+  useDashboardDraft,
+  type DashboardDraft,
   useEditPlate,
   useMe,
   useReorderState,
@@ -72,10 +74,13 @@ const ReadyPlatePreview = dynamic(
  * Build the catalog baselines used to overlay the current batch's draft plates and
  * order.
  */
-export function useFamilyBatchOverlay(plates: FamilyPlate[]) {
+export function useFamilyBatchOverlay(
+  plates: FamilyPlate[],
+  draft?: DashboardDraft | null
+) {
   // Keep the expanded baselines stable so the draft overlay can reuse its projection.
   const baselines = useMemo(() => plates.map(expandFamilyPlate), [plates])
-  return useDraftOverlay(baselines)
+  return useDraftOverlay(draft?.catalog?.plates ?? baselines, draft)
 }
 
 /**
@@ -95,13 +100,16 @@ export function FamilyGrid({
 }) {
   const params = useSearchParams()
   const pathname = usePathname()
-  const latestOverlay = useFamilyBatchOverlay(plates)
-  const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(
-    null
-  )
+  const liveDraft = useDashboardDraft(code, catalogVersion)
+  const latestOverlay = useFamilyBatchOverlay(plates, liveDraft)
+  const [held, setHeld] = useState<{
+    overlay: typeof latestOverlay
+    draft: typeof liveDraft
+  } | null>(null)
   const [notice, setNotice] = useState<{ message: string } | null>(null)
   const dismissNotice = useCallback(() => setNotice(null), [])
-  const overlaid = heldOverlay ?? latestOverlay
+  const overlaid = held?.overlay ?? latestOverlay
+  const draft = held ? held.draft : liveDraft
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const attachedIds = useMemo(
     () => attachedFamilyIds(overlaid, baselineFamilies),
@@ -194,7 +202,7 @@ export function FamilyGrid({
   const me = useMe()
   const edits = useEditPlate()
   const bulkEdits = useEditPlate({ parallel: true })
-  const ordering = useReorderState()
+  const ordering = useReorderState(draft)
   const standardConfirmation = useStandardConfirmation()
   // Reuse candidate repairs until the affected families or saved state order changes.
   const standardRepairs = useMemo(() => {
@@ -232,7 +240,7 @@ export function FamilyGrid({
       : me.data?.role === 'editor' || me.data?.role === 'owner'
   const drag = usePlateDrag({
     bulkEdits,
-    catalogVersion,
+    catalogVersion: draft?.catalog?.catalogVersion ?? catalogVersion,
     families: baselineFamilies,
     canEdit:
       canEdit &&
@@ -252,7 +260,7 @@ export function FamilyGrid({
       },
     },
     /** Freeze the projected grid while a drag or write is using its current geometry. */
-    holdOverlay: (held) => setHeldOverlay(held ? overlaid : null),
+    holdOverlay: (hold) => setHeld(hold ? { overlay: overlaid, draft } : null),
     onDropSaved: (state: string) => {
       const before = overlaid
         .filter((plate) => plate.state === state && matchingIds.has(plate.id))
@@ -346,7 +354,7 @@ export function FamilyGrid({
   // Compare with the saved overlay after the drag releases the previous layout.
   if (dropVisibility && dropVisibility.key !== filterKey) {
     setDropVisibility(null)
-  } else if (retained?.before && !heldOverlay && !drag.saving) {
+  } else if (retained?.before && !held && !drag.saving) {
     setDropVisibility({
       key: filterKey,
       dimmed: new Set([
@@ -520,7 +528,7 @@ export function FamilyGrid({
       ?.querySelectorAll<HTMLElement>('[data-drag-row]')
       .forEach((element) => virtualizer.measureElement(element))
   }, [displayedFamilies, virtualizer])
-  useDragFlip(container, reflowIdentity, !!drag.active)
+  useDragFlip(container, reflowIdentity, !!drag.active || held !== null)
   const selectionDisabled =
     !canEdit || drag.saving || edits.pending || bulkEdits.pending
   useSelectionKeyboard({
@@ -606,9 +614,9 @@ export function FamilyGrid({
       className="grid grid-cols-[minmax(0,1fr)] gap-[var(--stack-gap)] pb-56 sm:pb-32"
     >
       {code ? (
-        <FilterBar
+        <FilterBarControls
           counts={counts}
-          code={code}
+          changedCount={changedIds.size}
           resolveGroup={(key) =>
             plateIdsForCheck(overlaid, key, query, attachedIds)
           }
@@ -772,6 +780,7 @@ export function FamilyGrid({
         {preview && !drag.active && !drag.saving ? (
           <ReadyPlatePreview
             {...preview}
+            draft={draft}
             onReady={() => {
               opened.current = true
             }}
