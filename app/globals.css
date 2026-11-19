@@ -109,6 +109,8 @@ svg {
 .brand-copy {
   display: grid;
   line-height: 1.1;
+  /* Overpass sits high in its line box; this centers the two lines on the icon. */
+  padding-top: 5px;
 }
 .brand-copy span {
   font-size: 12px;

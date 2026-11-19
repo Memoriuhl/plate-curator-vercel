@@ -80,3 +80,12 @@ test('toggle sizes use the measured text offset and preserve icon position', () 
       expect(html).toContain(token)
   }
 })
+
+test('workspace tabs use the measured text offset so labels center in their pills', () => {
+  const html = renderToStaticMarkup(<WorkspaceTabs />)
+  const triggers = html.match(/<a [^>]*data-slot="tabs-trigger"[^>]*>/g) ?? []
+  expect(triggers).toHaveLength(3)
+  for (const trigger of triggers)
+    for (const token of ['pt-[0.2em]', '[&amp;_svg]:-mt-[0.2em]'])
+      expect(trigger).toContain(token)
+})

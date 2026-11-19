@@ -71,7 +71,8 @@ export function HeaderActions() {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="gap-2 px-1"
+              // Avatar and chevron only: drop the text offset so both sit centered.
+              className="gap-2 px-1 pt-0 [&_svg]:mt-0"
               aria-label="Open profile menu"
               disabled={pending}
             >
