@@ -15,10 +15,13 @@ export async function GET(request: Request) {
     enabled.some((model) => model.runsOn === 'gateway')
       ? await hostedModelCatalog('tag')
       : undefined
+  const hostedChoices = hosted?.unavailable
+    ? hosted.curated
+    : hosted?.searchable
   const models = enabled.filter(
     (model) =>
       model.runsOn === 'desktop' ||
-      hosted?.searchable.some(({ id }) => id === model.model)
+      hostedChoices?.some(({ id }) => id === model.model)
   )
   const choice = chooseTaggingModel(
     undefined,

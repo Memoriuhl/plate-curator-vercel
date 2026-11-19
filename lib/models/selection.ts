@@ -44,6 +44,7 @@ export type HostedModelCatalog = {
   curated: PickerModel[]
   searchable: PickerModel[]
   caps: ModelCap[]
+  unavailable?: true
 }
 
 export function fitsModelCap(estimate: number, cap: number) {

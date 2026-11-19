@@ -130,12 +130,13 @@ test.each([
           inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
           outputTokens: { total: 1, text: 1, reasoning: 0 },
         },
+        response: { modelId: fallback.model },
         providerMetadata: {
           gateway: {
             routing: {
               modelAttempts: [
                 {
-                  canonicalSlug: fallback.model,
+                  canonicalSlug: model,
                   providerAttempts: [{ success: true }],
                 },
               ],

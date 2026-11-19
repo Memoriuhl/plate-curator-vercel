@@ -1,6 +1,15 @@
 import { z } from 'zod'
-import { CURATED_RESEARCH_MODELS } from '../research/models'
-import { CURATED_TAG_MODELS, TAGGING_MODELS } from '../tagging/models'
+import {
+  CURATED_RESEARCH_MODELS,
+  DEFAULT_HOSTED_RESEARCH_MODEL,
+  LEGACY_RESEARCH_PRICES,
+  RESEARCH_MODELS,
+} from '../research/models'
+import {
+  CURATED_TAG_MODELS,
+  DEFAULT_GATEWAY_TAG_PRICE,
+  TAGGING_MODELS,
+} from '../tagging/models'
 import { DEFAULT_MODEL_CAP, fitsModelCap } from './selection'
 
 export type HostedStep = 'research' | 'tag'
@@ -8,6 +17,7 @@ export type ModelPrice = { input: number; output: number }
 
 const CATALOG_URL = 'https://ai-gateway.vercel.sh/v1/models'
 const CATALOG_TTL_MS = 60 * 60 * 1000
+const CATALOG_RETRY_MS = 60 * 1000
 const CAPABILITY = { research: 'tool-use', tag: 'vision' } as const
 // TODO: Use medians when recent Research attempt and Tag result usage can be read
 // in a bounded query. The current stores only expose usage by individual run.
@@ -32,7 +42,8 @@ const payload = z.object({ data: z.array(z.unknown()) })
 type CatalogEntry = z.infer<typeof entry>
 
 let cache: { expires: number; entries: CatalogEntry[] } | undefined
-let pending: Promise<CatalogEntry[]> | undefined
+let pending: Promise<CatalogEntry[] | undefined> | undefined
+let retryAt = 0
 
 async function fetchCatalog() {
   try {
@@ -49,12 +60,16 @@ async function fetchCatalog() {
     cache = { expires: Date.now() + CATALOG_TTL_MS, entries }
     return entries
   } catch (cause) {
-    throw Error('Gateway model catalog unavailable', { cause })
+    console.warn(Error('Gateway model catalog unavailable', { cause }))
+    retryAt = Date.now() + CATALOG_RETRY_MS
+    return cache?.entries
   }
 }
 
 function catalog() {
-  if (cache && Date.now() < cache.expires) return Promise.resolve(cache.entries)
+  const now = Date.now()
+  if ((cache && now < cache.expires) || now < retryAt)
+    return Promise.resolve(cache?.entries)
   return (pending ??= fetchCatalog().finally(() => {
     pending = undefined
   }))
@@ -64,8 +79,9 @@ export function estimateUsd(price: ModelPrice, tokens: ModelPrice) {
   return price.input * tokens.input + price.output * tokens.output
 }
 
-export async function searchable(step: HostedStep, capUsd: number) {
-  return (await catalog()).flatMap((model) => {
+export async function searchableCatalog(step: HostedStep, capUsd: number) {
+  const entries = await catalog()
+  const models = (entries ?? []).flatMap((model) => {
     if (model.id.endsWith('-batch') || !model.tags.includes(CAPABILITY[step]))
       return []
     const estimatedUsd = estimateUsd(model.pricing, PROFILES[step])
@@ -80,6 +96,27 @@ export async function searchable(step: HostedStep, capUsd: number) {
       },
     ]
   })
+  return { available: entries !== undefined, models }
+}
+
+export async function searchable(step: HostedStep, capUsd: number) {
+  return (await searchableCatalog(step, capUsd)).models
+}
+
+export function pinnedHostedModel(step: HostedStep) {
+  const pinned = step === 'research' ? RESEARCH_MODELS[2] : TAGGING_MODELS[2]
+  const price =
+    step === 'research'
+      ? LEGACY_RESEARCH_PRICES[DEFAULT_HOSTED_RESEARCH_MODEL]
+      : DEFAULT_GATEWAY_TAG_PRICE
+  return {
+    id: pinned.model,
+    label: pinned.label,
+    provider: 'google',
+    price,
+    estimatedUsd: estimateUsd(price, PROFILES[step]),
+    ...('measured' in pinned ? { measured: pinned.measured } : {}),
+  }
 }
 
 export async function curated(step: HostedStep, capUsd = DEFAULT_MODEL_CAP) {

@@ -70,7 +70,7 @@ test('curated models keep order and measured data and omit unavailable and over-
   ])
 })
 
-test('coalesces catalog requests, refreshes after an hour, and retries failed refreshes', async () => {
+test('coalesces requests, serves the last catalog on refresh failure, and recovers', async () => {
   const { curated, searchable } = await import('../../lib/models/catalog')
   await Promise.all([curated('tag'), searchable('research', 0.02)])
   vi.setSystemTime(Date.now() + 3_599_000)
@@ -81,9 +81,53 @@ test('coalesces catalog requests, refreshes after an hour, and retries failed re
   )
   vi.setSystemTime(Date.now() + 1000)
   fetchCatalog.mockResolvedValueOnce(new Response(null, { status: 503 }))
-  await expect(curated('research')).rejects.toThrow(
-    'Gateway model catalog unavailable'
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await expect(curated('research')).resolves.toMatchObject([
+    { id: 'google/gemini-2.5-flash-lite' },
+    { id: 'google/gemma-4-26b-a4b-it' },
+  ])
+  expect(warning).toHaveBeenCalledWith(
+    expect.objectContaining({
+      cause: expect.objectContaining({ message: 'HTTP 503' }),
+    })
   )
+  warning.mockRestore()
+  vi.setSystemTime(Date.now() + 60_000)
   await curated('research')
   expect(fetchCatalog).toHaveBeenCalledTimes(3)
+})
+
+test('binds only the pinned defaults with code prices when the cold catalog fails', async () => {
+  fetchCatalog.mockRejectedValue(Error('unreachable'))
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const { searchable } = await import('../../lib/models/catalog')
+  const { bindHostedModel, hostedModelCatalog } =
+    await import('../../lib/jobs/model-binding')
+  for (const [step, id, input, output] of [
+    ['research', 'google/gemini-2.5-flash-lite', 0.0000001, 0.0000004],
+    ['tag', 'google/gemma-4-26b-a4b-it', 0.00000015, 0.0000006],
+  ] as const) {
+    await expect(searchable(step, 0.01)).resolves.toEqual([])
+    await expect(hostedModelCatalog(step)).resolves.toMatchObject({
+      unavailable: true,
+      searchable: [],
+      curated: [{ id }],
+    })
+    await expect(
+      bindHostedModel(step, id, { capUsd: 0.002, strict: true })
+    ).resolves.toMatchObject({
+      ok: true,
+      binding: {
+        model: id,
+        price: { input, output },
+        capUsd: 0.002,
+        strict: true,
+      },
+    })
+    await expect(bindHostedModel(step, 'openai/custom', {})).resolves.toEqual({
+      ok: false,
+      error: 'unavailable',
+    })
+  }
+  warning.mockRestore()
 })

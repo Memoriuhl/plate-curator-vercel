@@ -6,8 +6,9 @@ import {
 
 vi.mock('../../lib/models/catalog', async (original) => ({
   ...(await original<typeof import('../../lib/models/catalog')>()),
-  searchable: async (step: string, capUsd: number) =>
-    [
+  searchableCatalog: async (step: string, capUsd: number) => ({
+    available: true,
+    models: [
       { id: 'openai/vision-only', estimatedUsd: 0.001, tag: true },
       { id: 'openai/tool-only', estimatedUsd: 0.001 },
       { id: 'openai/expensive', estimatedUsd: 0.009, tag: true },
@@ -24,6 +25,7 @@ vi.mock('../../lib/models/catalog', async (original) => ({
         label: model.id,
         price: { input: 0.0000001, output: 0.0000004 },
       })),
+  }),
 }))
 
 afterEach(() => vi.unstubAllEnvs())

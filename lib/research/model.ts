@@ -105,8 +105,8 @@ export function guardedResearchModel(
         await attempt?.settle(
           reportedGatewayCost(result.providerMetadata),
           tokenUsage(result.usage),
-          routedGatewayModel(result.providerMetadata) ??
-            result.response?.modelId ??
+          result.response?.modelId ??
+            routedGatewayModel(result.providerMetadata) ??
             model.modelId
         )
         return result
@@ -137,8 +137,8 @@ export function guardedResearchModel(
                   await attempt?.settle(
                     reportedGatewayCost(part.providerMetadata),
                     tokenUsage(part.usage),
-                    routedGatewayModel(part.providerMetadata) ??
-                      responseModel ??
+                    responseModel ??
+                      routedGatewayModel(part.providerMetadata) ??
                       model.modelId
                   )
                 controller.enqueue(part)

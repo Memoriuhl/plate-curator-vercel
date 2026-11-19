@@ -99,6 +99,10 @@ export function chooseTaggingModel(
 }
 
 export const DEFAULT_GATEWAY_TAG_MODEL = TAGGING_MODELS[2].model
+export const DEFAULT_GATEWAY_TAG_PRICE = {
+  input: 0.00000015,
+  output: 0.0000006,
+}
 
 export const CURATED_TAG_MODELS = [
   DEFAULT_GATEWAY_TAG_MODEL,

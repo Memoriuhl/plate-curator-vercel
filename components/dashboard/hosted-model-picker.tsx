@@ -76,7 +76,8 @@ export function eligiblePickerModel(
   id: string | null | undefined,
   cap: ModelCap
 ) {
-  return catalog?.searchable.find(
+  const choices = catalog?.unavailable ? catalog.curated : catalog?.searchable
+  return choices?.find(
     (model) => model.id === id && fitsModelCap(model.estimatedUsd, cap)
   )
 }
@@ -236,18 +237,25 @@ export function HostedModelPicker({
         >
           <ModelSelectorInput
             ref={input}
-            placeholder="Search models"
+            placeholder={
+              catalog.unavailable ? 'Catalog unavailable' : 'Search models'
+            }
+            readOnly={catalog.unavailable}
             value={query}
             onValueChange={setQuery}
           />
           <ModelSelectorList>
             <ModelSelectorEmpty>
-              {terms.length
-                ? 'No models match this search and cap.'
-                : 'No models under this cap. Search the catalog or raise the cap.'}
+              {catalog.unavailable
+                ? 'No available models under this cap.'
+                : terms.length
+                  ? 'No models match this search and cap.'
+                  : 'No models under this cap. Search the catalog or raise the cap.'}
             </ModelSelectorEmpty>
             {curated.length > 0 && (
-              <ModelSelectorGroup heading="Curated">
+              <ModelSelectorGroup
+                heading={catalog.unavailable ? 'Pinned default' : 'Curated'}
+              >
                 {curated.map((model) => item(model, model))}
               </ModelSelectorGroup>
             )}
@@ -264,6 +272,11 @@ export function HostedModelPicker({
           </ModelSelectorList>
         </ModelSelectorContent>
       </ModelSelector>
+      {catalog.unavailable && (
+        <p role="status" className="caption">
+          Hosted model catalog unavailable.
+        </p>
+      )}
       {selectedHosted && (
         <>
           <span className="caption">

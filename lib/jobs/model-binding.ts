@@ -1,7 +1,13 @@
-import { curated, searchable, type HostedStep } from '../models/catalog'
+import {
+  curated,
+  pinnedHostedModel,
+  searchableCatalog,
+  type HostedStep,
+} from '../models/catalog'
 import type { PipelineRun } from './queue-types'
 import {
   DEFAULT_MODEL_CAP,
+  fitsModelCap,
   gatewayModelId,
   MODEL_CAP_PRESETS,
   type HostedModelCatalog,
@@ -42,7 +48,18 @@ export async function bindHostedModel(
   const { capUsd = DEFAULT_MODEL_CAP, strict = false } = parsed.data
   if (capUsd > hostedModelCeiling()) return { ok: false, error: 'bad_request' }
   try {
-    const models = await searchable(step, capUsd)
+    const { available, models } = await searchableCatalog(step, capUsd)
+    if (!available) {
+      const pinned = pinnedHostedModel(step)
+      if (model !== pinned.id) return { ok: false, error: 'unavailable' }
+      if (!fitsModelCap(pinned.estimatedUsd, capUsd))
+        return { ok: false, error: 'bad_request' }
+      return {
+        ok: true,
+        label: pinned.label,
+        binding: { model, price: pinned.price, capUsd, strict },
+      }
+    }
     const selected = models.find(({ id }) => id === model)
     if (!selected) return { ok: false, error: 'bad_request' }
     const fallbackId =
@@ -170,14 +187,25 @@ export async function hostedModelCatalog(
   const max = caps.at(-1)
   if (!max) return
   try {
-    const [preferred, all] = await Promise.all([
+    const [preferred, { available, models }] = await Promise.all([
       curated(step, max),
-      searchable(step, max),
+      searchableCatalog(step, max),
     ])
+    if (!available) {
+      const pinned = pinnedHostedModel(step)
+      return {
+        caps,
+        curated: fitsModelCap(pinned.estimatedUsd, max)
+          ? [pickerModel(pinned)]
+          : [],
+        searchable: [],
+        unavailable: true,
+      }
+    }
     return {
       caps,
       curated: preferred.map(pickerModel),
-      searchable: all.map(pickerModel),
+      searchable: models.map(pickerModel),
     }
   } catch {
     return undefined

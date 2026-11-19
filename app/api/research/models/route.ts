@@ -16,13 +16,16 @@ export async function GET(request: Request) {
     process.env.RESEARCH_ENABLE_MODEL_CALLS === 'true'
       ? await hostedModelCatalog('research')
       : undefined
+  const hostedChoices = hosted?.unavailable
+    ? hosted.curated
+    : hosted?.searchable
   const models = allowedResearchModels(
     !!hosted,
     auth.actor.role === 'owner'
   ).filter(
     (model) =>
       model.executor === 'desktop' ||
-      hosted?.searchable.some(({ id }) => id === model.model)
+      hostedChoices?.some(({ id }) => id === model.model)
   )
   return json({ models, default: models[0]?.id, ...(hosted ? { hosted } : {}) })
 }
