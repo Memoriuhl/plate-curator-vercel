@@ -35,6 +35,7 @@ import {
   firestorePublishRecords,
 } from '../publish/firestore'
 import { gcsSnapshots } from '../publish/gcs-snapshots'
+import { releaseActivityFor } from '../publish/release-activity'
 import type { PublishDeps, RequesterAuthority } from '../publish/types'
 import {
   expoPushSender,
@@ -223,6 +224,17 @@ export function reviewDeps(): ReviewDeps {
     liveVersion: () => catalog().readVersion(),
     /** Read the committed publish receipt that moved the pointer to a version. */
     versionOrigin: firestoreVersionOrigin(stagingFirestore()),
+    /** Classify a draft release the way the Publish view does. */
+    releaseActivity: (release) =>
+      releaseActivityFor(
+        firestorePublishRecords(
+          stagingFirestore(),
+          reviewEnv(),
+          workflowPublishRunLookup()
+        ),
+        publishControl(),
+        () => new Date().toISOString()
+      )(release),
     /** Return the ISO timestamp used to record review changes. */
     now: () => new Date().toISOString(),
   }

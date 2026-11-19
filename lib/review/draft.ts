@@ -811,10 +811,11 @@ export async function keepDraftValues(
 }
 
 /**
- * The confirmed release that will delete this plate from the catalog, if one is
- * publishing from the draft's current baseline. Undoing that deletion now could not be
- * carried past the publish, so it is refused until the release finishes or is
- * abandoned.
+ * The release that will delete this plate from the catalog, if one from the draft's
+ * current baseline is publishing or waits for Retry or Abandon. Undoing that deletion
+ * now could not be carried past the publish, so it is refused until the release
+ * finishes or is abandoned. A release whose run ended before preparing a Snapshot holds
+ * nothing, as in the Publish view, so the deletion can be undone before it is retried.
  */
 export async function deletionPublishing(
   d: ReviewDeps,
@@ -831,8 +832,15 @@ export async function deletionPublishing(
       batch.baselineVersion === draft.baselineVersion &&
       !batch.publishAbandonment
   )
-  for (const release of releases)
-    if ((await d.store.getEdit(release.id, plateId))?.fields.deleted)
+  for (const release of releases) {
+    if (!(await d.store.getEdit(release.id, plateId))?.fields.deleted) continue
+    // A published release already removed the plate; the draft settles onto it first.
+    const holds =
+      release.state === 'published' ||
+      !d.releaseActivity ||
+      (await d.releaseActivity(release)) !== null
+    if (holds)
       return `Revision ${release.source!.revision}, which deletes this plate, is publishing or waiting for recovery. Undo the deletion after that Publish finishes or is abandoned.`
+  }
   return null
 }

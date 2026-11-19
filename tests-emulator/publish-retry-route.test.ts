@@ -11,11 +11,14 @@ import {
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { ensureDraft, newSharedDraft } from '../lib/review/draft'
+import { proposeEdit } from '../lib/review/batch'
+import { plateRevision } from '../lib/review/revision'
 import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
 import { sharedDraftId } from '../lib/review/draft-id'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
 import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
+import { releaseActivityFor } from '../lib/publish/release-activity'
 import { verifyPreparedObject } from '../lib/publish/object'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
 import { db } from './setup'
@@ -132,27 +135,28 @@ beforeEach(async () => {
   const pointer = firestorePublishPointer(db, env, (record) =>
     verifyPreparedObject(f.deps.snapshots, record)
   )
+  const control = firestorePublishControl(db)
+  const records = firestorePublishRecords(db, env, {
+    runStatus: mocks.status,
+    /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun:
+      async (commandId) => {
+        try {
+          const run = await mocks.getHookByToken(`publish-command:${commandId}`)
+          return { runId: run.runId, status: await mocks.status(run.runId) }
+        } catch (error) {
+          if (HookNotFoundError.is(error)) return null
+          throw error
+        }
+      },
+  })
   mocks.deps.mockReturnValue({
     ...f.deps,
     /** Read the controlled test clock so state and lease timestamps advance deterministically. */ now: () =>
       time,
-    control: firestorePublishControl(db),
+    control,
     store: firestoreReviewStore(db, env),
-    records: firestorePublishRecords(db, env, {
-      runStatus: mocks.status,
-      /** Control discovery by command token when the fixture has no recorded workflow ID. */ findRun:
-        async (commandId) => {
-          try {
-            const run = await mocks.getHookByToken(
-              `publish-command:${commandId}`
-            )
-            return { runId: run.runId, status: await mocks.status(run.runId) }
-          } catch (error) {
-            if (HookNotFoundError.is(error)) return null
-            throw error
-          }
-        },
-    }),
+    records,
+    releaseActivity: releaseActivityFor(records, control, () => time),
     lock: firestorePublishLock(db, env),
     pointer,
     /** Read the live catalog version the shared draft is based on. */
@@ -761,6 +765,47 @@ test('a stale Publish of a newer revision is refused while a release waits for R
   expect(await replay.json()).not.toMatchObject({
     error: 'release_in_progress',
   })
+})
+
+test('undoing a deletion waits while its release runs, and is accepted once that release fails before preparing a Snapshot', async () => {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  const editor = {
+    uid: 'editor',
+    name: 'Dana Curator',
+    role: 'editor',
+  } as const
+  await deps.store.commit(draftId, 0, {
+    batch: { ...draft, plateIds: ['one'], revision: 1 },
+    edit: { ...tagEdit('one', []), fields: { deleted: true } },
+    by: editor,
+  })
+  expect((await POST(draftRequest(1, 'publish-delete'), draftCtx)).status).toBe(
+    202
+  )
+  /** The Dashboard's Undo delete: restore the plate from its current state. */
+  const undo = async () => {
+    const plate = (await deps.baselineAtVersion(1, 'one'))!
+    const edit = await deps.store.getEdit(draftId, 'one')
+    return proposeEdit(deps, editor, {
+      batchId: draftId,
+      plateId: 'one',
+      baseRevision: plateRevision({ ...plate, ...edit?.fields }),
+      fields: { deleted: false },
+    })
+  }
+
+  mocks.status.mockResolvedValue('running')
+  expect(await undo()).toMatchObject({
+    ok: false,
+    error: 'invalid_state',
+    reasons: [expect.stringContaining('Revision 1')],
+  })
+  // The run fails before preparing a Snapshot, so there is nothing to abandon.
+  mocks.status.mockResolvedValue('failed')
+  expect(await undo()).toMatchObject({ ok: true })
+  expect(await deps.store.getEdit(draftId, 'one')).toBeNull()
 })
 
 test('an Editor cannot confirm a Publish', async () => {

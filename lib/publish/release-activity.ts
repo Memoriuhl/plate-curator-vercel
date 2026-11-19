@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { receiptId } from './command'
 import { PUBLISH_ERRORS } from './stop'
-import type { PublishRecords, RequesterAuthority } from './types'
+import type {
+  PublishControl,
+  PublishRecords,
+  RequesterAuthority,
+} from './types'
 import { isRelease } from '../review/draft-id'
 import type { ReleaseActivity, ReviewBatch } from '../review/types'
 
@@ -66,4 +70,17 @@ export async function draftReleases(
       )
       .map(async (release) => ({ release, activity: await classify(release) }))
   )
+}
+
+/**
+ * The classification for review operations, which act for curators rather than an
+ * Owner: each release is checked with the authority recorded on its own request.
+ */
+export function releaseActivityFor(
+  records: PublishRecords,
+  control: Pick<PublishControl, 'read'>,
+  now: () => string
+) {
+  return async (release: ReviewBatch) =>
+    classifyRelease(records, release, (await control.read())?.generation, now())
 }
