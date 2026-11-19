@@ -123,9 +123,19 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 - Each change also records its before-images in a change log, so an earlier revision can be rebuilt.
 - Publish is Owner-only. It freezes the draft at the revision shown into an immutable release and ships the whole release. It records who, when, the revision and the baseline catalog version.
 - After a Publish, the draft rebases onto the new catalog version. Published edits drop out and edits made after the published revision stay. Change log entries up to the published revision are pruned.
+- A rebase works from the committed publish receipt that moved the pointer, not from whatever release looks published. While that publish is still finishing (the pointer moved, the receipt isn't settled), reads leave the draft where it is. The draft's baseline only moves forward, so a delayed post-publish step for an older release can't move it back.
+- A change made after the published revision that clears a field the release added is carried as an explicit clear on the new baseline, so the rebase never drops it. Undoing a deletion the publishing revision ships is refused, and one that slips past becomes a conflict.
+- The draft's last-publish record (who, when, which revision) comes from that committed receipt.
+- When the pointer moves outside this draft's releases and changes a value the draft also changed, the draft lists the conflicting fields. Publish is blocked until the Owner keeps the draft values; the Publish view lists each conflict and links to Review.
 - Publish waits while pipeline runs are queued or running. The Publish view says so and shows how many runs remain.
 - When the live pointer moves past the draft's baseline, the draft rebases onto it the next time it is read.
 - Per-person Batches from before the shared draft are folded into it once by `npm run migrate:shared-draft`, newest value per field and per State order. Published Batches stay readable as history.
+  - Before writing, the migration takes the Publish lock as a migration hold, in the same transaction that checks no pipeline run is queued or running. Publishes and new pipeline runs wait until the fold is written. The hold lapses after 10 minutes, so a rerun can take over from an interrupted one, and the draft write is refused if the hold was lost or the pointer moved.
+  - A folded Batch keeps its last save time (`lastChangedAt`) and records `foldedAt` separately. The dry run, an apply, and a rerun after an interrupted apply all pick the same State order.
+  - Conflict Batches are left out. They open read-only in Review, and their changes are redone in the shared draft.
+- Old Batches and releases are read-only history. A curator write or pipeline run that names one answers 409 `history_read_only`; the shared draft is the only write target.
+- Old `?batch=` links on the Dashboard and Review open the shared draft with a notice when the Batch was folded, is still open, or no longer exists. A published Batch, a release, or a conflict Batch opens read-only in Review.
+- A release and the migration's fold are each written in one Firestore request, capped at 10 MiB. Both refuse past a 9 MiB budget (`draft_too_large`, with a message saying what to do) instead of failing on every retry. The migration checks this on the dry run and before closing any Batch. Writing them in bounded chunks would lift the budget.
 - Grouping edits keep Template family invariants: exactly one Template per family, `isTemplate` always consistent with `templateRole`, and a regroup that changes a Template's family carries its Variants' consequences into the same batch, as the original curator's rules do.
 - At most one Standard plate per jurisdiction. Changing it updates the previous Standard plate in the same transaction.
 - Editable in this demo: tags and grouping fields (`templateFamily`, `templateRole`, `variantOfPlateId`, `isStandard`). Other ported controls are display-only and say so; none silently writes.
@@ -170,6 +180,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 **Publish**
 - Owner-only, and only for a frozen release of the shared draft.
 - One Publish at a time: a Publish lock document is claimed in a transaction (with a lease) before anything is uploaded, so two publishers never race for the same next version.
+- A release whose run is still live holds the draft's Publish button. A release that failed before preparing a Snapshot, or that the Owner abandoned, no longer does, so the corrected draft revision can publish. A release that stopped after preparing its Snapshot waits for recovery (retry or Abandon) and stays reachable from the Publish view.
 - If the create-only upload finds `catalog/v{N+1}.json` already exists, the Publish compares its checksum with the Publish record: a match means a retry of this Publish (continue to the pointer step); a mismatch means another release took that version (stop, release the lock, and re-read the pointer).
 - Validates the full resulting Snapshot against the game's Snapshot contract before uploading.
 - Uploads `catalog/v{N+1}.json` with a create-only precondition.
