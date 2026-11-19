@@ -798,7 +798,14 @@ test('a shared-draft run can be reverted by another curator once it stops writin
   const [run] = result.value
   const curator = { ...actor, uid: 'other-curator' }
   expect(
-    await revertQueueRun(jobs, review, curator, batchId, run.id)
+    await revertQueueRun(
+      jobs,
+      review,
+      curator,
+      batchId,
+      run.id,
+      await confirmedAttempt(run.id)
+    )
   ).toMatchObject({ ok: false, error: 'pipeline_busy' })
   await dispatchQueueStage(jobs, run.id, 1, 0, 'revert-hook')
   const claim = (await claimNext(jobs, 'worker'))!
@@ -817,11 +824,29 @@ test('a shared-draft run can be reverted by another curator once it stops writin
     })
   ).toMatchObject({ ok: true })
   await observeQueueStage(jobs, run.id, 1, 0)
-  expect(await revertQueueRun(jobs, review, curator, 'batch', run.id)).toEqual({
+  expect(
+    await revertQueueRun(
+      jobs,
+      review,
+      curator,
+      'batch',
+      run.id,
+      await confirmedAttempt(run.id)
+    )
+  ).toEqual({
     ok: false,
     error: 'not_found',
   })
-  expect(await revertQueueRun(jobs, review, curator, batchId, run.id)).toEqual({
+  expect(
+    await revertQueueRun(
+      jobs,
+      review,
+      curator,
+      batchId,
+      run.id,
+      await confirmedAttempt(run.id)
+    )
+  ).toEqual({
     ok: true,
     value: { batchId, revision: 2, reverted: 1, skipped: [] },
   })
@@ -839,6 +864,147 @@ test('a shared-draft run can be reverted by another curator once it stops writin
       },
     },
   ])
+}, 20_000)
+
+async function startSharedDescriptionRun(
+  requestId: string,
+  plateIds = [plates[0].id]
+) {
+  const batchId = sharedDraftId('development')
+  if (!(await review.store.getBatch(batchId))) {
+    const seed = (await review.store.getBatch('batch'))!
+    await review.store.create({ ...seed, id: batchId, kind: 'shared-draft' })
+  }
+  const result = await enqueueSelection(jobs, actor, {
+    requestId,
+    batchId,
+    plateIds,
+    stages: ['describe'],
+  })
+  if (!result.ok) throw Error(result.error)
+  return result.value[0]
+}
+
+async function finishDescriptionStage(
+  runId: string,
+  attempt: number,
+  step: number,
+  description: string | null
+) {
+  await dispatchQueueStage(jobs, runId, attempt, step, 'describe-hook')
+  const claim = (await claimNext(jobs, 'worker'))!
+  expect(
+    await reportResult(jobs, 'worker', claim.job.id, claim.claimId, {
+      backend: 'fixture',
+      model: 'test',
+      promptVersion: 'v1',
+      durationMs: 1,
+      ...(description === null
+        ? { stageError: 'unavailable' }
+        : {
+            fieldSuggestion: {
+              kind: 'fields',
+              stage: 'describe',
+              fields: { description },
+              sources: ['https://example.org/source'],
+            },
+          }),
+    })
+  ).toMatchObject({ ok: true })
+  await observeQueueStage(jobs, runId, attempt, step)
+}
+
+async function confirmedAttempt(runId: string) {
+  const run = (await jobs.store.transaction((tx) => tx.getRun(runId)))!
+  const attempt = run.attempts.at(-1)!
+  return { attempt: attempt.number, jobIds: attempt.jobIds }
+}
+
+test('a run cannot overwrite a field restored by reverting a later run', async () => {
+  const first = await startSharedDescriptionRun('description-a')
+  await finishDescriptionStage(first.id, 1, 0, 'A')
+  const last = await startSharedDescriptionRun('description-b')
+  await finishDescriptionStage(last.id, 1, 0, 'B')
+  const revert = async (runId: string) =>
+    revertQueueRun(
+      jobs,
+      review,
+      actor,
+      first.batchId,
+      runId,
+      await confirmedAttempt(runId)
+    )
+  const kept = {
+    reverted: 0,
+    skipped: [{ plateId: plates[0].id, field: 'description' }],
+  }
+  expect(await revert(first.id)).toMatchObject({ ok: true, value: kept })
+  expect(await revert(last.id)).toMatchObject({
+    ok: true,
+    value: { reverted: 1 },
+  })
+  expect(await revert(first.id)).toMatchObject({ ok: true, value: kept })
+  expect(await review.store.getEdit(first.batchId, plates[0].id)).toMatchObject(
+    {
+      fields: { description: 'A' },
+      pipelineChanges: { description: { runId: first.id } },
+    }
+  )
+}, 20_000)
+
+test('a run confirmation from before a retry cannot clear the retry output', async () => {
+  const run = await startSharedDescriptionRun(
+    'before-retry',
+    plates.map(({ id }) => id)
+  )
+  await finishDescriptionStage(run.id, 1, 0, 'First attempt')
+  await finishDescriptionStage(run.id, 1, 1, null)
+  const confirmed = await confirmedAttempt(run.id)
+  let racing = true
+  const concurrent = {
+    ...review,
+    store: {
+      ...review.store,
+      async listChanges(
+        ...args: Parameters<NonNullable<ReviewDeps['store']['listChanges']>>
+      ) {
+        if (racing) {
+          racing = false
+          expect(
+            await retryRun(jobs, actor, run.id, 'retry-description')
+          ).toMatchObject({ ok: true })
+          await finishDescriptionStage(run.id, 2, 1, 'Newer attempt')
+        }
+        return review.store.listChanges!(...args)
+      },
+    },
+  }
+  expect(
+    await revertQueueRun(
+      jobs,
+      concurrent,
+      actor,
+      run.batchId,
+      run.id,
+      confirmed
+    )
+  ).toMatchObject({ ok: false, error: 'superseded_revision' })
+  const before = await review.store.readBatch(run.batchId)
+  expect(before?.edits).toMatchObject([
+    { fields: { description: 'First attempt' } },
+    { fields: { description: 'Newer attempt' } },
+  ])
+  expect(
+    await revertQueueRun(jobs, review, actor, run.batchId, run.id, confirmed)
+  ).toMatchObject({ ok: false, error: 'superseded_revision' })
+  const latest = await confirmedAttempt(run.id)
+  expect(
+    await revertQueueRun(jobs, review, actor, run.batchId, run.id, {
+      ...latest,
+      jobIds: confirmed.jobIds,
+    })
+  ).toMatchObject({ ok: false, error: 'superseded_revision' })
+  expect(await review.store.readBatch(run.batchId)).toEqual(before)
 }, 20_000)
 
 test('a worker result conflicts with a concurrent same-field edit and the newer draft remains intact', async () => {

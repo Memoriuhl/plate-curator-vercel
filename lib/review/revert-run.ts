@@ -2,6 +2,7 @@ import { editableStates } from './access'
 import { clearedValue } from './draft'
 import { isSharedDraft } from './draft-id'
 import { editableKeys } from './fields'
+import { restoredPipelineChange } from './pipeline-changes'
 import { retryDraftRace } from './preconditions'
 import { commitDraftRevert } from './revert-commit'
 import { sameEditableValue } from './story'
@@ -25,15 +26,25 @@ export type RunRevertResult = {
 function collectRunFields(
   affected: Map<string, Set<Field>>,
   runId: string,
-  edit: ProposedEdit | null
+  edit: ProposedEdit | null,
+  published?: ProposedEdit
 ) {
   if (!edit?.pipelineChanges) return
   for (const field of editableKeys) {
     const change = edit.pipelineChanges[field]
+    const shipped =
+      published && Object.hasOwn(published.fields, field)
+        ? published.pipelineChanges?.[field]
+        : undefined
     if (
       ![change, ...(change?.prior ?? [])].some(
         (entry) =>
           entry?.runId === runId &&
+          !(
+            shipped?.runId === runId &&
+            shipped.jobId === entry.jobId &&
+            shipped.at === entry.at
+          ) &&
           !sameEditableValue(field, entry.previous, entry.value)
       )
     )
@@ -57,14 +68,31 @@ export function revertPipelineRun(
     const { batch, edits } = snapshot
     if (!editableStates.includes(batch.state))
       return { ok: false, error: 'invalid_state' }
-    const log = await d.store.listChanges?.(batch.id, batch.rebaseFloor ?? 0)
+    // A rebase raises the reconstruction floor, but newer unpublished writes still
+    // have before-images on the other side of that floor.
+    const log = await d.store.listChanges?.(
+      batch.id,
+      batch.lastPublish?.revision ?? 0
+    )
+    const published = new Map(
+      (batch.lastPublish
+        ? await d.store.listEdits(batch.lastPublish.releaseId)
+        : []
+      ).map((edit) => [edit.plateId, edit])
+    )
     const affected = new Map<string, Set<Field>>()
     const current = new Map(edits.map((edit) => [edit.plateId, edit]))
-    for (const edit of edits) collectRunFields(affected, runId, edit)
+    for (const edit of edits)
+      collectRunFields(affected, runId, edit, published.get(edit.plateId))
     for (const change of log ?? []) {
       if (change.revision > batch.revision) continue
       for (const edit of Object.values(change.before?.edits ?? {}))
-        collectRunFields(affected, runId, edit)
+        collectRunFields(
+          affected,
+          runId,
+          edit,
+          edit ? published.get(edit.plateId) : undefined
+        )
     }
 
     const skipped: RunRevertResult['skipped'] = []
@@ -82,6 +110,7 @@ export function revertPipelineRun(
         if (
           !baseline ||
           attribution?.runId !== runId ||
+          attribution.restored ||
           !sameEditableValue(field, attribution.value, plate[field])
         ) {
           skipped.push({ plateId, field })
@@ -94,17 +123,8 @@ export function revertPipelineRun(
           Object.assign(fields, {
             [field]: value === undefined ? clearedValue(field) : value,
           })
-        const history = attribution.prior ?? []
-        const prior = history.at(-1)
-        if (
-          prior &&
-          prior.runId !== runId &&
-          sameEditableValue(field, prior.value, value)
-        )
-          pipelineChanges[field] = {
-            ...prior,
-            ...(history.length > 1 ? { prior: history.slice(0, -1) } : {}),
-          }
+        const prior = restoredPipelineChange(field, attribution, value, runId)
+        if (prior) pipelineChanges[field] = prior
         restored.push(field)
       }
       if (baseline && previous && restored.length) {

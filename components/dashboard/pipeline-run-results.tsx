@@ -23,6 +23,7 @@ import { EnhancedImageResult } from './enhanced-image-result'
 import { SpecializedSuggestion } from './specialized-suggestion'
 import { usePipelineQueue } from './use-pipeline-queue'
 import { PipelineResultsSkeleton } from './pipeline-results-skeleton'
+import { runRevertTarget } from '@/lib/jobs/revert-target'
 import { RunRevertButton } from '@/components/review/run-revert-button'
 import { isSharedDraftId } from '@/lib/review/draft-id'
 import styles from './pipeline-results.module.css'
@@ -448,10 +449,15 @@ export function PipelineRunResults({
           (saved > 0 || run.applied) &&
           !run.previewOnly &&
           run.status !== 'queued' &&
-          run.status !== 'running' && (
+          run.status !== 'running' &&
+          attempt.jobIds && (
             <RunRevertButton
               key={`${run.id}:${attempt.number}`}
               runId={run.id}
+              target={runRevertTarget({
+                number: attempt.number,
+                jobIds: attempt.jobIds,
+              })}
             />
           )}
         {!stage && run.incrementalDrafts && !enhancementOnly && (

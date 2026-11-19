@@ -688,6 +688,83 @@ export function sharedDraftScenarios(
   )
 
   test(
+    'publishing an older revision preserves a pending overwritten run field in the skipped list',
+    async () => {
+      const { d, draftId, env, store, save, publish } = await setup()
+      await ensureDraft(d, env, owner)
+      const runId = 'run-across-publish'
+      const stamp = {
+        runId,
+        jobId: 'job',
+        by: owner.uid,
+        byName: owner.name,
+        at: d.now(),
+      }
+      const write = async (
+        plateId: string,
+        fields: EditableFields,
+        pipelineChanges: ProposedEdit['pipelineChanges']
+      ) => {
+        const draft = (await store.getBatch(draftId))!
+        const base = (await d.baselineAtVersion(1, plateId))!
+        expect(
+          await store.commit(draftId, draft.revision, {
+            batch: {
+              ...draft,
+              revision: draft.revision + 1,
+              plateIds: [...draft.plateIds, plateId],
+            },
+            edit: {
+              plateId,
+              fields,
+              pipelineChanges,
+              pipelineRunIds: [runId],
+              baseRevision: plateRevision(base),
+              resultRevision: plateRevision({ ...base, ...fields }),
+              authorId: owner.uid,
+              updatedAt: d.now(),
+            },
+          })
+        ).toBe('ok')
+      }
+      await write(
+        'AK.one',
+        { description: 'Published run value' },
+        {
+          description: { ...stamp, value: 'Published run value' },
+        }
+      )
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      await write(
+        'AK.two',
+        { description: 'Pending run value', tags: ['Pipeline'] },
+        {
+          description: { ...stamp, value: 'Pending run value' },
+          tags: { ...stamp, previous: [], value: ['Pipeline'] },
+        }
+      )
+      await save(editor('ana'), 'AK.one', { description: 'New human value' })
+      await save(editor('ana'), 'AK.two', { description: 'Human description' })
+      expect(await publish(frozen.value.id)).toMatchObject({ ok: true })
+      expect(
+        await revertPipelineRun(d, editor('ben'), { batchId: draftId, runId })
+      ).toMatchObject({
+        ok: true,
+        value: {
+          reverted: 1,
+          skipped: [{ plateId: 'AK.two', field: 'description' }],
+        },
+      })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { description: 'New human value' },
+        'AK.two': { description: 'Human description' },
+      })
+    },
+    timeout
+  )
+
+  test(
     'a field the published revision added and a later revision discarded is cleared on the next Publish',
     async () => {
       const { store, d, draftId, env, save, publish } = await setup()

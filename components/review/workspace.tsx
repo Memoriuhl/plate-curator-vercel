@@ -31,11 +31,7 @@ import {
   isSharedDraft,
   isSharedDraftId,
 } from '@/lib/review/draft-id'
-import type {
-  DraftChangeTarget,
-  EditableFields,
-  ReviewBatch,
-} from '@/lib/review/types'
+import type { DraftChangeTarget, ReviewBatch } from '@/lib/review/types'
 import {
   useRecentReviewPlates,
   useReviewCheckpoint,
@@ -60,7 +56,7 @@ import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { hasPipelineHistory } from '@/lib/review/pipeline-changes'
 import { batchHref, reviewHref } from '@/lib/review/href'
 import { BatchLastChanged } from './batch-last-changed'
-import { RunRevertButton } from './run-revert-button'
+import { ReviewRunRevertButton } from './run-revert-button'
 import { useBatchRun } from '@/lib/client/hooks'
 
 type State = {
@@ -524,47 +520,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       setReverting(false)
     }
   }
-  /**
-   * Revert a selected pipeline field and display the operation's result in the review
-   * panel.
-   */
-  async function revert(
-    entry: Entry,
-    field: keyof EditableFields,
-    jobId: string
-  ) {
-    if (!canDiscard(entry)) return
-    const plateId = entry.baseline.id
-    setReverting(true)
-    setRevertFeedback(null)
-    try {
-      await actions.revertPipelineField(entry.batch.id, plateId, field, jobId)
-      setRevertFeedback({
-        plateId,
-        message:
-          field === 'imageUrl' || field === 'sourceUrl'
-            ? 'Pipeline image and source reverted.'
-            : 'Pipeline field reverted.',
-        error: false,
-      })
-    } catch (error) {
-      const code =
-        error && typeof error === 'object' && 'code' in error
-          ? error.code
-          : null
-      setRevertFeedback({
-        plateId,
-        message:
-          apiErrorReasons(error).join(' ') ||
-          (code === 'superseded_revision' || code === 'stale_plate'
-            ? 'This field changed while you were reviewing. Check its latest value.'
-            : reviewError(error, entry.batch.revision)),
-        error: true,
-      })
-    } finally {
-      setReverting(false)
-    }
-  }
   if (batchId === '')
     return (
       <p role="alert">
@@ -703,7 +658,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             {filters.run &&
               me.data &&
               selected.data?.batch.kind === 'shared-draft' && (
-                <RunRevertButton key={filters.run} runId={filters.run} />
+                <ReviewRunRevertButton key={filters.run} runId={filters.run} />
               )}
             {filters.run && !loading && !byPlate.size && (
               <p className="caption">This run has no saved draft changes.</p>
@@ -1068,11 +1023,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                     }
                     pipelineChanges={item.edit?.pipelineChanges}
                     reverting={reverting}
-                    onRevert={
-                      editable
-                        ? (field, jobId) => void revert(item, field, jobId)
-                        : undefined
-                    }
                     onDiscard={
                       editable
                         ? (target) => void discard(item, target)

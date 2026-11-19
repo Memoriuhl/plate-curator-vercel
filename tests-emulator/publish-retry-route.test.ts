@@ -10,6 +10,7 @@ import {
   firestorePublishRecords,
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
+import { discardPlateChanges } from '../lib/review/discard-changes'
 import {
   ensureDraft,
   freezeRelease,
@@ -958,6 +959,66 @@ test('undoing a deletion waits while its release runs, and is accepted once that
   mocks.status.mockResolvedValue('failed')
   expect(await undo()).toMatchObject({ ok: true })
   expect(await deps.store.getEdit(draftId, 'one')).toBeNull()
+})
+
+test('deletion undo and Publish acceptance are serialized in either commit order', async () => {
+  const deps = mocks.deps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  const editor = { uid: 'editor', name: 'Curator', role: 'editor' } as const
+  const seed = async () => {
+    await deps.store.create(draft)
+    await deps.store.commit(draftId, 0, {
+      batch: { ...draft, plateIds: ['one'], revision: 1 },
+      edit: { ...tagEdit('one', []), fields: { deleted: true } },
+      by: editor,
+    })
+  }
+  const target = {
+    batchId: draftId,
+    plateId: 'one',
+    batchRevision: 1,
+    target: 'deleted',
+  } as const
+  await seed()
+  expect(await discardPlateChanges(deps, editor, target)).toMatchObject({
+    ok: true,
+  })
+  expect(await deps.store.getEdit(draftId, 'one')).toBeNull()
+  const losingPublish = await POST(
+    draftRequest(1, 'publish-after-undo'),
+    draftCtx
+  )
+
+  expect(await deps.records.command('publish-after-undo')).toBeNull()
+
+  await db.recursiveDelete(db.doc(`reviewBatches/${draftId}`))
+  await deleteReleases()
+  await seed()
+  mocks.status.mockResolvedValue('running')
+  let acceptedStatus: number | undefined
+  const concurrent = {
+    ...deps,
+    store: {
+      ...deps.store,
+      commit: async (...args: Parameters<typeof deps.store.commit>) => {
+        acceptedStatus ??= (
+          await POST(draftRequest(1, 'publish-before-undo'), draftCtx)
+        ).status
+        return deps.store.commit(...args)
+      },
+    },
+  }
+  const losingUndo = await discardPlateChanges(concurrent, editor, target)
+
+  expect(acceptedStatus).toBe(202)
+  expect(losingUndo).toMatchObject({ ok: false, error: 'invalid_state' })
+  expect(await deps.store.getEdit(draftId, 'one')).toMatchObject({
+    fields: { deleted: true },
+  })
+  expect(losingPublish.status).toBe(409)
+  expect(await losingPublish.json()).toMatchObject({
+    error: 'superseded_revision',
+  })
 })
 
 test('an Editor cannot confirm a Publish', async () => {

@@ -130,9 +130,11 @@ export async function commitDraftRevert(
   const { batch, edits } = snapshot
   if (!changes.length && !order) return { ok: true, value: batch }
 
+  let deletionPublishFence: number | undefined
   for (const { baseline, previous, fields } of changes) {
     const restored = { ...baseline, ...fields }
     if (previous.fields.deleted && !restored.deleted) {
+      deletionPublishFence ??= await d.store.deletionPublishFence?.(batch.id)
       const reason = await deletionPublishing(d, batch, baseline.id)
       if (reason)
         return { ok: false, error: 'invalid_state', reasons: [reason] }
@@ -224,6 +226,7 @@ export async function commitDraftRevert(
     by: actor,
     edits: updates,
     deleteEditsFor: deletes,
+    deletionPublishFence,
   })
   if (result === 'revision_mismatch') return retryDraft
   if (result !== 'ok') return { ok: false, error: result }

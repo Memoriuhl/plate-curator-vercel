@@ -1502,7 +1502,10 @@ test('stage results can revert the whole run and list the fields kept', async ()
       name: 'Revert run',
     })
   )
-  expect(mocks.revertRun).toHaveBeenCalledWith(run.id)
+  expect(mocks.revertRun).toHaveBeenCalledWith(run.id, {
+    attempt: 1,
+    jobIds: [],
+  })
   expect(
     await screen.findByText('1 field kept because it changed later')
   ).toBeTruthy()

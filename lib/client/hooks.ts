@@ -37,6 +37,7 @@ import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
 import { plateEditVersion } from '../review/edit-history'
 import { canEdit, editableStates } from '../review/access'
+import type { RunRevertTarget } from '../jobs/revert-target'
 import { isSharedDraft } from '../review/draft-id'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type {
@@ -49,6 +50,18 @@ import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../review/write-budget'
+
+const runRevertPath = (runId: string) =>
+  `/api/local-pipeline/runs/${encodeURIComponent(runId)}/revert`
+
+export function useRunRevertTarget(runId: string) {
+  const { user, api } = useSession()
+  return useSWR<RunRevertTarget | null>(
+    user ? runRevertPath(runId) : null,
+    api.get,
+    { refreshInterval: (target) => (target === null ? 4_000 : 0) }
+  )
+}
 
 export type BatchDetail = {
   batch: ReviewBatch
@@ -578,32 +591,17 @@ export function useReviewActions() {
       await refresh(batchId)
       return result
     },
-    /**
-     * Revert a pipeline field and refresh the batch even when the server reports a
-     * conflict.
-     */
-    async revertPipelineField(
-      batchId: string,
-      plateId: string,
-      field: keyof EditableFields,
-      jobId: string
-    ) {
+    async revertPipelineRun(runId: string, confirmed: RunRevertTarget) {
+      const path = runRevertPath(runId)
       try {
-        return await api.send<{ batch: ReviewBatch; plate: Plate }>(
-          'PATCH',
-          `${batchApiPath(batchId)}/plates/${encodeURIComponent(plateId)}`,
-          { revert: field, jobId }
-        )
+        const result = await api.send<
+          import('../review/revert-run').RunRevertResult
+        >('POST', path, confirmed)
+        await refresh(result.batchId).catch(() => undefined)
+        return result
       } finally {
-        await refresh(batchId).catch(() => undefined)
+        await mutate(path).catch(() => undefined)
       }
-    },
-    async revertPipelineRun(runId: string) {
-      const result = await api.send<
-        import('../review/revert-run').RunRevertResult
-      >('POST', `/api/local-pipeline/runs/${encodeURIComponent(runId)}/revert`)
-      await refresh(result.batchId).catch(() => undefined)
-      return result
     },
     async discardPlateChanges(
       batchId: string,

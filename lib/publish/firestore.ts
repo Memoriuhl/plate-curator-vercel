@@ -26,6 +26,7 @@ import {
 } from './eligibility'
 import { liveEnvKey, signalPath } from '../review/live-signal'
 import {
+  deletionPublishFenceRef,
   firestoreReviewStore,
   writePublishMetadata,
 } from '../review/firestore-store'
@@ -398,8 +399,7 @@ export function firestorePublishRecords(
     command: PublishCommand,
     now: string,
     evidence: RunEvidence,
-    replay = false,
-    writeRecovered = false
+    replay = false
   ) => {
     const requesterRef = memberDocRef(db, command.requestedBy?.email)
     const [batch, pointer, receipt, control, ownStop] =
@@ -513,33 +513,34 @@ export function firestorePublishRecords(
           : emptyDraft
             ? { canRetry: false, reason: 'empty_batch' as const }
             : retryEligibility(input)
-    if (
-      writeRecovered &&
-      !changed &&
-      'recoveredRunId' in resolved &&
-      resolved.recoveredRunId &&
-      status !== 'not_found' &&
-      !terminalRun(status) &&
-      claimDoc &&
-      claim
-    ) {
-      if (claimDoc.exists)
-        transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
-      else transaction.create(claimDoc.ref, { ...claim, env })
+    const recoverRun = () => {
       if (
-        batch.get('env') === env &&
-        batchApprovedFor(batch.data(), claim.command)
+        !changed &&
+        'recoveredRunId' in resolved &&
+        resolved.recoveredRunId &&
+        status !== 'not_found' &&
+        !terminalRun(status) &&
+        claimDoc &&
+        claim
       ) {
-        writePublishMetadata(transaction, batch, {
-          approvalRun: {
-            runId: resolved.recoveredRunId,
-            revision: claim.command.revision - 1,
-          },
-          publishRequestedAt: claim.acceptedAt,
-          ...(claim.command.requestedBy
-            ? { publishRequestedBy: claim.command.requestedBy }
-            : {}),
-        })
+        if (claimDoc.exists)
+          transaction.update(claimDoc.ref, { runId: resolved.recoveredRunId })
+        else transaction.create(claimDoc.ref, { ...claim, env })
+        if (
+          batch.get('env') === env &&
+          batchApprovedFor(batch.data(), claim.command)
+        ) {
+          writePublishMetadata(transaction, batch, {
+            approvalRun: {
+              runId: resolved.recoveredRunId,
+              revision: claim.command.revision - 1,
+            },
+            publishRequestedAt: claim.acceptedAt,
+            ...(claim.command.requestedBy
+              ? { publishRequestedBy: claim.command.requestedBy }
+              : {}),
+          })
+        }
       }
     }
     return {
@@ -550,6 +551,7 @@ export function firestorePublishRecords(
       receiptStop,
       changed,
       confirmed,
+      recoverRun,
     }
   }
   return {
@@ -816,19 +818,58 @@ export function firestorePublishRecords(
             receiptStop,
             changed,
             confirmed,
+            recoverRun,
           } = await inspect(
             transaction,
             command,
             now,
             evidence,
-            accepted.exists,
-            true
+            accepted.exists
           )
           if (changed && accepted.exists) return 'claim_changed'
-          if (!eligibility.canRetry)
+          if (!eligibility.canRetry) {
+            recoverRun()
             return { ok: false, error: eligibility.reason! }
+          }
+          const runId = accepted.get('runId') ?? input.claim?.runId
+          const sourceId = batch.get('source.batchId') as string | undefined
+          if (
+            sourceId &&
+            (!accepted.exists || !runId) &&
+            batch.get('state') !== 'published'
+          ) {
+            const deletions = await transaction.get(
+              batch.ref.collection('edits').where('fields.deleted', '==', true)
+            )
+            if (!deletions.empty) {
+              const source = db.doc(`reviewBatches/${sourceId}`)
+              const [draft, ...current] = await transaction.getAll(
+                source,
+                ...deletions.docs.map(({ id }) =>
+                  source.collection('edits').doc(id)
+                )
+              )
+              if (
+                draft.get('env') !== env ||
+                draft.get('kind') !== 'shared-draft' ||
+                draft.get('baselineVersion') !== batch.get('baselineVersion') ||
+                current.some((edit) => edit.get('fields.deleted') !== true)
+              )
+                return { ok: false, error: 'superseded_revision' }
+              // The undo reads this generation in its commit transaction. The edit
+              // reads above also serialize acceptance after an undo already committed.
+              transaction.set(
+                deletionPublishFenceRef(db, sourceId),
+                {
+                  generation: FieldValue.increment(1),
+                },
+                { merge: true }
+              )
+              if (accepted.exists) transaction.update(ref, { acceptedAt: now })
+            }
+          }
+          recoverRun()
           if (accepted.exists) {
-            const runId = accepted.get('runId') ?? input.claim?.runId
             return {
               ok: true,
               command,

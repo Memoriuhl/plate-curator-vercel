@@ -13,7 +13,7 @@ import {
 } from '@/lib/client/hooks'
 import { isSharedDraftId } from '@/lib/review/draft-id'
 import { editableKeys } from '@/lib/review/fields'
-import { sameEditableValue } from '@/lib/review/story'
+import { changedDraftField } from '@/lib/review/story'
 import type { DraftChangeTarget } from '@/lib/review/types'
 
 export function PlateDraftReverts({
@@ -37,15 +37,8 @@ export function PlateDraftReverts({
   } | null>(null)
   const entry = data?.plates.find((item) => item.baseline.id === plateId)
   const fields = entry
-    ? editableKeys.filter(
-        (field) =>
-          !sameEditableValue(
-            field,
-            entry.baseline[field],
-            entry.proposed[field]
-          ) &&
-          (!['isStandard', 'deleted'].includes(field) ||
-            Boolean(entry.baseline[field]) !== Boolean(entry.proposed[field]))
+    ? editableKeys.filter((field) =>
+        changedDraftField(field, entry.baseline[field], entry.proposed[field])
       )
     : []
 
