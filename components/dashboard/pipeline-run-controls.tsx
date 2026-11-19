@@ -358,6 +358,7 @@ export function PipelineRunControls({
               const { id } = stage
               const issue = stageIssues.get(id)
               const checked = stages.includes(id)
+              const wip = !!stage.workInProgress && !stage.localEnabled
               const showingOptions = expanded.includes(id)
               const panelId = `${optionsId}-${id}`
               const optionStage = id as keyof PipelineOptions
@@ -368,8 +369,10 @@ export function PipelineRunControls({
               return (
                 <div
                   key={id}
+                  data-work-in-progress={wip ? '' : undefined}
                   className={cn(
                     'rounded-[var(--radius-md)] border bg-[var(--fill)]',
+                    wip && 'opacity-60',
                     checked ? 'border-primary' : 'border-transparent'
                   )}
                 >
@@ -411,12 +414,20 @@ export function PipelineRunControls({
                           {issue ? (
                             <span
                               id={`${panelId}-issue`}
-                              className="caption inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-[var(--danger-tint)] px-1.5 py-0.5 font-medium [overflow-wrap:anywhere] text-[var(--danger)]"
+                              data-tone={wip ? 'muted' : 'danger'}
+                              className={cn(
+                                'caption inline-flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium [overflow-wrap:anywhere]',
+                                wip
+                                  ? 'bg-[var(--fill)] text-[var(--ink-2)]'
+                                  : 'bg-[var(--danger-tint)] text-[var(--danger)]'
+                              )}
                             >
-                              <IoWarningOutline
-                                aria-hidden="true"
-                                className="size-3.5 shrink-0"
-                              />
+                              {wip ? null : (
+                                <IoWarningOutline
+                                  aria-hidden="true"
+                                  className="size-3.5 shrink-0"
+                                />
+                              )}
                               {issue}
                             </span>
                           ) : null}
@@ -487,7 +498,7 @@ export function PipelineRunControls({
                         </span>
                       )}
                     </label>
-                    {id === 'group' ? (
+                    {id === 'group' && !wip ? (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

@@ -53,6 +53,8 @@ export type StageDefinition = {
   localEnabled: boolean
   legacyResearch?: true
   disabledReason?: string
+  /** Greyed out because the stage isn't built yet, not because something is broken. */
+  workInProgress?: true
   /** Absent for stages that produce no result, such as manual Order. */
   resultRule?: ResultRule
   options: readonly StageOption[]
@@ -117,6 +119,7 @@ export const pipelineStages: readonly StageDefinition[] = [
     description: 'Search for a clean plate photo',
     jobKind: 'find-image',
     localEnabled: false,
+    workInProgress: true,
     disabledReason:
       'Work in progress: candidates will wait for your pick in Review',
     flow: [
@@ -244,6 +247,7 @@ export const pipelineStages: readonly StageDefinition[] = [
     description: 'Propose template families',
     jobKind: 'group',
     localEnabled: false,
+    workInProgress: true,
     disabledReason:
       'Work in progress: proposed families will need your approval',
     flow: [

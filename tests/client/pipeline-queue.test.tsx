@@ -2837,3 +2837,37 @@ test('the run menu shows each stage result rule and opens from the selection bar
     Group: 'Waits for you to verify the proposed families',
   })
 })
+
+test('work-in-progress stages are greyed out while real unavailability stays red', () => {
+  render(
+    <PipelineRunControls
+      batchPlates={[plate]}
+      stateName="Alaska"
+      queue={{
+        runs: [],
+        action: null,
+        message: '',
+        disabledReason: undefined,
+        enqueue: vi.fn(),
+      }}
+    />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
+  const row = (name: string) =>
+    screen.getByRole('checkbox', { name }).closest('[class*="border"]')!
+  for (const name of ['Find image', 'Group']) {
+    const badge = row(name).querySelector('[data-tone]')!
+    expect(badge.getAttribute('data-tone')).toBe('muted')
+    expect(badge.textContent).toMatch(/^Work in progress/)
+    expect(badge.querySelector('svg')).toBeNull()
+    expect(badge.className).not.toContain('danger')
+    expect(row(name).hasAttribute('data-work-in-progress')).toBe(true)
+    expect(row(name).className).toContain('opacity-60')
+  }
+  const real = row('Enhance image')
+  const badge = real.querySelector('[data-tone]')!
+  expect(badge.getAttribute('data-tone')).toBe('danger')
+  expect(badge.textContent).toBe('Local worker not reporting')
+  expect(badge.querySelector('svg')).not.toBeNull()
+  expect(real.hasAttribute('data-work-in-progress')).toBe(false)
+})
