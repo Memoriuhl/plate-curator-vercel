@@ -11,12 +11,10 @@ Plate Curator is invite-only. Only Members can sign in, and an Owner adds Member
 ## Walk through the loop
 
 1. Sign in with the demo Editor account and open AK at `/states/AK`.
-2. Open `/review?state=AK`, find **Demo: Alaska field edits and grouping** in your open Batches, and inspect its changes. It already contains Tags, a description, a Standard change, a Plate regrouped as a variant, and a changed State order.
-3. Return to `/states/AK`, open a Plate, add or remove a Tag, and wait for **Saved to your batch**. Edits use your most recent open Batch, which is the freshly seeded demo Batch.
-4. Return to AK and drag a Plate into another position; the order saves to the same Batch.
-5. Open `/review?state=AK`, select the demo Batch, inspect the changes, and choose **Submit for review**.
-6. Sign out, then sign in with the demo Owner account. Open `/review`, inspect the submitted Batch, and approve it.
-7. Open `/publish` and inspect the approved Batch and its changes.
+2. Open a Plate, add or remove a Tag, and wait for **Saved to your batch**. Every curator's changes go into one shared draft; there is no Batch to pick.
+3. Return to AK and drag a Plate into another position; the order saves to the same draft.
+4. Open `/review?state=AK`. Review lists every unpublished change in the draft, yours included, with who made it and when.
+5. Sign out, then sign in with the demo Owner account. Open `/publish` and inspect the draft at its current revision, broken down by state. Publishing ships that revision; changes saved after it stay in the draft. The walkthrough stops at inspection.
 
 ## Reset the example
 
@@ -28,7 +26,9 @@ NODE_OPTIONS=--conditions=react-server npx tsx scripts/seed-demo.ts --uid "$DEMO
 
 In PowerShell, set `$env:NODE_OPTIONS='--conditions=react-server'` before running the same `npx tsx` command with your input variables. The alternatives to flags are `DEMO_EDITOR_UID`, `DEMO_EDITOR_NAME` and `REVIEW_ENV`.
 
-The script requires the staging project, reads the current Catalog version, and resets this Editor's demo Batch in the selected review environment. Published Batches cannot be reset. After a demo Batch is published, the next seed uses the first unpublished or unused numbered generation. The steps use the Editor's most recent open Batch. Verification uses `development` only.
+The script requires the staging project, reads the current Catalog version, and resets this Editor's demo Batch in the selected review environment. Published Batches cannot be reset. After a demo Batch is published, the next seed uses the first unpublished or unused numbered generation. Verification uses `development` only.
+
+The seed predates the shared draft: it writes a per-person demo Batch, which Review and Publish don't show. The walkthrough above doesn't need it. Moving the seed onto the shared draft is a follow-up.
 
 ## Repeat the tagging evaluation
 

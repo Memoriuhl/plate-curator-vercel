@@ -111,7 +111,9 @@ export function BatchActions({
         />
         <PublishButton
           batchId={
-            workspace.mode === 'selected' ? workspace.id : (draftId ?? undefined)
+            workspace.mode === 'selected'
+              ? workspace.id
+              : (draftId ?? undefined)
           }
           owner={me.data?.role === 'owner'}
         />

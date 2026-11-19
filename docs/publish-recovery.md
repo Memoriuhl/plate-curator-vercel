@@ -1,5 +1,18 @@
 # Publish controls and recovery (#129, #128, #127, #126, #119)
 
+## Shared draft releases (#216)
+
+Curators save into one shared draft per review environment. There is no Submit
+or Approve step. Publish freezes the draft at the revision the Owner reviewed
+into a release Batch (`kind: 'release'`, whose `source` names the draft and the
+revision) and confirms it in the same Owner command. The confirmation records
+the Owner, the time, the revision and the baseline Catalog version, as approval
+did. Wherever this document names an approved Batch revision, read the release
+the Owner confirmed. A retry with the same command resumes the same release.
+After the release commits, the draft rebases onto the new Catalog version: the
+published edits drop out and edits saved after the published revision stay for
+the next Publish.
+
 ## Plate Pipeline gate
 
 Publish checks the target catalog environment for queued or running workflow
@@ -15,7 +28,7 @@ transaction repeats the scoped gate before advancing the Catalog.
 
 Active Owners use the Catalog publishing control in Publish to Pause or Resume.
 The screen shows the last actor and time. Editors cannot change the control.
-Draft edits, Submit and Approve continue while publishing is paused. Existing
+Draft edits and pipeline results continue while publishing is paused. Existing
 deployment restrictions still apply to changing the control and requesting Publish.
 
 `config/publishControl` sits beside `config/catalog`, shared by every deployment
@@ -84,10 +97,11 @@ command, and “The Catalog did not advance” confirms that the old version sta
 live. Resume publishing if paused. An active Owner can then select **Publish
 again** for the same approved revision. A different active Owner can request it
 after the original requester was revoked. Editors cannot request it. If the live
-Catalog changed, use **Copy to new Batch** for fresh review instead.
+Catalog changed, publish the draft again: it rebases onto the live Catalog and
+freezes a new release for review.
 
-Each explicit click supplies a fresh command ID. A genuinely waiting approval run
-still receives its Publish hook; a stopped run has ended, so the retry starts a
+Each explicit click supplies a fresh command ID. An approval run from before the
+shared draft that is still waiting receives its Publish hook; a stopped run has ended, so the retry starts a
 dedicated durable Publish run. Acceptance stores the requester and current
 generation transactionally with approval, revision and baseline checks. A retained
 start-hook token prevents concurrent starts for one command ID; the durable command
@@ -223,7 +237,7 @@ burned version.
 | Stopped before upload | Retry, publish another eligible Batch, or optionally abandon with a reason | The slot remains held until disposition; missing object does not prevent abandonment |
 | Uncommitted target is below the live pointer | Optionally abandon for disposition | Audit and burn only; pointer and storage remain untouched |
 | Live run owns the current claim | Wait for the run to finish or stop | Retry and abandonment fail closed while it is live |
-| Stale baseline | Copy to new Batch, review, Submit, Approve, Publish | New review against the current committed Snapshot |
+| Stale baseline | Publish the draft again | The draft rebases onto the current committed Snapshot and a new release is frozen for review |
 | Committed pointer, incomplete bookkeeping | Retry the same command | Reconciles that version; never abandons or advances twice |
 | Mismatched prepared bytes | Triage; abandon a stopped uncommitted attempt if it is no longer wanted | Audit records observed identity; committed data remains protected |
 | Missing or malformed controls | Initialize with Resume if missing; investigate malformed data | No new pointer advance until authoritative controls are valid |
@@ -254,7 +268,8 @@ can proceed while the allocator skips its held target. Optionally use
 [abandonment](#abandon-a-prepared-snapshot) for disposition after the command stops.
 Leave the blob untouched.
 
-The Owner can select **Copy to new Batch** in Publish. POST
+Copy applies only to Batches from before the shared draft; the shared draft
+rebases instead. **Copy to new Batch** POST
 `/api/batches/:id/copy` accepts the source revision and explicit target Catalog
 version; the environment comes from the server. The target identity is derived
 from environment, source ID, source revision and target version. Repeated requests,
@@ -276,7 +291,7 @@ before values use the new immutable snapshot; State order before values use that
 snapshot's ordering. Missing referenced Plates or Variant parents and incompatible
 Jurisdiction inventories are reported with no partial target. The original Batch,
 its edits, approval and run history remain intact. The Owner can explicitly
-confirm the copied draft in Publish or use the Submit and Approve flow first.
+confirm the copied draft in Publish.
 Copy does not start a model or Publish run.
 
 ## Deployment compatibility and release gate
@@ -287,13 +302,13 @@ hard-delete Members documents or reset their epochs during restoration.
 
 ### Fence older Workflows before Resume
 
-Approval Workflows execute the deployment that started them. Before Resume,
+Publish Workflows, and Approval Workflows from before the shared draft, execute
+the deployment that started them. Before Resume,
 inventory waiting and executing runs by Batch, revision and starting deployment.
 Fence uncommitted runs from older deployments by moving their Batches out of
-approved through the normal review edit flow, and verify the authoritative state
+approved (the shared draft migration folds them), and verify the authoritative state
 prevents every older run from advancing a pointer. Already committed receipts
-finish bookkeeping instead. Then Submit and Approve again on the fixed deployment,
-or Copy stale proposals for fresh review. A redeploy, route change or Resume does
+finish bookkeeping instead. Then publish the draft again on the fixed deployment. A redeploy, route change or Resume does
 not retrofit controls into an old run. Pause alone cannot fence code that ignores
 it. Hosted proof with newly started runs and this fence remain release gates.
 

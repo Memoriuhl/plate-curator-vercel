@@ -88,9 +88,9 @@ test('the Publish view lists every changed state with its counts and contributor
     'AK03Dana',
     'AL20Plate Pipeline, Lee',
   ])
-  expect(
-    table.getByRole('link', { name: 'AL' }).getAttribute('href')
-  ).toBe('/review?state=AL')
+  expect(table.getByRole('link', { name: 'AL' }).getAttribute('href')).toBe(
+    '/review?state=AL'
+  )
   // No per-state hold-back: Publish is one action for the whole draft.
   expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
   expect(

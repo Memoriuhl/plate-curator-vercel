@@ -535,8 +535,8 @@ function BatchSelection({
           !receiptConflict && (
             <p role="status">
               Reviewed Catalog v{batch.baselineVersion}; current Catalog v
-              {liveVersion}. Publish stopped because the baseline changed.
-              These changes are still in the shared draft, which moves onto the
+              {liveVersion}. Publish stopped because the baseline changed. These
+              changes are still in the shared draft, which moves onto the
               current version; publish it from{' '}
               <Link className="underline" href="/publish">
                 the shared draft
@@ -695,9 +695,7 @@ function OwnerWorkspace() {
             selected={batch.id === requestedBatch}
           />
         ))}
-        {published.length > 0 && (
-          <h2 className="pt-2 font-bold">Published</h2>
-        )}
+        {published.length > 0 && <h2 className="pt-2 font-bold">Published</h2>}
         {published.map((batch) => (
           <BatchItem
             key={batch.id}

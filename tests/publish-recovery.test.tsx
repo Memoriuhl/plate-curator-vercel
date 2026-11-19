@@ -314,7 +314,9 @@ test.each([false, true])(
         .disabled
     ).toBe(true)
     // Copy to new Batch is retired: the changes are still in the shared draft.
-    expect(screen.queryByRole('button', { name: 'Copy to new Batch' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'Copy to new Batch' })
+    ).toBeNull()
     expect(
       screen.getByText(/baseline changed. These changes are still in/)
     ).toBeTruthy()

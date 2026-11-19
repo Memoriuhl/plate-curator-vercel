@@ -15,8 +15,7 @@ export function ReviewStrip() {
   const draftId = useSharedDraftId()
   const detail = useBatch(draftId, { reuse: true })
   const me = useMe()
-  if (detail.error)
-    return <p role="alert">Could not load the shared draft.</p>
+  if (detail.error) return <p role="alert">Could not load the shared draft.</p>
   const batch = detail.data?.batch
   if (!batch || !draftId) return null
   const states = [

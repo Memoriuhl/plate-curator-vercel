@@ -263,8 +263,8 @@ export function DraftPublish({ draftId }: { draftId: string }) {
         {revision !== null && data.draftRevision > revision && (
           <p role="status">
             The draft moved to revision {data.draftRevision} since you opened
-            this. Publish ships revision {revision}; the later edits stay in
-            the draft.
+            this. Publish ships revision {revision}; the later edits stay in the
+            draft.
           </p>
         )}
         <p>

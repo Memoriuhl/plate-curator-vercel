@@ -996,9 +996,9 @@ test('ensure batch reads membership when the draft id is not cached yet', async 
     ).toEqual(['draft', 'draft'])
   })
   expect(session.api.send).not.toHaveBeenCalled()
-  expect(
-    session.api.get.mock.calls.every(([key]) => key === '/api/me')
-  ).toBe(true)
+  expect(session.api.get.mock.calls.every(([key]) => key === '/api/me')).toBe(
+    true
+  )
 })
 
 test('two fast edits save both changes into the shared draft in order', async () => {
@@ -1609,10 +1609,7 @@ test('mounting an already-published batch does not refresh cached pages', async 
           updatedAt: null,
         }
   )
-  const { result } = renderHook(
-    () => useBatchRun('done'),
-    harness({}, null)
-  )
+  const { result } = renderHook(() => useBatchRun('done'), harness({}, null))
   await waitFor(() => expect(result.current.data?.phase).toBe('published'))
   expect(navigation.refresh).not.toHaveBeenCalled()
 })
@@ -1678,7 +1675,8 @@ test('draft Publish confirms the revision on screen and keeps it when the draft 
     canPublish: true,
   })
   session.api.get.mockImplementation(async (key: string) => {
-    if (key === '/api/me') return { uid: 'jon', role: 'owner', draftId: 'draft' }
+    if (key === '/api/me')
+      return { uid: 'jon', role: 'owner', draftId: 'draft' }
     if (key === '/api/batches/draft/publish') return view()
     if (key === '/api/publish/control')
       return { control: null, enabledHere: true }
@@ -1716,10 +1714,9 @@ test('draft Publish confirms the revision on screen and keeps it when the draft 
     )
     revision = 9
     fireEvent.click(
-      within(screen.getByRole('navigation', { name: 'Draft actions' })).getByRole(
-        'button',
-        { name: 'Refresh' }
-      )
+      within(
+        screen.getByRole('navigation', { name: 'Draft actions' })
+      ).getByRole('button', { name: 'Refresh' })
     )
     await waitFor(() =>
       expect(dialog.textContent).toContain(

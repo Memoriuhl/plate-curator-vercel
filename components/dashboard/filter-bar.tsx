@@ -41,9 +41,7 @@ export function FilterBar({
     reuse: true,
   })
   const batch =
-    workspace.mode === 'selected'
-      ? workspace.detail?.batch
-      : draft.data?.batch
+    workspace.mode === 'selected' ? workspace.detail?.batch : draft.data?.batch
   const changedCount = new Set(
     batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? []
   ).size
