@@ -4,7 +4,7 @@ import { GET } from '../../app/api/batches/[id]/route'
 import { plateRevision } from '../../lib/review/revision'
 import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import type { ReviewDeps } from '../../lib/review/types'
+import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 import type { Plate } from '../../lib/catalog/types'
 
 const context = vi.hoisted(() => ({
@@ -242,7 +242,8 @@ test('returns conflict for stale revisions and unprocessable for non-permutation
   )
 })
 test('an old Batch answers 409 as read-only history and a missing one 404', async () => {
-  const { kind: _kind, ...legacy } = batch
+  const legacy: ReviewBatch = { ...batch }
+  delete legacy.kind
   context.reviewDeps().store = createMemoryStore([legacy])
   const old = await put({ batchRevision: 4, order: ['one', 'two'] })
   expect(old.status).toBe(409)
@@ -254,7 +255,8 @@ test('an old Batch answers 409 as read-only history and a missing one 404', asyn
 })
 
 test('a plate PATCH from a tab still on an old Batch answers 409 and saves nothing', async () => {
-  const { kind: _kind, ...legacy } = batch
+  const legacy: ReviewBatch = { ...batch }
+  delete legacy.kind
   const store = createMemoryStore([legacy])
   context.reviewDeps().store = store
   const plate = {
