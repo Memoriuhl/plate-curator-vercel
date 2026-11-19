@@ -1,8 +1,21 @@
 'use client'
 
 import Link from 'next/link'
-import { useId, useRef, useState } from 'react'
-import { IoArrowUpOutline, IoLayersOutline } from 'react-icons/io5'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import {
+  IoArrowForward,
+  IoArrowUpOutline,
+  IoCheckmarkCircleOutline,
+  IoInformationCircleOutline,
+  IoSearchOutline,
+} from 'react-icons/io5'
 import {
   isPublishStop,
   PIPELINE_BUSY,
@@ -11,12 +24,19 @@ import {
 } from '@/lib/publish/stop'
 import { isBaselineError } from '@/lib/publish/baseline'
 import {
+  useBatch,
   useDraftPublishView,
+  useMe,
   useReviewActions,
   type DraftPublishView,
 } from '@/lib/client/hooks'
 import { batchHref } from '@/lib/review/href'
+import { publishChanges, type PublishFilter } from '@/lib/review/plate-changes'
 import { Button } from '@/components/ui/button'
+import { Toggle } from '@/components/ui/toggle'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { cn } from '@/components/utils'
+import { DraftChanges } from './draft-changes'
 import { RunStatus } from '@/components/review/run-status'
 import {
   PipelineFieldValue,
@@ -266,21 +286,102 @@ export function DraftConflicts({
     </div>
   )
 }
+const FILTERS: { value: PublishFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'edited', label: 'Edited' },
+  { value: 'moved', label: 'Moved' },
+  { value: 'removed', label: 'Removed' },
+]
+
+/** What the players' app has now and which draft revision Publish would send it. */
+function VersionChange({
+  live,
+  revision,
+}: {
+  live?: number
+  revision: number
+}) {
+  return (
+    <div className="flex items-center gap-4 rounded-[var(--radius-lg)] bg-card px-5 py-3.5">
+      <p className="grid gap-0.5">
+        <span className="label text-[var(--ink-2)]">Players have</span>
+        <span className="font-mono text-[28px] leading-8">
+          {live == null ? '—' : `v${live}`}
+        </span>
+      </p>
+      <IoArrowForward aria-label="then" className="size-6 shrink-0" />
+      <p className="grid gap-0.5">
+        <span className="label text-info">Will get</span>
+        <span className="font-mono text-[28px] leading-8 text-info">
+          {`revision ${revision}`}
+        </span>
+      </p>
+    </div>
+  )
+}
+
+/** A passed Publish check, in plain words. */
+function Check({ children }: { children: ReactNode }) {
+  return (
+    <li className="flex gap-2.5 text-sm leading-5 font-bold">
+      <IoCheckmarkCircleOutline
+        aria-hidden="true"
+        className="size-5 shrink-0 text-[var(--success)]"
+      />
+      {children}
+    </li>
+  )
+}
 
 /**
- * The Owner's Publish view of the shared draft: the revision Publish will ship, what each
- * state changes and who changed it, the last publish, and why Publish is blocked when it
- * is. Publish ships every state together; edits made after the confirmed revision stay
- * in the draft for the next Publish.
+ * The Owner's Publish view of the shared draft: every changed plate by state with an
+ * icon per change, and a side panel with the counts, the checks that passed, who
+ * changed what and the Publish button. Publish ships every state together; edits made
+ * after the confirmed revision stay in the draft for the next Publish. `side` holds the
+ * workspace's publishing control and history.
  */
-export function DraftPublish({ draftId }: { draftId: string }) {
+export function DraftPublish({
+  draftId,
+  side,
+}: {
+  draftId: string
+  side?: ReactNode
+}) {
   const view = useDraftPublishView(draftId)
+  const detail = useBatch(draftId)
+  const me = useMe()
   const actions = useReviewActions()
   const dialog = useRef<HTMLDialogElement>(null)
   const blockerId = useId()
   const [revision, setRevision] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [filter, setFilter] = useState<PublishFilter>('all')
+  const [query, setQuery] = useState('')
+  const changes = useMemo(
+    () => publishChanges(detail.data?.plates ?? []),
+    [detail.data]
+  )
+  const entries = useMemo(
+    () =>
+      new Map(
+        (detail.data?.plates ?? []).map((entry) => [entry.baseline.id, entry])
+      ),
+    [detail.data]
+  )
+  // The list is read once; reread it when the polled view shows a newer revision.
+  const draftRevision = view.data?.draftRevision
+  const listedRevision = detail.data?.batch.revision
+  const refreshList = detail.mutate
+  useEffect(() => {
+    if (
+      draftRevision != null &&
+      listedRevision != null &&
+      listedRevision < draftRevision
+    )
+      void refreshList()
+  }, [draftRevision, listedRevision, refreshList])
+
   if (view.error && !view.data)
     return (
       <section className="space-y-3 rounded-3xl bg-card p-5">
@@ -323,147 +424,259 @@ export function DraftPublish({ draftId }: { draftId: string }) {
     }
   }
 
+  /** The changed plates, or why they are not shown yet. */
+  function changedPlates() {
+    if (!data.states.length)
+      return <p className="body text-[var(--ink-2)]">No unpublished changes.</p>
+    if (detail.error && !detail.data)
+      return (
+        <p role="alert" className="body">
+          Could not load the changed plates.{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => void detail.mutate()}
+          >
+            Try again
+          </button>
+        </p>
+      )
+    if (!detail.data) return <p role="status">Loading the changed plates…</p>
+    return (
+      <DraftChanges
+        states={changes.states}
+        entries={entries}
+        batch={detail.data.batch}
+        filter={filter}
+        query={query}
+        viewer={me.data?.uid}
+      />
+    )
+  }
+
+  const counts = changes.counts
   return (
-    <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-3xl bg-card p-4">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold">Shared draft</h1>
-          <p className="text-sm">
+    <div className="grid min-w-0 gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="grid gap-1">
+          <h1 className="page-title">Publish to players</h1>
+          <p className="body">
             Revision {data.draftRevision} · based on Catalog v
             {data.baselineVersion}
           </p>
-          <p className="text-sm">Destination · {destination}</p>
-          {data.liveVersion != null && (
-            <p className="caption flex items-center gap-1.5">
-              <IoLayersOutline aria-hidden="true" />
-              Published catalog {data.liveVersion}
-            </p>
-          )}
+          <p className="caption text-[var(--ink-2)]">
+            Destination · {destination}
+          </p>
           {last && (
-            <p className="text-sm text-muted-foreground">
+            <p className="caption text-[var(--ink-2)]">
               Last published revision {last.revision} as v{last.version} by{' '}
               {last.byName || last.by} on {new Date(last.at).toLocaleString()}
             </p>
           )}
         </div>
-        <div className="grid max-w-sm justify-items-start gap-2">
-          <Button
-            variant="publish"
-            disabled={!data.canPublish || busy}
-            aria-describedby={blocker ? blockerId : undefined}
-            onClick={openConfirmation}
-          >
-            <IoArrowUpOutline aria-hidden="true" />
-            Publish revision {data.draftRevision}
-          </Button>
-          {blocker && blocker !== PIPELINE_BUSY && (
-            <p
-              id={blockerId}
-              role="status"
-              className="text-sm text-muted-foreground"
-            >
-              {blocker}
-            </p>
-          )}
-          {blocker === PIPELINE_BUSY && (
-            <div id={blockerId}>
-              <PipelineBusyNotice activeRuns={data.pipeline.activeRuns} />
+        <VersionChange live={data.liveVersion} revision={data.draftRevision} />
+      </header>
+      <div className="flex flex-wrap items-start gap-5">
+        <section
+          aria-label="Changed plates"
+          className="flex min-w-0 flex-[999_1_560px] flex-col gap-[var(--stack-gap)] rounded-3xl bg-card p-4"
+        >
+          {data.activeRelease && (
+            <div className="space-y-2">
+              <p role="status">
+                Publishing revision {data.activeRelease.revision ?? '?'}.{' '}
+                <Link
+                  className="underline"
+                  href={batchHref('/publish', data.activeRelease.id)}
+                >
+                  Open release
+                </Link>
+              </p>
+              <RunStatus compact batchId={data.activeRelease.id} />
             </div>
           )}
-        </div>
-      </header>
-      <nav aria-label="Draft actions" className="flex flex-wrap gap-3">
-        <Link className="underline" href="/review">
-          Review unpublished changes
-        </Link>
-        <Button size="sm" variant="outline" onClick={() => void view.mutate()}>
-          Refresh
-        </Button>
-      </nav>
-      <div className="min-h-0 flex-1 space-y-3 lg:overflow-y-auto">
-        {data.activeRelease && (
-          <div className="space-y-2">
+          {data.interruptedRelease && (
             <p role="status">
-              Publishing revision {data.activeRelease.revision ?? '?'}.{' '}
+              Revision {data.interruptedRelease.revision ?? '?'} stopped after
+              preparing its Snapshot.{' '}
               <Link
                 className="underline"
-                href={batchHref('/publish', data.activeRelease.id)}
+                href={batchHref('/publish', data.interruptedRelease.id)}
               >
                 Open release
-              </Link>
+              </Link>{' '}
+              to retry or abandon it.
             </p>
-            <RunStatus compact batchId={data.activeRelease.id} />
-          </div>
-        )}
-        {data.interruptedRelease && (
-          <p role="status">
-            Revision {data.interruptedRelease.revision ?? '?'} stopped after
-            preparing its Snapshot.{' '}
-            <Link
-              className="underline"
-              href={batchHref('/publish', data.interruptedRelease.id)}
-            >
-              Open release
-            </Link>{' '}
-            to retry or abandon it.
-          </p>
-        )}
-        {!!data.conflicts?.length && (
-          <DraftConflicts
-            draftId={draftId}
-            revision={data.draftRevision}
-            conflicts={data.conflicts}
-            onChange={() => void view.mutate()}
-          />
-        )}
-        {data.approvalProblems.length > 0 && (
-          <div role="alert">
-            <p>Resolve these Standard plate issues before publishing.</p>
-            <ul className="list-disc pl-5">
-              {data.approvalProblems.map((problem) => (
-                <li key={problem}>{problem}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {message && <p role="status">{message}</p>}
-        <table className="w-full text-left text-sm">
-          <caption className="pb-2 text-left font-bold">
-            Changes by state · Publish ships every state together
-          </caption>
-          <thead>
-            <tr className="text-muted-foreground">
-              <th scope="col">State</th>
-              <th scope="col">Plates changed</th>
-              <th scope="col">Plates moved</th>
-              <th scope="col">Changed by</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.states.map((state) => (
-              <tr key={state.state} className="border-t">
-                <th scope="row">
-                  <Link
-                    className="underline"
-                    href={`/review?state=${encodeURIComponent(state.state)}`}
-                  >
-                    {state.state}
-                  </Link>
-                </th>
-                <td>{state.plates}</td>
-                <td>{state.moved}</td>
-                <td>{state.contributors.join(', ') || '—'}</td>
-              </tr>
+          )}
+          {!!data.conflicts?.length && (
+            <DraftConflicts
+              draftId={draftId}
+              revision={data.draftRevision}
+              conflicts={data.conflicts}
+              onChange={() => void view.mutate()}
+            />
+          )}
+          {data.approvalProblems.length > 0 && (
+            <div role="alert">
+              <p>Resolve these Standard plate issues before publishing.</p>
+              <ul className="list-disc pl-5">
+                {data.approvalProblems.map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {message && <p role="status">{message}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex min-h-10 flex-[1_1_260px] items-center gap-2 rounded-[var(--radius-pill)] bg-[var(--fill)] px-3.5">
+              <IoSearchOutline
+                aria-hidden="true"
+                className="size-4 shrink-0 text-[var(--ink-2)]"
+              />
+              <input
+                type="search"
+                aria-label="Search changing plates"
+                placeholder="Search changing plates by name, id, state or change"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="body min-w-0 flex-1 bg-transparent outline-none"
+              />
+            </label>
+            {FILTERS.map(({ value, label }) => (
+              <Toggle
+                key={value}
+                variant="inset"
+                pressed={filter === value}
+                onPressedChange={() => setFilter(value)}
+                count={counts[value]}
+              >
+                {label}{' '}
+              </Toggle>
             ))}
-            {!data.states.length && (
-              <tr className="border-t">
-                <td colSpan={4} className="py-2 text-muted-foreground">
-                  No unpublished changes.
-                </td>
-              </tr>
+          </div>
+          <nav aria-label="Draft actions" className="flex flex-wrap gap-3">
+            <Link className="label underline" href="/review">
+              Review unpublished changes
+            </Link>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void view.mutate()
+                void detail.mutate()
+              }}
+            >
+              Refresh
+            </Button>
+          </nav>
+          {changedPlates()}
+        </section>
+        <aside
+          aria-label="Publish summary"
+          className="flex min-w-0 flex-[1_1_300px] flex-col gap-4 rounded-3xl bg-card p-5 lg:max-w-[360px]"
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {(['edited', 'moved', 'removed'] as const).map((kind) => (
+              <p
+                key={kind}
+                className="grid rounded-[var(--radius-md)] bg-[var(--fill)] p-3"
+              >
+                <span
+                  className={cn(
+                    'font-mono text-[28px] leading-8',
+                    counts[kind] ? 'text-info' : 'text-[var(--ink-2)]'
+                  )}
+                >
+                  {counts[kind]}
+                </span>
+                <span className="label">{kind}</span>
+              </p>
+            ))}
+          </div>
+          <ul className="m-0 grid list-none gap-3 p-0">
+            {data.liveVersion != null &&
+              data.baselineVersion === data.liveVersion && (
+                <Check>
+                  Built on Catalog v{data.liveVersion}, the version players
+                  have, so nothing they have is rolled back.
+                </Check>
+              )}
+            {!data.conflicts?.length && (
+              <Check>No conflicts with the live Catalog.</Check>
             )}
-          </tbody>
-        </table>
+            {!data.pipeline.busy && (
+              <Check>
+                The Plate Pipeline is idle, so no results are still landing.
+              </Check>
+            )}
+            {!data.approvalProblems.length && (
+              <Check>No Standard plate issues.</Check>
+            )}
+          </ul>
+          {changes.authors.length > 0 && (
+            <div className="grid gap-2 border-t border-[var(--hairline)] pt-3.5">
+              <p className="label text-[var(--ink-2)]">Changed by</p>
+              <ul className="m-0 grid list-none gap-2 p-0">
+                {changes.authors.map((author) => (
+                  <li
+                    key={author.uid}
+                    className="flex items-center gap-2 text-sm font-bold"
+                  >
+                    <Avatar
+                      size="sm"
+                      player={author.uid === me.data?.uid ? 'you' : 'friend'}
+                      aria-hidden="true"
+                    >
+                      <AvatarFallback>
+                        {author.name.trim().slice(0, 1).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    {`${author.name} · ${author.plates} ${author.plates === 1 ? 'plate' : 'plates'}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {side && (
+            <div className="grid gap-3 border-t border-[var(--hairline)] pt-3.5">
+              {side}
+            </div>
+          )}
+          <div className="grid gap-2 border-t border-[var(--hairline)] pt-4">
+            <p className="flex gap-2 rounded-[var(--radius-md)] bg-[var(--warning-tint)] p-2.5 text-[13px] leading-[18px] font-bold text-[var(--warning-ink)]">
+              <IoInformationCircleOutline
+                aria-hidden="true"
+                className="size-[18px] shrink-0"
+              />
+              Edits saved after revision {data.draftRevision} stay in the draft
+              for the next Publish.
+            </p>
+            {blocker && blocker !== PIPELINE_BUSY && (
+              <p
+                id={blockerId}
+                role="status"
+                className="text-sm text-muted-foreground"
+              >
+                {blocker}
+              </p>
+            )}
+            {blocker === PIPELINE_BUSY && (
+              <div id={blockerId}>
+                <PipelineBusyNotice activeRuns={data.pipeline.activeRuns} />
+              </div>
+            )}
+            <Button
+              variant="publish"
+              className="h-12 text-base"
+              disabled={!data.canPublish || busy}
+              aria-describedby={blocker ? blockerId : undefined}
+              onClick={openConfirmation}
+            >
+              <IoArrowUpOutline aria-hidden="true" />
+              Publish revision {data.draftRevision}
+            </Button>
+          </div>
+        </aside>
       </div>
       <dialog
         ref={dialog}
@@ -502,6 +715,6 @@ export function DraftPublish({ draftId }: { draftId: string }) {
           </Button>
         </div>
       </dialog>
-    </section>
+    </div>
   )
 }

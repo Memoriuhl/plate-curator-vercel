@@ -13,12 +13,15 @@ export function PublishControlView({
   loading,
   error,
   change,
+  inset = false,
 }: {
   control: PublishControlState | null
   enabledHere?: boolean
   loading?: boolean
   error?: boolean
   change: (paused: boolean) => Promise<void>
+  /** Drop the card surface when the control sits inside another card. */
+  inset?: boolean
 }) {
   const stop = publishControlStop(control)
   const [busy, setBusy] = useState(false)
@@ -26,7 +29,9 @@ export function PublishControlView({
   return (
     <section
       aria-label="Catalog publishing control"
-      className="space-y-3 rounded-2xl bg-card p-4"
+      className={
+        inset ? 'space-y-3 text-sm' : 'space-y-3 rounded-2xl bg-card p-4'
+      }
     >
       <p className="font-bold">
         {error
