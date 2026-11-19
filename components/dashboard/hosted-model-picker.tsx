@@ -1,7 +1,12 @@
 'use client'
 
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { IoChevronDownOutline, IoCheckmarkOutline } from 'react-icons/io5'
+import {
+  IoChevronDownOutline,
+  IoCheckmarkOutline,
+  IoCloudOutline,
+  IoDesktopOutline,
+} from 'react-icons/io5'
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -119,6 +124,19 @@ function ModelMetrics({ model }: { model: PickerModel }) {
   )
 }
 
+/** Show whether a model runs on an on-device worker or in the cloud. */
+function ModelHost({ device }: { device: boolean }) {
+  const Icon = device ? IoDesktopOutline : IoCloudOutline
+  return (
+    <span
+      data-model-host={device ? 'device' : 'cloud'}
+      className="inline-flex shrink-0 text-[var(--ink-2)]"
+    >
+      <Icon className="chrome-icon" aria-hidden="true" />
+    </span>
+  )
+}
+
 export function HostedModelPicker({
   label,
   catalog,
@@ -175,7 +193,8 @@ export function HostedModelPicker({
           setQuery('')
         }}
       >
-        <span className="grid min-w-0 gap-0.5">
+        <ModelHost device={!hosted} />
+        <span className="grid min-w-0 flex-1 gap-0.5">
           <strong className="break-words">{model.label}</strong>
           {hosted && <ModelMetrics model={hosted} />}
         </span>
@@ -209,6 +228,11 @@ export function HostedModelPicker({
             aria-label={`${label}: ${selected?.label ?? 'Choose model'}`}
             className="w-fit max-w-full"
           >
+            {selected && (
+              <ModelHost
+                device={localModels.some(({ id }) => id === selected.id)}
+              />
+            )}
             <span className="truncate">
               {label} · {selected?.label ?? 'Choose model'}
             </span>
@@ -259,16 +283,16 @@ export function HostedModelPicker({
                   ? 'No models match this search and cap.'
                   : 'No models under this cap. Search the catalog or raise the cap.'}
             </ModelSelectorEmpty>
+            {desktop.length > 0 && (
+              <ModelSelectorGroup heading="On-device workers">
+                {desktop.map((model) => item(model))}
+              </ModelSelectorGroup>
+            )}
             {curated.length > 0 && (
               <ModelSelectorGroup
                 heading={catalog.unavailable ? 'Pinned default' : 'Curated'}
               >
                 {curated.map((model) => item(model, model))}
-              </ModelSelectorGroup>
-            )}
-            {desktop.length > 0 && (
-              <ModelSelectorGroup heading="Desktop">
-                {desktop.map((model) => item(model))}
               </ModelSelectorGroup>
             )}
             {[...providers].map(([provider, models]) => (
