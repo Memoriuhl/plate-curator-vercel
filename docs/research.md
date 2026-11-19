@@ -281,8 +281,11 @@ npm run research:benchmark -- --enrich-plan --input snapshot.json \
 Run Research / enrich on exactly those plates twice from the Dashboard: once with
 the hosted model and once with the desktop model, Fill missing, in a draft batch,
 without Apply. Run them one after the other so the hosted wall time is measured
-alone. A Wikipedia 429 during evidence capture fails that plate, so don't capture
-evidence from the same machine just before a run. A 40-plate selection is split into
+alone. Research identifies itself to Wikipedia with the app URL as contact, as
+Wikimedia's User-Agent policy asks, and retries a 429 up to twice: it waits what
+Retry-After asks, or one then two seconds without it. A plate still fails when
+Wikipedia keeps refusing or asks for more than ten seconds, so don't capture evidence
+from the same machine just before a run. A 40-plate selection is split into
 runs of 25, which run one after the other. Save each finished run's
 detail (`GET /api/local-pipeline/runs?detail=<run id>&detailOnly=1`) and score it:
 
@@ -316,7 +319,7 @@ missing both.
 
 Evidence was captured for 28 of the 40 plates, and each of the 28 had at least one
 source. The other 12 could not be measured because Wikipedia's API answered 429
-after repeated captures from one machine. Prompts were 1,470–10,151 characters
+after repeated captures from one machine, before 429s were retried. Prompts were 1,470–10,151 characters
 (median 4,290). Assuming two calls per plate, 3,000 tokens of agent overhead and
 600 output tokens per call, the estimate is $0.037 for those 28 plates, about
 $0.0013 per plate if all 40 have evidence. That is well under the $0.01 bar.

@@ -1,4 +1,8 @@
 import { JURISDICTIONS } from '../../lib/catalog/jurisdictions'
+import {
+  localPipelineUserAgent,
+  withRateLimitRetry,
+} from '../../lib/research/wikimedia'
 import type { WorkerPlate } from '../run'
 
 export type Source = {
@@ -188,20 +192,21 @@ export async function gatherWikipedia(
   return sources
 }
 
-/** Read and decode a bounded Wikipedia API response with a request deadline. */
+/**
+ * Read and decode a bounded Wikipedia API response with a request deadline. A 429 is
+ * retried within the shared rate-limit bounds before it fails the request.
+ */
 export async function wikipediaQuery(
   params: Record<string, string>,
   request: typeof fetch = fetch
 ) {
-  const response = await request(
-    `${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`,
-    {
-      headers: {
-        'User-Agent': 'PlateCuratorLocal/1.0 (source-backed catalog drafts)',
-      },
+  const url = `${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`
+  const response = await withRateLimitRetry(() =>
+    request(url, {
+      headers: { 'User-Agent': localPipelineUserAgent },
       signal: AbortSignal.timeout(20000),
       redirect: 'error',
-    }
+    })
   )
   if (!response.ok)
     throw new Error(`Wikipedia request failed: ${response.status}`)

@@ -4,6 +4,11 @@ import { Agent, fetch as publicFetch } from 'undici'
 import { parse } from 'node-html-parser'
 import { evidenceSource } from './evidence'
 import type { EvidenceSource } from './types'
+import {
+  isWikimediaHost,
+  researchUserAgent,
+  withRateLimitRetry,
+} from './wikimedia'
 
 export type PageDeps = {
   resolve?: (host: string) => Promise<string[]>
@@ -135,11 +140,17 @@ export async function fetchResearchPage(
       await vetted(current.hostname.replace(/^\[|\]$/g, ''))
       if (!(await deps.reserve()))
         throw new Error('Research page limit exhausted')
-      const response = await request(current.href, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10000),
-        headers: { 'User-Agent': 'PlateCuratorResearch/1.0' },
-      })
+      const target = current
+      const send = () =>
+        request(target.href, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(10000),
+          headers: { 'User-Agent': researchUserAgent },
+        })
+      // Wikipedia rate limits are retried; other hosts keep the single request.
+      const response = isWikimediaHost(target.hostname)
+        ? await withRateLimitRetry(send, { now: deps.now })
+        : await send()
       const location = response.headers.get('location')
       if (response.status >= 300 && response.status < 400 && location) {
         await response.body?.cancel()
