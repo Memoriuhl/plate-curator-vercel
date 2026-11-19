@@ -11,7 +11,12 @@ export function createStableDragTargets() {
     for (const { target, rect, scrollElement } of targets) {
       const identity =
         target.kind === 'family-slot'
-          ? `family:${target.index}`
+          ? JSON.stringify([
+              'family',
+              target.index,
+              target.anchor?.anchorId,
+              target.anchor?.kind,
+            ])
           : target.kind === 'variant-slot'
             ? `variant:${target.familyId}:${target.index}`
             : `merge:${target.familyId}`

@@ -135,6 +135,55 @@ test('a move below a legacy first plate saves without a Standard edit and remain
   ).toEqual([])
 })
 
+test('a filtered edge drop saves after the displayed family when Add to family leaves its Variant beyond a hidden family', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', [
+    'AK.first',
+    'AK.a',
+    'AK.hidden',
+    'AK.c',
+    'AK.d',
+  ]).map((plate, sortOrder) => ({
+    ...plate,
+    sortOrder,
+    templateFamily: plate.id,
+  }))
+  const [first, a, hidden, c, d] = plates
+  deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+  deps.baselineAtVersion = async (_, id) =>
+    plates.find((plate) => plate.id === id) ?? null
+
+  const added = await patchPlate(c.id, {
+    baseRevision: plateRevision(c),
+    fields: {
+      templateRole: 'variant',
+      templateFamily: a.templateFamily,
+      variantOfPlateId: a.id,
+    },
+  })
+  expect(added.status).toBe(200)
+  expect(await deps.store.getEdit(batch.id, c.id)).toMatchObject({
+    fields: { variantOfPlateId: a.id },
+  })
+  const afterAdd = (await deps.store.getBatch(batch.id))!
+  expect(afterAdd.stateOrders).toEqual({})
+
+  const command = {
+    operationId: randomUUID(),
+    moves: [{ plateIds: [d.id], placement: { kind: 'after', anchorId: a.id } }],
+  }
+  const saved = await put(command)
+  expect(saved.status).toBe(200)
+  const receipt = await saved.json()
+  const order = [first.id, a.id, c.id, d.id, hidden.id]
+  expect(receipt).toMatchObject({ revision: afterAdd.revision + 1, order })
+  expect(await deps.store.getBatch(batch.id)).toMatchObject({
+    revision: afterAdd.revision + 1,
+    stateOrders: { AK: order },
+  })
+  expect(await (await put(command)).json()).toEqual(receipt)
+})
+
 test.each(['AK.a', 'AK.b'])(
   'the join endpoint requires confirmation to demote Standard %s and then saves the whole selection',
   async (flag) => {

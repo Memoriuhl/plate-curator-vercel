@@ -12,10 +12,33 @@ export function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {
   if (!a || !b) return a === b
   if (a.kind !== b.kind) return false
   if (a.kind === 'family-slot' && b.kind === 'family-slot')
-    return a.index === b.index && a.background === b.background
+    return (
+      a.index === b.index &&
+      a.background === b.background &&
+      a.anchor?.anchorId === b.anchor?.anchorId &&
+      a.anchor?.kind === b.anchor?.kind
+    )
   if (a.kind === 'variant-slot' && b.kind === 'variant-slot')
     return a.index === b.index && a.familyId === b.familyId
   return a.kind === 'merge' && b.kind === 'merge' && a.familyId === b.familyId
+}
+
+/** A Variant slot accepts the entire local selection within its own family. */
+export function canReorderVariants(
+  family: DragFamily,
+  item: DragItem,
+  selection: readonly PlateCardData[]
+) {
+  if (item.kind !== 'variant' || family.template.deleted) return false
+  const siblings = new Set(
+    family.variants.filter(({ deleted }) => !deleted).map(({ id }) => id)
+  )
+  return (
+    siblings.has(item.plate.id) &&
+    selection.every(
+      ({ id, state }) => state !== item.plate.state || siblings.has(id)
+    )
+  )
 }
 
 /** Compute the temporary order and lifted-item presentation for a possible drop. */
@@ -35,11 +58,7 @@ export function reflowForDrop(
     const source = families.find(
       ({ template }) => template.id === target.familyId
     )
-    if (
-      item.kind !== 'variant' ||
-      !source?.variants.some((plate) => plate.id === item.plate.id)
-    )
-      return null
+    if (!source || !canReorderVariants(source, item, selection)) return null
     const byId = new Map(source.variants.map((plate) => [plate.id, plate]))
     const ids = [...byId.keys()]
     const plateIds = ids.filter((id) => selected.has(id))

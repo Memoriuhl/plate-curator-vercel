@@ -254,7 +254,16 @@ async function planStateMove(
         error: 'invalid_state',
         reasons: ['A moved plate cannot be its own destination.'],
       }
-    let block = order.filter((id) => moving.has(id))
+    // Family edges refer to the displayed blocks. An ordinary family edit can
+    // attach a Variant without changing its stored position.
+    const placementOrder =
+      placement.kind === 'before' || placement.kind === 'after'
+        ? families.flatMap(({ template, variants }) => [
+            template.id,
+            ...variants.map(({ id }) => id),
+          ])
+        : order
+    let block = placementOrder.filter((id) => moving.has(id))
     if (promote) {
       // Explicitly promoted Variants get their own blocks. Retained Variants stay
       // beside their selected Template, even when a former sibling preceded them.
@@ -268,7 +277,7 @@ async function planStateMove(
         ...variants.map(({ id }) => id),
       ])
     }
-    const remaining = order.filter((id) => !moving.has(id))
+    const remaining = placementOrder.filter((id) => !moving.has(id))
     const after = placement.kind === 'after' || placement.kind === 'join'
     const familyMembers = new Set([
       anchorId,

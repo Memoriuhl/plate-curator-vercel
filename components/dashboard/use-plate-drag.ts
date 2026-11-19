@@ -42,7 +42,11 @@ import {
   type DropTarget,
   type TargetRect,
 } from './drop-targets'
-import { reflowForDrop, sameDropTarget } from './drag-reflow'
+import {
+  canReorderVariants,
+  reflowForDrop,
+  sameDropTarget,
+} from './drag-reflow'
 import {
   dragElement,
   measureDragGeometry,
@@ -92,6 +96,8 @@ const errors = {
   not_found: 'This plate or batch could not be found.',
   stale_plate: 'Someone changed this while you were editing.',
 }
+const variantSlotRefused =
+  'Only Variants from this family can be reordered here.'
 
 /**
  * Coordinate pointer and keyboard reordering, family changes and optimistic draft
@@ -757,6 +763,11 @@ export function usePlateDrag(options: Options) {
       return
     }
     const plan = reflowForDrop(stateFamilies, item, target, selected)
+    if (!plan && target.kind === 'variant-slot') {
+      latest.current.holdOverlay?.(false)
+      announce(variantSlotRefused)
+      return
+    }
     const before = familyOrder(stateFamilies)
     const skipped = skippedOtherStates(
       selected.filter((plate) => plate.state !== state).length
@@ -1120,6 +1131,10 @@ export function usePlateDrag(options: Options) {
         event.key !== 'ArrowLeft' &&
         event.key !== 'ArrowRight' &&
         drag.target?.kind !== 'family-slot'
+      if (within && !canReorderVariants(family, item, drag.selection)) {
+        announce(variantSlotRefused)
+        return
+      }
       const previous =
         item.kind === 'variant' &&
         family &&
@@ -1203,13 +1218,22 @@ export function usePlateDrag(options: Options) {
   const item = active?.item
   const target = active?.target
   const selection = active?.selection
-  // Pointer motion within a drop slot can reuse the same reflowed family layout.
+  // Adjacent card edges can share a preview slot while specifying different anchors.
+  const familySlotIndex = target?.kind === 'family-slot' ? target.index : null
+  const nonFamilyTarget = target?.kind === 'family-slot' ? null : target
   const reflow = useMemo(
     () =>
       item && selection
-        ? reflowForDrop(options.families, item, target ?? null, selection)
+        ? reflowForDrop(
+            options.families,
+            item,
+            familySlotIndex === null
+              ? (nonFamilyTarget ?? null)
+              : { kind: 'family-slot', index: familySlotIndex },
+            selection
+          )
         : null,
-    [options.families, item, selection, target]
+    [options.families, item, selection, familySlotIndex, nonFamilyTarget]
   )
   return {
     standardDialog: standardConfirmation.dialog,

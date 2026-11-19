@@ -1259,6 +1259,94 @@ function pointerDrag(handle: HTMLElement, x: number) {
   dragPointer(handle, 'pointerup', x)
 }
 
+test('pointer and keyboard refuse a Variant slot for a selection containing the first Template', () => {
+  for (const input of ['pointer', 'keyboard']) {
+    plateSelection.add([a, v])
+    const { handle, edit, reorder, move, mergeSave } = setup({
+      variant: true,
+      rows: input === 'keyboard',
+      targets: () => [
+        {
+          target: { kind: 'variant-slot', familyId: a.id, index: 2 },
+          rect: { left: 105, right: 160, top: 0, bottom: 500 },
+        },
+      ],
+    })
+    if (input === 'pointer') {
+      dragPointer(handle, 'pointerdown', 100)
+      dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+    } else {
+      fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
+      fireEvent.keyDown(window, { key: 'ArrowDown' })
+    }
+    const preview = screen.getByTestId('gap').textContent
+    if (input === 'pointer') dragPointer(handle, 'pointerup', 110)
+    else fireEvent.keyDown(window, { key: ' ' })
+
+    expect(reorder, input).not.toHaveBeenCalled()
+    expect(move, input).not.toHaveBeenCalled()
+    expect(mergeSave, input).not.toHaveBeenCalled()
+    expect(edit, input).not.toHaveBeenCalled()
+    expect(confirmStandard, input).not.toHaveBeenCalled()
+    expect(preview, input).toBe('')
+    expect(screen.getByRole('status').textContent, input).toBe(
+      'Only Variants from this family can be reordered here.'
+    )
+    expect(plateSelection.snapshot().map(({ id }) => id)).toEqual([a.id, v.id])
+    cleanup()
+  }
+})
+
+test('moving between adjacent card edges keeps the gap and saves the newly hovered anchor', async () => {
+  let rightEdgeVisible = true
+  const { handle, move } = setup({
+    variant: true,
+    show: 'noFamily',
+    targets: () => [
+      rightEdgeVisible
+        ? {
+            target: {
+              kind: 'family-slot',
+              index: 1,
+              anchor: { kind: 'after', anchorId: a.id },
+            },
+            rect: { left: 105, right: 160, top: 0, bottom: 500 },
+          }
+        : {
+            target: {
+              kind: 'family-slot',
+              index: 1,
+              anchor: { kind: 'before', anchorId: b.id },
+            },
+            rect: { left: 200, right: 250, top: 0, bottom: 500 },
+          },
+    ],
+  })
+  dragPointer(handle, 'pointerdown', 100)
+  dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+  const gap = [a.id, w.id, v.id, b.id].join(',')
+  expect(screen.getByTestId('gap').textContent).toBe(gap)
+
+  // The next edge can be measured after the first has left the virtualized rows.
+  rightEdgeVisible = false
+  dwellPointer(() => dragPointer(handle, 'pointermove', 210))
+  expect(screen.getByTestId('gap').textContent).toBe(gap)
+  dragPointer(handle, 'pointerup', 210)
+  await waitFor(() => expect(move).toHaveBeenCalledOnce())
+  expect(move).toHaveBeenCalledWith(
+    v.state,
+    [
+      {
+        plateIds: [v.id],
+        placement: { kind: 'before', anchorId: b.id },
+        promote: true,
+      },
+    ],
+    expect.any(Object),
+    undefined
+  )
+})
+
 test('pointer lift is immediate and small movements leave the gap dwell running', () => {
   vi.useFakeTimers()
   try {
