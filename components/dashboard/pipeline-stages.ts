@@ -34,6 +34,15 @@ export type StageOption = {
   choices?: readonly InlineSelectChoice[]
   disabledReason?: string
 }
+/** How a stage's result reaches the plate: saved on its own or only after a person acts. */
+export type ResultRule = {
+  mode: 'automatic' | 'apply' | 'choose' | 'verify'
+  label: string
+}
+const automatic = (label = 'Saved automatically'): ResultRule => ({
+  mode: 'automatic',
+  label,
+})
 export type StageDefinition = {
   id: PipelineStage | 'tag'
   label: string
@@ -44,6 +53,10 @@ export type StageDefinition = {
   localEnabled: boolean
   legacyResearch?: true
   disabledReason?: string
+  /** Greyed out because the stage isn't built yet, not because something is broken. */
+  workInProgress?: true
+  /** Absent for stages that produce no result, such as manual Order. */
+  resultRule?: ResultRule
   options: readonly StageOption[]
 }
 export type PipelineSelection = {
@@ -57,6 +70,7 @@ export const onlyUnderTaggedLabel = `Only under-tagged plates (fewer than ${mini
 export const pipelineStages: readonly StageDefinition[] = [
   {
     id: 'research',
+    resultRule: automatic(),
     icon: IoSearchOutline,
     label: 'Research / enrich',
     description: 'Wikipedia link, description and sourced Story in one run',
@@ -96,11 +110,18 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'find-image',
+    resultRule: {
+      mode: 'choose',
+      label: 'Waits for you to choose a candidate',
+    },
     icon: IoImagesOutline,
     label: 'Find image',
     description: 'Search for a clean plate photo',
     jobKind: 'find-image',
-    localEnabled: true,
+    localEnabled: false,
+    workInProgress: true,
+    disabledReason:
+      'Work in progress: candidates will wait for your pick in Review',
     flow: [
       { label: 'Search Commons', icon: IoSearchOutline },
       { label: 'Check images', icon: IoCheckmarkCircleOutline },
@@ -117,6 +138,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'enhance-image',
+    resultRule: { mode: 'apply', label: 'Waits until you click Apply' },
     icon: IoSparklesOutline,
     label: 'Enhance image',
     description: 'Create a downloadable WebP from the current plate image',
@@ -149,6 +171,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'wiki-link',
+    resultRule: automatic(),
     icon: IoLinkOutline,
     label: 'Wiki link',
     description: 'Match a Wikipedia or DMV page',
@@ -159,6 +182,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'colors',
+    resultRule: automatic(),
     icon: IoColorPaletteOutline,
     label: 'Colors',
     description: 'Background and text colours',
@@ -168,6 +192,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'describe',
+    resultRule: automatic(),
     icon: IoDocumentTextOutline,
     label: 'Describe',
     description: 'Write the description from the source',
@@ -178,6 +203,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'story',
+    resultRule: automatic(),
     icon: IoBookOutline,
     label: 'Story',
     description: 'First issued, fun facts and read-more links',
@@ -195,6 +221,7 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'tag',
+    resultRule: automatic('Saved automatically; Review is optional'),
     icon: IoPricetagsOutline,
     label: 'Tag',
     description: 'Suggest tags with the selected model',
@@ -211,11 +238,18 @@ export const pipelineStages: readonly StageDefinition[] = [
   },
   {
     id: 'group',
+    resultRule: {
+      mode: 'verify',
+      label: 'Waits for you to verify the proposed families',
+    },
     icon: IoGridOutline,
     label: 'Group',
     description: 'Propose template families',
     jobKind: 'group',
-    localEnabled: true,
+    localEnabled: false,
+    workInProgress: true,
+    disabledReason:
+      'Work in progress: proposed families will need your approval',
     flow: [
       { label: 'Embed images', icon: IoScanOutline },
       { label: 'Compare', icon: IoGitMergeOutline },
@@ -281,6 +315,9 @@ export function stageAvailability(
   local: boolean,
   capabilities?: PipelineCapabilities
 ) {
+  // A stage that is not ready says so before any worker capability is consulted.
+  if (local && !stage.localEnabled && stage.disabledReason)
+    return stage.disabledReason
   if (
     local &&
     (stage.id === 'group' ||
@@ -311,6 +348,16 @@ export function stageAvailability(
     : local
       ? stage.disabledReason
       : 'Coming soon'
+}
+
+/** List the requested stages that the run menu keeps disabled, whatever started the run. */
+export function disabledRunStages(stages: readonly string[]) {
+  return pipelineStages
+    .filter(
+      (stage) =>
+        !stage.localEnabled && stage.disabledReason && stages.includes(stage.id)
+    )
+    .map((stage) => stage.id)
 }
 
 const stepReasons: Record<string, string> = {

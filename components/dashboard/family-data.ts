@@ -24,7 +24,32 @@ export function attachedFamilyIds(
 
 const EMPTY_IDS: ReadonlySet<string> = new Set()
 
-/** Filter a plate by search text, workspace status and the active completeness check. */
+/**
+ * Read the active filter keys from the `show` URL value. Several keys are joined with
+ * commas; unknown keys and `all` are dropped, so an empty list means no filter.
+ */
+export function parseShow(raw: string | null | undefined): string[] {
+  const known = new Set<string>([
+    ...PLATE_CHECK_KEYS,
+    ...NEEDS_WORK_KEYS,
+    'changed',
+  ])
+  return [
+    ...new Set(
+      (raw ?? '').split(',').filter((key) => key !== 'all' && known.has(key))
+    ),
+  ]
+}
+
+/** Write filter keys back as a `show` value; no keys means `all`. */
+export function serializeShow(keys: readonly string[]): string {
+  return keys.length ? keys.join(',') : 'all'
+}
+
+/**
+ * Filter a plate by search text and every active filter. A plate must match all active
+ * filters (AND); `show` holds one key or several joined with commas.
+ */
 export function matchesPlate(
   plate: PlateCardData,
   show: string,
@@ -41,16 +66,24 @@ export function matchesPlate(
     )
   )
     return false
-  if (PLATE_CHECK_KEYS.includes(show as PlateCheckKey))
-    return plate.checks[show as PlateCheckKey].status !== 'good'
-  if (show === 'standardPlate') return standardIds?.has(plate.id) ?? false
-  if (NEEDS_WORK_KEYS.has(show)) return matchesCheck(plate, show, attachedIds)
-  switch (show) {
-    case 'changed':
-      return changed.has(plate.id)
-    default:
-      return true
-  }
+  return parseShow(show).every((key) =>
+    matchesFilter(plate, key, changed, standardIds, attachedIds)
+  )
+}
+
+/** Evaluate one filter key against a plate. */
+function matchesFilter(
+  plate: PlateCardData,
+  key: string,
+  changed: ReadonlySet<string>,
+  standardIds: ReadonlySet<string> | undefined,
+  attachedIds: ReadonlySet<string>
+) {
+  if (PLATE_CHECK_KEYS.includes(key as PlateCheckKey))
+    return plate.checks[key as PlateCheckKey].status !== 'good'
+  if (key === 'standardPlate') return standardIds?.has(plate.id) ?? false
+  if (NEEDS_WORK_KEYS.has(key)) return matchesCheck(plate, key, attachedIds)
+  return key === 'changed' ? changed.has(plate.id) : true
 }
 
 export type FamilyPlate = Pick<

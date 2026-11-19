@@ -8,6 +8,7 @@ import {
   SelectionPresence,
 } from './plate-selection'
 import { SelectionBar } from './selection-bar'
+import { selectionActions } from './selection-actions'
 import dynamic from 'next/dynamic'
 import { FilterBar } from './filter-bar'
 import Link from 'next/link'
@@ -47,6 +48,8 @@ import {
   attachedFamilyIds,
   filterCounts,
   matchesPlate,
+  parseShow,
+  serializeShow,
   plateIdsForCheck,
   expandFamilyPlate,
   type FamilyPlate,
@@ -115,18 +118,20 @@ export function FamilyGrid({
       ),
     [overlaid]
   )
-  const show = params.get('show') ?? 'all'
+  const rawShow = params.get('show')
+  const show = useMemo(() => serializeShow(parseShow(rawShow)), [rawShow])
+  const standardFilter = show.includes('standardPlate')
   const query = params.get('q') ?? ''
   const focusPlateId = params.get('plate')
   // Reuse the state-wide Standard check as search text changes.
   const standardIds = useMemo(
     () =>
       new Set(
-        show === 'standardPlate'
-          ? plateIdsForCheck(overlaid, show, '', attachedIds)
+        standardFilter
+          ? plateIdsForCheck(overlaid, 'standardPlate', '', attachedIds)
           : []
       ),
-    [overlaid, show, attachedIds]
+    [overlaid, standardFilter, attachedIds]
   )
   /**
    * Apply the current search and completeness filters with the precomputed family
@@ -176,7 +181,7 @@ export function FamilyGrid({
   const standardConfirmation = useStandardConfirmation()
   // Reuse candidate repairs until the affected families or saved state order changes.
   const standardRepairs = useMemo(() => {
-    if (show !== 'standardPlate') return []
+    if (!standardFilter) return []
     const states = new Set(
       overlaid
         .filter((plate) => standardIds.has(plate.id))
@@ -193,7 +198,13 @@ export function FamilyGrid({
         )?.template
         return first ? [first] : []
       })
-  }, [show, overlaid, standardIds, baselineFamilies, ordering.stateOrders])
+  }, [
+    standardFilter,
+    overlaid,
+    standardIds,
+    baselineFamilies,
+    ordering.stateOrders,
+  ])
   const [issue, setIssue] = useState<Issue | null>(null)
   const [resolving, setResolving] = useState(false)
   const [resolutionError, setResolutionError] = useState('')
@@ -473,12 +484,24 @@ export function FamilyGrid({
       .forEach((element) => virtualizer.measureElement(element))
   }, [displayedFamilies, virtualizer])
   useDragFlip(container, reflowIdentity, !!drag.active)
+  const selectionDisabled =
+    !canEdit || drag.saving || edits.pending || bulkEdits.pending
   useSelectionKeyboard({
     close,
     promote: drag.promote,
-    disabled: !canEdit || drag.saving || edits.pending || bulkEdits.pending,
+    disabled: selectionDisabled,
     dragging: !!drag.active,
   })
+  // Offer the same promote action to the selection bar's Make Templates button.
+  const promoteSelection = drag.promote
+  useEffect(
+    () =>
+      selectionActions.register('promote', {
+        run: promoteSelection,
+        disabled: selectionDisabled,
+      }),
+    [promoteSelection, selectionDisabled]
+  )
   const keyboardSource = useRef<string | null>(null)
   useEffect(() => {
     if (drag.active?.keyboard)

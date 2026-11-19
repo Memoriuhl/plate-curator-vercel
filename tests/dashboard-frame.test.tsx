@@ -98,7 +98,7 @@ test('filter bar renders fixture check counts and preserves query when selecting
     />
   )
   expect(html).toContain('All plates<span>44</span>')
-  expect(html).toContain('Changed in a batch<span>3</span>')
+  expect(html).toContain('Unpublished changes<span>3</span>')
   expect(html).toContain('No fun facts<span>44</span>')
   expect(html).toContain('Under-tagged<span>0</span>')
   expect(html).toContain('Generic description<span>0</span>')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   IoArrowForwardOutline,
   IoChevronDown,
@@ -50,6 +50,7 @@ import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
 import { enhancementOperations } from '@/lib/jobs/image-enhancement'
 import { useSelectedPlates } from './plate-selection'
+import { selectionActions } from './selection-actions'
 import { newRunStages, stageAvailability } from './pipeline-stages'
 import { PipelineOptionSelect } from './pipeline-option-select'
 import {
@@ -116,6 +117,16 @@ export function PipelineRunControls({
   const trigger = useRef<HTMLButtonElement>(null)
   const startButton = useRef<HTMLButtonElement>(null)
   const optionsId = useId()
+  // Let the selection bar open this menu for the current selection.
+  const disabledForSelection = !!queue.disabledReason
+  useEffect(
+    () =>
+      selectionActions.register('runPipeline', {
+        run: () => setOpen(true),
+        disabled: disabledForSelection,
+      }),
+    [disabledForSelection]
+  )
 
   const desktop =
     desktopChoice.data?.models.filter((model) => model.runsOn === 'desktop') ??
@@ -322,7 +333,7 @@ export function PipelineRunControls({
             event.preventDefault()
             trigger.current?.focus()
           }}
-          className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100dvw-16px)] gap-4 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl max-[420px]:w-full max-[420px]:max-w-full"
+          className="max-h-[min(85dvh,var(--radix-popover-content-available-height))] w-[620px] max-w-[calc(100dvw-16px)] gap-4 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--card)] px-4 pt-4 pb-0 text-[var(--ink)] shadow-xl max-[420px]:w-[calc(100dvw-16px)]"
         >
           <header className="grid shrink-0 gap-1">
             <p className="font-normal">
@@ -347,6 +358,7 @@ export function PipelineRunControls({
               const { id } = stage
               const issue = stageIssues.get(id)
               const checked = stages.includes(id)
+              const wip = !!stage.workInProgress && !stage.localEnabled
               const showingOptions = expanded.includes(id)
               const panelId = `${optionsId}-${id}`
               const optionStage = id as keyof PipelineOptions
@@ -357,8 +369,10 @@ export function PipelineRunControls({
               return (
                 <div
                   key={id}
+                  data-work-in-progress={wip ? '' : undefined}
                   className={cn(
                     'rounded-[var(--radius-md)] border bg-[var(--fill)]',
+                    wip && 'opacity-60',
                     checked ? 'border-primary' : 'border-transparent'
                   )}
                 >
@@ -367,6 +381,7 @@ export function PipelineRunControls({
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={!stage.localEnabled && !!stage.disabledReason}
                         aria-label={stage.label}
                         aria-describedby={
                           issue ? `${panelId}-issue` : undefined
@@ -399,12 +414,20 @@ export function PipelineRunControls({
                           {issue ? (
                             <span
                               id={`${panelId}-issue`}
-                              className="caption inline-flex items-center gap-1 rounded-md bg-[var(--danger-tint)] px-1.5 py-0.5 font-medium text-[var(--danger)]"
+                              data-tone={wip ? 'muted' : 'danger'}
+                              className={cn(
+                                'caption inline-flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium [overflow-wrap:anywhere]',
+                                wip
+                                  ? 'bg-[var(--fill)] text-[var(--ink-2)]'
+                                  : 'bg-[var(--danger-tint)] text-[var(--danger)]'
+                              )}
                             >
-                              <IoWarningOutline
-                                aria-hidden="true"
-                                className="size-3.5 shrink-0"
-                              />
+                              {wip ? null : (
+                                <IoWarningOutline
+                                  aria-hidden="true"
+                                  className="size-3.5 shrink-0"
+                                />
+                              )}
                               {issue}
                             </span>
                           ) : null}
@@ -412,6 +435,14 @@ export function PipelineRunControls({
                         <span className="caption block">
                           {stage.description}
                         </span>
+                        {stage.resultRule ? (
+                          <span
+                            className="caption block text-[var(--ink-2)]"
+                            data-result-rule={stage.resultRule.mode}
+                          >
+                            {stage.resultRule.label}
+                          </span>
+                        ) : null}
                         {stage.flow ? (
                           <span
                             role="list"
@@ -467,7 +498,7 @@ export function PipelineRunControls({
                         </span>
                       )}
                     </label>
-                    {id === 'group' ? (
+                    {id === 'group' && !wip ? (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

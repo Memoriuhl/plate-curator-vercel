@@ -1,7 +1,12 @@
 'use client'
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { NEEDS_WORK_CHECKS, type FilterCounts } from './family-data'
+import {
+  NEEDS_WORK_CHECKS,
+  parseShow,
+  serializeShow,
+  type FilterCounts,
+} from './family-data'
 import { useWorkspaceBatch, useBatches } from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
 import {
@@ -62,7 +67,7 @@ export function FilterBarControls({
   const pathname = usePathname()
   const filters = [
     { key: 'all', label: 'All plates', count: counts.all },
-    { key: 'changed', label: 'Changed in a batch', count: changedCount },
+    { key: 'changed', label: 'Unpublished changes', count: changedCount },
     ...NEEDS_WORK_CHECKS.map(({ key, label, checkKey }) => ({
       key,
       label,
@@ -74,12 +79,27 @@ export function FilterBarControls({
           : `${counts.groups[key].missing} missing, ${counts.groups[key].weak} weak`,
     })),
   ]
-  const selected = filters.some((filter) => filter.key === params.get('show'))
-    ? params.get('show')
-    : 'all'
+  const active = parseShow(params.get('show'))
+  /** Switch one filter on or off; filters combine, and All plates clears them. */
+  function toggle(key: string) {
+    const keys =
+      key === 'all'
+        ? []
+        : active.includes(key)
+          ? active.filter((item) => item !== key)
+          : [...active, key]
+    const next = new URLSearchParams(params)
+    next.set('show', serializeShow(keys))
+    router.replace(`${pathname}?${next}`, { scroll: false })
+  }
   return (
     <div className="filter-bar">
-      <div className="filter-chips" role="group" aria-label="Filter plates">
+      <div
+        className="filter-chips"
+        role="group"
+        aria-label="Filter plates"
+        title="Plates must match every filter that is on"
+      >
         {filters.map((filter, index) => (
           <span className="filter-item" key={filter.key}>
             {index === 2 ? (
@@ -88,6 +108,7 @@ export function FilterBarControls({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Toggle
+                  className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
                   count={filter.count}
                   onClick={(event) => {
                     if (
@@ -102,12 +123,12 @@ export function FilterBarControls({
                       if (ids.length) onSelectGroup(filter.key, ids)
                     }
                   }}
-                  pressed={selected === filter.key}
-                  onPressedChange={() => {
-                    const next = new URLSearchParams(params)
-                    next.set('show', filter.key)
-                    router.replace(`${pathname}?${next}`, { scroll: false })
-                  }}
+                  pressed={
+                    filter.key === 'all'
+                      ? !active.length
+                      : active.includes(filter.key)
+                  }
+                  onPressedChange={() => toggle(filter.key)}
                 >
                   {'icon' in filter ? <filter.icon aria-hidden="true" /> : null}
                   {filter.label}
