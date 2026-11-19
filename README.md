@@ -8,7 +8,7 @@ Plate Curator is the web workspace behind State Spotter, a mobile license-plate 
 
 The workspace runs on Vercel. The game, its Firebase catalog and the local GPU server stay where they are.
 
-[Open the app](https://plate-curator-vercel.vercel.app) · [Read the write-up](./docs/take-home/part-1.html?raw=1) · [Try the review demo](docs/try-it.md) · [Find your way around](#where-to-go)
+[Open the app](https://plate-curator-vercel.vercel.app) · [Read the write-up](https://memoriuhl.github.io/plate-curator-vercel/) · [Find your way around](#where-to-go)
 
 ## Why it exists
 
@@ -21,8 +21,19 @@ Plate Curator gives each person their own account and role, keeps every change n
 
 **Read more:**
 
-- [Write-up, part 1](./docs/take-home/part-1.html?raw=1): the problem, where Vercel fits and the migration plan. Download the HTML and open it in a browser; it is self-contained.
-- [Full walkthrough](./Plate%20Curator%20-%20Vercel%20Take%20Home%20Walkthrough%20Artifact.html?raw=1): the demo, results, risks and development tooling.
+- [Write-up, part 1](https://memoriuhl.github.io/plate-curator-vercel/) covers the problem, where Vercel fits and the migration plan.
+- [Full assessment](https://memoriuhl.github.io/plate-curator-vercel/walkthrough.html) covers the results, risks and development tooling.
+
+## Try the demo
+
+Use the demo credentials from the private submission to [sign in](https://plate-curator-vercel.vercel.app/sign-in). Use the Owner account for the full walkthrough, or use separate Editor and Owner browser sessions to see the handoff.
+
+1. Open Alaska. Select Army, then **Shift**-click Navy to select the range.
+2. Open **Run pipeline** and select **Research** and hosted **Tag**. Please go easy on the AI credits when trying the pipeline.
+3. Open the run details, then **Review run changes**. Hover a plate for context and open its Before and After comparison.
+4. As Owner, open **Publish** and inspect the draft by state. If staging shows that publishing is paused, choose **Resume publishing** before attempting a release.
+
+The iPhone check is optional. If you choose to publish a staging revision, open the State Spotter TestFlight build and choose **Load catalog** to see the update. The [reviewer guide](docs/try-it.md) also walks through a manual edit and the Editor-to-Owner handoff.
 
 ## What you can do
 
@@ -42,22 +53,28 @@ flowchart LR
 
     subgraph Vercel
         App[Next.js app and Functions]
-        Flow[Workflow: Publish and pipeline runs]
-        Hosted[AI Gateway, AI SDK and Eve]
+        Pipeline["Workflow: pipeline runs"]
+        Hosted["Hosted Tag and Research<br/>AI Gateway, AI SDK and Eve"]
+        Publish["Workflow: publish an Owner-selected revision"]
     end
 
     subgraph Outside["Outside Vercel"]
-        Firebase[(Staging Firebase)]
+        Draft[("Staging Firebase: shared draft")]
+        Catalog[("Staging Firebase: published catalog")]
         GPU[Local GPU server]
-        Game[State Spotter game]
+        Game["State Spotter on TestFlight"]
     end
 
-    App -->|OIDC, no stored key| Firebase
-    App --> Flow
-    Flow -->|hosted stages| Hosted
-    GPU -->|claims jobs, outbound only| App
-    Flow -->|new catalog version| Firebase
-    Firebase -->|catalog| Game
+    App -->|save edits and read Review via OIDC| Draft
+    App -->|start run| Pipeline
+    Pipeline -->|hosted stages| Hosted
+    Hosted -->|results| Pipeline
+    GPU -->|claims local jobs, outbound only| App
+    Pipeline -->|save run changes| Draft
+    App -->|Owner starts release| Publish
+    Draft -->|revision at publish time| Publish
+    Publish -->|new catalog version| Catalog
+    Catalog -->|optional iPhone check| Game
 ```
 
 - **Next.js and Vercel Functions** serve the workspace. Each API route under `app/api/` runs as a Function.
@@ -73,7 +90,7 @@ flowchart LR
 | --- | --- |
 | Try the app as a reviewer | [Reviewer guide](docs/try-it.md) |
 | Understand the catalog, roles and review model | [Product and design spec](docs/spec.md) |
-| See why it's built this way on Vercel | [Write-up, part 1](./docs/take-home/part-1.html?raw=1) and [Access](docs/access.md) |
+| See why it's built this way on Vercel | [Write-up, part 1](https://memoriuhl.github.io/plate-curator-vercel/) and [Access](docs/access.md) |
 | Run it on my machine | [Run it locally](#run-it-locally) |
 | Change a screen | `app/(curator)/` and `components/`, following the [design system](design-system/README.md) |
 | Work on Publish | `workflows/approval.ts`, `lib/publish/` and [Publish controls and recovery](docs/publish-recovery.md) |
