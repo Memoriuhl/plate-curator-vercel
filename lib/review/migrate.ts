@@ -17,6 +17,7 @@ import type {
   Actor,
   BatchState,
   EditableFields,
+  MigrationHold,
   PipelineFieldChange,
   ProposedEdit,
   ReviewBatch,
@@ -38,6 +39,11 @@ export interface MigrationFence {
   acquire(): Promise<MigrationBlock | null>
   /** Check the hold is still this run's and the live version has not moved; extends it. */
   confirm(): Promise<MigrationLost | null>
+  /**
+   * What the fold's own write checks again, so a hold lost after `confirm` cannot let a
+   * stale fold land.
+   */
+  held(): MigrationHold
   /** Give the hold back. A run that stops without releasing loses it when it expires. */
   release(): Promise<void>
 }
@@ -554,7 +560,10 @@ async function fold(
       deleteEditsFor: plan.report.removed,
       by: options.actor,
       history: false,
+      ...(options.fence ? { migrationHold: options.fence.held() } : {}),
     })
+    // A draft write since planning, or a hold lost after confirming it: plan again, and
+    // the next confirmation says which.
     if (outcome === 'revision_mismatch') continue
     if (outcome !== 'ok') return { ...result, applied: false, refused: outcome }
     return { ...result, draftRevision: plan.batch.revision }

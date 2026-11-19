@@ -224,11 +224,21 @@ export interface ReviewStore {
       deleteEditsFor?: string[]
       deleteEditFor?: string
       publishToken?: string
+      /**
+       * The migration's hold on the publish lock. The fold is written only if the hold is
+       * still this run's and unexpired, and the live version is still the one it saw,
+       * checked in the transaction that writes it; otherwise the commit answers
+       * `revision_mismatch` and the migration's next confirmation says why. Stores
+       * without the lock ignore it.
+       */
+      migrationHold?: MigrationHold
       /** false skips the change-log entry (rebase commits that set a new floor). */
       history?: false
     }
   ): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
 }
+/** The lock token and catalog version a migration took its hold with. */
+export type MigrationHold = { token: string; catalogVersion: number | null }
 export type PublishMetadata = Partial<
   Pick<
     ReviewBatch,

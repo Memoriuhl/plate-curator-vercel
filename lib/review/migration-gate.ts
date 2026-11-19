@@ -23,7 +23,9 @@ function pointerVersion(pointer: DocumentSnapshot): number | null {
  * refused while it is held. The lock is one document for every environment because
  * they share the catalog pointer, so any live lease keeps the migration out. The hold
  * records the pointer version it saw; `confirm` refuses if the pointer has moved since,
- * so the fold is never written against a version it was not planned on. A run that
+ * so the fold is never written against a version it was not planned on. The fold's own
+ * transaction checks the token, expiry and version again (`held`), so a hold lost
+ * between `confirm` and that write cannot let a stale fold land. A run that
  * stops without releasing loses the hold after `migrationHoldMs`, and the next run
  * finishes the fold.
  */
@@ -70,6 +72,7 @@ export function firestoreMigrationFence(
         tx.update(lockRef, { expiresAt: expiresAt() })
         return null
       }),
+    held: () => ({ token, catalogVersion: version }),
     release: () =>
       db.runTransaction(async (tx) => {
         const lock = await tx.get(lockRef)

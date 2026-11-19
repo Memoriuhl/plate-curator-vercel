@@ -420,6 +420,21 @@ export function firestoreReviewStore(
         ) {
           return 'revision_mismatch'
         }
+        if (next.migrationHold) {
+          const [hold, pointer] = await transaction.getAll(
+            db.doc('locks/publish'),
+            db.doc('config/catalog')
+          )
+          const version = pointer.get('version')
+          if (
+            hold.get('token') !== next.migrationHold.token ||
+            hold.get('purpose') !== 'migration' ||
+            !(Date.parse(hold.get('expiresAt')) > Date.now()) ||
+            (typeof version === 'number' ? version : null) !==
+              next.migrationHold.catalogVersion
+          )
+            return 'revision_mismatch'
+        }
         if (batch.get('state') === 'open' && next.batch.state === 'submitted') {
           const runs = await transaction.get(
             db

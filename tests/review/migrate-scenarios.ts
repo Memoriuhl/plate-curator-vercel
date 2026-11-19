@@ -598,6 +598,7 @@ export function migrationScenarios(
         fence: {
           acquire: async () => reason,
           confirm: async () => null,
+          held: () => ({ token: 'test', catalogVersion: null }),
           release: async () => {},
         },
       })

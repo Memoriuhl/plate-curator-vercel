@@ -238,6 +238,73 @@ test('a catalog pointer that moves during the fold stops the draft write, and a 
   }
 })
 
+/** Call `late` once, just before the migration writes the fold into the draft. */
+function onDraftCommit(
+  store: ReviewStore,
+  draftId: string,
+  late: () => Promise<void>
+) {
+  let fired = false
+  return new Proxy(store, {
+    get(target, key, receiver) {
+      if (key !== 'commit') return Reflect.get(target, key, receiver)
+      return async (...args: Parameters<ReviewStore['commit']>) => {
+        if (args[0] === draftId && !fired) {
+          fired = true
+          await late()
+        }
+        return target.commit(...args)
+      }
+    },
+  })
+}
+
+test('a fold that loses its hold to a Publish after confirming it is not written', async () => {
+  const { env, store, batchId, releaseId, draftId } = await environment()
+  const saved = (await pointer.get()).data()
+  try {
+    await pointer.set({ version: 1 })
+    let claimed: boolean | undefined
+    const report = await migrateToSharedDraft(
+      catalogDeps(
+        onDraftCommit(store, draftId, async () => {
+          // The run stalls past its lease after confirming the hold. A Publish then
+          // claims the lock and moves the pointer before the fold lands.
+          const later = Date.now() + 11 * 60_000
+          claimed = await firestorePublishLock(db, env).claim(
+            {
+              token: 'late-publish',
+              batchId: releaseId,
+              revision: 2,
+              expiresAt: new Date(later + 60_000).toISOString(),
+            },
+            new Date(later).toISOString()
+          )
+          await pointer.set({ version: 2 })
+        })
+      ),
+      env,
+      {
+        apply: true,
+        actor: migrationActor,
+        fence: firestoreMigrationFence(db, env),
+      }
+    )
+    expect(claimed).toBe(true)
+    expect(report).toMatchObject({
+      applied: false,
+      refused: 'reservation_lost',
+    })
+    expect((await store.readBatch(draftId))?.edits ?? []).toEqual([])
+    expect(await store.getBatch(batchId)).toMatchObject({ state: 'folded' })
+    // Releasing the lost hold leaves the Publish's lock in place.
+    expect((await lock.get()).get('token')).toBe('late-publish')
+  } finally {
+    if (saved) await pointer.set(saved)
+    else await pointer.delete()
+  }
+})
+
 test('the migration waits for any live publish lock, since every environment shares the pointer', async () => {
   const env = `migrate-${randomUUID().slice(0, 8)}`
   const now = Date.parse('2026-11-18T12:00:00Z')
