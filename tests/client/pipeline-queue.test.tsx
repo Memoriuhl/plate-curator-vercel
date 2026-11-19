@@ -840,7 +840,7 @@ test('the drawer groups running, queued and finished runs, and marks worker pick
   expect(
     within(
       rail.getByRole('article', { name: 'Pipeline run second' })
-    ).getByText('Waiting for earlier runs in the queue')
+    ).getByText('Waiting for other runs in the queue')
   ).toBeTruthy()
 })
 

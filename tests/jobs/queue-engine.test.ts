@@ -388,62 +388,185 @@ test('cancelling an earlier GPU run between steps releases its place in line', a
   expect((await claimNext(s.deps, 'worker'))?.job.queueRunId).toBe(theirs.id)
 })
 
-test('Gateway Tag runs from the same requester progress concurrently up to the hosted limit', async () => {
-  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
-  const s = setup(Array.from({ length: 8 }, (_, index) => `plate-${index + 1}`))
-  const runs: { id: string; jobs: string[] }[] = []
-  for (let index = 0; index < 4; index++) {
-    const created = await enqueueRun(s.deps, actor, {
-      requestId: `gateway-${index}`,
-      batchId: 'batch',
-      plateIds: s.plates
-        .slice(index * 2, index * 2 + 2)
-        .map((plate) => plate.id),
-      stages: ['tag'],
-      tagModelId: 'gateway-gemma4-26b',
-    })
-    if (!created.ok) throw Error(created.error)
-    const { id } = created.value
-    await bindQueueWorkflow(s.deps, id, 1, `workflow-gateway-${index}`)
-    const wave = await dispatchGatewayTagWave(s.deps, id, 1, 0)
-    expect(wave).toHaveLength(2)
-    runs.push({ id, jobs: wave.map((job) => job.id) })
-    s.advance(1)
+/** Enqueue a Gateway Tag run over plates [from, to) and bind its workflow. */
+async function gatewayRun(
+  s: ReturnType<typeof setup>,
+  requestedBy: Actor,
+  requestId: string,
+  from: number,
+  to: number,
+  batchId = 'batch'
+) {
+  const created = await enqueueRun(s.deps, requestedBy, {
+    requestId,
+    batchId,
+    plateIds: s.plates.slice(from, to).map((plate) => plate.id),
+    stages: ['tag'],
+    tagModelId: 'gateway-gemma4-26b',
+  })
+  if (!created.ok) throw Error(created.error)
+  const { id } = created.value
+  await bindQueueWorkflow(s.deps, id, 1, `workflow-${requestId}`)
+  return id
+}
+
+/** Try to claim every listed hosted job and return the claims that landed. */
+async function claimHosted(s: ReturnType<typeof setup>, ids: string[]) {
+  const claims = []
+  for (const id of ids) {
+    const claim = await claimHostedQueueJob(s.deps, id)
+    if (claim) claims.push(claim)
   }
-  const [first, second, third, fourth] = runs
-  // A curator's later runs no longer wait for their earlier run to finish.
-  for (const run of [first, second, third])
-    for (const id of run.jobs)
-      expect((await claimHostedQueueJob(s.deps, id))?.job.state).toBe('claimed')
-  // Six Gateway Tag calls is still the hosted ceiling.
-  for (const id of fourth.jobs)
-    expect(await claimHostedQueueJob(s.deps, id)).toBeNull()
-  const listed = await listRuns(s.deps, actor)
-  expect(listed).toMatchObject({
+  return claims
+}
+
+/** Report a Tag result for each hosted claim and settle its step. */
+async function finishHosted(
+  s: ReturnType<typeof setup>,
+  claims: NonNullable<Awaited<ReturnType<typeof claimHostedQueueJob>>>[]
+) {
+  for (const { job, claimId } of claims) {
+    expect(
+      await reportResult(s.deps, 'hosted', job.id, claimId, {
+        ...base,
+        suggestions: ['blue'],
+      })
+    ).toMatchObject({ ok: true })
+    await observeQueueStage(s.deps, job.queueRunId!, 1, job.queueStep!)
+  }
+}
+
+test('a Gateway Tag run queued alone takes every hosted slot, then shares freed slots with a later run', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup(
+    Array.from({ length: 10 }, (_, index) => `plate-${index + 1}`)
+  )
+  const large = await gatewayRun(s, actor, 'large', 0, 8)
+  const wave = await dispatchGatewayTagWave(s.deps, large, 1, 0)
+  expect(wave).toHaveLength(6)
+  // Alone, the run holds all six Gateway slots.
+  const held = await claimHosted(
+    s,
+    wave.map((job) => job.id)
+  )
+  expect(held).toHaveLength(6)
+  s.advance(1)
+  const later = await gatewayRun(s, other, 'later', 8, 10, 'other-batch')
+  const laterJobs = (await dispatchGatewayTagWave(s.deps, later, 1, 0)).map(
+    (job) => job.id
+  )
+  expect(await claimHosted(s, laterJobs)).toEqual([])
+  expect(await listRuns(s.deps, owner)).toMatchObject({
     value: expect.arrayContaining([
-      ...[first, second, third].map(({ id }) =>
-        expect.objectContaining({ id, status: 'running' })
-      ),
+      expect.objectContaining({ id: large, status: 'running' }),
       expect.objectContaining({
-        id: fourth.id,
+        id: later,
         status: 'queued',
         queueWait: 'prior_run',
       }),
     ]),
   })
-  const done = (await claimHostedQueueJob(s.deps, second.jobs[0]))!
+  // The large run finishes a plate and has its seventh plate waiting, but the freed
+  // slot goes to the later run, which holds none.
+  await finishHosted(s, held.slice(0, 1))
+  const [seventh] = (await dispatchGatewayTagWave(s.deps, large, 1, 1))
+    .map((job) => job.id)
+    .filter((id) => !wave.some((job) => job.id === id))
+  expect(seventh).toBe(`${large}-1-6`)
+  expect(await claimHostedQueueJob(s.deps, seventh)).toBeNull()
+  expect((await claimHosted(s, laterJobs)).map((c) => c.job.id)).toEqual([
+    laterJobs[0],
+  ])
+  // The next freed slot also goes to the later run: it holds one, the large run five.
+  await finishHosted(s, held.slice(1, 2))
+  expect(await claimHostedQueueJob(s.deps, seventh)).toBeNull()
   expect(
-    await reportResult(s.deps, 'hosted', done.job.id, done.claimId, {
-      ...base,
-      suggestions: ['blue'],
-    })
-  ).toMatchObject({ ok: true })
-  await observeQueueStage(s.deps, second.id, 1, 0)
-  // The freed slot goes to the next job in line, then the ceiling holds again.
-  expect((await claimHostedQueueJob(s.deps, fourth.jobs[0]))?.job.state).toBe(
+    (await claimHosted(s, laterJobs.slice(1))).map((c) => c.job.id)
+  ).toEqual([laterJobs[1]])
+  // With nothing else waiting, the large run takes the next free slot.
+  await finishHosted(s, held.slice(2, 3))
+  expect((await claimHostedQueueJob(s.deps, seventh))?.job.state).toBe(
     'claimed'
   )
-  expect(await claimHostedQueueJob(s.deps, fourth.jobs[1])).toBeNull()
+})
+
+test('two queued Gateway Tag runs from different curators hold hosted slots at the same time and both finish', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup(
+    Array.from({ length: 12 }, (_, index) => `plate-${index + 1}`)
+  )
+  const first = await gatewayRun(s, actor, 'first', 0, 6)
+  s.advance(1)
+  const second = await gatewayRun(s, other, 'second', 6, 12, 'other-batch')
+  const jobs = [
+    ...(await dispatchGatewayTagWave(s.deps, first, 1, 0)),
+    ...(await dispatchGatewayTagWave(s.deps, second, 1, 0)),
+  ].map((job) => job.id)
+  expect(jobs).toHaveLength(12)
+  // Offered the earlier run's jobs first, the six slots still split three and three.
+  const round = await claimHosted(s, jobs)
+  const share = (claims: typeof round) =>
+    [first, second].map(
+      (id) => claims.filter((claim) => claim.job.queueRunId === id).length
+    )
+  expect(share(round)).toEqual([3, 3])
+  expect(await listRuns(s.deps, owner)).toMatchObject({
+    value: expect.arrayContaining(
+      [first, second].map((id) =>
+        expect.objectContaining({ id, status: 'running' })
+      )
+    ),
+  })
+  await finishHosted(s, round)
+  const rest = await claimHosted(s, jobs)
+  expect(share(rest)).toEqual([3, 3])
+  await finishHosted(s, rest)
+  expect(await listRuns(s.deps, owner)).toMatchObject({
+    value: expect.arrayContaining(
+      [first, second].map((id) =>
+        expect.objectContaining({ id, status: 'completed' })
+      )
+    ),
+  })
+})
+
+test('desktop GPU work is not shared between runs: a later curator waits for every plate of an earlier run', async () => {
+  const s = setup(['one', 'two', 'three', 'four'])
+  const enqueue = async (
+    requestId: string,
+    requestedBy: Actor,
+    batchId: string,
+    plateIds: string[]
+  ) => {
+    const created = await enqueueRun(s.deps, requestedBy, {
+      requestId,
+      batchId,
+      plateIds,
+      stages: ['tag'],
+    })
+    if (!created.ok) throw Error(created.error)
+    await bindQueueWorkflow(s.deps, created.value.id, 1, requestId)
+    await dispatchQueueStage(s.deps, created.value.id, 1, 0, requestId)
+    return created.value.id
+  }
+  const ids = s.plates.map((plate) => plate.id)
+  const earlier = await enqueue('earlier', actor, 'batch', ids.slice(0, 3))
+  s.advance(1)
+  const later = await enqueue('later', other, 'other-batch', ids.slice(3))
+  const order: string[] = []
+  for (let index = 0; index < 4; index++) {
+    const { job, observation } = await s.complete('worker')
+    order.push(job.queueRunId!)
+    if (job.queueRunId === earlier && observation.phase === 'next')
+      await dispatchQueueStage(
+        s.deps,
+        earlier,
+        1,
+        job.queueStep! + 1,
+        `earlier-${job.queueStep! + 1}`
+      )
+  }
+  expect(order).toEqual([earlier, earlier, earlier, later])
 })
 
 test('Eve research runs from the same requester progress concurrently up to the shared I/O limit', async () => {

@@ -46,6 +46,7 @@ type LineEntry = {
   createdAt: number
   id: string
   job?: TaggingJob
+  turn: number
 }
 
 export type QueueSchedule = ReturnType<typeof queueSchedule>
@@ -80,15 +81,20 @@ function activeRun(run: PipelineRun, scope: string | undefined) {
 }
 
 /**
- * Order the scope's waiting jobs by run submission, then step, in one line per lane
- * (desktop and hosted). A job can be claimed when every limit it needs has room for
- * the entries ahead of it in its lane plus itself, so any free capacity goes to the
- * earliest submitted job, from any curator.
+ * Line up the scope's waiting jobs, one line per lane (desktop and hosted). A job can
+ * be claimed when every limit it needs has room for the entries ahead of it in its
+ * lane plus itself.
  *
- * A run whose next GPU step has not been dispatched yet still holds its place in the
- * GPU line, so GPU steps run strictly in submission order across stage boundaries. The
- * place is held only while the run's workflow is bound and the run is not waiting for
- * an image choice. Hosted steps hold no place between steps.
+ * The desktop line is strictly first in, first out: by run submission, then step. A run
+ * whose next GPU step has not been dispatched yet still holds its place, so GPU steps
+ * run in submission order across stage boundaries. The place is held only while the
+ * run's workflow is bound and the run is not waiting for an image choice.
+ *
+ * The hosted line shares capacity between runs. Each waiting job takes a turn after
+ * the jobs its run already holds or has ahead of it, and runs on the same turn go in
+ * submission order. Free slots therefore alternate between runs with waiting work, a
+ * run that holds fewer slots goes first, and a run queued alone still takes every slot.
+ * Hosted steps hold no place between steps.
  */
 export function queueSchedule(
   scope: string | undefined,
@@ -116,6 +122,7 @@ export function queueSchedule(
       createdAt: job.createdAt,
       id: job.id,
       job,
+      turn: 0,
     }
     if (!job.queueRunId) {
       // Older standalone hosted jobs keep their by-id lifecycle outside the queue.
@@ -153,6 +160,7 @@ export function queueSchedule(
       step: attempt.cursor,
       createdAt: run.createdAt,
       id,
+      turn: 0,
     })
   }
   line.sort(
@@ -162,6 +170,19 @@ export function queueSchedule(
       a.createdAt - b.createdAt ||
       a.id.localeCompare(b.id)
   )
+  const taken = new Map<string, number>()
+  for (const claim of claims)
+    if (claim.queueRunId && lane(claim) === 'hosted')
+      taken.set(claim.queueRunId, (taken.get(claim.queueRunId) ?? 0) + 1)
+  for (const entry of line) {
+    const run = entry.job?.queueRunId
+    if (entry.lane !== 'hosted' || !run) continue
+    entry.turn = taken.get(run) ?? 0
+    taken.set(run, entry.turn + 1)
+  }
+  // The sort is stable, so each turn keeps submission order. Desktop entries all share
+  // turn 0, so the desktop line stays first in, first out.
+  line.sort((a, b) => a.turn - b.turn)
 
   // For each job, count the entries ahead of it in its lane that need the same limit.
   const ahead = new Map<string, Partial<Record<Limit, number>>>()
@@ -189,7 +210,7 @@ export function queueSchedule(
 
   return {
     claims,
-    /** Queued jobs that could be claimed now, earliest submission first. */
+    /** Queued jobs that could be claimed now, in line order. */
     open: () =>
       line.flatMap((entry) =>
         entry.job && canClaim(entry.job) ? [entry.job] : []

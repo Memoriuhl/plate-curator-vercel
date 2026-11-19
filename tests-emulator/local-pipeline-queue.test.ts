@@ -263,6 +263,7 @@ test('concurrent hosted and desktop claims across runs never double-claim a job'
   }
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const hosted: string[] = []
+  const gatewayRuns: string[] = []
   for (let index = 0; index < 4; index++) {
     const created = await enqueueRun(jobs, actor, {
       requestId: `gateway-${index}`,
@@ -276,6 +277,7 @@ test('concurrent hosted and desktop claims across runs never double-claim a job'
     await bindQueueWorkflow(jobs, id, 1, `workflow-gateway-${index}`)
     const wave = await dispatchGatewayTagWave(jobs, id, 1, 0)
     hosted.push(...wave.map((job) => job.id))
+    gatewayRuns.push(id)
     time++
   }
   expect(hosted).toHaveLength(8)
@@ -298,8 +300,13 @@ test('concurrent hosted and desktop claims across runs never double-claim a job'
   ])
   const stored = await jobs.store.transaction((tx) => tx.list())
   const claimed = stored.filter((job) => job.state === 'claimed')
-  // Six Gateway Tag calls, from the first three runs, and one GPU job.
+  // Six Gateway Tag calls shared across all four runs, and one GPU job.
   expect(claimed.filter((job) => job.route === 'hosted')).toHaveLength(6)
+  expect(
+    gatewayRuns.map(
+      (id) => claimed.filter((job) => job.queueRunId === id).length
+    )
+  ).toEqual([2, 2, 1, 1])
   expect(claimed.filter((job) => job.route !== 'hosted')).toHaveLength(1)
   expect(new Set(claimed.map((job) => job.claimId)).size).toBe(7)
   for (const id of hosted) {
@@ -312,9 +319,6 @@ test('concurrent hosted and desktop claims across runs never double-claim a job'
     expect(issued.size).toBe(job.state === 'claimed' ? 1 : 0)
     if (job.state === 'claimed') expect([...issued]).toEqual([job.claimId])
   }
-  expect(
-    hosted.slice(6).every((id) => !claimed.some((job) => job.id === id))
-  ).toBe(true)
   expect(desktopClaims.filter(Boolean)).toHaveLength(1)
   expect(desktopClaims.find(Boolean)?.job.queueRunId).toBe(desktop[0].id)
 }, 30_000)

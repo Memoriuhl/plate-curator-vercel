@@ -78,7 +78,7 @@ const queueWaitLabels: Record<
   io_busy: 'Waiting for an I/O slot',
   gpu_recovery: 'Waiting for a stopped GPU job to be recovered',
   io_recovery: 'Waiting for stopped I/O jobs to be recovered',
-  prior_run: 'Waiting for earlier runs in the queue',
+  prior_run: 'Waiting for other runs in the queue',
 }
 
 /**
