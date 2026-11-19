@@ -1323,12 +1323,12 @@ test('release uses the visible gap while a new join is still dwelling', async ()
     act(() => vi.advanceTimersByTime(200))
     expect(screen.getByTestId('gap').textContent).toBe('AK.b,AK.a,AK.v,AK.w')
     await act(async () => dragPointer(handle, 'pointerup', 180))
-    expect(reorder).toHaveBeenCalledWith(a.state, [
-      'AK.b',
-      'AK.a',
-      'AK.v',
-      'AK.w',
-    ])
+    expect(reorder).toHaveBeenCalledWith(
+      a.state,
+      ['AK.b', 'AK.a', 'AK.v', 'AK.w'],
+      undefined,
+      [{ plateIds: [a.id], placement: { kind: 'after', anchorId: b.id } }]
+    )
     expect(mergeSave).not.toHaveBeenCalled()
   } finally {
     cleanup()

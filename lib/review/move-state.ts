@@ -23,6 +23,7 @@ type Input = {
   state: string
   moves: StateMove[]
   standard?: StandardChange
+  keepStandardOnJoin?: boolean
 }
 
 type Plan = Parameters<ReviewStore['transactStateMove']>[3]
@@ -49,9 +50,12 @@ function loadMoveCatalog(
 
 /** Apply placements to the current draft in Firestore commit order. */
 export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
-  const { batchId, operationId, state, moves, standard } = input
+  const { batchId, operationId, state, moves, standard, keepStandardOnJoin } =
+    input
   const fingerprint = createHash('sha256')
-    .update(JSON.stringify([actor.uid, state, moves, standard]))
+    .update(
+      JSON.stringify([actor.uid, state, moves, standard, keepStandardOnJoin])
+    )
     .digest('hex')
   const prepared = new Map<number, ReturnType<typeof loadMoveCatalog>>()
   const load = (version: number) => {
@@ -74,7 +78,7 @@ export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
 async function planStateMove(
   d: ReviewDeps,
   actor: Actor,
-  { state, moves, standard }: Input,
+  { state, moves, standard, keepStandardOnJoin = false }: Input,
   detail: Parameters<Plan>[0],
   load: (version: number) => ReturnType<typeof loadMoveCatalog>
 ): ReturnType<Plan> {
@@ -174,8 +178,8 @@ async function planStateMove(
         families,
         family!,
         plateIds,
-        undefined,
-        false,
+        order[0],
+        keepStandardOnJoin,
         family!.template.templateFamily || allocateLabel(family!.template.id)
       )
       for (const [id, fields] of plan.changes) changePlate(id, fields)

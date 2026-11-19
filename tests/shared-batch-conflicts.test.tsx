@@ -1070,6 +1070,10 @@ test('the destination Template context menu moves the selection through the exis
   })
   expect(plateSelection.has('AK.a')).toBe(true)
   expect(plateSelection.has(foreign.id)).toBe(true)
+  expect((await saved('AK.a')).proposed.isStandard).toBe(true)
+  expect(view.container.textContent).toContain(
+    'Skipped 1 selection protected by the Standard rule'
+  )
   expect(view.container.textContent).toContain(
     'Skipped 1 plate from another state'
   )
@@ -1078,12 +1082,9 @@ test('the destination Template context menu moves the selection through the exis
   ).toEqual([
     expect.objectContaining({
       body: expect.objectContaining({
-        batchRevision: 0,
-        destination: { id: 'AK.b', revision: plateRevision(plates[2]) },
-        members: [
-          { id: 'AK.v', revision: plateRevision(plates[1]) },
-          { id: 'AK.a', revision: plateRevision(plates[0]) },
-        ],
+        operationId: expect.any(String),
+        destinationId: 'AK.b',
+        plateIds: ['AK.v', 'AK.a'],
       }),
     }),
   ])
