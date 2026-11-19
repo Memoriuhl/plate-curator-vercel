@@ -237,14 +237,33 @@ test('hovering one change icon shows only that change', () => {
   expect(popup.getByText('+ flag')).toBeTruthy()
 })
 
-test('hovering the plate shows every change in one card', () => {
+test('hovering the plate image, not its name, shows every change in one card', () => {
   render(<DraftPublish draftId="shared-draft-test" />)
-  fireEvent.focus(screen.getByRole('button', { name: /^PWS/ }))
+  const row = within(
+    within(screen.getByRole('region', { name: 'Alaska changes' }))
+      .getAllByRole('listitem')
+      .find((item) => item.textContent?.includes('AK.pws'))!
+  )
+  fireEvent.pointerEnter(row.getByText('PWS'))
+  fireEvent.pointerEnter(row.getByText('AK.pws'))
+  expect(screen.queryByRole('dialog', { name: 'PWS: every change' })).toBeNull()
+  fireEvent.pointerEnter(row.getByRole('img', { name: 'PWS plate' }))
   const card = within(screen.getByRole('dialog', { name: 'PWS: every change' }))
   expect(card.getByText('1 → 2 tags')).toBeTruthy()
   expect(card.getByText('+ blue')).toBeTruthy()
   expect(card.getByText('#3 → #6 of 44')).toBeTruthy()
   expect(card.getByText('Click for the full before and after')).toBeTruthy()
+})
+
+test('keyboard focus on a plate shows its card, but a mouse press does not', () => {
+  render(<DraftPublish draftId="shared-draft-test" />)
+  const plate = screen.getByRole('button', { name: /^PWS/ })
+  fireEvent.pointerDown(plate)
+  fireEvent.focus(plate)
+  expect(screen.queryByRole('dialog', { name: 'PWS: every change' })).toBeNull()
+  fireEvent.blur(plate)
+  fireEvent.focus(plate)
+  expect(screen.getByRole('dialog', { name: 'PWS: every change' })).toBeTruthy()
 })
 
 test("a family change shows each family's template plate with its name above it", () => {

@@ -31,80 +31,100 @@ type Entries = ReadonlyMap<string, Entry>
 type PublishState = ReturnType<typeof publishChanges>['states'][number]
 
 /**
- * Open floating detail while the pointer or keyboard focus is on its trigger or on the
- * detail itself. A short close delay lets the pointer cross the gap between them.
+ * Open and close floating detail for hover and keyboard focus. Leaving waits briefly so
+ * the pointer can cross from the trigger into the detail.
  */
-function HoverDetail({
-  label,
-  trigger,
-  children,
-  className,
-  contentClassName,
-  closeOnPress = false,
-}: {
-  label: string
-  trigger: ReactNode
-  children: ReactNode
-  className?: string
-  contentClassName?: string
-  /** Put the detail away when the trigger is pressed, for a trigger that opens more. */
-  closeOnPress?: boolean
-}) {
+function useHover() {
   const [open, setOpen] = useState(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
   )
   useEffect(() => () => clearTimeout(closeTimer.current), [])
-
-  /** Show the detail now and cancel a pending close. */
-  function show() {
-    clearTimeout(closeTimer.current)
-    setOpen(true)
+  return {
+    open,
+    setOpen,
+    /** Show the detail now and cancel a pending close. */
+    show() {
+      clearTimeout(closeTimer.current)
+      setOpen(true)
+    },
+    /** Close the detail unless the pointer reaches it first. */
+    hide() {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = setTimeout(() => setOpen(false), 150)
+    },
+    /** Close the detail now. */
+    close() {
+      clearTimeout(closeTimer.current)
+      setOpen(false)
+    },
   }
+}
 
-  /** Close the detail unless the pointer reaches it first. */
-  function hide() {
-    clearTimeout(closeTimer.current)
-    closeTimer.current = setTimeout(() => setOpen(false), 150)
-  }
+type Hover = ReturnType<typeof useHover>
 
+/** The floating detail itself; staying over it keeps it open. */
+function HoverContent({
+  hover,
+  label,
+  className,
+  children,
+}: {
+  hover: Hover
+  label: string
+  className?: string
+  children: ReactNode
+}) {
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <PopoverContent
+      aria-label={label}
+      side="bottom"
+      align="start"
+      collisionPadding={8}
+      className={cn(
+        'max-h-[min(70vh,560px)] w-80 gap-3 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--elevated)] p-3.5 text-foreground shadow-[var(--shadow-pop)]',
+        className
+      )}
+      onPointerEnter={hover.show}
+      onPointerLeave={hover.hide}
+      onOpenAutoFocus={(event) => event.preventDefault()}
+      onCloseAutoFocus={(event) => event.preventDefault()}
+    >
+      {children}
+    </PopoverContent>
+  )
+}
+
+/** Floating detail for a trigger that opens it on hover and on keyboard focus. */
+function HoverDetail({
+  label,
+  trigger,
+  children,
+}: {
+  label: string
+  trigger: ReactNode
+  children: ReactNode
+}) {
+  const hover = useHover()
+  return (
+    <Popover open={hover.open} onOpenChange={hover.setOpen}>
       <PopoverAnchor asChild>
         <span
-          className={cn('inline-flex', className)}
-          onPointerEnter={show}
-          onPointerLeave={hide}
-          onFocus={show}
-          onBlur={hide}
+          className="inline-flex"
+          onPointerEnter={hover.show}
+          onPointerLeave={hover.hide}
+          onFocus={hover.show}
+          onBlur={hover.hide}
           onKeyDown={(event) => {
-            if (event.key === 'Escape') setOpen(false)
-          }}
-          onClick={() => {
-            if (!closeOnPress) return
-            clearTimeout(closeTimer.current)
-            setOpen(false)
+            if (event.key === 'Escape') hover.close()
           }}
         >
           {trigger}
         </span>
       </PopoverAnchor>
-      <PopoverContent
-        aria-label={label}
-        side="bottom"
-        align="start"
-        collisionPadding={8}
-        className={cn(
-          'max-h-[min(70vh,560px)] w-80 gap-3 overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--elevated)] p-3.5 text-foreground shadow-[var(--shadow-pop)]',
-          contentClassName
-        )}
-        onPointerEnter={show}
-        onPointerLeave={hide}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onCloseAutoFocus={(event) => event.preventDefault()}
-      >
+      <HoverContent hover={hover} label={label}>
         {children}
-      </PopoverContent>
+      </HoverContent>
     </Popover>
   )
 }
@@ -436,9 +456,9 @@ function PlateCard({
 }
 
 /**
- * One changed plate: its image and name (hover for every change, click for the full
- * before and after), an icon per kind of change (hover for that change alone) and who
- * changed it.
+ * One changed plate: its image and name (click for the full before and after; hover the
+ * image, or reach the plate by keyboard, for every change), an icon per kind of change
+ * (hover for that change alone) and who changed it.
  */
 function PlateRow({
   plate,
@@ -453,49 +473,73 @@ function PlateRow({
 }) {
   const { entry, changes, removed } = plate
   const [open, setOpen] = useState(false)
+  const card = useHover()
+  // A mouse press focuses the button too; only keyboard focus opens the card.
+  const pressed = useRef(false)
   const diffId = useId()
   const name = entry.proposed.displayName
   return (
     <li className="rounded-[var(--radius-md)] [content-visibility:auto] [contain-intrinsic-size:auto_56px]">
       <div className="flex min-h-14 items-center gap-2.5 rounded-[var(--radius-md)] px-2 py-1 hover:bg-[var(--fill)]">
-        <HoverDetail
-          label={`${name}: every change`}
-          closeOnPress
-          className="min-w-0 flex-1"
-          contentClassName="w-[min(400px,calc(100vw-16px))]"
-          trigger={
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-controls={open ? diffId : undefined}
-              onClick={() => setOpen((value) => !value)}
-              className="flex min-w-0 flex-1 items-center gap-3 rounded-[10px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              <PlateImage
-                src={entry.afterImageUrl ?? entry.beforeImageUrl}
-                name={name}
-                width={84}
-                height={42}
-                className={cn('p-0', removed && 'opacity-60')}
-              />
-              <span className="grid min-w-0">
-                <strong
-                  className={cn(
-                    'text-[15px] leading-5 font-extrabold',
-                    removed && 'line-through opacity-60'
-                  )}
-                >
-                  {name}
-                </strong>
-                <span className="id truncate text-[var(--ink-3)]">
-                  {entry.baseline.id}
-                </span>
+        <Popover open={card.open} onOpenChange={card.setOpen}>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? diffId : undefined}
+            onClick={() => {
+              card.close()
+              setOpen((value) => !value)
+            }}
+            onPointerDown={() => {
+              pressed.current = true
+            }}
+            onFocus={() => {
+              if (!pressed.current) card.show()
+              pressed.current = false
+            }}
+            onBlur={card.hide}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') card.close()
+            }}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-[10px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <PopoverAnchor asChild>
+              <span
+                className="inline-flex shrink-0"
+                onPointerEnter={card.show}
+                onPointerLeave={card.hide}
+              >
+                <PlateImage
+                  src={entry.afterImageUrl ?? entry.beforeImageUrl}
+                  name={name}
+                  width={84}
+                  height={42}
+                  className={cn('p-0', removed && 'opacity-60')}
+                />
               </span>
-            </button>
-          }
-        >
-          <PlateCard plate={plate} entries={entries} />
-        </HoverDetail>
+            </PopoverAnchor>
+            <span className="grid min-w-0">
+              <strong
+                className={cn(
+                  'text-[15px] leading-5 font-extrabold',
+                  removed && 'line-through opacity-60'
+                )}
+              >
+                {name}
+              </strong>
+              <span className="id truncate text-[var(--ink-3)]">
+                {entry.baseline.id}
+              </span>
+            </span>
+          </button>
+          <HoverContent
+            hover={card}
+            label={`${name}: every change`}
+            className="w-[min(400px,calc(100vw-16px))]"
+          >
+            <PlateCard plate={plate} entries={entries} />
+          </HoverContent>
+        </Popover>
         <span className="flex shrink-0 items-center gap-0.5">
           {changes.map((change) => {
             const Icon = CHANGE_ICONS[change.key]
