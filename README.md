@@ -29,7 +29,7 @@ Plate Curator gives each person their own account and role, keeps every change n
 Open the [illustrated demo cut sheet](https://memoriuhl.github.io/plate-curator-vercel/demo-cut-sheet.html) and use the demo credentials from the submission email to [sign in](https://plate-curator-vercel.vercel.app/sign-in). Use the Owner account for the full walkthrough, or use separate Editor and Owner browser sessions to see the handoff.
 
 1. Open Alaska. Select Army, then **Shift**-click Navy to select the range.
-2. Open **Run pipeline** and select **Research** and hosted **Tag**. Please go easy on the AI credits when trying the pipeline.
+2. Open **Run pipeline** and select **Research** and hosted **Tag**.
 3. Open the run details, then **Review run changes**. Hover a plate for context and open its Before and After comparison.
 4. As Owner, open **Publish** and inspect the draft by state. If staging shows that publishing is paused, choose **Resume publishing** before attempting a release.
 
