@@ -612,6 +612,41 @@ test('publishes field edits, state order and an absent cleared variant link toge
   expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
 })
 
+test('publishes a cleared family grouping without its keys or the derived template flag', async () => {
+  const f = fixture()
+  f.blobs.set(
+    1,
+    Buffer.from(
+      JSON.stringify({
+        ...snapshot,
+        plates: [
+          {
+            ...snapshot.plates[0],
+            templateFamily: 'family',
+            templateRole: 'template',
+            isTemplate: true,
+          },
+          snapshot.plates[1],
+        ],
+      })
+    )
+  )
+  f.deps.store.listEdits = async () => [
+    {
+      plateId: 'one',
+      baseRevision: 'base',
+      // The shared draft's rebase writes null for grouping the old baseline lacked.
+      fields: { templateFamily: null, templateRole: null } as never,
+      authorId: 'editor',
+      updatedAt: f.deps.now(),
+      resultRevision: 'result',
+    },
+  ]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+  expect(written.plates[0]).toEqual(snapshot.plates[0])
+})
+
 test.each([
   ['missing', ['one']],
   ['extra', ['one', 'two', 'other']],

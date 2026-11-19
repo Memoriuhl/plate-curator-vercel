@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
+import { applyReleaseEdits } from '../../lib/publish/apply-edits'
+import { validateSnapshot } from '../../lib/publish/validation'
 import { proposeEdit, reorderState } from '../../lib/review/batch'
 import { discardPlateChanges } from '../../lib/review/discard-changes'
 import {
@@ -89,8 +91,8 @@ export function sharedDraftScenarios(
     const tag = (actor: Actor, id: string, tags: string[]) =>
       save(actor, id, { tags })
     /**
-     * Commit a release the way Publish does: the pointer moves to a new version with its
-     * edits applied (deleted plates removed) and the receipt records who asked and when.
+     * Commit a release the way Publish does: the pointer moves to a new version built and
+     * validated as Publish builds it, and the receipt records who asked and when.
      * The receipt stays unsettled until `settle`, as it is while the state order
      * projection is still being written.
      */
@@ -99,17 +101,19 @@ export function sharedDraftScenarios(
       by: { uid: string; email: string } = { uid: 'owner', email: 'owner@x' }
     ) => {
       const release = (await store.readBatch(releaseId))!
-      const edits = new Map(
-        release.edits.map((entry) => [entry.plateId, entry])
-      )
       const next = live + 1
-      versions.set(
-        next,
-        versions
-          .get(live)!
-          .filter((entry) => !edits.get(entry.id)?.fields.deleted)
-          .map((entry) => ({ ...entry, ...edits.get(entry.id)?.fields }))
+      const { deleted, plates } = applyReleaseEdits(
+        versions.get(live)!,
+        release.edits,
+        release.batch.stateOrders
       )
+      const reasons = validateSnapshot(
+        { version: live, plates: versions.get(live)! },
+        { version: next, plates },
+        deleted
+      )
+      if (reasons.length) throw new Error(reasons.join('; '))
+      versions.set(next, plates)
       origins.set(next, {
         batchId: releaseId,
         revision: release.batch.revision,
@@ -412,6 +416,39 @@ export function sharedDraftScenarios(
       expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
         'AK.one': { description: null },
       })
+    },
+    timeout
+  )
+
+  test(
+    'a family grouping the publishing revision adds and a later revision discards ships as an ungrouped plate',
+    async () => {
+      const { store, d, draftId, env, save, publish, commit } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.one', {
+        templateFamily: 'AK.family',
+        templateRole: 'template',
+      }) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.one',
+          batchRevision: 1,
+          target: 'all',
+        })
+      ).toMatchObject({ ok: true }) // revision 2
+      expect(await publish(frozen.value.id)).toMatchObject({ ok: true })
+
+      // The next release ships the reset; commit builds and validates its Snapshot.
+      const draft = (await store.getBatch(draftId))!
+      const next = await freezeRelease(d, env, owner, draft.revision)
+      if (!next.ok) throw new Error(next.error)
+      const version = await commit(next.value.id)
+      expect(await d.baselineAtVersion(version, 'AK.one')).toEqual(
+        await d.baselineAtVersion(1, 'AK.one')
+      )
     },
     timeout
   )
