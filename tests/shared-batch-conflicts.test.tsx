@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { PlatePage } from '../components/plate-page/plate-page'
 import { slimPlate } from '../components/plate-page/types'
 import { FamilyGrid } from '../components/dashboard/family-grid'
+import { TagRunBanner } from '../components/dashboard/tag-run-banner'
 import { SelectedBatchBar } from '../components/dashboard/selected-batch-bar'
 import { projectFamilyPlate } from '../components/dashboard/family-data'
 import {
@@ -170,6 +171,7 @@ let deps: ReviewDeps
 let listeners: Map<string, Set<(revision: number | null) => void>>
 let signals: Map<string, number>
 let requests: { actor: string; method: string; path: string; body: unknown }[]
+let plateResponses: number[]
 let reads: Map<string, number>
 let disposed: string[]
 let failures: Map<string, (error: { code?: string }) => void>
@@ -293,6 +295,7 @@ function session(actor: Actor, id: string | null = 'shared') {
           }),
           { params: Promise.resolve({ id: batchId, plateId }) }
         )
+        plateResponses.push(response.status)
         const parsed = await response.json()
         if (!response.ok)
           throw new ApiError(response.status, parsed.error, parsed)
@@ -329,13 +332,17 @@ function Workspace({
   actor,
   page = false,
   index = 1,
+  value = session(actor),
+  children,
 }: {
   actor: Actor
   page?: boolean
   index?: number
+  value?: ReturnType<typeof session>
+  children?: React.ReactNode
 }) {
   return (
-    <Context.Provider value={session(actor)}>
+    <Context.Provider value={value}>
       <SWRConfig
         value={{
           /** Give the rendered test its own isolated SWR cache. */ provider:
@@ -346,14 +353,15 @@ function Workspace({
         }}
       >
         <LiveSignalProvider value={source}>
-          {page ? (
-            <Page index={index} />
-          ) : (
-            <>
-              <SelectedBatchBar />
-              <FamilyGrid plates={gridPlates} catalogVersion={1} />
-            </>
-          )}
+          {children ??
+            (page ? (
+              <Page index={index} />
+            ) : (
+              <>
+                <SelectedBatchBar />
+                <FamilyGrid plates={gridPlates} catalogVersion={1} />
+              </>
+            ))}
         </LiveSignalProvider>
       </SWRConfig>
     </Context.Provider>
@@ -422,6 +430,7 @@ beforeEach(() => {
   missingSignal = false
   denySignal = false
   requests = []
+  plateResponses = []
   listeners = new Map()
   signals = new Map([
     ['shared', 0],
@@ -701,8 +710,108 @@ async function conflictPair() {
   expect(within(second.container).getByRole('alert').textContent).toContain(
     'Owner saved this field'
   )
+  expect(plateResponses).toEqual([200, 409])
   return { first, second }
 }
+
+test('a direct Plate visit saves its first tag against the loaded draft', async () => {
+  await remote({ tags: ['existing'] })
+  const draft = await saved()
+  const value = session(editor, null)
+  const get = value.api.get
+  const { promise: pendingRead, resolve: finishRead } =
+    Promise.withResolvers<void>()
+  value.api.get = async (path) => {
+    if (path === '/api/batches/shared') await pendingRead
+    return get(path)
+  }
+  const view = render(<Workspace actor={editor} value={value} page />)
+  const tags = box(view, 'Add tag')
+  // Try the first available control while the draft response is still in flight.
+  const startedEarly = !tags.disabled
+  if (startedEarly) {
+    input(view, 'fast', 'Add tag')
+    save(view, 'Add tag')
+  }
+  await act(async () => finishRead())
+  if (!startedEarly) {
+    await waitFor(() => expect(tags.disabled).toBe(false))
+    input(view, 'fast', 'Add tag')
+    save(view, 'Add tag')
+  }
+  await waitFor(() => expect(plateResponses).toEqual([200]))
+  expect(requests.find((entry) => entry.method === 'PATCH')?.body).toEqual({
+    baseRevision: draft.revision,
+    editVersion: 1,
+    fields: { tags: ['existing', 'fast'] },
+  })
+  expect((await saved()).proposed.tags).toEqual(['existing', 'fast'])
+})
+
+test('the Dashboard accepts tags reviewed against an already edited plate', async () => {
+  await remote({ tags: ['existing'] })
+  const draft = await saved()
+  const value = session(editor, null)
+  const get = value.api.get
+  const { promise: pendingRead, resolve: finishRead } =
+    Promise.withResolvers<void>()
+  value.api.get = async (path) => {
+    if (path === '/api/batches/shared') await pendingRead
+    return get(path)
+  }
+  const view = render(
+    <Workspace actor={editor} value={value}>
+      <TagRunBanner
+        batchId="shared"
+        entries={[
+          {
+            plate: cards[1],
+            job: {
+              state: 'completed',
+              suggestions: ['naval'],
+              inputHash: draft.revision,
+            },
+          },
+        ]}
+        starting={false}
+        dismiss={() => {}}
+        retry={() => {}}
+      />
+    </Workspace>
+  )
+  expect(
+    (button(view, 'Accept naval for Variant') as HTMLButtonElement).disabled
+  ).toBe(true)
+  await act(async () => finishRead())
+  await view.findByText('Current tags: existing')
+  fireEvent.click(button(view, 'Accept naval for Variant'))
+  await waitFor(() => expect(plateResponses).toEqual([200]))
+  expect(requests.find((entry) => entry.method === 'PATCH')?.body).toEqual({
+    baseRevision: draft.revision,
+    editVersion: 1,
+    fields: { tags: ['existing', 'naval'] },
+  })
+  expect((await saved()).proposed.tags).toEqual(['existing', 'naval'])
+})
+
+test('a direct Plate visit reverts the field shown in its loaded draft', async () => {
+  await remote({ tags: ['existing'], description: 'Keep this story' })
+  const view = render(
+    <Workspace actor={editor} value={session(editor, null)} page />
+  )
+  const revert = await view.findByRole('button', { name: 'Revert tags' })
+  fireEvent.click(revert)
+  await view.findByText('Reverted to the catalog.')
+  expect(plateResponses).toEqual([200])
+  expect(requests.find((entry) => entry.method === 'PATCH')?.body).toEqual({
+    batchRevision: 1,
+    discard: 'tags',
+  })
+  expect((await saved()).proposed).toMatchObject({
+    tags: [],
+    description: 'Keep this story',
+  })
+})
 
 test('a stale family drop recognizes a plate already moved into the destination', async () => {
   const first = render(<Workspace actor={editor} />)

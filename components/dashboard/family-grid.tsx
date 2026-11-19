@@ -235,18 +235,16 @@ export function FamilyGrid({
   const [resolutionError, setResolutionError] = useState('')
   const { mutate } = useSWRConfig()
   const canEdit =
-    workspace.mode === 'selected'
+    draft !== null &&
+    ordering.ready !== false &&
+    (workspace.mode === 'selected'
       ? workspace.status === 'ready'
-      : me.data?.role === 'editor' || me.data?.role === 'owner'
+      : me.data?.role === 'editor' || me.data?.role === 'owner')
   const drag = usePlateDrag({
     bulkEdits,
     catalogVersion: draft?.catalog?.catalogVersion ?? catalogVersion,
     families: baselineFamilies,
-    canEdit:
-      canEdit &&
-      ordering.ready !== false &&
-      !issue &&
-      !standardConfirmation.pending,
+    canEdit: canEdit && !issue && !standardConfirmation.pending,
     show,
     query,
     ordering,

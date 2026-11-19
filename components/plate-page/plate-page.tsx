@@ -41,7 +41,13 @@ import { localPipelineReason } from '@/lib/local-pipeline'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import { StoryEditor } from './story-editor'
 import { PlateDraftReverts } from './draft-reverts'
-import { useDraftOverlay, useEditPlate } from '@/lib/client/hooks'
+import {
+  useBatch,
+  useDraftOverlay,
+  useEditPlate,
+  useMe,
+  useWorkspaceBatch,
+} from '@/lib/client/hooks'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { Conflict, type Issue } from '@/components/plate/edit-conflict'
 import { cardData } from './types'
@@ -231,6 +237,24 @@ export function PlatePage(props: PlatePageProps) {
   const router = useRouter()
   const { mutate } = useSWRConfig()
   const { edit, pending } = useEditPlate()
+  const me = useMe()
+  const workspace = useWorkspaceBatch()
+  const shared = useBatch(
+    workspace.mode === 'personal' ? (me.data?.draftId ?? null) : null,
+    { reuse: true }
+  )
+  const draft = workspace.mode === 'selected' ? workspace.detail : shared.data
+  const canEdit =
+    workspace.mode === 'selected'
+      ? workspace.status === 'ready'
+      : !!draft && (me.data?.role === 'editor' || me.data?.role === 'owner')
+  // The fields, hash and edit version must come from the same draft snapshot.
+  const projection =
+    workspace.mode === 'selected' && workspace.status === 'read-only'
+      ? undefined
+      : draft
+        ? { draft }
+        : null
   const standardConfirmation = useStandardConfirmation()
   const localPipeline = process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
   // Keep both baseline projections stable so the draft overlays can reuse their results.
@@ -252,8 +276,8 @@ export function PlatePage(props: PlatePageProps) {
     [props.plate, localPipeline]
   )
   const cards = useMemo(() => props.plates.map(cardData), [props.plates])
-  const [plate] = useDraftOverlay(detailCard)
-  const plates = useDraftOverlay(cards)
+  const [plate] = useDraftOverlay(detailCard, projection)
+  const plates = useDraftOverlay(cards, projection)
   const [tag, setTag] = useState('')
   const [tagPlate, setTagPlate] = useState<PlateCardData | null>(null)
   const addTrigger = useRef<HTMLButtonElement | null>(null)
@@ -266,6 +290,7 @@ export function PlatePage(props: PlatePageProps) {
   const [draftReset, setDraftReset] = useState<Record<string, number>>({})
   const [resolving, setResolving] = useState(false)
   const blocked =
+    !canEdit ||
     pending ||
     standardConfirmation.pending ||
     resolving ||
@@ -346,6 +371,7 @@ export function PlatePage(props: PlatePageProps) {
     reviewed?: { batchId: string; baseRevision: string; editVersion?: number },
     standard?: StandardChange
   ) {
+    if (!canEdit) return false
     setStatus('Saving to your batch…')
     try {
       const result = reviewed
@@ -573,6 +599,8 @@ export function PlatePage(props: PlatePageProps) {
       </header>
       <PlateDraftReverts
         plateId={current.id}
+        draft={canEdit ? draft : undefined}
+        batchId={workspace.mode === 'selected' ? workspace.id : draft?.batch.id}
         disabled={blocked}
         onReverted={(field) =>
           setDraftReset((previous) => ({
