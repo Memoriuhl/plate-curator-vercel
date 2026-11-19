@@ -255,3 +255,69 @@ provenance. No new research-job ledger is created for the bulk action.
 The hosted default and its published $0.10/M input / $0.40/M output rate were
 verified against the [Gateway model page](https://vercel.com/ai-gateway/models/google/gemini-2.5-flash-lite)
 on 2026-11-17. This is configuration verification, not a new paid benchmark.
+
+## Measured hosted enrichment test
+
+Hosted Research / enrich is kept only if, on the same plates as the local desktop
+run, it fills at least 80% of the requested fields with valid citations (no more
+than 10 points below local), costs no more than $0.01 per plate, and finishes 40
+plates in under 15 minutes. The bar was agreed on #218 on 2026-11-18. The plate set
+and budget cap are approved before any paid run.
+
+Freeze the plate set from a saved catalog snapshot. Plates are drawn round-robin
+across the named states for each case: both fields missing, facts only, and
+description only. The seed (default: the snapshot version) fixes the order.
+`--measure-evidence` captures each plate's sources the way the stage does
+(Wikipedia and the issuer pages it knows), records the synthesis prompt size, and
+prints a cost estimate. It makes no model call.
+
+```sh
+npm run research:benchmark -- --enrich-plan --input snapshot.json \
+  --output eval-results/research-enrich-<date>/manifest.json \
+  --states AL,AK,TX,PA,OH,VA,NC,FL,MS,OK --both 20 --facts 20 --description 0 \
+  --measure-evidence
+```
+
+Run Research / enrich on exactly those plates twice from the Dashboard: once with
+the hosted model and once with the desktop model, Fill missing, in a draft batch,
+without Apply. Run them one after the other so the hosted wall time is measured
+alone. A Wikipedia 429 during evidence capture fails that plate, so don't capture
+evidence from the same machine just before a run. A 40-plate selection is split into
+runs of 25, which run one after the other. Save each finished run's
+detail (`GET /api/local-pipeline/runs?detail=<run id>&detailOnly=1`) and score it:
+
+```sh
+npm run research:benchmark -- --enrich-score \
+  --manifest eval-results/research-enrich-<date>/manifest.json \
+  --runs local-run-1.json,local-run-2.json \
+  --output eval-results/research-enrich-<date>/local-score.json
+npm run research:benchmark -- --enrich-score \
+  --manifest eval-results/research-enrich-<date>/manifest.json \
+  --runs hosted-run-1.json,hosted-run-2.json --local-fill <local fillRate> \
+  --output eval-results/research-enrich-<date>/hosted-score.json
+```
+
+A field counts as filled when the job's suggestion holds it with a captured source:
+a description with the run's sources, facts with at least one fact citing a captured
+page. Suggestions are already screened against the evidence when the job reports
+them. Every manifest plate stays in the denominator; a failed or missing job fills
+nothing. Cost counts every attempt. A hosted call that reported no charge makes the
+per-plate cost unknown, which fails the cost condition. Wall time runs from the
+earliest run start to the last research job's end.
+
+### Proposed run, pending approval (2026-11-18)
+
+The manifest was frozen from Snapshot v17 (8,325 plates) with seed `v17`: two
+plates missing both fields and two missing only facts from each of AL, AK, TX, PA,
+OH, VA, NC, FL, MS and OK, 40 in all. No plate in v17 lacks only a description,
+because no plate has saved fun facts yet, so that case has no candidates. It is
+covered by unit tests, and description fill is reported separately for the plates
+missing both.
+
+Evidence was captured for 28 of the 40 plates, and each of the 28 had at least one
+source. The other 12 could not be measured because Wikipedia's API answered 429
+after repeated captures from one machine. Prompts were 1,470–10,151 characters
+(median 4,290). Assuming two calls per plate, 3,000 tokens of agent overhead and
+600 output tokens per call, the estimate is $0.037 for those 28 plates, about
+$0.0013 per plate if all 40 have evidence. That is well under the $0.01 bar.
+

@@ -16,6 +16,21 @@ import type {
   ResearchResult,
   EvidenceSource,
 } from '../lib/research/types'
+import type { TaggingJob } from '../lib/jobs/types'
+import {
+  estimateEnrichCost,
+  hostedEnrichBar,
+  scoreEnrichRun,
+  selectEnrichPlates,
+  type EnrichManifest,
+} from '../lib/research/enrich-benchmark'
+import { enrichmentTargets } from '../lib/research/enrichment'
+import {
+  enrichmentPrompt,
+  needsEnrichmentSynthesis,
+} from '../lib/research/enrichment-result'
+import { prepareEnrichment } from './pipeline/research'
+import type { WorkerPlate } from './run'
 
 /**
  * Parse the research benchmark's executor, corpus, output and timing options from its
@@ -352,12 +367,188 @@ export async function executeResearchBenchmark(
   }
 }
 
+/** Gateway list prices for the hosted default model, per million tokens. */
+export const hostedEnrichPrice = {
+  model: DEFAULT_HOSTED_RESEARCH_MODEL,
+  inputUsdPerMTok: 0.1,
+  outputUsdPerMTok: 0.4,
+  /** Agent instructions, tool schemas and framework prompt sent with each call. */
+  overheadTokens: 3000,
+  outputTokens: 600,
+  /** The draft call, then the reply after submit_draft returns. */
+  callsPerPlate: 2,
+}
+
+/**
+ * Capture each benchmark plate's evidence the way the Research / enrich stage does,
+ * without a model call, and record the size of the synthesis prompt it would send.
+ */
+export async function measureEnrichEvidence(
+  manifest: EnrichManifest,
+  snapshot: Snapshot,
+  prepare: typeof prepareEnrichment = prepareEnrichment,
+  pauseMs = 0
+) {
+  const rows = []
+  for (const entry of manifest.plates) {
+    // Wikipedia answers bursts with 429, so space the captures out.
+    if (rows.length && pauseMs)
+      await new Promise((resolve) => setTimeout(resolve, pauseMs))
+    const plate = snapshot.plates.find((plate) => plate.id === entry.plateId)!
+    const fields = enrichmentTargets(plate, 'fill-missing')
+    try {
+      const prepared = await prepare(plate as unknown as WorkerPlate, {
+        policy: 'fill-missing',
+      })
+      rows.push({
+        plateId: entry.plateId,
+        sources: prepared.sources.length,
+        synthesis:
+          prepared.sources.length > 0 &&
+          needsEnrichmentSynthesis(plate, 'fill-missing'),
+        evidenceChars: prepared.sources.length
+          ? enrichmentPrompt(plate, prepared.sources, 'fill-missing', fields)
+              .length
+          : 0,
+      })
+    } catch (error) {
+      rows.push({
+        plateId: entry.plateId,
+        sources: 0,
+        synthesis: false,
+        evidenceChars: 0,
+        error: error instanceof Error ? error.message : 'capture failed',
+      })
+    }
+  }
+  return rows
+}
+
+/** Accept a saved runs response, one run, or a list of runs, and return the runs. */
+export function enrichRunRecords(
+  value: unknown
+): { createdAt?: number; jobs: TaggingJob[] }[] {
+  const list = Array.isArray(value) ? value : [value]
+  return list.flatMap((item) => {
+    const record = item as {
+      selected?: unknown
+      runs?: unknown[]
+      jobs?: TaggingJob[]
+    }
+    if (record?.selected) return enrichRunRecords(record.selected)
+    if (Array.isArray(record?.jobs))
+      return [record as { createdAt?: number; jobs: TaggingJob[] }]
+    if (Array.isArray(record?.runs)) return enrichRunRecords(record.runs)
+    throw new Error('Run file has no jobs; save the run detail response')
+  })
+}
+
+/**
+ * Freeze the Research / enrich plate set, optionally measure its evidence for a cost
+ * estimate, or score a finished run against the agreed bar. No mode calls a model.
+ */
+async function enrichMain(args: string[]) {
+  /** Read the command-line value associated with an option. */
+  const value = (key: string) => {
+    const at = args.indexOf(key)
+    return at < 0 ? undefined : args[at + 1]
+  }
+  const output = value('--output')
+  if (!output?.startsWith('eval-results/research-'))
+    throw new Error('Output must be under eval-results/research-*')
+  if (args.includes('--enrich-score')) {
+    const manifest = JSON.parse(
+      await readFile(resolve(value('--manifest') ?? ''), 'utf8')
+    ) as EnrichManifest
+    const runs = []
+    for (const file of (value('--runs') ?? '').split(',').filter(Boolean))
+      runs.push(
+        ...enrichRunRecords(JSON.parse(await readFile(resolve(file), 'utf8')))
+      )
+    const local = value('--local-fill')
+    const score = scoreEnrichRun(manifest, runs, {
+      ...(local === undefined ? {} : { localFillRate: Number(local) }),
+    })
+    await mkdir(dirname(resolve(output)), { recursive: true })
+    await writeFile(resolve(output), JSON.stringify(score, null, 2) + '\n', {
+      flag: 'wx',
+    })
+    // The per-plate rows are in the output file; print the summary only.
+    console.log(JSON.stringify({ ...score, rows: undefined }, null, 2))
+    return
+  }
+  const snapshot = JSON.parse(
+    await readFile(resolve(value('--input') ?? ''), 'utf8')
+  ) as Snapshot
+  const count = (key: string) => Number(value(key) ?? 0)
+  const seed = value('--seed') ?? `v${snapshot.version}`
+  const selected = selectEnrichPlates(snapshot.plates, {
+    states: (value('--states') ?? '').split(',').filter(Boolean),
+    counts: {
+      both: count('--both'),
+      facts: count('--facts'),
+      description: count('--description'),
+    },
+    seed,
+  })
+  const manifest: EnrichManifest = {
+    schemaVersion: 1,
+    kind: 'enrich',
+    baselineVersion: snapshot.version,
+    createdAt: new Date().toISOString(),
+    seed,
+    bar: hostedEnrichBar,
+    plates: selected.plates,
+  }
+  await mkdir(dirname(resolve(output)), { recursive: true })
+  await writeFile(resolve(output), JSON.stringify(manifest, null, 2) + '\n', {
+    flag: 'wx',
+  })
+  const evidence = args.includes('--measure-evidence')
+    ? await measureEnrichEvidence(
+        manifest,
+        snapshot,
+        prepareEnrichment,
+        Number(value('--pause-ms') ?? 3000)
+      )
+    : null
+  if (evidence)
+    await writeFile(
+      resolve(dirname(resolve(output)), 'evidence.json'),
+      JSON.stringify(evidence, null, 2) + '\n',
+      { flag: 'wx' }
+    )
+  console.log(
+    JSON.stringify(
+      {
+        manifest: output,
+        plates: manifest.plates.length,
+        shortfall: selected.shortfall,
+        ...(evidence
+          ? {
+              withSources: evidence.filter((row) => row.sources).length,
+              estimate: {
+                ...hostedEnrichPrice,
+                ...estimateEnrichCost(evidence, hostedEnrichPrice),
+              },
+            }
+          : {}),
+      },
+      null,
+      2
+    )
+  )
+}
+
 /**
  * Load the benchmark settings and corpus, execute the run and report its artifact
  * manifest.
  */
 async function main() {
-  const options = researchRunOptions(process.argv.slice(2))
+  const args = process.argv.slice(2)
+  if (args.includes('--enrich-plan') || args.includes('--enrich-score'))
+    return enrichMain(args)
+  const options = researchRunOptions(args)
   const corpus = JSON.parse(
     await readFile(resolve('fixtures/research-eval.json'), 'utf8')
   )
