@@ -3,6 +3,7 @@ import type { PipelineOptions } from './pipeline-options'
 import type { RunProjection } from './queue-projection'
 import type { Role } from '../review/types'
 import type { RunStep } from './pipeline-plan'
+import type { RunModelBindings, RunModelOptions } from '../models/selection'
 
 export type LocalRunStage = Exclude<PipelineStage, 'order'> | 'tag'
 export type ResourceClass = 'gpu' | 'io'
@@ -59,6 +60,7 @@ export type PipelineRun = {
   stages: LocalRunStage[]
   modelId?: string
   tagModelId?: string
+  modelBindings?: RunModelBindings
   researchModel?: { id: string; executor: 'desktop' | 'eve'; model: string }
   resourceClass: ResourceClass
   options: PipelineOptions
@@ -108,6 +110,7 @@ export type EnqueueInput = {
   modelId?: string
   tagModelId?: string
   researchModelId?: string
+  modelOptions?: RunModelOptions
   options?: PipelineOptions
   previewOnly?: boolean
 }
@@ -116,6 +119,7 @@ export type QueueError =
   | 'not_found'
   | 'invalid_state'
   | 'bad_request'
+  | 'unavailable'
   | 'request_mismatch'
   | 'stale_input'
   | 'payload_too_large'

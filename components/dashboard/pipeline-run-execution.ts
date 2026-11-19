@@ -31,7 +31,11 @@ export function queueRunExecution(run: QueueRunSummary): RunExecution[] {
         researchModel(run.researchModel.id)?.label ?? run.researchModel.model
     } else if (stage === 'tag') {
       const id = run.tagModelId ?? run.modelId
-      if (taggingModel(id)?.runsOn === 'gateway' || id?.startsWith('gateway-'))
+      if (
+        run.modelBindings?.tag ||
+        taggingModel(id)?.runsOn === 'gateway' ||
+        id?.startsWith('gateway-')
+      )
         machine = 'gateway'
       label = runModelLabel(id)
     } else if (pipelineNeedsModel([{ stage }], run.options)) {

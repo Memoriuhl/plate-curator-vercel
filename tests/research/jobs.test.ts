@@ -3,6 +3,7 @@ import {
   claimResearch,
   renewResearchClaim,
   reportResearch,
+  startResearch,
 } from '../../lib/research/jobs'
 import { proposeEdit } from '../../lib/review/batch'
 import { plateRevision } from '../../lib/review/revision'
@@ -138,4 +139,34 @@ test('a failed synthesis remains a visible failure and retains screening reasons
       result: { status: 'failed', rejected: result.rejected },
     },
   })
+})
+
+test('a hosted plate request stores its validated pick and fences a changed choice on retry', async () => {
+  const f = researchFixture()
+  const request = {
+    batchId: 'batch',
+    plateId: f.plate.id,
+    requestKey: 'hosted-pick',
+    executor: 'eve' as const,
+    model: 'openai/test-tool',
+    modelOptions: { capUsd: 0.005, strict: true },
+  }
+  expect(await startResearch(f.deps, f.owner, request)).toMatchObject({
+    ok: true,
+    value: {
+      model: 'openai/test-tool',
+      hostedModel: {
+        model: 'openai/test-tool',
+        price: { input: 0.0000002, output: 0.0000004 },
+        capUsd: 0.005,
+        strict: true,
+      },
+    },
+  })
+  expect(
+    await startResearch(f.deps, f.owner, {
+      ...request,
+      model: 'google/gemini-2.5-flash-lite',
+    })
+  ).toEqual({ ok: false, error: 'request_mismatch' })
 })

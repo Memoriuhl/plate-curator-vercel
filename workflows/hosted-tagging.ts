@@ -1,3 +1,4 @@
+import type { HostedModelBinding } from '../lib/models/selection'
 import { RetryableError, getStepMetadata, getWorkflowMetadata } from 'workflow'
 import { createJob, expireJob, getJob } from '../lib/jobs/jobs'
 import {
@@ -18,7 +19,8 @@ export async function hostedTaggingRun(
   batchId: string,
   plateId: string,
   requestedBy: string,
-  modelId: string
+  modelId: string,
+  binding?: HostedModelBinding
 ) {
   'use workflow'
 
@@ -29,12 +31,13 @@ export async function hostedTaggingRun(
         [{ jobId, plateId }],
         requestedBy,
         modelId,
-        getWorkflowMetadata().workflowRunId
+        getWorkflowMetadata().workflowRunId,
+        binding
       )
     ).length
   )
     return { outcome: 'not_created' as const }
-  const outcomes = await tagChunk([jobId], modelId)
+  const outcomes = await tagChunk([jobId], modelId, binding)
   return finishHosted(jobId, outcomes[jobId])
 }
 
@@ -46,7 +49,8 @@ export async function batchTaggingRun(
   batchId: string,
   requests: Request[],
   requestedBy: string,
-  modelId: string
+  modelId: string,
+  binding?: HostedModelBinding
 ) {
   'use workflow'
 
@@ -55,14 +59,15 @@ export async function batchTaggingRun(
     requests,
     requestedBy,
     modelId,
-    getWorkflowMetadata().workflowRunId
+    getWorkflowMetadata().workflowRunId,
+    binding
   )
   const groups = chunks(created)
   const outcomes: Record<string, FinalOutcome> = {}
   for (let i = 0; i < groups.length; i += CHUNKS_IN_FLIGHT) {
     const wave = groups.slice(i, i + CHUNKS_IN_FLIGHT)
     const settled = await Promise.allSettled(
-      wave.map((group) => tagChunk(group, modelId))
+      wave.map((group) => tagChunk(group, modelId, binding))
     )
     settled.forEach((result, index) => {
       if (result.status === 'fulfilled') Object.assign(outcomes, result.value)
@@ -86,7 +91,8 @@ async function createHostedJobs(
   requests: Request[],
   requestedBy: string,
   modelId: string,
-  workflowId: string
+  workflowId: string,
+  binding?: HostedModelBinding
 ) {
   'use step'
   const d = jobsDeps()
@@ -99,6 +105,7 @@ async function createHostedJobs(
       requestedBy,
       route: 'hosted',
       modelId,
+      ...(binding ? { hostedModel: binding } : {}),
       workflowId,
     })
     if (outcome.ok || outcome.error === 'already_exists')
@@ -111,10 +118,17 @@ async function createHostedJobs(
  * Run a hosted tagging chunk and ask the workflow engine to retry transient outcomes
  * with backoff.
  */
-async function tagChunk(jobIds: string[], modelId: string) {
+async function tagChunk(
+  jobIds: string[],
+  modelId: string,
+  binding?: HostedModelBinding
+) {
   'use step'
   const { attempt, maxAttempts } = getStepMetadata()
-  const result = await tagHostedChunk(await hostedTaggingDeps(modelId), jobIds)
+  const result = await tagHostedChunk(
+    await hostedTaggingDeps(modelId, binding),
+    jobIds
+  )
   const pending = Object.values(result.outcomes).includes('retry')
   if (pending && attempt < maxAttempts)
     throw new RetryableError(
@@ -129,21 +143,28 @@ tagChunk.maxRetries = 5
 async function expireJobs(jobIds: string[]) {
   'use step'
   const d = jobsDeps()
-  for (const id of jobIds) await expireJob(d, id)
+  for (const id of jobIds) {
+    const job = await getJob(d, id)
+    if (job?.state === 'claimed' || job?.state === 'queued')
+      await expireJob(d, id)
+  }
 }
 
 /** Resolve one hosted tagging job to its final status and suggestions. */
 async function finishHosted(jobId: string, outcome: FinalOutcome | undefined) {
   'use step'
   const d = jobsDeps()
+  const current = await getJob(d, jobId)
   const job =
-    outcome !== 'completed'
+    outcome !== 'completed' &&
+    (current?.state === 'claimed' || current?.state === 'queued')
       ? await expireJob(d, jobId).then((result) =>
           result.ok ? result.value : null
         )
-      : await getJob(d, jobId)
+      : current
   return {
     outcome: job?.state ?? 'missing',
+    ...(job?.failure ? { error: job.failure } : {}),
     suggestions: job?.result?.suggestions ?? [],
   }
 }

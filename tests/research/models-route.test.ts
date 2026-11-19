@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { GET } from '../../app/api/research/models/route'
+import { GET as tagModels } from '../../app/api/tagging/models/route'
+import { installModelCatalogFixture } from '../models/fixture'
+import { enabledTaggingModels } from '../../lib/tagging/models'
+
+installModelCatalogFixture()
 
 const mocks = vi.hoisted(() => ({ connection: vi.fn(), actor: vi.fn() }))
 vi.mock('next/server', () => ({ connection: mocks.connection }))
-vi.mock('../../lib/server/context', () => ({ currentActor: mocks.actor }))
+vi.mock('../../lib/server/context', () => ({
+  currentActor: mocks.actor,
+  taggingModels: () => enabledTaggingModels(process.env.TAGGING_MODELS),
+}))
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -73,3 +81,37 @@ test('unauthenticated model discovery preserves the authentication refusal', asy
     (await GET(new Request('https://example.com/api/research/models'))).status
   ).toBe(401)
 })
+
+test.each([
+  [GET, 'openai/test-tool', 'google/gemini-2.5-flash-lite'],
+  [tagModels, 'openai/test-vision', 'google/gemma-4-26b-a4b-it'],
+])(
+  'lists live curated and searchable models only for Owners and under the max preset',
+  async (list, extra, curated) => {
+    vi.stubEnv('TAGGING_MODELS', 'desktop-gemma4-12b,gateway-gemma4-26b')
+    vi.stubEnv('HOSTED_MODEL_MAX_USD_PER_PLATE', '0.005')
+    const request = new Request('https://example.com/api/models')
+    const result = await (await list(request)).json()
+    expect(result.hosted).toMatchObject({
+      caps: [0.002, 0.005],
+      curated: expect.arrayContaining([
+        expect.objectContaining({ id: curated }),
+      ]),
+      searchable: expect.arrayContaining([
+        expect.objectContaining({ id: extra }),
+      ]),
+    })
+    mocks.actor.mockResolvedValue({
+      ok: true,
+      actor: { uid: 'editor', role: 'editor' },
+    })
+    const editor = await (await list(request)).json()
+    expect(editor.hosted).toBeUndefined()
+    expect(
+      editor.models.every(
+        (model: { runsOn?: string; executor?: string }) =>
+          (model.runsOn ?? model.executor) === 'desktop'
+      )
+    ).toBe(true)
+  }
+)

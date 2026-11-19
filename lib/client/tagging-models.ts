@@ -1,8 +1,10 @@
+import type { HostedModelCatalog } from '../models/selection'
 import type { TaggingModel } from '../tagging/models'
 
 export type TaggingModels = {
   models: Pick<TaggingModel, 'id' | 'label' | 'runsOn' | 'measured'>[]
   default: string | null
+  hosted?: HostedModelCatalog
 }
 
 /** Format the tagging model label with its per-plate cost for selection controls. */

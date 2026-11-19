@@ -18,8 +18,12 @@ import { tagHostedJob, type HostedDeps } from '../../lib/jobs/hosted'
 import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import type { JobsDeps } from '../../lib/jobs/types'
+import { gatewayAdapter } from '../../worker/model'
+import { installModelCatalogFixture } from '../models/fixture'
 
-const actor = { uid: 'editor', role: 'editor' as const, name: null }
+installModelCatalogFixture()
+
+const actor = { uid: 'owner', role: 'owner' as const, name: null }
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   vi.stubEnv('TAGGING_MODELS', 'desktop-gemma4-12b,gateway-gemma4-26b')
@@ -269,7 +273,7 @@ test('a disabled hosted model is rejected at enqueue and hosted failure never ed
     tagModelId: 'gateway-gemma4-26b',
   }
   expect(await enqueueRun(s.jobs, actor, input)).toMatchObject({
-    error: 'invalid_state',
+    error: 'unavailable',
   })
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const run = await enqueueRun(s.jobs, actor, input)
@@ -469,3 +473,62 @@ test('retrying a partial Gateway Tag run sends only the failed plate again', asy
   expect(s.suggest).toHaveBeenCalledTimes(4)
   expect(await s.review.listEdits('batch')).toHaveLength(3)
 })
+
+test.each([false, true])(
+  'preview forced Tag failure records the result for Strict %s',
+  async (strict) => {
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    vi.stubEnv('FORCE_MODEL_FAILURE', 'openai/test-vision')
+    const s = setup()
+    const created = await enqueueRun(s.jobs, actor, {
+      requestId: 'fallback-run',
+      batchId: 'batch',
+      plateIds: ['AK.one'],
+      stages: ['tag'],
+      tagModelId: 'openai/test-vision',
+      modelOptions: { tag: { strict } },
+    })
+    if (!created.ok) throw Error(created.error)
+    const id = (await dispatchQueueStage(
+      s.jobs,
+      created.value.id,
+      1,
+      0,
+      'tag'
+    ))!
+    const binding = (await getJob(s.jobs, id))!.hostedModel!
+    const fallback = 'google/gemma-4-26b-a4b-it'
+    const fetch = vi.fn(async () =>
+      Response.json({
+        model: fallback,
+        choices: [{ message: { content: '{"tags":["blue"]}' } }],
+      })
+    )
+    const adapter = gatewayAdapter({
+      apiKey: 'fixture',
+      model: binding.model,
+      binding,
+      fetch,
+    })
+    expect(
+      await executeHostedQueueStage(s.jobs, id, async () => ({
+        ...s.hosted,
+        adapter,
+      }))
+    ).toBe('settled')
+    const job = await getJob(s.jobs, id)
+    if (strict) {
+      expect(fetch).not.toHaveBeenCalled()
+      expect(job).toMatchObject({
+        state: 'failed',
+        failure: 'strict_model_failed',
+      })
+    } else {
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(job).toMatchObject({
+        state: 'completed',
+        result: { model: fallback, servedByFallback: true },
+      })
+    }
+  }
+)

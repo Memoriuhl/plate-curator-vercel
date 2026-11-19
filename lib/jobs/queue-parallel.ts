@@ -1,4 +1,5 @@
 import { taggingModel } from '../tagging/models'
+import { gatewayModelId } from '../models/selection'
 import type { LocalRunStage, RunAttempt } from './queue-types'
 
 export const gatewayTagConcurrency = 6
@@ -12,7 +13,8 @@ export function parallelGatewayTagPlan(
     stepCount > 1 &&
     stages.length === 1 &&
     stages[0] === 'tag' &&
-    taggingModel(modelId)?.runsOn === 'gateway'
+    (taggingModel(modelId)?.runsOn === 'gateway' ||
+      (modelId !== undefined && gatewayModelId.test(modelId)))
   )
 }
 

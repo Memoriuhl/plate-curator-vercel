@@ -86,6 +86,7 @@ export async function benchmark(options: {
   contention?: string
   request?: typeof fetch
   maximumAttempts?: number
+  maximumOutputTokens?: number
   maxRateLimitRatio?: number
 }) {
   if (
@@ -129,6 +130,7 @@ export async function benchmark(options: {
               apiKey: process.env.AI_GATEWAY_API_KEY ?? '',
               model: process.env.AI_GATEWAY_MODEL,
               pricing: options.pricing,
+              maximumOutputTokens: options.maximumOutputTokens,
               fetch: request,
               /** Check the rate-limit stop and reserve a request slot before running inference. */ beforeRequest:
                 () => {
@@ -258,7 +260,12 @@ export async function benchmark(options: {
             stream: false,
             keep_alive: '30m',
           }
-        : { temperature: 0.1 },
+        : {
+            temperature: 0.1,
+            ...(options.maximumOutputTokens
+              ? { max_tokens: options.maximumOutputTokens }
+              : {}),
+          },
     aggregation: 'micro',
     emptySetPolicy:
       'Both empty scores 1; empty suggestions against nonempty curated scores 0; empty curated recall is 1.',

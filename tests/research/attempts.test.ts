@@ -43,6 +43,7 @@ test('mixed known, unreported, and failed physical attempts retain unknown reser
     createResearchModelAttempt(state, 'run', {
       campaign: 'campaign',
       limitUsd: 2,
+      price: { input: 0.0000001, output: 0.0000004 },
       deadline: Date.now() + 10000,
     })
   )
@@ -50,7 +51,7 @@ test('mixed known, unreported, and failed physical attempts retain unknown reser
   await model.doGenerate({ prompt })
   await expect(model.doGenerate({ prompt })).rejects.toThrow('network failure')
   expect(await state.read('budget/campaign')).toMatchObject({
-    committedMicros: 410000,
+    committedMicros: 22800,
   })
   expect(await researchModelCosts(state, 'run')).toEqual({
     costUsd: 0.01,
@@ -83,6 +84,7 @@ test('stream settlement uses each finish metadata entry instead of an aggregate'
     createResearchModelAttempt(state, 'stream', {
       campaign: 'campaign',
       limitUsd: 2,
+      price: { input: 0.0000001, output: 0.0000004 },
       deadline: Date.now() + 10000,
     })
   )

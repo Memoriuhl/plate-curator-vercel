@@ -1,4 +1,10 @@
 export const DEFAULT_HOSTED_RESEARCH_MODEL = 'google/gemini-2.5-flash-lite'
+
+// Pinned rates for existing sessions and runs created before price snapshots.
+export const LEGACY_RESEARCH_PRICES = {
+  [DEFAULT_HOSTED_RESEARCH_MODEL]: { input: 0.0000001, output: 0.0000004 },
+  'google/gemma-4-26b-a4b-it': { input: 0.00000015, output: 0.0000006 },
+}
 export const RESEARCH_MODELS = [
   {
     id: 'desktop-gemma4-12b',
@@ -36,15 +42,15 @@ export function allowedResearchModels(hosted: boolean, owner: boolean) {
     (model) => model.executor === 'desktop' || (hosted && owner)
   )
 }
-/** Resolve the requested model or a default from the models this caller can run. */
-export function resolveResearchModel(
-  id: unknown,
-  hosted: boolean,
-  owner: boolean
-) {
-  return (
-    allowedResearchModels(hosted, owner).find(
-      (model) => model.id === (id ?? RESEARCH_MODELS[0].id)
-    ) ?? null
-  )
-}
+export const CURATED_RESEARCH_MODELS = [
+  DEFAULT_HOSTED_RESEARCH_MODEL,
+  'google/gemma-4-26b-a4b-it',
+  'google/gemini-3.5-flash-lite',
+  'google/gemini-3-flash',
+  'anthropic/claude-haiku-5.5',
+  'openai/gpt-5.4-nano',
+  'alibaba/qwen3.8-flash',
+  'amazon/nova-2-lite',
+  'meta/llama-4-maverick',
+  'mistral/mistral-small',
+] as const

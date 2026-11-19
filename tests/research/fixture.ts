@@ -7,6 +7,9 @@ import {
   type ResearchJob,
   type ResearchResult,
 } from '../../lib/research/types'
+import { installModelCatalogFixture } from '../models/fixture'
+
+installModelCatalogFixture()
 
 /**
  * Build isolated research and review stores with controllable time, IDs and owner

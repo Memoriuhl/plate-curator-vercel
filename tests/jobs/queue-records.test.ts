@@ -2,10 +2,18 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
-import { enqueueRun, parseEnqueue } from '../../lib/jobs/queue'
+import {
+  cancelRun,
+  enqueueRun,
+  parseEnqueue,
+  retryRun,
+} from '../../lib/jobs/queue'
 import { parsePipelineOptions } from '../../lib/jobs/pipeline-options'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { dispatchQueueStage } from '../../lib/jobs/queue-engine'
+import { installModelCatalogFixture } from '../models/fixture'
+
+installModelCatalogFixture()
 
 const editor = { uid: 'editor', role: 'editor' as const, name: null }
 const other = { ...editor, uid: 'other' }
@@ -396,4 +404,55 @@ test('an invalid request creates no draft and a valid mixed-state request create
   expect(await enqueueSelection(scoped, editor, input, newBatch)).toMatchObject(
     { ok: true }
   )
+})
+
+test('hosted model selections bind to the run and its dispatched job', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup()
+  const input = {
+    ...request,
+    stages: ['tag'] as ['tag'],
+    tagModelId: 'openai/test-vision',
+    modelOptions: { tag: { capUsd: 0.005 as const, strict: true } },
+  }
+  const run = await enqueueRun(s.deps, owner, input)
+  expect(run).toMatchObject({
+    ok: true,
+    value: {
+      modelBindings: {
+        tag: {
+          model: 'openai/test-vision',
+          price: { input: 0.0000002, output: 0.0000004 },
+          capUsd: 0.005,
+          strict: true,
+        },
+      },
+    },
+  })
+  if (!run.ok) throw Error(run.error)
+  const result = await enqueueRun(s.deps, owner, {
+    ...input,
+    modelOptions: { tag: { capUsd: 0.005, strict: false } },
+  })
+  expect(result).toEqual({ ok: false, error: 'request_mismatch' })
+  expect(await enqueueRun(s.deps, editor, input)).toEqual({
+    ok: false,
+    error: 'unavailable',
+  })
+  const id = await dispatchQueueStage(s.deps, run.value.id, 1, 0, 'hook')
+  expect(await s.deps.store.transaction((tx) => tx.get(id!))).toMatchObject({
+    route: 'hosted',
+    hostedModel: run.value.modelBindings?.tag,
+  })
+  expect(await cancelRun(s.deps, owner, run.value.id)).toMatchObject({
+    ok: true,
+  })
+  expect(
+    await retryRun(
+      s.deps,
+      { ...owner, role: 'editor', uid: editor.uid },
+      run.value.id,
+      'editor-retry'
+    )
+  ).toEqual({ ok: false, error: 'forbidden' })
 })

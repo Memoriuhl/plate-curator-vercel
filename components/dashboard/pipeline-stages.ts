@@ -378,6 +378,7 @@ const stepReasons: Record<string, string> = {
     'Grouping requires the full selection. At least one plate was skipped.',
   run_cancelled: 'The remaining work was cancelled.',
   unavailable: 'The worker cannot run this stage.',
+  strict_model_failed: 'The selected model failed in Strict mode.',
 }
 
 export function pipelineStepReason(reason: string): string {

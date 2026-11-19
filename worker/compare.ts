@@ -34,6 +34,17 @@ async function main() {
     new Set(fixture.plates.map((p) => p.id)).size !== 30
   )
     throw new Error('Expected 30 distinct Plates')
+  const positiveInteger = (name: string, fallback: number, max: number) => {
+    const number = Number(value(name, String(fallback)))
+    if (!Number.isInteger(number) || number < 1 || number > max)
+      throw new Error(`Invalid ${name}`)
+    return number
+  }
+  const plateLimit = positiveInteger('--plate-limit', 30, fixture.plates.length)
+  const maximumAttempts = positiveInteger('--max-attempts', 2, 2)
+  const maximumOutputTokens = args.includes('--max-output-tokens')
+    ? positiveInteger('--max-output-tokens', 1024, Number.MAX_SAFE_INTEGER)
+    : undefined
   const { minimumF1 } = JSON.parse(
     await readFile('fixtures/tag-eval-threshold.json', 'utf8')
   )
@@ -71,6 +82,7 @@ async function main() {
     gpu,
     label: value('--label', ''),
     maxRateLimitRatio,
+    maximumOutputTokens,
   }
   let smokeCost: number | null = null
   if (hosted) {
@@ -128,7 +140,8 @@ async function main() {
       ...common,
       backend: lane,
       concurrency: count,
-      plates: fixture.plates,
+      plates: fixture.plates.slice(0, plateLimit),
+      maximumAttempts,
     })
     if (lane === 'local') {
       try {

@@ -28,7 +28,12 @@ import type {
 import { chooseTaggingModel, enabledTaggingModels } from '../tagging/models'
 import { completeGroupScope } from '../review/group-context'
 import type { Plate } from '../catalog/types'
-import { resolveResearchModel } from '../research/models'
+import {
+  chooseRunResearchModel,
+  chooseRunTaggingModel,
+  runUsesHostedModels,
+} from './model-binding'
+import { gatewayModelId, runModelOptionsSchema } from '../models/selection'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
 import { parallelGatewayTagPlan, parallelTagIndices } from './queue-parallel'
 import {
@@ -67,8 +72,12 @@ export function parseEnqueue(
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const value = input as Record<string, unknown>
   const options = parsePipelineOptions(value.options)
+  const modelOptions = runModelOptionsSchema
+    .optional()
+    .safeParse(value.modelOptions)
   if (
     !options ||
+    !modelOptions.success ||
     (value.previewOnly !== undefined &&
       typeof value.previewOnly !== 'boolean') ||
     Object.keys(value).some(
@@ -81,6 +90,7 @@ export function parseEnqueue(
           'modelId',
           'tagModelId',
           'researchModelId',
+          'modelOptions',
           'options',
           'previewOnly',
         ].includes(key)
@@ -108,7 +118,10 @@ export function parseEnqueue(
       (key) =>
         value[key] !== undefined &&
         (typeof value[key] !== 'string' ||
-          !requestPattern.test(value[key] as string))
+          (!requestPattern.test(value[key] as string) &&
+            (key === 'modelId' ||
+              (value[key] as string).length > 200 ||
+              !gatewayModelId.test(value[key] as string))))
     )
   )
     return null
@@ -126,6 +139,7 @@ export function parseEnqueue(
     stages: canonicalStages.filter((stage) =>
       (value.stages as unknown[]).includes(stage)
     ),
+    ...(modelOptions.data ? { modelOptions: modelOptions.data } : {}),
     options: snapshotPipelineOptions(value.stages as string[], options),
     previewOnly: value.previewOnly === true,
     ...(value.modelId ? { modelId: value.modelId as string } : {}),
@@ -233,7 +247,7 @@ export async function currentProjectionMatches(
  * Build an attempt with ordered work, compatible models and a snapshot of its starting
  * inputs.
  */
-function buildRun(
+async function buildRun(
   d: JobsDeps,
   actor: Actor,
   parsed: EnqueueInput,
@@ -244,7 +258,7 @@ function buildRun(
   enqueueSequence: number,
   now: number,
   selection?: { id: string; index: number }
-): QueueOutcome<PipelineRun | null> {
+): Promise<QueueOutcome<PipelineRun | null>> {
   const steps = planPipeline(plates, parsed.stages, parsed.options!)
   if (!steps.length) return { ok: true, value: null }
   const needsModel = pipelineNeedsModel(
@@ -265,47 +279,50 @@ function buildRun(
       ok: false,
       error: choice.error === 'bad_request' ? 'bad_request' : 'invalid_state',
     }
-  const tagChoice = steps.some((step) => step.stage === 'tag')
-    ? chooseTaggingModel(
+  const tag = steps.some((step) => step.stage === 'tag')
+    ? await chooseRunTaggingModel(
         parsed.tagModelId ?? parsed.modelId,
-        enabledTaggingModels(process.env.TAGGING_MODELS),
-        process.env.TAGGING_DEFAULT_MODEL
+        parsed.modelOptions?.tag,
+        actor.role === 'owner'
       )
     : undefined
-  if (tagChoice && !tagChoice.ok)
-    return {
-      ok: false,
-      error:
-        tagChoice.error === 'bad_request' ? 'bad_request' : 'invalid_state',
-    }
-  if (tagChoice?.ok && tagChoice.model.runsOn === 'gateway')
+  if (tag && !tag.ok) return tag
+  if (tag?.binding)
     for (const step of steps)
       if (step.stage === 'tag') step.resourceClass = 'io'
   const research = steps.some((step) => step.stage === 'research')
-    ? resolveResearchModel(
+    ? await chooseRunResearchModel(
         parsed.researchModelId,
+        parsed.modelOptions?.research,
         process.env.RESEARCH_ENABLE_MODEL_CALLS === 'true',
         actor.role === 'owner'
       )
     : undefined
-  if (research === null) return { ok: false, error: 'invalid_state' }
+  if (research && !research.ok) return research
   if (research)
     for (const step of steps)
       if (step.stage === 'research')
-        step.resourceClass = research.executor === 'desktop' ? 'gpu' : 'io'
+        step.resourceClass =
+          research.model.executor === 'desktop' ? 'gpu' : 'io'
+  const modelBindings = {
+    ...(tag?.binding ? { tag: tag.binding } : {}),
+    ...(research?.binding ? { research: research.binding } : {}),
+  }
   const savedInput = { ...parsed }
   delete savedInput.modelId
   delete savedInput.tagModelId
   delete savedInput.researchModelId
+  delete savedInput.modelOptions
   const run: PipelineRun = {
     ...savedInput,
     ...(needsModel && choice?.ok
       ? { modelId: choice.model.id }
-      : tagChoice?.ok
-        ? { modelId: tagChoice.model.id }
+      : tag?.ok
+        ? { modelId: tag.model.id }
         : {}),
-    ...(tagChoice?.ok ? { tagModelId: tagChoice.model.id } : {}),
-    ...(research ? { researchModel: research } : {}),
+    ...(tag?.ok ? { tagModelId: tag.model.id } : {}),
+    ...(research ? { researchModel: research.model } : {}),
+    ...(Object.keys(modelBindings).length ? { modelBindings } : {}),
     id,
     fingerprint,
     env: d.store.env,
@@ -344,7 +361,7 @@ function buildRun(
         choices: {},
         ...(parallelGatewayTagPlan(
           parsed.stages,
-          tagChoice?.ok ? tagChoice.model.id : undefined,
+          tag?.ok ? tag.model.id : undefined,
           steps.length
         )
           ? { parallelTag: true as const }
@@ -391,6 +408,7 @@ async function enqueueRuns(
     ...(parsed.researchModelId
       ? { researchModelId: parsed.researchModelId }
       : {}),
+    ...(parsed.modelOptions ? { modelOptions: parsed.modelOptions } : {}),
     options: parsed.options,
     previewOnly: parsed.previewOnly,
   })
@@ -486,7 +504,7 @@ async function enqueueRuns(
     for (let offset = 0; offset < plates.length; offset += size) {
       const part = plates.slice(offset, offset + size)
       const index = chunks.length
-      const result = buildRun(
+      const result = await buildRun(
         d,
         actor,
         { ...parsed, plateIds: part.map((plate) => plate.id) },
@@ -791,6 +809,8 @@ export async function retryRun(
     const batch = await tx.batch(run.batchId)
     const error = queuePermission(batch, actor)
     if (error) return { ok: false, error }
+    if (actor.role !== 'owner' && runUsesHostedModels(run))
+      return { ok: false, error: 'forbidden' }
     if (run.attempts.some((attempt) => attempt.requestId === requestId))
       return { ok: true, value: run }
     const previous = run.attempts.at(-1)!

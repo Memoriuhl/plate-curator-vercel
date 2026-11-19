@@ -44,6 +44,7 @@ test('a captured-evidence run permits one physical synthesis attempt with no sil
     limitUsd: 2,
     deadline: Date.now() + 10000,
     maxCalls: 1,
+    price: { input: 0.0000001, output: 0.0000004 },
   }
   const first = await createResearchModelAttempt(store, 'plate', options)
   await first.settle(0.000128, { inputTokens: 800, outputTokens: 120 })
@@ -65,7 +66,7 @@ test('queued plates share a twenty-cent campaign after an earlier charged call',
   await settleResearchModelSpend(store, 'campaign', 'earlier', 0.0006361)
 
   const calls = await Promise.all(
-    Array.from({ length: 10 }, async (_, index) => {
+    Array.from({ length: 32 }, async (_, index) => {
       const id = `session-${index}`
       await store.update(`session/${id}`, () => ({
         value: { pipelineJobId: `plate-${index}` },
@@ -80,10 +81,33 @@ test('queued plates share a twenty-cent campaign after an earlier charged call',
   )
   const outcomes = await Promise.allSettled(calls.map((start) => start()))
   expect(outcomes.filter(({ status }) => status === 'fulfilled')).toHaveLength(
-    9
+    31
   )
   expect(await store.read('budget/campaign')).toMatchObject({
     limitMicros: 200000,
-    committedMicros: 180637,
+    committedMicros: 199037,
+  })
+})
+
+test('call reservations scale with the bound price and cover a more expensive fallback', async () => {
+  const store = createResearchMemoryState()
+  const common = {
+    campaign: 'prices',
+    limitUsd: 2,
+    deadline: Date.now() + 10000,
+  }
+  const price = { input: 0.000001, output: 0.000002 }
+  await createResearchModelAttempt(store, 'primary', { ...common, price })
+  await createResearchModelAttempt(store, 'with-fallback', {
+    ...common,
+    price,
+    fallbackPrice: { input: 0.000002, output: 0.000004 },
+  })
+  expect(await store.read('budget/prices')).toMatchObject({
+    committedMicros: 186000,
+    runs: {
+      'primary/model/1': { modelReservedMicros: 62000 },
+      'with-fallback/model/1': { modelReservedMicros: 124000 },
+    },
   })
 })

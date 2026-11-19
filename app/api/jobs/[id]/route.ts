@@ -29,6 +29,8 @@ export async function GET(
     suggestions: job.result?.suggestions ?? [],
     model: job.result?.model ?? null,
     modelId: job.modelId ?? null,
+    ...(job.result?.servedByFallback ? { servedByFallback: true } : {}),
+    ...(job.failure ? { failure: job.failure } : {}),
     ...(process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' && job.localScope
       ? { previewOnly: job.previewOnly === true }
       : {}),

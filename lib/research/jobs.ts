@@ -11,7 +11,8 @@ import type {
   ResearchJob,
   ResearchResult,
 } from './types'
-import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
+import { bindHostedModel, hostedResearchModelId } from '../jobs/model-binding'
+import { DEFAULT_MODEL_CAP, modelOptionsSchema } from '../models/selection'
 import {
   researchContentFields,
   researchNeeds,
@@ -22,6 +23,7 @@ export type ResearchError =
   | 'forbidden'
   | 'not_found'
   | 'invalid_state'
+  | 'bad_request'
   | 'request_mismatch'
   | 'unavailable'
   | 'superseded'
@@ -88,6 +90,8 @@ export async function startResearch(
     executor: ResearchExecutor
     requestKey: string
     replaceJobId?: string
+    model?: unknown
+    modelOptions?: unknown
   }
 ): Promise<ResearchOutcome<ResearchJob>> {
   if (actor.role !== 'owner' || !(await deps.active(actor.uid)))
@@ -100,6 +104,20 @@ export async function startResearch(
     return { ok: false, error: 'invalid_state' }
   if (request.executor === 'eve' ? !deps.hostedEnabled : !deps.legacyRevision)
     return { ok: false, error: 'unavailable' }
+  const model =
+    request.executor === 'eve'
+      ? hostedResearchModelId(request.model)
+      : 'gemma4:12b'
+  const options = modelOptionsSchema.optional().safeParse(request.modelOptions)
+  if (
+    !model ||
+    !options.success ||
+    (request.executor === 'desktop' &&
+      (request.model !== undefined || request.modelOptions !== undefined))
+  )
+    return { ok: false, error: 'bad_request' }
+  const capUsd = options.data?.capUsd ?? DEFAULT_MODEL_CAP
+  const strict = options.data?.strict ?? false
   const batch = await deps.review.store.getBatch(request.batchId)
   if (!batch || !canEdit(batch, actor)) return { ok: false, error: 'not_found' }
   if (!editableStates.includes(batch.state))
@@ -120,7 +138,10 @@ export async function startResearch(
     const existing = await tx.get(id)
     if (existing)
       return existing.executor === request.executor &&
-        existing.input.plateId === request.plateId
+        existing.input.plateId === request.plateId &&
+        existing.model === model &&
+        (existing.hostedModel?.capUsd ?? DEFAULT_MODEL_CAP) === capUsd &&
+        (existing.hostedModel?.strict ?? false) === strict
         ? { ok: true as const, value: existing }
         : { ok: false as const, error: 'request_mismatch' as const }
     const old = request.replaceJobId ? await tx.get(request.replaceJobId) : null
@@ -134,6 +155,11 @@ export async function startResearch(
       return { ok: false as const, error: 'not_found' as const }
     if (old?.replacedBy)
       return { ok: false as const, error: 'superseded' as const }
+    const hosted =
+      request.executor === 'eve'
+        ? await bindHostedModel('research', model, options.data)
+        : undefined
+    if (hosted && !hosted.ok) return hosted
     const job: ResearchJob = {
       id,
       requestKey: request.requestKey,
@@ -142,10 +168,8 @@ export async function startResearch(
       env: deps.store.env,
       input,
       executor: request.executor,
-      model:
-        request.executor === 'eve'
-          ? DEFAULT_HOSTED_RESEARCH_MODEL
-          : 'gemma4:12b',
+      model,
+      ...(hosted ? { hostedModel: hosted.binding } : {}),
       state: 'queued',
       createdAt: deps.now(),
       deadline: deps.now() + (request.executor === 'eve' ? 300000 : 86400000),
@@ -339,10 +363,13 @@ export function normalizeResearchReport(
   const parsed = resultSchema.safeParse(raw)
   if (!parsed.success) return null
   const data = parsed.data
+  const servedByFallback =
+    !job.hostedModel?.strict &&
+    data.provenance.model === job.hostedModel?.fallback?.model
   if (
     JSON.stringify(data.input) !== JSON.stringify(job.input) ||
     data.provenance.executor !== job.executor ||
-    data.provenance.model !== job.model ||
+    (data.provenance.model !== job.model && !servedByFallback) ||
     (job.legacyRevision && data.provenance.codeRevision !== job.legacyRevision)
   )
     return null
@@ -365,6 +392,9 @@ export function normalizeResearchReport(
   )
   return {
     ...data,
+    ...(servedByFallback
+      ? { provenance: { ...data.provenance, servedByFallback: true as const } }
+      : {}),
     ...screened,
     rejected: [...data.rejected, ...screened.rejected],
     missing: outcome.missing,

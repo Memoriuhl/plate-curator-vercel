@@ -9,7 +9,10 @@ type HostedAttempt = {
   retryAfterMs?: number
 }
 type Research = (job: TaggingJob) => Promise<'waiting' | 'settled'>
-type HostedDependencies = (modelId: string) => Promise<HostedDeps>
+type HostedDependencies = (
+  modelId: string,
+  binding?: TaggingJob['hostedModel']
+) => Promise<HostedDeps>
 
 /**
  * Execute a queue stage on its hosted provider and report whether it settled or needs
@@ -62,9 +65,16 @@ export async function executeHostedQueueAttempt(
     const claim = await claimHostedQueueJob(jobs, id)
     return { outcome: claim ? await research(claim.job) : 'waiting' }
   }
-  const result = await tagHostedJob(await deps(job.modelId!), id)
+  const result = await tagHostedJob(
+    await deps(job.modelId!, job.hostedModel),
+    id
+  )
   if (result.outcome === 'waiting' || result.outcome === 'retry')
     return { outcome: result.outcome, retryAfterMs: result.retryAfterMs }
-  if (result.outcome !== 'completed') await expireJob(jobs, id)
+  if (
+    result.outcome !== 'completed' &&
+    (await getJob(jobs, id))?.state === 'claimed'
+  )
+    await expireJob(jobs, id)
   return { outcome: 'settled' }
 }

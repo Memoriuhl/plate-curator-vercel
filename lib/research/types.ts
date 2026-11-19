@@ -1,3 +1,4 @@
+import type { HostedModelBinding } from '../models/selection'
 export type ResearchExecutor = 'desktop' | 'eve'
 /** Content a research run can supply; success is judged against the requested subset. */
 export type ResearchContentField = 'description' | 'funFacts'
@@ -39,6 +40,7 @@ export type ResearchResult = {
   provenance: {
     executor: ResearchExecutor
     model: string
+    servedByFallback?: true
     promptVersion: string
     codeRevision: string
   }
@@ -62,6 +64,7 @@ export type ResearchJob = {
   input: ResearchInput
   executor: ResearchExecutor
   model: string
+  hostedModel?: HostedModelBinding
   state: ResearchState
   createdAt: number
   deadline: number

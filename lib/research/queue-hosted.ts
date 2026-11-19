@@ -19,6 +19,7 @@ import {
   type PreparedEnrichment,
 } from '../../worker/pipeline/research'
 import { researchModelCosts } from './model-attempt'
+import { STRICT_MODEL_FAILURE } from '../models/routing'
 
 export type QueueResearchDeps = {
   state: ResearchStateStore
@@ -69,7 +70,8 @@ export async function executeQueueResearch(
     draft: unknown,
     sources: EvidenceSource[],
     usage: Record<string, number>,
-    skippedPhases: number[] = []
+    skippedPhases: number[] = [],
+    servedModel?: string
   ) {
     if (draft && sources.length)
       await reportJobPhase(
@@ -83,6 +85,7 @@ export async function executeQueueResearch(
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)
     const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, {
       ...meta,
+      model: servedModel ?? meta.model,
       usage,
       durationMs: Math.max(0, jobs.now() - (job.startedAt ?? job.createdAt)),
       ...(skippedPhases.length ? { skippedPhases } : {}),
@@ -169,7 +172,8 @@ export async function executeQueueResearch(
         'hosted',
         job.id,
         job.claimId!,
-        settled.error === 'research_budget_exhausted'
+        settled.error === 'research_budget_exhausted' ||
+          settled.error === STRICT_MODEL_FAILURE
           ? settled.error
           : 'stage_failed'
       )
@@ -181,6 +185,7 @@ export async function executeQueueResearch(
     }
     const usage =
       (await deps.state.read<Record<string, number>>(`usage/${job.id}`)) ?? {}
+    const servedModel = await deps.state.read<string>(`served-model/${job.id}`)
     const costs = await researchModelCosts(deps.state, job.id)
     // Use the captured matched Wiki even when the model only found text/facts.
     const draft = {
@@ -198,7 +203,8 @@ export async function executeQueueResearch(
         costUsd: costs.costUsd,
         missingModelCosts: costs.missingModelCosts,
       },
-      skippedPhases
+      skippedPhases,
+      servedModel ?? undefined
     )
   }
   if ((await getJob(jobs, job.id))?.state !== 'claimed') return 'settled'

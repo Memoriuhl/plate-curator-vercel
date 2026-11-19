@@ -42,6 +42,9 @@ import {
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
 import type { Actor } from '../../lib/review/types'
 import type { LocalRunStage } from '../../lib/jobs/queue-types'
+import { installModelCatalogFixture } from '../models/fixture'
+
+installModelCatalogFixture()
 
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 const other = { ...actor, uid: 'other' }
@@ -397,13 +400,17 @@ async function gatewayRun(
   to: number,
   batchId = 'batch'
 ) {
-  const created = await enqueueRun(s.deps, requestedBy, {
-    requestId,
-    batchId,
-    plateIds: s.plates.slice(from, to).map((plate) => plate.id),
-    stages: ['tag'],
-    tagModelId: 'gateway-gemma4-26b',
-  })
+  const created = await enqueueRun(
+    s.deps,
+    { ...requestedBy, role: 'owner' },
+    {
+      requestId,
+      batchId,
+      plateIds: s.plates.slice(from, to).map((plate) => plate.id),
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    }
+  )
   if (!created.ok) throw Error(created.error)
   const { id } = created.value
   await bindQueueWorkflow(s.deps, id, 1, `workflow-${requestId}`)
@@ -603,13 +610,17 @@ test('drafts from concurrent runs in the same Batch both land', async () => {
   const s = setup()
   const runs: string[] = []
   for (const plate of s.plates) {
-    const created = await enqueueSelection(s.deps, actor, {
-      requestId: `draft-${plate.slug}`,
-      batchId: 'batch',
-      plateIds: [plate.id],
-      stages: ['tag'],
-      tagModelId: 'gateway-gemma4-26b',
-    })
+    const created = await enqueueSelection(
+      s.deps,
+      { ...actor, role: 'owner' },
+      {
+        requestId: `draft-${plate.slug}`,
+        batchId: 'batch',
+        plateIds: [plate.id],
+        stages: ['tag'],
+        tagModelId: 'gateway-gemma4-26b',
+      }
+    )
     if (!created.ok) throw Error(created.error)
     const [run] = created.value
     await bindQueueWorkflow(s.deps, run.id, 1, `workflow-${plate.slug}`)
@@ -1164,11 +1175,11 @@ test('unknown, retired and hosted model choices fail before any durable write; o
   ).toMatchObject({ error: 'bad_request' })
   expect(
     await enqueueRun(s.deps, actor, { ...input, modelId: 'gateway-gemma4-26b' })
-  ).toMatchObject({ error: 'invalid_state' })
+  ).toMatchObject({ error: 'unavailable' })
   vi.stubEnv('TAGGING_MODELS', 'desktop-gemma4-12b')
   expect(
     await enqueueRun(s.deps, actor, { ...input, modelId: 'desktop-gemma4-26b' })
-  ).toMatchObject({ error: 'invalid_state' })
+  ).toMatchObject({ error: 'unavailable' })
   const big = {
     ...s.deps,
     baseline: async () => ({

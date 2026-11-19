@@ -210,6 +210,7 @@ export function ResearchResult({
       <details>
         <summary className="caption cursor-pointer">Run details</summary>
         <p className="caption pt-1">
+          {result.provenance.servedByFallback ? 'Served by fallback · ' : ''}
           {result.provenance.model} · {result.status} ·{' '}
           {(result.durationMs / 1000).toFixed(1)}s ·{' '}
           {result.cost.usd === null

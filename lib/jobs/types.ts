@@ -1,3 +1,4 @@
+import type { HostedModelBinding } from '../models/selection'
 import type { Plate } from '../catalog/types'
 import type {
   EditableFields,
@@ -47,6 +48,7 @@ export type JobResult = {
   stageError?: StageError
   backend: string
   model: string
+  servedByFallback?: true
   promptVersion: string
   durationMs: number
   usage?: Record<string, number>
@@ -54,7 +56,11 @@ export type JobResult = {
 }
 export type ReportInput = Omit<
   JobResult,
-  'suggestions' | 'fieldSuggestion' | 'stageError' | 'skippedPhases'
+  | 'suggestions'
+  | 'fieldSuggestion'
+  | 'stageError'
+  | 'skippedPhases'
+  | 'servedByFallback'
 > & {
   suggestions?: unknown
   fieldSuggestion?: unknown
@@ -74,6 +80,7 @@ export type TaggingJob = {
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
+  hostedModel?: HostedModelBinding
   researchModel?: { id: string; executor: 'desktop' | 'eve'; model: string }
   researchPolicy?: 'fill-missing' | 'replace'
   eve?: { sessionId: string; deliveryId: string }

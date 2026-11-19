@@ -33,6 +33,8 @@ export async function POST(
     plateId,
     executor: body.executor as 'desktop' | 'eve',
     requestKey: body.requestKey,
+    model: body.model,
+    modelOptions: body.modelOptions,
     ...(typeof body.replaceJobId === 'string'
       ? { replaceJobId: body.replaceJobId }
       : {}),

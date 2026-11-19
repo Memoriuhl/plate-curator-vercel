@@ -10,7 +10,8 @@ export function researchMessage(error: unknown) {
     forbidden:
       'Research starts require an active Owner; Batch access is required to review.',
     unavailable:
-      'This research host is not configured. Choose another host for a new run.',
+      'This research host or model is unavailable. Choose another model or host.',
+    bad_request: 'Choose an available model under the selected price cap.',
     stale_input:
       'This plate changed since research started. Start a replacement run before accepting.',
     stale_plate: 'This plate changed. Refresh before accepting.',

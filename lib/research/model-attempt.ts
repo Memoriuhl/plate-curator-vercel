@@ -1,6 +1,11 @@
 import type { ResearchStateStore } from './state'
 import { RESEARCH_LIMITS } from './limits'
-import { reserveResearchSpend, settleResearchModelSpend } from './budget'
+import {
+  researchCallReservation,
+  reserveResearchSpend,
+  settleResearchModelSpend,
+} from './budget'
+import type { ModelPrice } from '../models/catalog'
 
 export const researchBudgetError = 'Research campaign budget exhausted'
 
@@ -14,7 +19,8 @@ export async function createResearchModelAttempt(
     limitUsd: number
     deadline: number
     maxCalls?: number
-    reservationUsd?: number
+    price: ModelPrice
+    fallbackPrice?: ModelPrice
   }
 ) {
   const sequence = await store.update<Record<string, number>, number | null>(
@@ -40,7 +46,7 @@ export async function createResearchModelAttempt(
       options.campaign,
       id,
       'model',
-      options.reservationUsd ?? 0.2,
+      researchCallReservation(options.price, options.fallbackPrice),
       options.limitUsd
     ))
   )
@@ -51,7 +57,11 @@ export async function createResearchModelAttempt(
   }))
   return {
     /** Settle the attempt by recording actual spend and usage for the run's totals. */
-    async settle(costUsd: number | undefined, usage?: Record<string, number>) {
+    async settle(
+      costUsd: number | undefined,
+      usage?: Record<string, number>,
+      model?: string
+    ) {
       await settleResearchModelSpend(store, options.campaign, id, costUsd)
       if (costUsd !== undefined)
         await store.update<Attempt[], null>(
@@ -63,6 +73,11 @@ export async function createResearchModelAttempt(
             result: null,
           })
         )
+      if (model)
+        await store.update(`served-model/${runId}`, () => ({
+          value: model,
+          result: null,
+        }))
       if (usage)
         await store.update(`usage/${runId}`, () => ({
           value: usage,

@@ -1,4 +1,6 @@
 ﻿import { createHash } from 'node:crypto'
+import { hostedModelRoute, HostedModelFailure } from '../lib/models/routing'
+import type { HostedModelBinding } from '../lib/models/selection'
 export const COLORS = [
   'white',
   'black',
@@ -301,7 +303,11 @@ export interface ModelAdapter {
   suggest(input: {
     imageB64: string
     plate: { displayName: string; state: string; tags: string[] }
-  }): Promise<{ tags: string[]; usage?: Record<string, number> }>
+  }): Promise<{
+    tags: string[]
+    usage?: Record<string, number>
+    model?: string
+  }>
 }
 
 export type Attempt = {
@@ -366,6 +372,8 @@ export function gatewayAdapter(options: {
   model?: string
   fetch?: typeof fetch
   pricing?: Pricing
+  binding?: HostedModelBinding
+  maximumOutputTokens?: number
   beforeRequest?: () => void
   onAttempt?: (attempt: Attempt) => void
 }): ModelAdapter {
@@ -383,13 +391,17 @@ export function gatewayAdapter(options: {
     /** Send a Gateway tagging request, normalize its completion and record the attempt's usage. */ async suggest(
       input
     ) {
+      const route = hostedModelRoute(model, options.binding)
       if (!options.apiKey) throw new Error('AI_GATEWAY_API_KEY is required')
       const rates =
-        options.pricing ?? (await (pricing ??= gatewayPricing(model, request)))
+        options.pricing ??
+        (!options.binding
+          ? await (pricing ??= gatewayPricing(model, request))
+          : undefined)
       options.beforeRequest?.()
       const start = performance.now()
       const attempt: Attempt = {
-        model,
+        model: route.model,
         latencyMs: 0,
         cost: null,
         costSource: 'unknown',
@@ -414,7 +426,13 @@ export function gatewayAdapter(options: {
             },
             signal: AbortSignal.timeout(180000),
             body: JSON.stringify({
-              model,
+              model: route.model,
+              ...(route.providerOptions
+                ? { providerOptions: route.providerOptions }
+                : {}),
+              ...(options.maximumOutputTokens
+                ? { max_tokens: options.maximumOutputTokens }
+                : {}),
               temperature: 0.1,
               messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
@@ -450,7 +468,13 @@ export function gatewayAdapter(options: {
             }
           )
         const body = await response.json()
-        attempt.model = body.model ?? model
+        attempt.model =
+          typeof body.model === 'string' ? body.model : route.model
+        const snapshot =
+          attempt.model === options.binding?.fallback?.model
+            ? options.binding?.fallback?.price
+            : options.binding?.price
+        const servedRates = snapshot ?? rates
         attempt.usage = Object.fromEntries(
           Object.entries(body.usage ?? {}).filter(
             ([, value]) => typeof value === 'number'
@@ -465,15 +489,21 @@ export function gatewayAdapter(options: {
           attempt.cost = Number(reported)
           attempt.costSource = 'reported'
         } else if (
+          servedRates &&
           typeof body.usage?.prompt_tokens === 'number' &&
           typeof body.usage?.completion_tokens === 'number'
         ) {
           // Apply the provider's cache-read rate to prompt tokens it reports as reused.
           const cached = body.usage.prompt_tokens_details?.cached_tokens ?? 0
           attempt.cost =
-            (body.usage.prompt_tokens - cached) * Number(rates.input) +
-            cached * Number(rates.input_cache_read ?? rates.input) +
-            body.usage.completion_tokens * Number(rates.output)
+            (body.usage.prompt_tokens - cached) * Number(servedRates.input) +
+            cached *
+              Number(
+                'input_cache_read' in servedRates
+                  ? (servedRates.input_cache_read ?? servedRates.input)
+                  : servedRates.input
+              ) +
+            body.usage.completion_tokens * Number(servedRates.output)
           attempt.costSource = 'estimated'
         }
         return {
@@ -482,7 +512,11 @@ export function gatewayAdapter(options: {
             input
           ),
           usage: attempt.usage,
+          ...(options.binding ? { model: attempt.model } : {}),
         }
+      } catch (error) {
+        if (options.binding?.strict) throw new HostedModelFailure(true, error)
+        throw error
       } finally {
         attempt.latencyMs = performance.now() - start
         options.onAttempt?.(attempt)

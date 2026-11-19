@@ -19,6 +19,7 @@ export function queueResponse<T>(outcome: QueueOutcome<T>, status = 200) {
     forbidden: 403,
     not_found: 404,
     invalid_state: 422,
+    unavailable: 422,
     bad_request: 400,
     request_mismatch: 409,
     stale_input: 409,
