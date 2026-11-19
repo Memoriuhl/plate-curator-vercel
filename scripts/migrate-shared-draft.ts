@@ -1,23 +1,6 @@
 import { loadEnvConfig } from '@next/env'
 import { assertStagingProject } from '../lib/review/demo-seed'
-
-const usage =
-  'Usage: npm run migrate:shared-draft -- --env <development|production|preview:branch> [--apply]'
-
-/** Read the review environment and the apply flag; anything else is a usage error. */
-function parseArgs(argv: string[]): { env: string; apply: boolean } {
-  let env: string | undefined
-  let apply = false
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index]
-    if (arg === '--apply') apply = true
-    else if (arg === '--env') env = argv[++index]
-    else throw new Error(usage)
-  }
-  if (!env || !/^(development|production|preview:.+)$/.test(env))
-    throw new Error(usage)
-  return { env, apply }
-}
+import { parseMigrationArgs } from '../lib/review/migration-args'
 
 /**
  * Fold the open, submitted and approved Batches of one review environment into its
@@ -26,15 +9,16 @@ function parseArgs(argv: string[]): { env: string; apply: boolean } {
  * the staging project configuration.
  */
 async function main() {
+  // Load the checkout's environment first: a named --env must match its VERCEL_ENV.
+  loadEnvConfig(process.cwd())
   let args: { env: string; apply: boolean }
   try {
-    args = parseArgs(process.argv.slice(2))
+    args = parseMigrationArgs(process.argv.slice(2), process.env.VERCEL_ENV)
   } catch (error) {
     console.error((error as Error).message)
     process.exitCode = 1
     return
   }
-  loadEnvConfig(process.cwd())
   const emulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
   if (!emulator) assertStagingProject(process.env.GCP_PROJECT_ID)
   const { catalogSourceKind } = await import('../lib/catalog/source-kind')
