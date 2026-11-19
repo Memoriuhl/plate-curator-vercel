@@ -18,6 +18,10 @@ import {
 import { batchHref } from '@/lib/review/href'
 import { Button } from '@/components/ui/button'
 import { RunStatus } from '@/components/review/run-status'
+import {
+  PipelineFieldValue,
+  pipelineFieldLabel,
+} from '@/components/dashboard/pipeline-field-value'
 import type { DraftConflict } from '@/lib/review/types'
 
 /** Name the Catalog the Publish writes to. */
@@ -98,9 +102,33 @@ function conflictKey(conflict: DraftConflict) {
   return `${conflict.kind}:${conflict.plateId}`
 }
 
+/** The pending values of a plate the catalog removed, which keeping the draft omits. */
+function OmittedValues({
+  fields,
+}: {
+  fields: Extract<DraftConflict, { kind: 'removed' }>['fields']
+}) {
+  return (
+    <div className="mt-1 space-y-1">
+      <p>These edits will be omitted if you keep the draft&apos;s values:</p>
+      <dl className="grid gap-1">
+        {Object.entries(fields).map(([field, value]) => (
+          <div key={field}>
+            <dt className="caption">{pipelineFieldLabel(field)}</dt>
+            <dd>
+              <PipelineFieldValue field={field} value={value} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
 /**
  * List the pending values an outside catalog change touched. Changing or discarding a
- * value clears its conflict; the Owner can instead keep every draft value as it is.
+ * value clears its conflict; the Owner can instead keep every draft value as it is,
+ * which omits the pending values of plates the catalog removed.
  */
 export function DraftConflicts({
   draftId,
@@ -157,6 +185,9 @@ export function DraftConflicts({
                   Review {state}
                 </Link>
               )}
+              {conflict.kind === 'removed' && (
+                <OmittedValues fields={conflict.fields} />
+              )}
             </li>
           )
         })}
@@ -167,7 +198,9 @@ export function DraftConflicts({
         disabled={busy}
         onClick={() => void keep()}
       >
-        Keep the draft&apos;s values
+        {conflicts.some((conflict) => conflict.kind === 'removed')
+          ? "Keep the draft's values and omit the removed plates' edits"
+          : "Keep the draft's values"}
       </Button>
       {message && <p role="status">{message}</p>}
     </div>

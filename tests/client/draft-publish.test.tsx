@@ -265,6 +265,47 @@ test('an untraceable catalog move and a removed plate say what the Owner must re
   expect(alert.queryByRole('link')).toBeNull()
 })
 
+test('a removed plate shows its pending values and the keep button says they will be omitted', async () => {
+  mocks.view = view({
+    canPublish: false,
+    conflicts: [
+      {
+        kind: 'removed',
+        plateId: 'AK.one',
+        fields: { tags: ['draft'], description: 'Draft text' },
+        fromVersion: 7,
+        toVersion: 9,
+      },
+    ],
+  })
+  render(<DraftPublish draftId="shared-draft-test" />)
+  const alert = within(
+    screen.getByText(
+      'The live Catalog changed values this draft would publish.'
+    ).parentElement!
+  )
+  const removed = within(
+    alert.getByText(
+      "These edits will be omitted if you keep the draft's values:"
+    ).parentElement!
+  )
+  expect(removed.getByText('Description')).toBeTruthy()
+  expect(removed.getByText('Draft text')).toBeTruthy()
+  expect(removed.getByText('Tags')).toBeTruthy()
+  expect(removed.getByText('draft')).toBeTruthy()
+  fireEvent.click(
+    alert.getByRole('button', {
+      name: "Keep the draft's values and omit the removed plates' edits",
+    })
+  )
+  await waitFor(() =>
+    expect(mocks.keepDraftValues).toHaveBeenCalledExactlyOnceWith(
+      'shared-draft-test',
+      7
+    )
+  )
+})
+
 test('a release that stopped after preparing its Snapshot links to its recovery page', () => {
   mocks.view = view({
     canPublish: false,
