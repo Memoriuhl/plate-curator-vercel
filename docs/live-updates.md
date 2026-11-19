@@ -16,21 +16,21 @@ open, and a local worker connected. The method is below.
 
 | Calls per hour | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| `GET /api/local-pipeline/runs` | 1,343 | 1,411 | +5% |
+| `GET /api/local-pipeline/runs` | 1,343 | 1,396 | +4% |
 | `GET /api/jobs/runs` | 1,164 | 60 | −95% |
-| `POST /api/worker/claim` | 770 | 771 | 0% |
-| `POST /.well-known/workflow/v1/flow` | 740 | 724 | −2% |
-| `POST /api/worker/jobs/[id]/report` | 346 | 347 | 0% |
+| `POST /api/worker/claim` | 770 | 767 | 0% |
+| `POST /.well-known/workflow/v1/flow` | 740 | 779 | +5% |
+| `POST /api/worker/jobs/[id]/report` | 346 | 341 | −1% |
 | `POST /api/local-pipeline/runs/selection` | 6 | 6 | 0% |
 | `POST /api/worker/capabilities` | 0 | 6 | new |
-| **All requests** | **4,370** | **3,325** | **−24%** |
-| From the browser | 2,495 | 1,465 | −41% |
+| **All requests** | **4,370** | **3,354** | **−23%** |
+| From the browser | 2,495 | 1,456 | −42% |
 
 | Firestore per hour | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Document reads | 121,253 | 105,565 | −13% |
-| Query results | 7,791 | 5,783 | −26% |
-| Writes | 4,322 | 7,535 | +74% |
+| Document reads | 121,253 | 100,667 | −17% |
+| Query results | 7,791 | 5,726 | −27% |
+| Writes | 4,322 | 6,056 | +40% |
 
 ### Drawer open, no run
 
@@ -38,37 +38,43 @@ open, and a local worker connected. The method is below.
 
 | Calls per hour | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| `GET /api/jobs/runs` | 1,180 | 60 | −95% |
-| `GET /api/local-pipeline/runs` | 1,168 | 72 | −94% |
-| `POST /api/worker/claim` | 715 | 715 | 0% |
-| **All requests** | **3,064** | **846** | **−72%** |
-| From the browser | 2,336 | 131 | −94% |
+| `GET /api/jobs/runs` | 1,180 | 0 | −100% |
+| `GET /api/local-pipeline/runs` | 1,168 | 12 | −99% |
+| `POST /api/worker/claim` | 715 | 706 | −1% |
+| **All requests** | **3,064** | **718** | **−77%** |
+| From the browser | 2,336 | 12 | −99% |
 
 | Firestore per hour | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Document reads | 2,599 | 1,502 | −42% |
-| Query results | 6,580 | 1,049 | −84% |
-| Writes | 715 | 727 | +2% |
+| Document reads | 2,599 | 1,423 | −45% |
+| Query results | 6,580 | 742 | −89% |
+| Writes | 715 | 718 | 0% |
 
 ### Reading the numbers
 
-- Idle is where signals pay off. The browser went from 2,336 calls an hour to 131,
-  which are the 60-second safety refreshes of the queue and Gateway lists. The other
-  715 calls an hour are the local worker asking for work every 5 seconds; that is the
-  worker's own loop, not the browser.
+- Idle is where signals pay off. The browser went from 2,336 calls an hour to 12: one
+  call in 5 minutes, the queue list's catch-up read after the first snapshot. With no
+  run queued or running, the queue and Gateway lists refresh for safety every 10
+  minutes, which a 5-minute run cannot show; in steady state that adds about 12 calls
+  an hour. The other 706 calls an hour are the local worker asking for work every 5
+  seconds; that is the worker's own loop, not the browser.
 - During a run, every claim and every result changes a job, so the `pipeline` topic
-  moves every couple of seconds (302 signals in 10 minutes). The queue list then
-  refreshes about as often as it polled before (1,411 against 1,343 an hour): the
-  2-second refresh limit plus request time sets the pace either way. The savings in a
-  busy run come from Gateway runs (1,164 to 60 an hour, now on its own topic) and from
-  fewer job queries.
-- Signals and wakes cost writes. During a run Firestore writes rise by about 3,200 an
-  hour: about 1,800 small signal writes, one per coalesced change, which the listening
-  tab receives as reads, and about 1,400 wake-ledger writes, two per wake (the claim
-  and its outcome). The ledger also reads about 2,000 documents an hour. Document reads
-  still fall by about 15,700 an hour.
+  moves every couple of seconds (298 signals in 10 minutes). The queue list then
+  refreshes about as often as it polled before (1,396 against 1,343 an hour): the
+  2-second refresh limit plus request time sets the pace either way. An open run's
+  results ride on the same request. The savings in a busy run come from Gateway runs
+  (1,164 to 60 an hour, now on its own topic) and from fewer job queries. The run was
+  measured before the idle lists' safety refresh moved to 10 minutes; with no Gateway
+  run active, Gateway's 60 calls an hour now drop to about 6.
+- Signals cost writes. During a run Firestore writes rise by about 1,700 an hour,
+  almost all of them small signal writes, one per coalesced change, which the
+  listening tab receives as reads. Workflow wakes write nothing. Document reads fall
+  by about 20,600 an hour.
+- The workflow's 90-second re-check costs about 40 workflow calls an hour per active
+  run. This run had two active workflows, and workflow calls rose by 39 an hour (5%)
+  over the baseline. Each hook still received two wakes, as before the change.
 - Most document reads during a run come from the pipeline list re-reading every job
-  of each listed run, about 67 job reads per request. Making that list cheaper, or
+  of each listed run, about 66 job reads per request. Making that list cheaper, or
   refreshing the drawer less often while a run is busy, would cut further. Both are
   outside this change.
 
@@ -88,8 +94,12 @@ causes, both fixed before the run above:
    than 10 seconds ago (two receipts per hook, 724 workflow calls an hour). Review
    found that this grace could skip the only quick recovery of a lost wake: a failed
    wake followed by one signal-driven read inside the 10 seconds, and no later read,
-   left the workflow waiting. Wakes now go through a ledger instead, described under
-   Server below, and the numbers above were measured with it.
+   left the workflow waiting. A per-transition wake ledger replaced the grace
+   (`after-ledger.json`), and review found the ledger itself could leave a run
+   waiting or hold a worker's reply. Now reads never wake a workflow: each request
+   that commits a transition wakes it after its reply, and a waiting workflow
+   re-checks its own state every 90 seconds (Server, below). The numbers above were
+   measured with that.
 2. Gateway runs listened to the `pipeline` topic, so it refetched on every local job
    change. It now listens to `gateway`, which only hosted jobs bump.
 
@@ -153,10 +163,10 @@ earlier run change what the worker claims.
 
 The raw results are in `docs/live-updates/`: `before.json` and `after.json` for the
 run, `idle-before.json` and `idle-after.json` for idle, `after-first-attempt.json` for
-the run that found the two problems above, and `after-grace.json` for the run with the
-10-second wake grace that the ledger replaced. Requests in that run matched the final
-one exactly; it had about 2,700 fewer document reads and 1,400 fewer writes an hour,
-the ledger's cost.
+the run that found the two problems above, `after-grace.json` for the run with the
+10-second wake grace, and `after-ledger.json` and `idle-after-ledger.json` for the
+runs with the wake ledger. The ledger cost about 1,500 writes and 4,900 document reads
+an hour more than the final run.
 
 ### Limits of the measurement
 
@@ -197,20 +207,26 @@ includes that path (License-Plate-Game, #227).
   returns at once: the write runs in the background, so a publish lease renewal, a
   worker's claim or report reply, or a workflow wake never waits for it. On Vercel,
   `waitUntil` keeps the function alive until the write settles, at most 10 seconds per
-  write. It is best effort: a failed or late bump is logged and never fails the caller.
+  signal. It is best effort: a failed or late bump is logged and never fails the caller.
 - Bumps for one topic coalesce: one write in flight and at most one queued, however
-  many changes arrive meanwhile.
+  many changes arrive meanwhile. The write in flight keeps its slot until Firestore
+  answers, even past the 10 seconds, so a topic's writes go out in order.
 - Worker heartbeats bump only when the dashboard would show something different: a
   new worker, different availability, or a worker returning after it went stale.
   Routine heartbeats do not.
-- Workflow wakes go through a ledger stored on the run (`lib/jobs/wake-ledger.ts`),
-  one entry per job transition: run, attempt, step, job, state, claim and time. The
-  claim, report and fail routes wake right after their change; the pipeline list
-  wakes as a watchdog. Whoever claims an entry sends the wake and records it as
-  delivered or failed; the others skip it while it is delivered or being sent (held
-  for 15 seconds). A failed wake can be taken over by the next caller at once, and
-  the server also tries it again after 1 and 5 seconds without waiting for a request,
-  stopping if the job has moved on.
+- Workflow wakes come from the request that commits the change. The worker claim,
+  report and fail routes, and the image choice, cancel and retry routes, wake the
+  run's workflow after their reply (`wakeAfterReply` in `lib/server/local-queue.ts`,
+  through `waitUntil`), so a slow wake never holds the reply. A send that is refused,
+  or takes longer than 10 seconds, is sent again after 1, 5 and 30 seconds with no
+  request needed. A hook that no longer exists is not retried. Reads never wake a
+  workflow; the pipeline list only reconnects a run whose workflow is missing.
+- While a run waits on a stage, its workflow re-checks its own persisted state every
+  90 seconds (`workflows/local-pipeline.ts`), so a lost wake costs at most 90 seconds
+  and needs no browser. One timer serves every wait until it fires, because each
+  pending timer costs a workflow call when it elapses. A wake only re-reads the stage,
+  so a duplicate wake is harmless. The re-check costs about 40 workflow calls an hour
+  per active run; a finished run leaves no timer behind.
 
 ### Browser
 
@@ -232,20 +248,26 @@ includes that path (License-Plate-Game, #227).
   owed or a revision moved while it was hidden.
 - If a listener fails, an expired grant is renewed once. Any other failure, or a
   second one, puts the topic in fallback and the drawer shows "Live updates
-  unavailable". Each view then polls on one schedule, the shorter of 30 seconds and
-  its own safety refresh, and gets its normal safety refresh back when the listener
-  recovers.
+  unavailable". Views of one request then poll on one shared schedule, at the
+  shortest interval any of them asks for (30 seconds, or a shorter safety refresh),
+  however far apart they subscribed. They get their normal safety refresh back when
+  the listener recovers.
+- The queue list and an open run's results share one request per round: the run's
+  results ride on the list request that selects the run, or turn the list's
+  unselected request into one.
 - Some views keep a slow safety refresh while visible, for state that changes without
   a Firestore write:
 
 | View | Safety refresh | Why |
 | --- | --- | --- |
-| Pipeline queue, Gateway runs | 60 s | a worker going stale is a matter of time, not a write |
+| Pipeline queue, Gateway runs, while a run in that list is queued or running | 60 s | a worker going stale is a matter of time, not a write |
+| Pipeline queue, Gateway runs, otherwise | 10 min | every change they show is signalled; this recovers a lost signal |
 | Publish eligibility, while pipeline work runs or the Publish lock is held | 60 s | eligibility follows the same worker and lock state |
 | Plate image preview | 60 s | covers a lost signal for a finished enhancement |
 | Research job status | 60 s | the server marks a job past its deadline only when it is read |
 | Batch run status, from a publish request until the run finishes | 5 s | Vercel Workflow run status is not a Firestore write |
 | Publish control | 5 min | the control is shared by every environment, but signals are per environment |
+| Publish eligibility and Batch run status, otherwise | 5 min | recovers a lost signal while idle |
 
 Publish views listen in every state, not only while work is in flight, so a publish
 or pipeline run started in another tab reaches an idle view.

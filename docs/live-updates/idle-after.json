@@ -1,44 +1,36 @@
 {
   "label": "idle-after",
   "scenario": "idle",
-  "measuredAt": "2026-11-19T03:01:05.265Z",
+  "measuredAt": "2026-11-19T04:00:59.432Z",
   "observedMinutes": 5,
   "jobsReported": 0,
   "routes": {
     "POST /api/worker/claim": {
-      "observed": 60,
-      "perHour": 715
+      "observed": 59,
+      "perHour": 706
     },
     "GET /api/local-pipeline/runs": {
-      "observed": 6,
-      "perHour": 72
-    },
-    "GET /api/jobs/runs": {
-      "observed": 5,
-      "perHour": 60
+      "observed": 1,
+      "perHour": 12
     }
   },
   "browserRequests": {
     "GET /api/local-pipeline/runs": {
-      "observed": 6,
-      "perHour": 72
-    },
-    "GET /api/jobs/runs": {
-      "observed": 5,
-      "perHour": 60
+      "observed": 1,
+      "perHour": 12
     }
   },
   "firestore": {
     "documentReads": {
-      "localPipelineCapabilities": 66,
-      "workerTokens": 60
+      "localPipelineCapabilities": 60,
+      "workerTokens": 59
     },
     "queries": {
-      "localPipelineRuns": 6,
-      "jobs": 82
+      "localPipelineRuns": 1,
+      "jobs": 61
     },
     "writes": {
-      "localPipelineCapabilities": 60,
+      "localPipelineCapabilities": 59,
       "curatorLive/*/batchRevisions": 1
     }
   },
@@ -53,10 +45,10 @@
     }
   },
   "totals": {
-    "requestsPerHour": 846,
-    "browserRequestsPerHour": 131,
-    "documentReadsPerHour": 1502,
-    "queriesPerHour": 1049,
-    "writesPerHour": 727
+    "requestsPerHour": 718,
+    "browserRequestsPerHour": 12,
+    "documentReadsPerHour": 1423,
+    "queriesPerHour": 742,
+    "writesPerHour": 718
   }
 }
