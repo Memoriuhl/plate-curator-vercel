@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { sharedDraftId } from '../../lib/review/draft-id'
+import { ensureDraft } from '../../lib/review/draft'
+import { reorderState } from '../../lib/review/batch'
+import { draftPublishSummary } from '../../lib/review/publish-view'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import {
   dispatchQueueStage,
@@ -437,4 +440,114 @@ test('enhancement options reach the capable worker and the completed WebP is pri
   mocks.auth.mockResolvedValue({ ok: true, actor: { ...actor, uid: 'other' } })
   expect(await (await latest()).json()).toEqual({ result: null })
   expect((await getEnhancedImage(get(), route)).status).toBe(404)
+})
+
+test('reordering Alaska, then a pipeline run on Alabama, keeps the Alaska order and Publish shows both states', async () => {
+  const plates = [
+    {
+      id: 'AK.one',
+      state: 'AK',
+      slug: 'one',
+      displayName: 'One',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AK.two',
+      state: 'AK',
+      slug: 'two',
+      displayName: 'Two',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AK.three',
+      state: 'AK',
+      slug: 'three',
+      displayName: 'Three',
+      image: '',
+      tags: [],
+    },
+    {
+      id: 'AL.one',
+      state: 'AL',
+      slug: 'al',
+      displayName: 'Al',
+      image: '',
+      tags: [],
+    },
+  ]
+  const find = async (id: string) =>
+    plates.find((plate) => plate.id === id) ?? null
+  const review = createMemoryStore([])
+  const reviewDeps = {
+    store: review,
+    baseline: find,
+    baselineAtVersion: async (_version: number, id: string) => find(id),
+    stateBaseline: async (_version: number, state: string) =>
+      plates.filter((plate) => plate.state === state),
+    now: () => '2026-11-18T12:00:00.000Z',
+    liveVersion: async () => 1,
+  }
+  mocks.review.mockReturnValue(reviewDeps)
+  deps.store = createMemoryJobsStore(review, localJobsEnvironment('route-test'))
+  deps.baseline = find
+  const draftId = sharedDraftId('route-test')
+  const draft = await ensureDraft(reviewDeps, 'route-test', actor)
+  expect(
+    await reorderState(reviewDeps, actor, {
+      batchId: draftId,
+      state: 'AK',
+      batchRevision: draft.revision,
+      order: ['AK.one', 'AK.three', 'AK.two'],
+    })
+  ).toMatchObject({ ok: true })
+
+  const started = await POST(
+    new Request('https://example.org/api/local-pipeline/runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: 'alabama',
+        batchId: 'draft',
+        plateIds: ['AL.one'],
+        stages: ['tag'],
+      }),
+    })
+  )
+  expect(started.status).toBe(202)
+  const { run } = await started.json()
+  await dispatchQueueStage(deps, run.id, 1, 0, 'alabama-stage')
+  const claimed = await (
+    await claim(
+      new Request('https://example.org/api/worker/claim', { method: 'POST' })
+    )
+  ).json()
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  // The run's Workflow settles the completed stage, which writes the result.
+  expect(await observeQueueStage(deps, run.id, 1, 0)).toMatchObject({
+    phase: 'done',
+  })
+
+  // Reload: a fresh read of the draft keeps the Alaska order and has the Alabama result.
+  const reloaded = (await review.readBatch(draftId))!
+  expect(reloaded.batch.stateOrders).toEqual({
+    AK: ['AK.one', 'AK.three', 'AK.two'],
+  })
+  expect(
+    reloaded.edits.find((edit) => edit.plateId === 'AL.one')?.fields.tags
+  ).toEqual(['blue'])
+  expect(
+    draftPublishSummary(reloaded, await review.listChanges!(draftId, 0)).map(
+      ({ state, plates, moved }) => ({ state, plates, moved })
+    )
+  ).toEqual([
+    { state: 'AK', plates: 0, moved: 1 },
+    { state: 'AL', plates: 1, moved: 0 },
+  ])
 })

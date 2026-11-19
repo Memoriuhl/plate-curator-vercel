@@ -34,19 +34,15 @@ export type FreezeOutcome =
   | { ok: true; value: ReviewBatch }
   | { ok: false; error: 'not_found' | 'superseded_revision' | 'empty_draft' }
 
-const sameList = (left?: string[] | null, right?: string[] | null) =>
+export const sameList = (left?: string[] | null, right?: string[] | null) =>
   (left ?? null) === (right ?? null) ||
   (!!left &&
     !!right &&
     left.length === right.length &&
     left.every((id, index) => id === right[index]))
 
-/**
- * Compare a draft value with the live catalog the way Publish writes it: a cleared value
- * (`null`) and a missing one are the same, and `deleted: false` is no deletion.
- */
 /** Copy an object without the named keys. */
-function omit<T extends object, K extends keyof T>(
+export function omit<T extends object, K extends keyof T>(
   value: T,
   ...keys: K[]
 ): Omit<T, K> {
@@ -55,13 +51,17 @@ function omit<T extends object, K extends keyof T>(
   return copy
 }
 
-function sameLiveValue(key: string, value: unknown, live: unknown) {
+/**
+ * Compare a draft value with the live catalog the way Publish writes it: a cleared value
+ * (`null`) and a missing one are the same, and `deleted: false` is no deletion.
+ */
+export function sameLiveValue(key: string, value: unknown, live: unknown) {
   if (key === 'deleted') return !value === !live
   return sameEditableValue(key, value ?? null, live ?? null)
 }
 
 /** Keep a saved order's sequence for plates that still exist and append new plates. */
-function orderOnto(order: string[], live: string[]) {
+export function orderOnto(order: string[], live: string[]) {
   const ids = new Set(live)
   const kept = order.filter((id) => ids.has(id))
   const seen = new Set(kept)
@@ -69,7 +69,7 @@ function orderOnto(order: string[], live: string[]) {
 }
 
 /** Plate ids the draft tracks: every plate with an edit, head order first. */
-function trackedPlateIds(previous: string[], edits: Iterable<string>) {
+export function trackedPlateIds(previous: string[], edits: Iterable<string>) {
   const ids = new Set(edits)
   return [
     ...previous.filter((id) => ids.has(id)),
