@@ -668,65 +668,84 @@ function OwnerWorkspace() {
     requestedBatch === null ||
     requestedBatch === draftId ||
     isSharedDraftId(requestedBatch)
+  /** The pause and resume control, as a card or inside the draft's side panel. */
+  const controlView = (inset: boolean) => (
+    <PublishControlView
+      control={control.data?.control ?? null}
+      enabledHere={control.data?.enabledHere}
+      loading={control.isLoading}
+      error={!!control.error}
+      change={control.change}
+      inset={inset}
+    />
+  )
+  const history = (
+    <>
+      {batches.error && <p role="alert">Could not load Publish history.</p>}
+      {batches.isLoading && <p role="status">Loading Publish history…</p>}
+      {publishing.map((batch) => (
+        <BatchItem
+          key={batch.id}
+          batch={batch}
+          selected={batch.id === requestedBatch}
+        />
+      ))}
+      {published.length > 0 && <h2 className="pt-2 font-bold">Published</h2>}
+      {published.map((batch) => (
+        <BatchItem
+          key={batch.id}
+          batch={batch}
+          selected={batch.id === requestedBatch}
+        />
+      ))}
+    </>
+  )
+  // The shared draft takes the whole width; its side panel holds the control and the
+  // history that the release view keeps in its own column.
+  if (onDraft)
+    return draftId ? (
+      <DraftPublish
+        draftId={draftId}
+        side={
+          <>
+            {controlView(true)}
+            <details>
+              <summary className="label cursor-pointer">
+                Publish history
+              </summary>
+              <div className="grid gap-2 pt-2">{history}</div>
+            </details>
+          </>
+        }
+      />
+    ) : (
+      <p role="status">Loading the shared draft…</p>
+    )
   return (
     <div className="grid gap-4 lg:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] lg:grid-cols-[minmax(220px,272px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <aside className="min-h-0 space-y-2 lg:overflow-y-auto lg:pr-2">
         <h1 className="text-2xl font-extrabold">Publish</h1>
-        <PublishControlView
-          control={control.data?.control ?? null}
-          enabledHere={control.data?.enabledHere}
-          loading={control.isLoading}
-          error={!!control.error}
-          change={control.change}
-        />
+        {controlView(false)}
         <Link
           href="/publish"
-          aria-current={onDraft ? 'page' : undefined}
-          className={cn(
-            'block w-full rounded-2xl border p-4 text-left',
-            onDraft ? 'border-primary bg-muted' : 'border-transparent bg-card'
-          )}
+          className="block w-full rounded-2xl border border-transparent bg-card p-4 text-left"
         >
           <strong className="block">Shared draft</strong>
           <span className="block text-sm text-muted-foreground">
             Every curator&apos;s unpublished changes
           </span>
         </Link>
-        {batches.error && <p role="alert">Could not load Publish history.</p>}
-        {batches.isLoading && <p role="status">Loading Publish history…</p>}
-        {publishing.map((batch) => (
-          <BatchItem
-            key={batch.id}
-            batch={batch}
-            selected={batch.id === requestedBatch}
-          />
-        ))}
-        {published.length > 0 && <h2 className="pt-2 font-bold">Published</h2>}
-        {published.map((batch) => (
-          <BatchItem
-            key={batch.id}
-            batch={batch}
-            selected={batch.id === requestedBatch}
-          />
-        ))}
+        {history}
       </aside>
-      {onDraft ? (
-        draftId ? (
-          <DraftPublish draftId={draftId} />
-        ) : (
-          <p role="status">Loading the shared draft…</p>
-        )
-      ) : (
-        <BatchSelection
-          key={requestedBatch}
-          id={requestedBatch}
-          pinBatch={() =>
-            router.replace(batchHref('/publish', requestedBatch), {
-              scroll: false,
-            })
-          }
-        />
-      )}
+      <BatchSelection
+        key={requestedBatch}
+        id={requestedBatch}
+        pinBatch={() =>
+          router.replace(batchHref('/publish', requestedBatch), {
+            scroll: false,
+          })
+        }
+      />
     </div>
   )
 }

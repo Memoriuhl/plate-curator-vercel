@@ -888,8 +888,12 @@ test('the Owner publishes the draft revision on screen while an Editor keeps edi
     name: 'Publish revision 1',
   })
   await waitFor(() =>
-    expect(publish.getByRole('table').textContent).toContain('Editor')
+    expect(
+      publish.getByRole('complementary', { name: 'Publish summary' })
+        .textContent
+    ).toContain('Editor · 1 plate')
   )
+  expect(publish.getByLabelText('Changed by Editor')).toBeTruthy()
   const dialogElement = view.container.querySelector('dialog')!
   dialogElement.showModal = () => dialogElement.setAttribute('open', '')
   dialogElement.close = () => dialogElement.removeAttribute('open')

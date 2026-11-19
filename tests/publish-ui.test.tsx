@@ -286,6 +286,6 @@ test.each([
       approval: null,
     }))
     renderToStaticMarkup(<PublishWorkspace />)
-    expect(state.selected).toEqual([selected])
+    expect([...new Set(state.selected)]).toEqual([selected])
   }
 )

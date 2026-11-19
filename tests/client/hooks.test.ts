@@ -1949,9 +1949,11 @@ test('draft Publish confirms the revision on screen and keeps it when the draft 
   })
   try {
     render(createElement(PublishWorkspace), harness({}, null))
-    const table = await screen.findByRole('table')
-    expect(table.textContent).toContain('Publish ships every state together')
-    expect(within(table).getByRole('link', { name: 'AL' })).toBeDefined()
+    const alaska = await screen.findByRole('region', { name: 'Alaska changes' })
+    expect(within(alaska).getByText('Do not overlay')).toBeDefined()
+    expect(
+      within(alaska).getByRole('link', { name: 'Review AK' })
+    ).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Publish revision 8' }))
     const dialog = screen.getByRole('dialog')
     expect(dialog.textContent).toContain('Publish revision 8?')
