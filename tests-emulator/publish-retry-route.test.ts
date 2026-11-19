@@ -22,6 +22,7 @@ import { plateRevision } from '../lib/review/revision'
 import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
 import { sharedDraftId } from '../lib/review/draft-id'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
+import type { PublishCommand } from '../lib/publish/types'
 import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
 import { releaseActivityFor } from '../lib/publish/release-activity'
@@ -918,6 +919,126 @@ test('two Publish requests racing on one draft accept and start only one revisio
   expect(mocks.start).toHaveBeenCalledTimes(1)
   expect(await deps.records.command('race-one')).toBeNull()
   expect(await deps.records.command('race-two')).not.toBeNull()
+})
+
+/** Read a release's recovery view, as its page does before offering Publish again. */
+const releaseView = async (id: string) =>
+  (
+    await GET(new Request(`http://localhost/api/batches/${id}/publish`), {
+      params: Promise.resolve({ id }),
+    })
+  ).json()
+
+/**
+ * Hold the request carrying `commandId` at its last check before acceptance, until
+ * `release` is called.
+ */
+function holdBeforeAccept(
+  deps: ReturnType<typeof mocks.deps>,
+  commandId: string
+) {
+  const eligibility = deps.records.eligibility
+  let reached!: () => void
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (reached = resolve))
+  const released = new Promise<void>((resolve) => (release = resolve))
+  deps.records.eligibility = async (command: PublishCommand, now: string) => {
+    const result = await eligibility.call(deps.records, command, now)
+    if (command.commandId === commandId) {
+      reached()
+      await released
+    }
+    return result
+  }
+  return { held, release }
+}
+
+test('Publish again on an older release is refused once a newer revision is accepted, and its own command still replays', async () => {
+  // Revision 1's run fails before preparing a Snapshot; the corrected revision 2 runs.
+  const { deps, accepted: older } = await acceptThenCorrect('older-release')
+  mocks.status.mockImplementation(async (runId: string) =>
+    runId === 'fresh-run' ? 'failed' : 'running'
+  )
+  mocks.start.mockResolvedValueOnce({ runId: 'corrected-run' })
+  expect(
+    (await POST(draftRequest(2, 'corrected-release'), draftCtx)).status
+  ).toBe(202)
+  const newer = (await deps.records.command('corrected-release'))!.command
+  expect(await draftView()).toMatchObject({
+    activeRelease: { id: newer.batchId, revision: 2 },
+  })
+  const starts = mocks.start.mock.calls.length
+  const fence = await deps.records.releaseFence!(draftId)
+
+  expect(await releaseView(older.batchId)).toMatchObject({
+    canRetry: false,
+    retryReason: 'release_superseded',
+  })
+  const retry = await releasePost(older.batchId, older.revision, 'older-retry')
+  expect(retry.status).toBe(409)
+  expect(await retry.json()).toMatchObject({ error: 'release_superseded' })
+  expect(await deps.records.command('older-retry')).toBeNull()
+  expect(mocks.start.mock.calls.length).toBe(starts)
+  expect(await deps.records.releaseFence!(draftId)).toBe(fence)
+
+  // Revision 2 carries revision 1's values, so the older release stays refused after
+  // revision 2 also stops before preparing a Snapshot, even past the route's checks.
+  mocks.status.mockResolvedValue('failed')
+  const later = await releasePost(older.batchId, older.revision, 'older-later')
+  expect(await later.json()).toMatchObject({ error: 'release_superseded' })
+  const direct: PublishCommand = {
+    batchId: older.batchId,
+    revision: older.revision,
+    requestedBy: older.requestedBy,
+    generation: older.generation,
+    commandId: 'older-direct',
+  }
+  expect(
+    await deps.records.accept(direct, time, { draftId, seq: fence })
+  ).toEqual({ ok: false, error: 'release_superseded' })
+  expect(mocks.start.mock.calls.length).toBe(starts)
+
+  // The command that was accepted for revision 1 still replays.
+  const replay = await POST(draftRequest(1, 'older-release'), draftCtx)
+  expect(await replay.json()).not.toMatchObject({
+    error: expect.stringMatching(/^release_/),
+  })
+})
+
+test('an older release retried first makes a draft Publish that checked before it refuse', async () => {
+  const { deps, accepted: older } = await acceptThenCorrect('retry-first')
+  mocks.status.mockResolvedValue('failed')
+  const draftHold = holdBeforeAccept(deps, 'draft-second')
+  const draft = POST(draftRequest(2, 'draft-second'), draftCtx)
+  await draftHold.held
+  mocks.start.mockResolvedValueOnce({ runId: 'retry-run' })
+  expect(
+    (await releasePost(older.batchId, older.revision, 'retry-wins')).status
+  ).toBe(202)
+  draftHold.release()
+  const response = await draft
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'release_in_progress' })
+  expect(await deps.records.command('draft-second')).toBeNull()
+  expect(await deps.records.command('retry-wins')).not.toBeNull()
+  expect(mocks.start).toHaveBeenCalledTimes(2)
+})
+
+test('a draft Publish accepted first makes a retry of an older release that checked before it refuse', async () => {
+  const { deps, accepted: older } = await acceptThenCorrect('draft-first')
+  mocks.status.mockResolvedValue('failed')
+  const retryHold = holdBeforeAccept(deps, 'retry-loses')
+  const retry = releasePost(older.batchId, older.revision, 'retry-loses')
+  await retryHold.held
+  mocks.start.mockResolvedValueOnce({ runId: 'draft-run' })
+  expect((await POST(draftRequest(2, 'draft-wins'), draftCtx)).status).toBe(202)
+  retryHold.release()
+  const response = await retry
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: 'release_superseded' })
+  expect(await deps.records.command('retry-loses')).toBeNull()
+  expect(await deps.records.command('draft-wins')).not.toBeNull()
+  expect(mocks.start).toHaveBeenCalledTimes(2)
 })
 
 test('undoing a deletion waits while its release runs, and is accepted once that release fails before preparing a Snapshot', async () => {

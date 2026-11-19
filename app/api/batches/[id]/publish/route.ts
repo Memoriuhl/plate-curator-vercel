@@ -186,21 +186,32 @@ async function pipelineBusyResponse(publishing: PublishDeps) {
 }
 
 /**
- * Whether an earlier release of the draft is still publishing or waits for the Owner to
- * retry or abandon it. A new Publish command waits for it, as the Publish view shows, so
- * a stale tab cannot start a second release past a Snapshot awaiting recovery.
+ * Why a new Publish command for the draft must wait, or null when it need not.
+ *
+ * - `release_in_progress`: a release of the draft is still publishing or waits for the
+ *   Owner to retry or abandon it. A new command waits for it, as the Publish view
+ *   shows, so a stale tab cannot start a second release past a Snapshot awaiting
+ *   recovery.
+ * - `release_superseded`: only for `retrying`, an accepted release taking a fresh
+ *   command (Retry or Publish again). A newer revision of the draft was accepted, and
+ *   it carries this release's values with the corrections made after it, so the older
+ *   release would publish values the draft has since replaced.
+ *
+ * The release being retried does not hold the draft against itself.
  */
 async function releaseHoldsDraft(
   deps: ReviewDeps,
   publishing: PublishDeps,
   draftId: string,
-  requestedBy: ReturnType<typeof requesterAuthority>
-) {
+  requestedBy: ReturnType<typeof requesterAuthority>,
+  retrying?: ReviewBatch
+): Promise<'release_in_progress' | 'release_superseded' | null> {
   const [approved, control] = await Promise.all([
     deps.store.list({ states: ['approved'] }),
     publishing.control.read(),
   ])
-  const releases = await draftReleases(approved, draftId, (release) =>
+  const others = approved.filter((batch) => batch.id !== retrying?.id)
+  const releases = await draftReleases(others, draftId, (release) =>
     classifyRelease(
       publishing.records,
       release,
@@ -209,7 +220,17 @@ async function releaseHoldsDraft(
       requestedBy
     )
   )
+  if (
+    retrying &&
+    releases.some(
+      ({ release }) =>
+        (release.source?.revision ?? 0) > (retrying.source?.revision ?? 0)
+    )
+  )
+    return 'release_superseded'
   return releases.some(({ activity }) => activity !== null)
+    ? 'release_in_progress'
+    : null
 }
 
 /**
@@ -246,8 +267,8 @@ async function publishDraft(
     return await pipelineBusyResponse(publishing)
   // Read the fence before the check, so a release accepted after it refuses this one.
   const fence = await readReleaseFence(publishing, draftId)
-  if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
-    return json({ error: 'release_in_progress' }, 409)
+  const held = await releaseHoldsDraft(deps, publishing, draftId, requestedBy)
+  if (held) return json({ error: held }, 409)
   const draft = await ensureDraft(deps, env, actor)
   const frozen = await freezeRelease(deps, env, actor, revision)
   if (!frozen.ok) {
@@ -318,16 +339,25 @@ async function confirmBatch(
     return json({ error: 'superseded_revision', confirmation }, 409)
   }
   let fence = checkedFence
+  // A new command for a release waits for any other release holding its draft, whether
+  // it came through the draft or the release's own page. A fresh command for an accepted
+  // release (Retry or Publish again) also refuses once a newer revision was accepted.
+  // Either way the fence is read first, so a release accepted after the check refuses
+  // this command at acceptance.
+  const draftId = isRelease(batch) ? batch.source?.batchId : undefined
+  if (!fence && draftId) {
+    fence = await readReleaseFence(publishing, draftId)
+    const held = await releaseHoldsDraft(
+      deps,
+      publishing,
+      draftId,
+      requestedBy,
+      confirmDraft ? undefined : batch
+    )
+    if (held) return json({ error: held }, 409)
+  }
   if (confirmDraft) {
-    // A new command for an unaccepted release waits for any release holding its draft
-    // and follows the draft's latest conflicts and floor, whether it came through the
-    // draft or the release's own page.
-    const draftId = batch.source?.batchId
-    if (!fence && draftId) {
-      fence = await readReleaseFence(publishing, draftId)
-      if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
-        return json({ error: 'release_in_progress' }, 409)
-    }
+    // An unaccepted release follows the draft's latest conflicts and floor.
     const acceptable = await releaseAcceptable(deps, batch)
     if (!acceptable.ok)
       return json(
@@ -439,9 +469,21 @@ export async function GET(
       ? { error: stop }
       : await publishBaselineStatus(publishing, batch)
     const enabledHere = publishAllowed()
-    const [pipelineBusy, confirmation] = await Promise.all([
+    const draftId = isRelease(batch) ? batch.source?.batchId : undefined
+    const [pipelineBusy, confirmation, held] = await Promise.all([
       publishing.records.pipelineBusy?.(),
       deps.store.changesSinceReview?.(id, auth.actor.uid, batch.revision),
+      // An accepted release is offered Retry or Publish again only while no other
+      // release holds its draft, as the POST checks.
+      !confirmDraft && batch.state === 'approved' && draftId
+        ? releaseHoldsDraft(
+            deps,
+            publishing,
+            draftId,
+            requesterAuthority(auth.actor),
+            batch
+          )
+        : null,
     ])
     const ready =
       enabledHere && !baseline.error && !pipelineBusy && eligibility.canRetry
@@ -460,8 +502,8 @@ export async function GET(
       abandonReason,
       ...(prepared ? { prepared } : {}),
       ...(abandonment ? { abandonment } : {}),
-      canRetry: !confirmDraft && ready,
-      retryReason: eligibility.reason,
+      canRetry: !confirmDraft && ready && !held,
+      retryReason: held ?? eligibility.reason,
       ...(reason
         ? {
             stopped: {

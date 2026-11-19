@@ -11,6 +11,10 @@ export const PIPELINE_BUSY = 'pipeline_busy'
 export const PIPELINE_BUSY_MESSAGE =
   'Plate Pipeline work is queued or running. Publish when it finishes.'
 
+/** Why an accepted release cannot take a fresh command after a newer one was accepted. */
+export const RELEASE_SUPERSEDED_MESSAGE =
+  "A newer revision of the shared draft was accepted for Publish, and it carries this release's changes. Follow it from the Publish view."
+
 export const PUBLISH_ERRORS = {
   ...PUBLISH_STOPS,
   notWaiting: 'not_waiting',

@@ -878,20 +878,29 @@ export function firestorePublishRecords(
               ...(runId ? { runId: runId as string } : {}),
             }
           }
-          // Only one release of a shared draft is accepted per fence reading: a request
-          // that checked for a holding release before another was accepted refuses.
-          const sourceDraft = confirmed
-            ? batch.get('source.batchId')
-            : undefined
+          // Only one command for a shared draft's releases is accepted per fence
+          // reading: a request that checked for a holding release before another was
+          // accepted refuses. This covers confirming a release and a fresh command for
+          // an accepted one (Retry or Publish again), which is accepted only while its
+          // release is still the draft's latest accepted release.
+          const sourceDraft =
+            confirmed || batch.get('kind') === 'release'
+              ? batch.get('source.batchId')
+              : undefined
           const seq = fenced?.get('seq')
-          if (
-            typeof sourceDraft === 'string' &&
-            (!fence ||
-              !fenceRef ||
-              fence.draftId !== sourceDraft ||
-              (typeof seq === 'number' ? seq : 0) !== fence.seq)
-          )
-            return { ok: false, error: 'release_in_progress' }
+          const latest = fenced?.get('releaseId')
+          if (typeof sourceDraft === 'string') {
+            if (!fence || !fenceRef || fence.draftId !== sourceDraft)
+              return { ok: false, error: 'release_in_progress' }
+            if (
+              !confirmed &&
+              typeof latest === 'string' &&
+              latest !== command.batchId
+            )
+              return { ok: false, error: 'release_superseded' }
+            if ((typeof seq === 'number' ? seq : 0) !== fence.seq)
+              return { ok: false, error: 'release_in_progress' }
+          }
           if (
             input.claim &&
             input.claim.command.commandId !== command.commandId &&
@@ -930,7 +939,7 @@ export function firestorePublishRecords(
               env,
               seq: fence!.seq + 1,
               releaseId: command.batchId,
-              revision: command.confirmedDraftRevision,
+              revision: batch.get('source.revision'),
               commandId: command.commandId,
               at: now,
             })

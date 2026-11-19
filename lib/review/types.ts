@@ -78,7 +78,8 @@ export type DraftConflict =
       toVersion: number
       /**
        * Values the draft put back after a release of it that may have published. Live
-       * may now hold the published value, so keeping the draft's values publishes these.
+       * may now hold the published value, so keeping the draft's values keeps these for
+       * the next Publish to ship.
        */
       resets?: { plateId: string; fields: EditableFields }[]
       /** State orders the draft put back after such a release, as it had them before. */
