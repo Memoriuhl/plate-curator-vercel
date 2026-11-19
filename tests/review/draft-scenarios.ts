@@ -640,6 +640,45 @@ export function sharedDraftScenarios(
   )
 
   test(
+    'a Commons source the publishing revision adds to a kept image and a later revision discards ships without a source',
+    async () => {
+      const setupResult = await setup()
+      const { store, d, draftId, env, save, publish, commit } = setupResult
+      const image = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/AK.png'
+      const start = setupResult.outsideChange({ 'AK.one': { imageUrl: image } })
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.one', {
+        imageUrl: image,
+        sourceUrl: 'https://commons.wikimedia.org/wiki/File:AK.png',
+      }) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.one',
+          batchRevision: 1,
+          target: 'all',
+        })
+      ).toMatchObject({ ok: true }) // revision 2
+      expect(await publish(frozen.value.id)).toMatchObject({ ok: true })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { sourceUrl: null },
+      })
+
+      // The next release ships the paired reset; commit builds and validates its Snapshot.
+      const draft = (await store.getBatch(draftId))!
+      const next = await freezeRelease(d, env, owner, draft.revision)
+      if (!next.ok) throw new Error(next.error)
+      const version = await commit(next.value.id)
+      expect(await d.baselineAtVersion(version, 'AK.one')).toEqual(
+        await d.baselineAtVersion(start, 'AK.one')
+      )
+    },
+    timeout
+  )
+
+  test(
     'undoing a deletion the publishing revision ships is refused, and an undo that slips past is a conflict',
     async () => {
       const { store, d, draftId, env, save, publish } = await setup()

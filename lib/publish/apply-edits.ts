@@ -1,8 +1,14 @@
 import type { Plate } from '../catalog/types'
 import type { EditableFields } from '../review/types'
 
-/** Optional plate keys a null edit removes from the next Snapshot. */
+/**
+ * Optional plate keys a null edit removes from the next Snapshot. A description keeps
+ * its stored null; every other key the draft can clear, including the put-back of an
+ * image and source the baseline lacked, leaves the plate without it.
+ */
 const removableKeys = [
+  'imageUrl',
+  'sourceUrl',
   'templateFamily',
   'templateRole',
   'variantOfPlateId',

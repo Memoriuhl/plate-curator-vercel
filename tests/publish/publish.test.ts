@@ -648,6 +648,43 @@ test('publishes a cleared family grouping without its keys or the derived templa
 })
 
 test.each([
+  ['an image the baseline kept', { imageUrl: 'https://cdn.example.org/one.webp' }],
+  ['no image or source', {}],
+] as const)(
+  'publishes a cleared image and source pair without their keys when the baseline had %s',
+  async (_case, media) => {
+    const f = fixture()
+    const plate = { ...snapshot.plates[0], ...media }
+    f.blobs.set(
+      1,
+      Buffer.from(
+        JSON.stringify({ ...snapshot, plates: [plate, snapshot.plates[1]] })
+      )
+    )
+    f.deps.store.listEdits = async () => [
+      {
+        plateId: 'one',
+        baseRevision: 'base',
+        // A put-back of a discarded image and source proposal: the old image, or null
+        // where the baseline had none, and null for the source the baseline lacked.
+        fields: {
+          imageUrl: 'imageUrl' in media ? media.imageUrl : null,
+          sourceUrl: null,
+        },
+        authorId: 'editor',
+        updatedAt: f.deps.now(),
+        resultRevision: 'result',
+      },
+    ]
+    expect(await publishBatch(f.deps, owner, command)).toMatchObject({
+      ok: true,
+    })
+    const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+    expect(written.plates[0]).toEqual(plate)
+  }
+)
+
+test.each([
   ['missing', ['one']],
   ['extra', ['one', 'two', 'other']],
   ['duplicate', ['one', 'one']],
