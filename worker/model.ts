@@ -373,6 +373,7 @@ export function gatewayAdapter(options: {
   fetch?: typeof fetch
   pricing?: Pricing
   binding?: HostedModelBinding
+  maximumOutputTokens?: number
   beforeRequest?: () => void
   onAttempt?: (attempt: Attempt) => void
 }): ModelAdapter {
@@ -428,6 +429,9 @@ export function gatewayAdapter(options: {
               model: route.model,
               ...(route.providerOptions
                 ? { providerOptions: route.providerOptions }
+                : {}),
+              ...(options.maximumOutputTokens
+                ? { max_tokens: options.maximumOutputTokens }
                 : {}),
               temperature: 0.1,
               messages: [

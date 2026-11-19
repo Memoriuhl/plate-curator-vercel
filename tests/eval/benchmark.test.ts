@@ -92,6 +92,33 @@ test('pricing is fetched once and missing charges are estimated', async () => {
   expect(onAttempt.mock.calls[0][0].cost).toBeCloseTo(0.00008, 10)
 })
 
+test('a bounded hosted benchmark sends the configured completion-token limit', async () => {
+  vi.stubEnv('AI_GATEWAY_API_KEY', 'test')
+  const request = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async () => success())
+  try {
+    await benchmark({
+      backend: 'hosted',
+      concurrency: 1,
+      label: 'bounded',
+      plates: [{ ...input.plate, id: 'one', image: 'image' }],
+      fixtureText: 'fixture',
+      minimumF1: 0.6,
+      readImage: async () => input.imageB64,
+      budget: new RequestBudget(1),
+      pricing,
+      request,
+      maximumOutputTokens: 1024,
+    })
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toMatchObject({
+      max_tokens: 1024,
+    })
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})
+
 test('non-2xx throws status and records a 429 attempt', async () => {
   const onAttempt = vi.fn()
   const adapter = gatewayAdapter({
