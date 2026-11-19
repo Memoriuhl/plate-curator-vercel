@@ -38,6 +38,7 @@ import { useBatches, useMe } from '@/lib/client/hooks'
 import type { GatewayRun } from '@/lib/jobs/gateway-runs'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
 import { gatewayRunsKey, usePipelineQueue } from './use-pipeline-queue'
+import { disabledRunStages } from './pipeline-stages'
 import {
   PipelineQueuePanel,
   type OpenStageResults,
@@ -88,6 +89,8 @@ export function DashboardPipelineProvider({
     setOpen(true)
   }
   async function enqueue(...args: Parameters<Queue['enqueue']>) {
+    // Stages marked work in progress never start, whichever control asked.
+    if (disabledRunStages(args[1]).length) return null
     const run = await queue.enqueue(...args)
     if (run) openPipeline(run.id)
     return run

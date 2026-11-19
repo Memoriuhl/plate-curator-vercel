@@ -7,20 +7,23 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { plateSelection, useSelectedPlates } from './plate-selection'
+import { useSelectionAction } from './selection-actions'
 
 /**
- * Show selection counts by jurisdiction and offer a single action to clear the
- * selection.
+ * Show selection counts by jurisdiction and hold the actions for the selection: run the
+ * pipeline, make Templates and clear.
  */
 export function SelectionBar() {
   const plates = useSelectedPlates()
+  const promote = useSelectionAction('promote')
+  const runPipeline = useSelectionAction('runPipeline')
   if (!plates.length) return null
   const states = Map.groupBy(plates, (plate) => plate.state)
   return (
     <div
       data-selection-controls
       aria-label="Plate selection"
-      className="selection-bar fixed bottom-4 left-1/2 z-40 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-[var(--radius-lg)] p-2 shadow-xl"
+      className="selection-bar fixed bottom-4 left-1/2 z-40 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-[var(--radius-lg)] p-2 shadow-xl"
     >
       <Popover>
         <PopoverTrigger asChild>
@@ -45,6 +48,24 @@ export function SelectionBar() {
           ))}
         </PopoverContent>
       </Popover>
+      {runPipeline ? (
+        <Button
+          disabled={runPipeline.disabled}
+          onClick={() => void runPipeline.run()}
+        >
+          Run pipeline on {plates.length}{' '}
+          {plates.length === 1 ? 'plate' : 'plates'}
+        </Button>
+      ) : null}
+      {promote ? (
+        <Button
+          variant="outline"
+          disabled={promote.disabled}
+          onClick={() => void promote.run()}
+        >
+          Make Templates
+        </Button>
+      ) : null}
       <Button variant="ghost" onClick={() => plateSelection.clear()}>
         Clear
       </Button>

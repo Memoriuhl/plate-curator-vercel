@@ -262,7 +262,7 @@ test('changed filter counts current-jurisdiction batch membership including uned
   const html = renderToStaticMarkup(
     <FilterBar counts={filterCounts(alaskaFixture.plates)} code="AK" />
   )
-  expect(html).toMatch(/Changed in a batch<span class="count">2<\/span>/)
+  expect(html).toMatch(/Unpublished changes<span class="count">2<\/span>/)
 })
 
 test('selected Publish keeps the shared Batch ID while its details load', () => {

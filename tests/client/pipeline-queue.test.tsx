@@ -26,6 +26,7 @@ import {
 import type { QueueRunView } from '../../lib/jobs/queue-types'
 import { PipelineRunControls } from '../../components/dashboard/pipeline-run-controls'
 import { RunMenu } from '../../components/dashboard/run-menu'
+import { SelectionBar } from '../../components/dashboard/selection-bar'
 import { runTimingKey } from '../../lib/jobs/run-timings'
 import { PipelineOptionSelect } from '../../components/dashboard/pipeline-option-select'
 import { TAGGING_MODELS } from '../../lib/tagging/models'
@@ -1693,14 +1694,13 @@ test('Fill missing explains why a complete Batch selection has no research to ru
   ).toBe(false)
 })
 
-test('worker capabilities enable Group and normalize unsupported default colour signal OFF; Preview ignores standalone capability', async () => {
-  const enqueue = vi.fn().mockResolvedValue(saved())
+test('Group is work in progress: the run menu disables it even when the worker reports every capability', () => {
+  const enqueue = vi.fn()
   const capabilities = {
     ...imageGroupCapabilities({
       embeddings: true,
-      backgroundMask: false,
-      visionTiebreak: false,
-      maskReason: 'Mask unavailable',
+      backgroundMask: true,
+      visionTiebreak: true,
     }),
     reportedAt: 100,
     pollIntervalMs: 1000,
@@ -1720,105 +1720,21 @@ test('worker capabilities enable Group and normalize unsupported default colour 
     />
   )
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
-  fireEvent.click(
-    screen.getByRole('button', { name: 'More options for Group' })
-  )
-  expect(screen.getByText('Method · Embeddings')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Method' })).toBeNull()
-  expect(screen.getByText(/Use colour signal ·/)).toBeTruthy()
-  fireEvent.pointerMove(
-    screen.getByRole('button', { name: 'Group run warning' }),
-    { pointerType: 'mouse' }
-  )
-  expect((await screen.findByRole('tooltip')).textContent).toMatch(
-    /large, expensive operation/
-  )
-  const start = screen.getByRole('button', { name: 'Start Run' })
-  fireEvent.click(start)
-  expect(screen.getByRole('alertdialog').textContent).toMatch(
-    /can reorganize how plates are grouped and displayed across this state/
-  )
-  expect(enqueue).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  expect(screen.queryByRole('alertdialog')).toBeNull()
-  expect(enqueue).not.toHaveBeenCalled()
-  await waitFor(() => expect(document.activeElement).toBe(start))
-  fireEvent.click(start)
-  fireEvent.click(screen.getByRole('button', { name: 'Yes, start run' }))
-  await waitFor(() =>
-    expect(enqueue).toHaveBeenCalledWith(
-      [plate],
-      ['group'],
-      undefined,
-      {
-        group: {
-          method: 'embeddings',
-          colorSignal: false,
-          backgroundMask: false,
-          visionTiebreak: false,
-        },
-      },
-      false,
-      undefined,
-      undefined,
-      'Alaska pipeline'
-    )
-  )
-  expect(enqueue).toHaveBeenCalledTimes(1)
-})
-
-test('Group explains an unavailable method and cannot queue after the worker loses it', () => {
-  const enqueue = vi.fn()
-  const capabilities = {
-    ...imageGroupCapabilities({
-      embeddings: true,
-      backgroundMask: true,
-      visionTiebreak: true,
-    }),
-    reportedAt: 100,
-    pollIntervalMs: 1000,
-  }
-  const queue = {
-    runs: [],
-    action: null,
-    message: '',
-    disabledReason: undefined,
-    enqueue,
-    capabilities,
-  }
-  const view = (capabilities: typeof queue.capabilities) => (
-    <PipelineRunControls
-      batchPlates={[plate]}
-      stateName="Alaska"
-      queue={{ ...queue, capabilities }}
-    />
-  )
-  const result = render(view(capabilities))
-  fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
-
-  result.rerender(
-    view({
-      ...capabilities,
-      embeddings: { available: false, reason: 'Embedding model offline' },
-    })
-  )
-  expect(screen.getAllByText('Embedding model offline')).toHaveLength(2)
-  expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
   const group = screen.getByRole<HTMLInputElement>('checkbox', {
     name: 'Group',
   })
-  expect(group.checked).toBe(true)
-  const start = screen.getByRole<HTMLButtonElement>('button', {
-    name: 'Start Run',
-  })
-  expect(start.disabled).toBe(true)
-  fireEvent.click(start)
+  expect(group.disabled).toBe(true)
+  expect(
+    screen.getByText(
+      'Work in progress: proposed families will need your approval'
+    )
+  ).toBeTruthy()
+  expect(group.checked).toBe(false)
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'Start Run' })
+      .disabled
+  ).toBe(true)
   expect(enqueue).not.toHaveBeenCalled()
-  fireEvent.click(group)
-  expect(group.disabled).toBe(false)
-  expect(start.disabled).toBe(true)
 })
 
 test('a method control with multiple available choices exposes a selector', () => {
@@ -2486,7 +2402,7 @@ test('saved research shows the job result even after the queue projection matche
   ).toBe('/review?batch=batch&run=saved-run')
 })
 
-test('the form enforces 200 selected plates and keeps the Group limit', async () => {
+test('the form enforces 200 selected plates', async () => {
   const enqueue = vi.fn().mockResolvedValue(saved())
   const plates = Array.from({ length: 201 }, (_, index) => ({
     ...plate,
@@ -2526,13 +2442,6 @@ test('the form enforces 200 selected plates and keeps the Group limit', async ()
   expect(screen.getByRole('alert').textContent).toBe('Up to 200 plates per run')
   const allowed = plates.slice(0, 200)
   act(() => plateSelection.replace(allowed))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
-  expect(
-    document.getElementById(start.getAttribute('aria-describedby') ?? '')
-      ?.textContent
-  ).toContain('Group needs up to 25 plates from one state')
-  expect(start.disabled).toBe(true)
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Group' }))
   fireEvent.click(start)
   await waitFor(() => expect(enqueue.mock.calls[0]?.[0]).toEqual(allowed))
 })
@@ -2891,4 +2800,40 @@ test('the single-stage run menu uses the selected Gateway model history', async 
   fireEvent.click(screen.getByRole('button', { name: 'Run pipeline' }))
   expect(await screen.findByText('EST 00:13 / plate')).toBeTruthy()
   expect(screen.getByText(/EST 00:13 processing time/)).toBeTruthy()
+})
+
+test('the run menu shows each stage result rule and opens from the selection bar', () => {
+  render(
+    <>
+      <PipelineRunControls
+        batchPlates={[plate]}
+        stateName="Alaska"
+        queue={{
+          runs: [],
+          action: null,
+          message: '',
+          disabledReason: undefined,
+          enqueue: vi.fn(),
+        }}
+      />
+      <SelectionBar />
+    </>
+  )
+  expect(screen.queryByRole('group', { name: 'Pipeline stages' })).toBeNull()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Run pipeline on 1 plate' })
+  )
+  const rules = Object.fromEntries(
+    [...document.querySelectorAll('[data-result-rule]')].map((node) => [
+      node.closest('label')?.querySelector('input')?.getAttribute('aria-label'),
+      node.textContent,
+    ])
+  )
+  expect(rules).toEqual({
+    'Research / enrich': 'Saved automatically',
+    'Find image': 'Waits for you to choose a candidate',
+    'Enhance image': 'Waits until you click Apply',
+    Tag: 'Saved automatically; Review is optional',
+    Group: 'Waits for you to verify the proposed families',
+  })
 })

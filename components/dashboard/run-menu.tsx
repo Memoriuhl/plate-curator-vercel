@@ -1,7 +1,8 @@
 'use client'
 
 import { useSelectedPlates } from './plate-selection'
-import { useMemo, useRef, useState } from 'react'
+import { selectionActions } from './selection-actions'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { IoChevronDown, IoPlay } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
 import {
@@ -120,6 +121,19 @@ function LegacyRunMenu({
   const [stageName, setStageName] = useState('Tag')
   const [redoStory, setRedoStory] = useState(false)
   const activeStage = local ? stageName : 'Tag'
+  // Let the selection bar open this menu scoped to the current selection.
+  const unavailable = disabled || !!disabledReason
+  useEffect(
+    () =>
+      selectionActions.register('runPipeline', {
+        run: () => {
+          setScope('selected')
+          setOpen(true)
+        },
+        disabled: unavailable,
+      }),
+    [unavailable]
+  )
   const definition = local
     ? LOCAL_STAGE_DEFINITIONS.find((stage) => stage.label === activeStage)
     : undefined
