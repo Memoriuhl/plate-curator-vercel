@@ -469,6 +469,7 @@ test('an email failure cannot restore focus that the submit did not disable', as
 test('a focused Sign in button losing focus restores the password for each failed attempt', async () => {
   await check({ invited: true, signIn: 'password', status: 'active' })
   const password = screen.getByLabelText('Password')
+  await waitFor(() => expect(document.activeElement).toBe(password))
   const button = screen.getByRole('button', {
     name: 'Sign in',
   }) as HTMLButtonElement
@@ -477,6 +478,7 @@ test('a focused Sign in button losing focus restores the password for each faile
     const request = deferred<void>()
     session.signInWithEmail.mockReturnValueOnce(request.promise)
     button.focus()
+    expect(document.activeElement).toBe(button)
     fireEvent.submit(button.closest('form')!)
     simulateBrowserDisabledBlur(button)
     await act(async () => {
