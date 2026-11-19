@@ -51,7 +51,11 @@ import { firestoreReviewStore } from '../review/firestore-store'
 import { firestoreVersionOrigin } from '../review/firestore-version-origin'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
-import { cachedCatalogFamilies, cachedJurisdiction } from './snapshot-cache'
+import {
+  cachedCatalogFamilies,
+  cachedJurisdiction,
+  snapshotForVersion,
+} from './snapshot-cache'
 import { membersStore } from './members'
 import { createMemoryMembersStore } from '../members/memory-store'
 import { readCommonsImage } from '../../worker/remote-image'
@@ -162,8 +166,13 @@ export function reviewDeps(): ReviewDeps {
   // Share each version/state index promise within this operation so parallel
   // plate reads build it once.
   const jurisdictionIndexes = new Map<string, Promise<Map<string, Plate>>>()
+  const kind = catalogSourceKind({
+    CATALOG_SOURCE: process.env.CATALOG_SOURCE,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  })
   return {
     store: firestoreReviewStore(stagingFirestore(), reviewEnv()),
+    snapshotAtVersion: (version) => snapshotForVersion(version, kind),
     /**
      * Load the current catalog plate through an index shared by reads of the same
      * version.
@@ -182,10 +191,6 @@ export function reviewDeps(): ReviewDeps {
      * index.
      */
     async baselineAtVersion(version, plateId) {
-      const kind = catalogSourceKind({
-        CATALOG_SOURCE: process.env.CATALOG_SOURCE,
-        VERCEL_ENV: process.env.VERCEL_ENV,
-      })
       const state = plateId.split('.')[0]
       const key = `${version}:${state}`
       let index = jurisdictionIndexes.get(key)
@@ -204,10 +209,6 @@ export function reviewDeps(): ReviewDeps {
      */
     async stateBaseline(version, state, order) {
       const source = catalog()
-      const kind = catalogSourceKind({
-        CATALOG_SOURCE: process.env.CATALOG_SOURCE,
-        VERCEL_ENV: process.env.VERCEL_ENV,
-      })
       const snapshot = await cachedJurisdiction(version, state, kind)
       if (snapshot.version !== version)
         throw new Error('Baseline catalog version unavailable')

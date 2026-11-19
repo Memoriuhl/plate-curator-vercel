@@ -1,7 +1,7 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
 import type { DraftChange, ReviewChanges } from './checkpoint'
 import type { FamilyMergeResult } from './family-merge-plan'
-import type { Plate, StoryFields } from '../catalog/types'
+import type { Plate, Snapshot, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
@@ -151,6 +151,8 @@ export type PipelineFieldChangeEntry = {
 }
 export type PipelineFieldChange = PipelineFieldChangeEntry & {
   prior?: PipelineFieldChangeEntry[]
+  /** A curator restored the value. The attribution records its original source. */
+  restored?: true
 }
 export type ProposedEdit = {
   plateId: string
@@ -270,6 +272,8 @@ export interface ReviewStore {
     at: string,
     requestedBy?: RequesterAuthority
   ): Promise<boolean>
+  /** Generation of the most recent Publish acceptance involving a draft deletion. */
+  deletionPublishFence?(batchId: string): Promise<number>
   commit(
     batchId: string,
     expectedRevision: number,
@@ -281,6 +285,7 @@ export interface ReviewStore {
       deleteEditsFor?: string[]
       deleteEditFor?: string
       publishToken?: string
+      deletionPublishFence?: number
       /**
        * The migration's hold on the publish lock. The fold is written only if the hold is
        * still this run's and unexpired, and the live version is still the one it saw,
@@ -292,7 +297,9 @@ export interface ReviewStore {
       /** false skips the change-log entry (rebase commits that set a new floor). */
       history?: false
     }
-  ): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
+  ): Promise<
+    'ok' | 'revision_mismatch' | 'pipeline_busy' | 'superseded_revision'
+  >
 }
 /** The lock token and catalog version a migration took its hold with. */
 export type MigrationHold = { token: string; catalogVersion: number | null }
@@ -318,6 +325,8 @@ export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
   baselineAtVersion(version: number, plateId: string): Promise<Plate | null>
+  /** Immutable baseline used to validate family labels and Variant parents across states. */
+  snapshotAtVersion?(version: number): Promise<Snapshot>
   stateBaseline(
     version: number,
     state: string,

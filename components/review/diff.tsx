@@ -7,8 +7,8 @@ import type { BatchDetail } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
 import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
 import { PlateImageHover } from '@/components/plate/plate-image-preview'
-import { sameEditableValue } from '@/lib/review/story'
-import { draftGroupingFields } from '@/lib/review/fields'
+import { changedDraftField, sameEditableValue } from '@/lib/review/story'
+import { FieldAttribution } from './field-attribution'
 import type {
   DraftChangeTarget,
   EditableFields,
@@ -142,7 +142,7 @@ const fieldsByRow: Record<string, (keyof EditableFields)[]> = {
   'Read more': ['readMore'],
   'Background color': ['colorDetail'],
   'Broad color': ['lineageColor'],
-  Links: ['wikiUrl'],
+  Links: ['sourceUrl', 'wikiUrl'],
 }
 
 /**
@@ -159,7 +159,6 @@ export function DiffTable({
   beforeImageUrl,
   afterImageUrl,
   pipelineChanges,
-  onRevert,
   onDiscard,
   reverting,
   compact = false,
@@ -174,7 +173,6 @@ export function DiffTable({
   positions?: BatchDetail['plates'][number]['order']
   order: string[]
   pipelineChanges?: ProposedEdit['pipelineChanges']
-  onRevert?(field: keyof EditableFields, jobId: string): void
   onDiscard?(target: DraftChangeTarget): void
   reverting?: boolean
   compact?: boolean
@@ -255,32 +253,14 @@ export function DiffTable({
   const imageChanged =
     before.image !== after.image || before.imageUrl !== after.imageUrl
   const changedField = (field: keyof EditableFields) =>
-    !sameEditableValue(field, before[field], after[field])
-  const firstGrouping = draftGroupingFields.find(changedField)
-  const updatedImage = changedField('imageUrl')
+    changedDraftField(field, before[field], after[field])
   function discardTargets(
     label: string
   ): { target: DraftChangeTarget; label: string }[] {
     if (label === 'Order' && positions)
       return [{ target: 'order', label: 'order change' }]
-    if (label === 'Image' && updatedImage)
-      return [{ target: 'imageUrl', label: 'image change' }]
-    const fields =
-      label === 'Links' && !updatedImage
-        ? (['sourceUrl', 'wikiUrl'] as const)
-        : (fieldsByRow[label] ?? [])
-    return fields.flatMap((field) => {
-      if (
-        !changedField(field) ||
-        field === 'imageUrl' ||
-        (field === 'deleted' &&
-          Boolean(before.deleted) === Boolean(after.deleted))
-      )
-        return []
-      if (draftGroupingFields.some((key) => key === field))
-        return firstGrouping === field
-          ? [{ target: field, label: 'grouping change' }]
-          : []
+    return (fieldsByRow[label] ?? []).flatMap((field) => {
+      if (!changedField(field)) return []
       return [
         {
           target: field,
@@ -473,78 +453,22 @@ export function DiffTable({
                         !sameEditableValue(field, change.value, after[field])
                       )
                         return null
-                      const source = pipelineChanges?.sourceUrl
-                      const imagePair = field === 'imageUrl'
-                      const canRevertImage = Boolean(
-                        source?.jobId === change.jobId &&
-                        sameEditableValue(
-                          'sourceUrl',
-                          source?.value,
-                          after.sourceUrl
-                        )
-                      )
-                      const netChange =
-                        !sameEditableValue(
-                          field,
-                          before[field],
-                          after[field]
-                        ) ||
-                        (imagePair &&
-                          !sameEditableValue(
-                            'sourceUrl',
-                            before.sourceUrl,
-                            after.sourceUrl
-                          ))
-                      const canRestorePrior =
-                        (Object.hasOwn(change, 'previous') &&
-                          !sameEditableValue(
+                      if (
+                        !changedField(field) &&
+                        (!Object.hasOwn(change, 'previous') ||
+                          sameEditableValue(
                             field,
                             change.previous,
                             after[field]
-                          )) ||
-                        (imagePair &&
-                          source &&
-                          Object.hasOwn(source, 'previous') &&
-                          !sameEditableValue(
-                            'sourceUrl',
-                            source.previous,
-                            after.sourceUrl
                           ))
-                      if (!netChange && !canRestorePrior) return null
+                      )
+                        return null
                       return (
                         <div
                           className="mt-2 flex flex-wrap items-center gap-2"
                           key={field}
                         >
-                          {change.byName && (
-                            <span className="caption">
-                              Pipeline · {change.byName}
-                            </span>
-                          )}
-                          {onRevert && (!imagePair || canRevertImage) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={reverting}
-                              title={
-                                Object.hasOwn(change, 'previous')
-                                  ? 'Restore the earlier draft value'
-                                  : 'Restore the published value'
-                              }
-                              onClick={() => onRevert(field, change.jobId)}
-                            >
-                              Revert{' '}
-                              {imagePair
-                                ? 'image and source'
-                                : pipelineFieldLabel(field).toLowerCase()}
-                            </Button>
-                          )}
-                          {onRevert && imagePair && !canRevertImage && (
-                            <span className="caption">
-                              The image and its source must be reverted
-                              together.
-                            </span>
-                          )}
+                          <FieldAttribution change={change} />
                         </div>
                       )
                     })}

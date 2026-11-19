@@ -93,21 +93,70 @@ test('comparison buttons switch the selected pane without losing either revision
   expect(screen.getByRole('heading', { name: 'After · rev 4' })).toBeTruthy()
 })
 
-test('draft comparison allows reverting the one eligible pipeline field', () => {
+test('each changed grouping field and the source link can be removed independently', () => {
   const before: Plate = {
     id: 'AK.one',
     state: 'AK',
     slug: 'one',
     image: '',
     displayName: 'One',
-    tags: ['published'],
+    tags: [],
+    templateFamily: 'old',
+    templateRole: 'template',
+  }
+  const after: Plate = {
+    ...before,
+    templateFamily: 'new',
+    templateRole: 'variant',
+    variantOfPlateId: 'AK.two',
+    imageUrl: 'https://example.com/image.jpg',
+    sourceUrl: 'https://example.com/source',
+  }
+  const discard = vi.fn()
+  render(
+    <DiffTable
+      before={before}
+      after={after}
+      version={1}
+      revision={2}
+      order={[]}
+      onDiscard={discard}
+    />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'After' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove family role change' })
+  )
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove source link change' })
+  )
+  expect(discard.mock.calls).toEqual([['templateRole'], ['sourceUrl']])
+})
+
+test('Review offers independent catalog reverts for a pipeline image and source', () => {
+  const before: Plate = {
+    id: 'AK.one',
+    state: 'AK',
+    slug: 'one',
+    image: 'plate.webp',
+    imageUrl: 'https://example.org/old.webp',
+    displayName: 'One',
+    tags: [],
+    sourceUrl: 'https://example.org/old',
   }
   const after = {
     ...before,
-    tags: ['draft'],
-    description: 'Manual description',
+    imageUrl: 'https://example.org/new.webp',
+    sourceUrl: 'https://example.org/new',
   }
-  const revert = vi.fn()
+  const attribution = {
+    runId: 'run',
+    jobId: 'image-job',
+    by: 'editor',
+    byName: 'Ro',
+    at: '',
+  }
+  const discard = vi.fn()
   render(
     <DiffTable
       before={before}
@@ -116,25 +165,29 @@ test('draft comparison allows reverting the one eligible pipeline field', () => 
       revision={2}
       order={[before.id]}
       pipelineChanges={{
-        tags: {
-          runId: 'run',
-          jobId: 'tag-job',
-          by: 'editor',
-          byName: 'Ro',
-          at: '',
-          value: after.tags,
-          previous: ['earlier'],
+        imageUrl: {
+          ...attribution,
+          value: after.imageUrl,
+          previous: 'https://example.org/earlier.webp',
+        },
+        sourceUrl: {
+          ...attribution,
+          value: after.sourceUrl,
+          previous: 'https://example.org/earlier',
         },
       }}
-      onRevert={revert}
+      onDiscard={discard}
     />
   )
   fireEvent.click(screen.getByRole('button', { name: 'After' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Revert tags' }))
-  expect(revert).toHaveBeenCalledWith('tags', 'tag-job')
   expect(
-    screen.queryByRole('button', { name: 'Revert description' })
+    screen.queryByRole('button', { name: 'Revert image and source' })
   ).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Remove image change' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove source link change' })
+  )
+  expect(discard.mock.calls).toEqual([['imageUrl'], ['sourceUrl']])
 })
 
 test('the review comparison offers removal for individual manual fields and order', () => {
