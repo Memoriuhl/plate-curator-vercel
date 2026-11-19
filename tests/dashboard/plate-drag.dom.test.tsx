@@ -1433,7 +1433,7 @@ test('release uses the visible gap while a new join is still dwelling', async ()
   }
 })
 
-test('card zones scale with width and its own Variant rows take precedence', () => {
+test('card zones scale with width, the centre 4/6 joins the family and its own Variant rows take precedence', () => {
   const root = document.createElement('div')
   root.innerHTML =
     '<article data-drag-family="AK.a"><div data-drag-variant="AK.v"></div></article>'
@@ -1446,20 +1446,20 @@ test('card zones scale with width and its own Variant rows take precedence', () 
     new DOMRect(40, 140, 300, 60)
   )
   const targets = collectDragTargets(root, families)
-  expect(targetAt(100, 100, targets)).toEqual({
+  expect(targetAt(83, 100, targets)).toEqual({
     kind: 'family-slot',
     index: 0,
     anchor: { kind: 'before', anchorId: a.id },
   })
-  expect(targetAt(110.1, 100, targets)).toEqual({
+  expect(targetAt(84, 100, targets)).toEqual({
     kind: 'merge',
     familyId: a.id,
   })
-  expect(targetAt(269.9, 100, targets)).toEqual({
+  expect(targetAt(296, 100, targets)).toEqual({
     kind: 'merge',
     familyId: a.id,
   })
-  expect(targetAt(280, 100, targets)).toEqual({
+  expect(targetAt(297, 100, targets)).toEqual({
     kind: 'family-slot',
     index: 1,
     anchor: { kind: 'after', anchorId: a.id },
