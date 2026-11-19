@@ -25,6 +25,8 @@ export type ReadyPreviewProps = {
   markerName?: string
   parent?: string
   draft?: DashboardDraft | null
+  /** Show the card's own values without loading the plate's saved detail. */
+  localOnly?: boolean
   onReady?: () => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -45,6 +47,7 @@ export function ReadyPlatePreview(props: ReadyPreviewProps) {
  */
 function PendingPreview(props: ReadyPreviewProps) {
   const local =
+    !!props.localOnly ||
     !!props.markerName ||
     props.checkKey === 'tags' ||
     props.checkKey === 'family' ||
@@ -93,7 +96,7 @@ function PendingPreview(props: ReadyPreviewProps) {
     <PlateHoverContent
       {...props}
       plate={overlaid ?? props.plate}
-      state={data ? undefined : 'loading'}
+      state={data || props.localOnly ? undefined : 'loading'}
     />
   )
 }

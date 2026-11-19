@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
 import {
+  changeDetail,
   familyTemplateId,
   matchesPublishFilter,
   plateChanges,
@@ -155,4 +156,51 @@ test('the Publish filter matches a kind of change and searches names, ids, state
   expect(matchesPublishFilter(pws, 'all', 'alaska')).toBe(true)
   expect(matchesPublishFilter(pws, 'all', 'tags')).toBe(true)
   expect(matchesPublishFilter(pws, 'all', 'order')).toBe(false)
+})
+
+test('each change icon describes what changed, before and after', () => {
+  const research = entry(
+    'AK.army',
+    {
+      description: 'Honors soldiers.',
+      funFacts: [
+        { text: 'First issued in 1990.', sourceUrl: 'https://a.test' },
+      ],
+      readMore: [
+        { title: 'A', site: 'a.test', url: 'https://a.test' },
+        { title: 'B', site: 'b.test', url: 'https://b.test' },
+      ],
+      wikiUrl: 'https://en.wikipedia.org/wiki/Army',
+      tags: ['army', 'service'],
+    },
+    {},
+    { tags: ['army', 'old'] }
+  )
+  expect(changeDetail(research, 'description')).toEqual([
+    'Added: Honors soldiers.',
+  ])
+  expect(changeDetail(research, 'funFacts')).toEqual([
+    '0 facts → 1 fact',
+    'New: First issued in 1990.',
+  ])
+  expect(changeDetail(research, 'tags')).toEqual([
+    'Added: service',
+    'Removed: old',
+  ])
+  expect(changeDetail(research, 'link')).toEqual([
+    'Reference page: Added: https://en.wikipedia.org/wiki/Army',
+    'Read more: 0 links → 2 links',
+  ])
+  expect(
+    changeDetail(
+      entry('AK.army', { description: 'New' }, {}, { description: 'Old' }),
+      'description'
+    )
+  ).toEqual(['Old → New'])
+  expect(
+    changeDetail(
+      entry('AK.army', {}, { order: { before: 0, after: 2, total: 5 } }),
+      'order'
+    )
+  ).toEqual(['Position 1 → 3 of 5'])
 })

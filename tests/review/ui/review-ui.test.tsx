@@ -482,3 +482,34 @@ test('a run History link lists just the changed plates from that run across stat
   )
   expect(html).not.toContain('Dogwood')
 })
+
+test('Read more and Links open their pages in a new tab', () => {
+  const html = renderToStaticMarkup(
+    <DiffTable
+      before={before}
+      after={{
+        ...after,
+        sourceUrl: 'not a link',
+        wikiUrl: 'https://en.wikipedia.org/wiki/Army',
+        readMore: [
+          {
+            title: 'Army plates',
+            site: 'dmv.test',
+            url: 'https://dmv.test/army',
+          },
+        ],
+      }}
+      version={41}
+      revision={4}
+      order={[]}
+    />
+  )
+  expect(html).toContain(
+    '<a href="https://dmv.test/army" target="_blank" rel="noreferrer"'
+  )
+  expect(html).toContain('>Army plates</a>')
+  expect(html).toContain('href="https://en.wikipedia.org/wiki/Army"')
+  // A value that is not a web address stays plain text.
+  expect(html).not.toContain('href="not a link"')
+  expect(html).toContain('not a link')
+})

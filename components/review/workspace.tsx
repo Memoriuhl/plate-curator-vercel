@@ -8,6 +8,7 @@ import {
   PlateImageHover,
   PlateEnhancementPreview,
 } from '@/components/plate/plate-image-preview'
+import { PlateHoverPreview } from '@/components/plate/plate-hover-preview'
 import { HoverCard } from 'radix-ui'
 import { PlateChangeIcons } from './plate-change-icons'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -751,7 +752,8 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   selected && 'bg-muted'
                 )}
               >
-                {imageUrl ? (
+                {imageUrl && filters.run ? (
+                  // A run's rows already open a change preview with the image on hover.
                   <PlateImageHover
                     plateId={plate.id}
                     plateName={plate.displayName}
@@ -766,6 +768,17 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                       className="h-10 w-20 shrink-0 object-contain"
                     />
                   </PlateImageHover>
+                ) : imageUrl ? (
+                  <PlateHoverPreview plate={plate} imageUrl={imageUrl}>
+                    <Image
+                      unoptimized
+                      src={imageUrl}
+                      alt=""
+                      width={80}
+                      height={40}
+                      className="h-10 w-20 shrink-0 object-contain"
+                    />
+                  </PlateHoverPreview>
                 ) : (
                   <span className="h-10 w-20 shrink-0 rounded bg-muted" />
                 )}
@@ -898,13 +911,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               {(entry.afterImageUrl ??
                 entry.beforeImageUrl ??
                 plateImage(entry.baseline.id)) && (
-                <PlateImageHover
-                  plateId={entry.baseline.id}
-                  plateName={entry.proposed.displayName}
-                  before={
-                    entry.afterImageUrl ??
-                    entry.beforeImageUrl ??
-                    plateImage(entry.baseline.id)
+                <PlateHoverPreview
+                  plate={entry.proposed}
+                  imageUrl={
+                    (entry.afterImageUrl ??
+                      entry.beforeImageUrl ??
+                      plateImage(entry.baseline.id))!
                   }
                 >
                   <Image
@@ -919,7 +931,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                     height={80}
                     className="h-20 w-40 object-contain"
                   />
-                </PlateImageHover>
+                </PlateHoverPreview>
               )}
               <div className="min-w-0 flex-1">
                 <h2 className="text-lg font-extrabold">

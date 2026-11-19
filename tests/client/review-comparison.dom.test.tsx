@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { DiffTable } from '../../components/review/diff'
 import type { Plate } from '../../lib/catalog/types'
@@ -46,7 +52,10 @@ test('comparison displays sourced facts, first-issued year and read-more values 
   expect(pane.textContent).toContain('1976')
   expect(pane.textContent).toContain('Sourced fact')
   expect(pane.textContent).toContain('https://example.org/fact')
-  expect(pane.textContent).toContain('https://example.org/reference')
+  // Read more shows each link's title and opens its page in a new tab.
+  const link = within(pane).getByRole('link', { name: 'Reference' })
+  expect(link.getAttribute('href')).toBe('https://example.org/reference')
+  expect(link.getAttribute('target')).toBe('_blank')
   expect(pane.textContent).not.toContain('[object Object]')
 })
 
