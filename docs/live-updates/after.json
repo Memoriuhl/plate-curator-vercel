@@ -1,7 +1,7 @@
 {
   "label": "after",
   "scenario": "run",
-  "measuredAt": "2026-11-19T01:32:08.232Z",
+  "measuredAt": "2026-11-19T02:49:53.200Z",
   "observedMinutes": 10,
   "jobsReported": 58,
   "routes": {
@@ -50,8 +50,9 @@
       "workerTokens": 188,
       "reviewBatches": 468,
       "locks": 1,
-      "localPipelineRuns": 987,
-      "jobs": 15132,
+      "localPipelineRuns": 985,
+      "jobs": 15244,
+      "localPipelineWakes": 343,
       "reviewBatches/*/edits": 58
     },
     "queries": {
@@ -60,10 +61,11 @@
     },
     "writes": {
       "localPipelineCapabilities": 72,
-      "curatorLive/*/batchRevisions": 361,
+      "curatorLive/*/batchRevisions": 360,
       "reviewBatches": 59,
-      "localPipelineRuns": 245,
+      "localPipelineRuns": 243,
       "jobs": 176,
+      "localPipelineWakes": 234,
       "reviewBatches/*/draftChanges": 58,
       "reviewBatches/*/edits": 58
     }
@@ -74,15 +76,15 @@
       "topic:gateway": 1
     },
     "snapshots": {
-      "topic:pipeline": 303,
+      "topic:pipeline": 302,
       "topic:gateway": 1
     }
   },
   "totals": {
     "requestsPerHour": 3325,
     "browserRequestsPerHour": 1465,
-    "documentReadsPerHour": 102855,
+    "documentReadsPerHour": 105565,
     "queriesPerHour": 5783,
-    "writesPerHour": 6153
+    "writesPerHour": 7535
   }
 }
