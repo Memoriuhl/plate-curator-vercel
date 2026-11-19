@@ -320,7 +320,13 @@ export function usePlateDrag(options: Options) {
     const firstChanged = previousFirst !== first
     if (
       firstChanged ||
-      plates.some((plate) => plate.isStandard && demoted.has(plate.id))
+      plates.some(
+        (plate) =>
+          plate.isStandard &&
+          !plate.deleted &&
+          plate.templateRole !== 'variant' &&
+          demoted.has(plate.id)
+      )
     )
       return standardConfirmation.confirm(plates, first, true)
   }
@@ -782,15 +788,17 @@ export function usePlateDrag(options: Options) {
       return
     }
     const { order, promoted, plateIds } = plan
+    const firstBefore = stateFamilies[0]?.template.id
+    const firstAfter = plan.families[0].template.id
     const statePlates = stateFamilies.flatMap(({ template, variants }) => [
       template,
       ...variants,
     ])
     if (
-      before[0] !== order[0] &&
+      firstBefore !== firstAfter &&
       !allowsFirstPlacement(
-        statePlates.find(({ id }) => id === order[0]),
-        promoted.some(({ id }) => id === order[0])
+        statePlates.find(({ id }) => id === firstAfter),
+        promoted.some(({ id }) => id === firstAfter)
       )
     ) {
       latest.current.holdOverlay?.(false)
@@ -841,7 +849,7 @@ export function usePlateDrag(options: Options) {
       )
     }
 
-    const confirmation = confirmOrder(before[0], order[0], statePlates)
+    const confirmation = confirmOrder(firstBefore, firstAfter, statePlates)
     const standard = confirmation ? await confirmation : undefined
     if (standard === false) {
       latest.current.holdOverlay?.(false)

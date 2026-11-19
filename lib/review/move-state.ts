@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { familyRole, groupFamilies } from '../catalog/families'
+import { familyRole, groupFamiliesInOrder } from '../catalog/families'
 import { JURISDICTIONS } from '../catalog/jurisdictions'
 import {
   hasValidStandard,
@@ -140,6 +140,9 @@ async function planStateMove(
     effective.set(id, { ...current, ...fields })
   }
 
+  const groupedOrder = (ids: readonly string[]) =>
+    groupFamiliesInOrder(ids.map((id) => effective.get(id)!))
+  const firstBefore = groupedOrder(previousOrder)[0]?.template.id
   let order = previousOrder
   let merge: FamilyMergeResult | undefined
   for (const { plateIds, placement, promote } of moves) {
@@ -149,12 +152,7 @@ async function planStateMove(
         error: 'invalid_state',
         reasons: ['Every moved plate must belong to this state.'],
       }
-    const families = groupFamilies(
-      order.map((id, sortOrder) => {
-        const plate = effective.get(id)!
-        return { ...plate, sortOrder, templateRole: familyRole(plate) }
-      })
-    )
+    const families = groupedOrder(order)
     const familyByHead = new Map(
       families.map((family) => [family.template.id, family])
     )
@@ -267,12 +265,7 @@ async function planStateMove(
     if (promote) {
       // Explicitly promoted Variants get their own blocks. Retained Variants stay
       // beside their selected Template, even when a former sibling preceded them.
-      block = groupFamilies(
-        block.map((id, sortOrder) => {
-          const plate = effective.get(id)!
-          return { ...plate, sortOrder, templateRole: familyRole(plate) }
-        })
-      ).flatMap(({ template, variants }) => [
+      block = groupedOrder(block).flatMap(({ template, variants }) => [
         template.id,
         ...variants.map(({ id }) => id),
       ])
@@ -311,13 +304,14 @@ async function planStateMove(
       error: 'invalid_state',
       reasons: ['The move would leave an inconsistent family or Variant link.'],
     }
+  const firstAfter = groupedOrder(order)[0]?.template.id
   const preserveStandard =
     !standard &&
     preservesStandardPosition(
       before,
       [...effective.values()],
-      previousOrder[0],
-      order[0]
+      firstBefore,
+      firstAfter
     )
   const orderChanged = !sameList(previousOrder, order)
   const combined = await standardEdits(
@@ -331,6 +325,7 @@ async function planStateMove(
     {
       existingEdits: edits,
       preserveStandard,
+      firstId: firstAfter,
     }
   )
   if (!combined.ok) return combined
@@ -347,7 +342,7 @@ async function planStateMove(
           ? undefined
           : (changedFields.get(plate.id) ?? editsById.get(plate.id))),
       })),
-      order[0]
+      firstAfter
     )
   )
     return { ok: false, error: 'standard_invalid_template' }

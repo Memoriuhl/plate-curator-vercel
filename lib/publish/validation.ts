@@ -3,9 +3,8 @@ import type { Plate, Snapshot } from '../catalog/types'
 import { familyRole } from '../catalog/families'
 import { orderedStatePlates } from '../catalog/order'
 import {
-  hasValidStandard,
+  checkStandardOrder,
   preservesStandardFlags,
-  preservesStandardPosition,
 } from '../catalog/standard-position'
 import {
   colorFieldKeys,
@@ -186,17 +185,17 @@ export function validateSnapshot(
       if (!stateOrders[state]) continue
     }
     if (!stateOrders[state] && flagsPreserved) continue
-    const firstBefore =
-      baselineOrders[state]?.[0] ??
-      orderedStatePlates({ ...baseline, plates: before }, state, {
-        stateOrder: {},
+    const standard = checkStandardOrder(
+      orderedStatePlates({ version: baseline.version, plates: before }, state, {
+        stateOrder: baselineOrders,
         stateProgress: {},
-      })[0]?.id
-    const firstAfter = stateOrders[state]?.[0] ?? firstBefore
-    if (
-      !hasValidStandard(after, firstAfter) &&
-      !preservesStandardPosition(before, after, firstBefore, firstAfter)
+      }),
+      orderedStatePlates({ version: baseline.version, plates: after }, state, {
+        stateOrder: stateOrders[state] ? stateOrders : baselineOrders,
+        stateProgress: {},
+      })
     )
+    if (!standard.valid)
       reasons.push('Standard must be the first Template in state: ' + state)
   }
   return reasons

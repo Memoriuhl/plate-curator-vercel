@@ -1,4 +1,4 @@
-import { familyRole } from './families'
+import { familyRole, groupFamiliesInOrder } from './families'
 import type { Plate } from './types'
 
 /** Check that an existing Standard flag was neither replaced nor demoted. */
@@ -56,4 +56,40 @@ export function hasValidStandard(
     standards[0].id === firstId &&
     familyRole(standards[0]) === 'template'
   )
+}
+
+/** Validate the Standard against the displayed baseline and candidate state orders. */
+export function checkStandardOrder(
+  before: readonly Plate[],
+  after: readonly Plate[]
+) {
+  const firstBefore = groupFamiliesInOrder(before)[0]?.template.id
+  const first = groupFamiliesInOrder(after)[0]?.template.id
+  if (
+    hasValidStandard(after, first) ||
+    preservesStandardPosition(before, after, firstBefore, first)
+  )
+    return { valid: true, first }
+  if (hasValidStandard(before, firstBefore)) return { valid: false, first }
+
+  // An accepted grouping edit can change the displayed first family without
+  // moving a plate in the stored order. Keep baseline positions and flags.
+  const byId = new Map(after.map((plate) => [plate.id, plate]))
+  const regrouped = before.map((plate) => {
+    const next = byId.get(plate.id)
+    return next
+      ? {
+          ...plate,
+          templateRole: next.templateRole,
+          isTemplate: next.isTemplate,
+          templateFamily: next.templateFamily,
+          variantOfPlateId: next.variantOfPlateId,
+        }
+      : plate
+  })
+  const firstRegrouped = groupFamiliesInOrder(regrouped)[0]?.template.id
+  return {
+    valid: preservesStandardPosition(before, after, firstRegrouped, first),
+    first,
+  }
 }

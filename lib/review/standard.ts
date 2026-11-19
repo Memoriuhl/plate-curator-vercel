@@ -1,9 +1,6 @@
 import { orderedStatePlates } from '../catalog/order'
 import { familyRole } from '../catalog/families'
-import {
-  hasValidStandard,
-  preservesStandardPosition,
-} from '../catalog/standard-position'
+import { checkStandardOrder } from '../catalog/standard-position'
 import type { Plate } from '../catalog/types'
 import { batchPlateLimit, editableKeys } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
@@ -30,7 +27,11 @@ export async function standardEdits(
   order: string[],
   changes: Map<string, EditableFields>,
   acknowledgement?: StandardChange,
-  options?: { existingEdits: ProposedEdit[]; preserveStandard: boolean }
+  options?: {
+    existingEdits: ProposedEdit[]
+    preserveStandard: boolean
+    firstId: string | undefined
+  }
 ): Promise<
   Outcome<{
     edits: ProposedEdit[]
@@ -48,7 +49,7 @@ export async function standardEdits(
     ...plate,
     ...changes.get(plate.id),
   }))
-  const firstId = order[0]
+  const firstId = options ? options.firstId : order[0]
   const first = effective.find((plate) => plate.id === firstId)
   if (
     !options?.preserveStandard &&
@@ -137,20 +138,22 @@ export function standardOrderProblems(
   return [...checkedStates].flatMap((state) => {
     const before = byState.get(state) ?? []
     const after = before.map((plate) => ({ ...plate, ...fields.get(plate.id) }))
-    const firstBefore =
-      baselineOrders[state]?.[0] ??
+    const standard = checkStandardOrder(
       orderedStatePlates({ version: 0, plates: before }, state, {
-        stateOrder: {},
+        stateOrder: baselineOrders,
         stateProgress: {},
-      })[0]?.id
-    const firstAfter = orders[state]?.[0] ?? firstBefore
-    return hasValidStandard(after, firstAfter) ||
-      preservesStandardPosition(before, after, firstBefore, firstAfter)
+      }),
+      orderedStatePlates({ version: 0, plates: after }, state, {
+        stateOrder: orders[state] ? orders : baselineOrders,
+        stateProgress: {},
+      })
+    )
+    return standard.valid
       ? []
       : [
           state +
             ': use Standard plate issues to make ' +
-            (after.find((plate) => plate.id === firstAfter)?.displayName ??
+            (after.find((plate) => plate.id === standard.first)?.displayName ??
               'the first Template') +
             ' the Standard before submitting.',
         ]
