@@ -179,11 +179,14 @@ function ResearchRun({
     setPending(true)
     setMessage('')
     try {
-      await api.send('POST', `/api/research/${job.id}/accept`, {
+      const saved = await api.send<{
+        value?: { skipped?: string[]; rejected?: unknown[] }
+      }>('POST', `/api/research/${job.id}/accept`, {
         fields,
         draft,
         baseRevision: plate.revision,
       })
+      const leftOut = saved.value?.rejected?.length ?? 0
       await Promise.all([
         mutate(`/api/batches/${job.batchId}`),
         research.mutate(),
@@ -193,7 +196,11 @@ function ResearchRun({
       ])
       // Reload the route payload after refreshing the job and draft caches.
       router.refresh()
-      setMessage('Saved to the Batch.')
+      setMessage(
+        leftOut
+          ? `Saved to the Batch. ${leftOut} item${leftOut === 1 ? '' : 's'} left out: not supported by the captured sources.`
+          : 'Saved to the Batch.'
+      )
     } catch (error) {
       setMessage(researchMessage(error))
     } finally {

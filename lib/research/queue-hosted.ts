@@ -140,7 +140,7 @@ export async function executeQueueResearch(
     const receipt = await deps.deliver(
       job,
       input,
-      `${enrichmentPrompt(plate, prepared.sources, policy, fields)}\nFinish with submit_draft in this single model call. Captured evidence is already registered.`
+      `${enrichmentPrompt(plate, prepared.sources, policy, fields)}\nCall submit_draft directly with the structured result. Captured evidence is already registered. Do not emit Python or use an interpreter.`
     )
     await jobs.store.transaction(async (tx) => {
       const current = await tx.get(job.id)
@@ -152,7 +152,7 @@ export async function executeQueueResearch(
         tx.set({ ...current, eve: receipt })
     })
   }
-  const settled = await deps.state.read<{ outcome: string }>(
+  const settled = await deps.state.read<{ outcome: string; error?: string }>(
     `eve-outcome/${job.id}`
   )
   if (settled && job.leaseExpiresAt! <= jobs.now()) {
@@ -169,7 +169,9 @@ export async function executeQueueResearch(
         'hosted',
         job.id,
         job.claimId!,
-        'stage_failed'
+        settled.error === 'research_budget_exhausted'
+          ? settled.error
+          : 'stage_failed'
       )
       if (!result.ok)
         throw Error(

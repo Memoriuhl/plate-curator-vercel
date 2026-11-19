@@ -6,6 +6,7 @@ import type { Actor } from '../review/types'
 const reasons = new Set([
   'no_handler',
   'stage_failed',
+  'research_budget_exhausted',
   'missing_image',
   'lease_expired',
   'stale_input',

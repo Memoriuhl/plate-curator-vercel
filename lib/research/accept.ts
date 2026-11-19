@@ -9,7 +9,7 @@ import { proposeEdit } from '../review/batch'
 import { plateRevision } from '../review/revision'
 import { parseEditableFields, parseStoryFields } from '../review/fields'
 import type { ResearchDeps, ResearchError } from './jobs'
-import type { EvidenceSource, ResearchDraft } from './types'
+import type { EvidenceSource, ResearchDraft, ResearchRejection } from './types'
 import { researchDraftSchema, validateResearchResult } from './validate'
 
 export const researchFields = [
@@ -74,7 +74,14 @@ export async function acceptResearch(
     draft?: unknown
   }
 ): Promise<
-  | Outcome<{ batch: ReviewBatch; plate: Plate }>
+  | Outcome<{
+      batch: ReviewBatch
+      plate: Plate
+      /** Selected fields left out because nothing valid remained for them. */
+      skipped: ResearchField[]
+      /** Selected items removed by evidence checks; the remaining items were saved. */
+      rejected: ResearchRejection[]
+    }>
   | { ok: false; error: ResearchError }
 > {
   if (!(await deps.active(actor.uid))) return { ok: false, error: 'forbidden' }
@@ -122,14 +129,21 @@ export async function acceptResearch(
         return { ok: false as const, error: 'forbidden' as const }
     }
     const screened = validateResearchResult(candidate, job.result.sources)
-    if (screened.rejected.length)
+    if (screened.rejected.some((item) => item.field === 'shape'))
       return { ok: false as const, error: 'invalid_result' as const }
+    // Validation drops unsupported items one by one. Save what survived and report the
+    // rest, so one rejected fact does not discard a supported description.
     const { draft } = screened
+    const selected = new Set(request.fields as ResearchField[])
+    const rejected = screened.rejected.filter((item) =>
+      selected.has(item.field as ResearchField)
+    )
+    const skipped: ResearchField[] = []
     const sources = new Map(
       job.result.sources.map((source) => [source.id, source])
     )
     const fields: EditableFields = {}
-    for (const field of new Set(request.fields)) {
+    for (const field of selected) {
       if (field === 'description' && draft.description)
         fields.description = draft.description
       else if (field === 'funFacts' && draft.funFacts.length)
@@ -148,8 +162,10 @@ export async function acceptResearch(
         })
       else if (field === 'wikiUrl' && draft.wikiSource)
         fields.wikiUrl = sources.get(draft.wikiSource)!.url
-      else return { ok: false as const, error: 'invalid_result' as const }
+      else skipped.push(field)
     }
+    if (!Object.keys(fields).length)
+      return { ok: false as const, error: 'invalid_result' as const }
     const { description, ...story } = fields
     const descriptionFields =
       description === undefined ? {} : parseEditableFields({ description })
@@ -162,17 +178,16 @@ export async function acceptResearch(
       baseRevision: currentRevision,
       fields: { ...descriptionFields, ...storyFields },
     })
-    if (result.ok) {
-      tx.set({
-        ...job,
-        acceptedRevision: plateRevision(result.value.plate),
-        acceptedFields: [
-          ...new Set([...(job.acceptedFields ?? []), ...request.fields]),
-        ],
-      })
-      superseded = batch.state !== 'open' ? batch : undefined
-    }
-    return result
+    if (!result.ok) return result
+    tx.set({
+      ...job,
+      acceptedRevision: plateRevision(result.value.plate),
+      acceptedFields: [
+        ...new Set([...(job.acceptedFields ?? []), ...Object.keys(fields)]),
+      ],
+    })
+    superseded = batch.state !== 'open' ? batch : undefined
+    return { ok: true as const, value: { ...result.value, skipped, rejected } }
   }, deps.review.store)
   if (outcome.ok && superseded) await deps.review.supersedeRun?.(superseded)
   return outcome

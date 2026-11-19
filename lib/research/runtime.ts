@@ -1,12 +1,19 @@
 import { researchState } from './storage'
 import { reserveResearchCall, type ResearchCall } from './limits'
 import { saveEvidence } from './evidence'
-import type { EvidenceSource, ResearchInput, ResearchResult } from './types'
+import type {
+  EvidenceSource,
+  ResearchContentField,
+  ResearchInput,
+  ResearchResult,
+} from './types'
 import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
 import { createResearchModelAttempt } from './model-attempt'
 import { reserveResearchSpend } from './budget'
 import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
+import { researchContentFields, researchOutcome } from './outcome'
+import { enrichmentTargets } from './enrichment'
 
 type SessionContext = {
   session: {
@@ -57,6 +64,8 @@ export async function researchTurn(
     binding?.jobId ??
     `${ctx.session.id}/${ctx.session.turn.id}`
   let jobDeadline: number | undefined
+  // Judge the draft against what this plate lacked; unknown requests need both fields.
+  let requested: ResearchContentField[] | undefined = binding?.input?.requested
   if (binding?.pipelineJobId && !providedStore) {
     const { pipelineResearchStore } = await import('./pipeline-context')
     const deps = await pipelineResearchStore()
@@ -82,6 +91,11 @@ export async function researchTurn(
     )
       throw Error('Pipeline research is no longer active')
     jobDeadline = job.leaseExpiresAt
+    const targets = enrichmentTargets(
+      job.inputPlate ?? {},
+      job.researchPolicy ?? 'fill-missing'
+    )
+    requested = researchContentFields.filter((field) => targets.includes(field))
   }
   if (binding?.jobId && !providedStore) {
     const { researchDatabase, researchEnvironment } = await import('./storage')
@@ -110,6 +124,7 @@ export async function researchTurn(
     runId,
     deadline,
     binding,
+    requested,
     /**
      * Open a budgeted model attempt for the current research run using its configured
      * constraints.
@@ -119,7 +134,12 @@ export async function researchTurn(
         campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117',
         limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'),
         deadline,
-        ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}),
+        // Captured synthesis is text-only, with one call, a 60 kB input bound
+        // and at most 1,000 output tokens. Two cents covers both allowed models
+        // at current Gateway rates with margin over the request bounds.
+        ...(binding?.pipelineJobId
+          ? { maxCalls: 1, reservationUsd: 0.02 }
+          : {}),
       }),
     /**
      * Reserve a tool call against the session or pipeline job budget before requesting
@@ -172,12 +192,7 @@ export async function submitResearchDraft(
     result: null,
   }))
   return {
-    status:
-      sources.length === 0
-        ? 'no_sources'
-        : draft.description && draft.funFacts.length
-          ? 'ok'
-          : 'partial',
+    ...researchOutcome(draft, sources, runtime.requested),
     ...result,
   }
 }
@@ -210,12 +225,7 @@ export function hostedResearchResult(
       codeRevision: process.env.VERCEL_GIT_COMMIT_SHA ?? 'development',
     },
     attempts: [],
-    status:
-      output.sources.length === 0
-        ? 'no_sources'
-        : output.draft.description && output.draft.funFacts.length > 0
-          ? 'ok'
-          : 'partial',
+    ...researchOutcome(output.draft, output.sources, input.requested),
     cost: { usd: null, missing: 1 },
     cache: 'unknown',
   }

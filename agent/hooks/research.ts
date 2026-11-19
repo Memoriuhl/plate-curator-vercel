@@ -59,14 +59,19 @@ export default defineHook({
         binding?.pipelineJobId ??
         binding?.jobId ??
         `${ctx.session.id}/${event.data.turnId}`
-      const { researchModelCosts } =
+      const { researchBudgetError, researchModelCosts } =
         await import('../../lib/research/model-attempt')
       const costs = await researchModelCosts(state, runId)
       await state.update(`eve-outcome/${runId}`, () => ({
         value: {
           outcome: event.data.outcome,
           ...(event.data.outcome !== 'completed'
-            ? { error: event.data.outcome }
+            ? {
+                error:
+                  event.data.error?.message === researchBudgetError
+                    ? 'research_budget_exhausted'
+                    : event.data.outcome,
+              }
             : {}),
           ...costs,
         },

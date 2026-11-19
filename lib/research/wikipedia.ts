@@ -3,6 +3,7 @@ import { evidenceSource } from './evidence'
 import { readableText } from './fetch-page'
 import type { EvidenceSource, ResearchInput } from './types'
 import type { ResearchStateStore } from './state'
+import { researchUserAgent, withRateLimitRetry } from './wikimedia'
 
 export type WikiDeps = {
   store: ResearchStateStore
@@ -29,12 +30,14 @@ async function wikiRequest(
     return cached.data as Record<string, unknown>
   if (!(await deps.reserve(kind)))
     throw new Error('Wikipedia research limit exhausted')
-  const response = await deps.fetch(
-    `https://en.wikipedia.org/w/api.php?${query}`,
-    {
-      headers: { 'User-Agent': 'PlateCuratorResearch/1.0' },
-      signal: AbortSignal.timeout(10000),
-    }
+  // One allowance covers the retries of a rate-limited request.
+  const response = await withRateLimitRetry(
+    () =>
+      deps.fetch(`https://en.wikipedia.org/w/api.php?${query}`, {
+        headers: { 'User-Agent': researchUserAgent },
+        signal: AbortSignal.timeout(10000),
+      }),
+    { now: deps.now }
   )
   if (!response.ok)
     throw new Error(`Wikipedia request failed: ${response.status}`)

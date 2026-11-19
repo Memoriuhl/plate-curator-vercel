@@ -12,6 +12,11 @@ import type {
   ResearchResult,
 } from './types'
 import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
+import {
+  researchContentFields,
+  researchNeeds,
+  researchOutcome,
+} from './outcome'
 
 export type ResearchError =
   | 'forbidden'
@@ -66,6 +71,7 @@ export async function researchInput(
     state: plate.state,
     inputRevision: plateRevision(plate),
     baselineVersion: batch.baselineVersion,
+    requested: researchNeeds(plate),
   }
 }
 
@@ -276,6 +282,7 @@ const resultSchema = z.object({
     state: z.string(),
     inputRevision: z.string(),
     baselineVersion: z.number().int(),
+    requested: z.array(z.enum(researchContentFields)).max(2).optional(),
   }),
   sources: z
     .array(
@@ -351,17 +358,19 @@ export function normalizeResearchReport(
   )
     return null
   const screened = validateResearchResult(data.draft, data.sources)
+  const outcome = researchOutcome(
+    screened.draft,
+    data.sources,
+    job.input.requested
+  )
   return {
     ...data,
     ...screened,
     rejected: [...data.rejected, ...screened.rejected],
+    missing: outcome.missing,
     status: ['failed', 'exhausted'].includes(data.status)
       ? data.status
-      : data.sources.length === 0
-        ? 'no_sources'
-        : screened.draft.description && screened.draft.funFacts.length
-          ? 'ok'
-          : 'partial',
+      : outcome.status,
   }
 }
 

@@ -48,6 +48,7 @@ export type RunStep = {
 
 const plateFailureReasons = new Set([
   'stage_failed',
+  'research_budget_exhausted',
   'no_sources',
   'no_supported_fields',
   'missing_image',

@@ -368,6 +368,8 @@ const stepReasons: Record<string, string> = {
   missing_description: 'The required description was not produced.',
   missing_image: 'The plate image could not be read.',
   stage_failed: 'The worker could not finish this step.',
+  research_budget_exhausted:
+    'The hosted research campaign has insufficient budget for this plate.',
   upstream_failed: 'An earlier step failed. This step did not run.',
   upstream_skipped: 'An earlier step was skipped for this plate.',
   group_member_failed:

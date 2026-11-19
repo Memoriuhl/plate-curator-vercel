@@ -1,5 +1,6 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { fetchResearchPage } from '../../lib/research/fetch-page'
+import { researchUserAgent } from '../../lib/research/wikimedia'
 
 /** Resolve the source to a public fixture IP without performing real DNS. */
 const publicResolve = async () => ['93.184.216.34']
@@ -72,4 +73,41 @@ test('unsupported content and oversized responses do not become evidence', async
       })
     ).toBeNull()
   }
+})
+
+test('a rate-limited Wikipedia page is fetched again after Retry-After, with the contact user agent', async () => {
+  const fetch = vi
+    .fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(
+      new Response('', { status: 429, headers: { 'retry-after': '0' } })
+    )
+    .mockResolvedValueOnce(
+      new Response(page, { headers: { 'content-type': 'text/html' } })
+    )
+  const reserve = vi.fn(async () => true)
+  const source = await fetchResearchPage(
+    'https://en.wikipedia.org/wiki/Purple_Heart',
+    { resolve: publicResolve, reserve, fetch, now: () => 0 }
+  )
+  expect(source?.url).toBe('https://en.wikipedia.org/wiki/Purple_Heart')
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(reserve).toHaveBeenCalledTimes(1)
+  expect(new Headers(fetch.mock.calls[1][1]?.headers).get('user-agent')).toBe(
+    researchUserAgent
+  )
+})
+
+test('a rate-limited page on another host is not retried', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(
+    async () =>
+      new Response('', { status: 429, headers: { 'retry-after': '0' } })
+  )
+  const source = await fetchResearchPage('https://example.com/a', {
+    resolve: publicResolve,
+    reserve: async () => true,
+    fetch,
+    now: () => 0,
+  })
+  expect(source).toBeNull()
+  expect(fetch).toHaveBeenCalledTimes(1)
 })
