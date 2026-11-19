@@ -5,7 +5,6 @@ import {
   type WorkerCapabilityRecord,
 } from './capabilities'
 import type { PipelineRun } from './queue-types'
-import { mayClaimWake, type WakeRecord } from './wake-ledger'
 import {
   claimable,
   compareJobAge,
@@ -25,7 +24,6 @@ export function createMemoryJobsStore(
   const tokens = new Map<string, WorkerToken>()
   const capabilities = new Map<string, WorkerCapabilityRecord>()
   const runs = new Map<string, PipelineRun>()
-  const wakes = new Map<string, WakeRecord>()
   let pending: Promise<unknown> = Promise.resolve()
   /**
    * Bind the shared in-memory records to one environment with the same visibility rules
@@ -56,19 +54,6 @@ export function createMemoryJobsStore(
         const key = `${env}:${scope}`
         if (shouldWriteCapabilities(capabilities.get(key) ?? null, record))
           capabilities.set(key, structuredClone(record))
-      },
-      /** Take a run's wake for one job transition, as the Firestore ledger does. */
-      async claimWake(runId, key, now, holdMs) {
-        const id = `${env}:${runId}`
-        if (!mayClaimWake(wakes.get(id) ?? null, key, now)) return false
-        wakes.set(id, { key, state: 'sending', until: now + holdMs })
-        return true
-      },
-      /** Record the outcome of a wake unless a newer transition took the ledger. */
-      async settleWake(runId, key, delivered) {
-        const record = wakes.get(`${env}:${runId}`)
-        if (record?.key === key)
-          record.state = delivered ? 'delivered' : 'failed'
       },
       /**
        * Serialize memory transactions and apply staged writes only after their callback

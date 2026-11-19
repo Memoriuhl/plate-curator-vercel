@@ -171,7 +171,7 @@ test('enqueue acknowledgement loss/start failure recovers the same persisted run
   ).toBe('workflow')
 })
 
-test('claim callback wakes the persisted lease; lost completed callback is reconciled by GET without creating another stage job', async () => {
+test('claim callback wakes the persisted lease; a lost completed callback is not woken by GET, which creates no other stage job', async () => {
   await POST(post())
   const [run] = await deps.store.transaction((tx) => tx.runs())
   const token = 'local-pipeline-stage'
@@ -193,13 +193,11 @@ test('claim callback wakes the persisted lease; lost completed callback is recon
     promptVersion: 'v1',
     durationMs: 10,
   })
-  mocks.resume.mockImplementation(async () =>
-    expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
-  )
+  mocks.resume.mockClear()
+  // Reads leave the lost wake to the workflow's own re-check and create no stage job.
   await getDetail(run.id)
-  expect(mocks.resume).toHaveBeenLastCalledWith(token, {
-    jobId: claimed.job.id,
-  })
+  expect(mocks.resume).not.toHaveBeenCalled()
+  expect((await getJob(deps, claimed.job.id))?.state).toBe('completed')
   expect(await deps.store.transaction((tx) => tx.list())).toHaveLength(1)
 })
 
@@ -236,103 +234,60 @@ async function claimedStage() {
   return { run, token, claimed }
 }
 
-test('a failed report-route wake is recovered by the one read its signal triggers, with no later request', async () => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-  try {
-    const { run, token, claimed } = await claimedStage()
-    mocks.resume.mockRejectedValueOnce(new Error('wake refused'))
-    expect((await reportRoute(claimed.job.id, claimed.claimId)).status).toBe(
-      200
-    )
-    expect(mocks.resume).toHaveBeenCalledTimes(1)
-
-    // The pipeline signal brings the dashboard's read at once, at the same instant.
-    await getDetail(run.id)
-    expect(mocks.resume).toHaveBeenCalledTimes(2)
-    expect(mocks.resume).toHaveBeenLastCalledWith(token, {
-      jobId: claimed.job.id,
-    })
-
-    // The route's own retry finds the wake delivered and sends nothing more.
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(mocks.resume).toHaveBeenCalledTimes(2)
-  } finally {
-    vi.useRealTimers()
-  }
+test('reads never wake the workflow, even when the report wake was lost', async () => {
+  const { run, claimed } = await claimedStage()
+  await GET(get())
+  // The worker's report commits, but its wake never reaches the workflow.
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  await getDetail(run.id)
+  await GET(get())
+  mocks.jobs.mockReturnValue({ ...deps, now: () => 100 + 60 * 60_000 })
+  await getDetail(run.id)
+  expect(mocks.resume).not.toHaveBeenCalled()
 })
 
-test('a failed report-route wake with no read at all is retried by the server', async () => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-  try {
-    const { token, claimed } = await claimedStage()
-    mocks.resume.mockRejectedValueOnce(new Error('wake refused'))
-    await reportRoute(claimed.job.id, claimed.claimId)
-    expect(mocks.resume).toHaveBeenCalledTimes(1)
-
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(mocks.resume).toHaveBeenCalledTimes(2)
-    expect(mocks.resume).toHaveBeenLastCalledWith(token, {
-      jobId: claimed.job.id,
-    })
-  } finally {
-    vi.useRealTimers()
-  }
+test('a repeated wake only re-reads the stage: observing twice settles it once', async () => {
+  const { run, claimed } = await claimedStage()
+  await reportResult(deps, 'worker', claimed.job.id, claimed.claimId, {
+    suggestions: ['blue'],
+    backend: 'fixture',
+    model: 'test',
+    promptVersion: 'v1',
+    durationMs: 10,
+  })
+  const first = await observeQueueStage(deps, run.id, 1, 0)
+  const runs = await deps.store.transaction((tx) => tx.runs())
+  const jobs = await deps.store.transaction((tx) => tx.list())
+  expect(await observeQueueStage(deps, run.id, 1, 0)).toEqual(first)
+  expect(await deps.store.transaction((tx) => tx.runs())).toEqual(runs)
+  expect(await deps.store.transaction((tx) => tx.list())).toEqual(jobs)
 })
 
-test('a retry of a failed wake stops once the job has moved on to a newer transition', async () => {
+test('the claim and report replies never wait for their workflow wakes', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   try {
     await POST(post())
     const [run] = await deps.store.transaction((tx) => tx.runs())
     await dispatchQueueStage(deps, run.id, 1, 0, 'local-pipeline-stage')
-    mocks.resume.mockRejectedValueOnce(new Error('wake refused'))
-    const claimed = await (
-      await claim(
-        new Request('https://example.org/api/worker/claim', { method: 'POST' })
-      )
-    ).json()
-    // The worker reports before the claim wake's retry; the report wake lands.
-    await reportRoute(claimed.job.id, claimed.claimId)
-    expect(mocks.resume).toHaveBeenCalledTimes(2)
-
-    await vi.advanceTimersByTimeAsync(60_000)
-    await getDetail(run.id)
+    mocks.resume.mockReturnValue(new Promise(() => {}))
+    const response = await claim(
+      new Request('https://example.org/api/worker/claim', { method: 'POST' })
+    )
+    expect(response.status).toBe(200)
+    const claimed = await response.json()
+    expect((await reportRoute(claimed.job.id, claimed.claimId)).status).toBe(
+      200
+    )
     expect(mocks.resume).toHaveBeenCalledTimes(2)
   } finally {
     vi.useRealTimers()
   }
-})
-
-test('reads never repeat a delivered wake for the same job transition, however late', async () => {
-  const { run, claimed } = await claimedStage()
-  // The claim route already delivered the claim wake, so reads leave it alone.
-  await GET(get())
-  expect(mocks.resume).not.toHaveBeenCalled()
-
-  await reportRoute(claimed.job.id, claimed.claimId)
-  expect(mocks.resume).toHaveBeenCalledTimes(1)
-  await getDetail(run.id)
-  await GET(get())
-  mocks.jobs.mockReturnValue({ ...deps, now: () => 100 + 60 * 60_000 })
-  await getDetail(run.id)
-  expect(mocks.resume).toHaveBeenCalledTimes(1)
-})
-
-test('a read while the route is still sending its wake leaves the wake to the route', async () => {
-  const { run, claimed } = await claimedStage()
-  let deliver!: () => void
-  mocks.resume.mockImplementationOnce(
-    () => new Promise((resolve) => (deliver = () => resolve(undefined)))
-  )
-  const reported = reportRoute(claimed.job.id, claimed.claimId)
-  await vi.waitFor(() => expect(mocks.resume).toHaveBeenCalledTimes(1))
-
-  await getDetail(run.id)
-  expect(mocks.resume).toHaveBeenCalledTimes(1)
-  deliver()
-  expect((await reported).status).toBe(200)
-  await getDetail(run.id)
-  expect(mocks.resume).toHaveBeenCalledTimes(1)
 })
 
 test('authentication and other-owner visibility/mutations reject without exposing runs', async () => {

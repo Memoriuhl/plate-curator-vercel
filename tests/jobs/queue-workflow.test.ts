@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   wave: vi.fn(),
   tag: vi.fn(),
   expire: vi.fn(),
+  next: vi.fn(),
   events: [] as string[],
 }))
 vi.mock('../../lib/jobs/queue-hosted', () => ({
@@ -44,10 +45,7 @@ vi.mock('workflow', () => ({
      * Provide the pending event iterator used to simulate a worker that has not
      * reported.
      */
-    [Symbol.asyncIterator]: () => ({
-      /** Keep the fixture event read unresolved until the workflow's other wait condition wins. */ next: () =>
-        new Promise(() => {}),
-    }),
+    [Symbol.asyncIterator]: () => ({ next: mocks.next }),
   }),
   sleep: mocks.sleep,
 }))
@@ -66,7 +64,14 @@ beforeEach(() => {
   })
   mocks.observe.mockResolvedValue({ phase: 'next' })
   mocks.sleep.mockResolvedValue(undefined)
+  // By default no wake arrives, so the workflow's own timers decide when it looks again.
+  mocks.next.mockReturnValue(new Promise(() => {}))
 })
+
+/** A wake delivered to the stage hook. */
+const wake = () => Promise.resolve({ done: false, value: { jobId: 'job' } })
+/** A timer that does not fire during the test. */
+const pending = () => new Promise<void>(() => {})
 
 test('each unique attempt/stage hook is registered before dispatch and completed jobs reconcile without callback', async () => {
   expect(await localPipelineRun('run', 2, 1, 3)).toEqual({
@@ -111,18 +116,56 @@ test('hook conflict or superseded coordinator cannot dispatch a job', async () =
   })
 })
 
-test('queue/offline wait uses a long durable wait and only claimed inference gets its own lease deadline', async () => {
+test('a waiting stage re-checks its own state every 90 seconds, and a claimed stage also wakes at its lease deadline', async () => {
   mocks.observe
+    .mockResolvedValueOnce({ phase: 'waiting' })
     .mockResolvedValueOnce({ phase: 'waiting' })
     .mockResolvedValueOnce({ phase: 'claimed', deadline: 12345 })
     .mockResolvedValueOnce({ phase: 'next' })
   expect(await localPipelineRun('run', 1, 0, 1)).toEqual({
     outcome: 'completed',
   })
+  // No wake arrived, so each look came from the backstop timer; none waits an hour.
   expect(mocks.sleep.mock.calls.map((args) => args[0])).toEqual([
-    '1h',
+    '90s',
+    '90s',
+    '90s',
     new Date(12345),
   ])
+  expect(mocks.observe).toHaveBeenCalledTimes(4)
+})
+
+test('one backstop timer serves every wake until it fires, so wakes do not leave timers behind', async () => {
+  mocks.sleep.mockImplementation(pending)
+  mocks.next
+    .mockReturnValueOnce(wake())
+    .mockReturnValueOnce(wake())
+    .mockReturnValueOnce(wake())
+  mocks.observe
+    .mockResolvedValueOnce({ phase: 'waiting' })
+    .mockResolvedValueOnce({ phase: 'claimed', deadline: 12345 })
+    .mockResolvedValueOnce({ phase: 'claimed', deadline: 12345 })
+    .mockResolvedValueOnce({ phase: 'next' })
+  expect(await localPipelineRun('run', 1, 0, 1)).toEqual({
+    outcome: 'completed',
+  })
+  expect(
+    mocks.sleep.mock.calls.filter(([wait]) => wait === '90s')
+  ).toHaveLength(1)
+})
+
+test('a repeated wake only re-reads the stage', async () => {
+  mocks.sleep.mockImplementation(pending)
+  mocks.next.mockReturnValueOnce(wake()).mockReturnValueOnce(wake())
+  mocks.observe
+    .mockResolvedValueOnce({ phase: 'waiting' })
+    .mockResolvedValueOnce({ phase: 'waiting' })
+    .mockResolvedValueOnce({ phase: 'next' })
+  expect(await localPipelineRun('run', 1, 0, 1)).toEqual({
+    outcome: 'completed',
+  })
+  expect(mocks.dispatch).toHaveBeenCalledTimes(1)
+  expect(mocks.observe).toHaveBeenCalledTimes(3)
 })
 
 test('Gateway Tag starts all available plates together and settles them in order', async () => {

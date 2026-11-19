@@ -12,6 +12,9 @@ import {
   executeHostedQueueStage,
 } from '../lib/jobs/queue-hosted'
 
+/** How long a waiting stage goes without a wake before it re-checks its own state. */
+const backstopWait = '90s'
+
 /**
  * Drive the queue attempt through its stages and wait for worker events, retries or
  * timeouts.
@@ -26,6 +29,9 @@ export async function localPipelineRun(
   const { workflowRunId } = getWorkflowMetadata()
   if (!(await bind(id, attempt, workflowRunId)))
     return { outcome: 'superseded' }
+  // One backstop timer serves every wait until it fires. Each sleep left pending costs a
+  // replay when it elapses, so a fresh timer per wake would double the run's invocations.
+  let backstop: Promise<void> | undefined
   for (let index = startIndex; index < stepCount; index++) {
     using hook = createHook<{ jobId?: string }>({
       token: `local-pipeline:${id}:${attempt}:${index}`,
@@ -52,15 +58,20 @@ export async function localPipelineRun(
         index = (state.nextIndex ?? index + 1) - 1
         break
       }
-      const timer =
-        state.phase === 'claimed' && state.deadline
-          ? sleep(new Date(state.deadline))
-          : sleep('1h')
-      const wake = await Promise.race([
+      // Routes wake the stage after each change. The backstop re-checks it anyway, so a
+      // lost wake costs at most `backstopWait` and needs no browser to recover.
+      backstop ??= sleep(backstopWait)
+      const waits: Promise<'event' | 'backstop' | 'deadline'>[] = [
         event.then(() => 'event' as const),
-        timer.then(() => 'timer' as const),
-      ])
+        backstop.then(() => 'backstop' as const),
+      ]
+      if (state.phase === 'claimed' && state.deadline)
+        waits.push(
+          sleep(new Date(state.deadline)).then(() => 'deadline' as const)
+        )
+      const wake = await Promise.race(waits)
       if (wake === 'event') event = events.next()
+      if (wake === 'backstop') backstop = undefined
     }
   }
   return { outcome: 'completed' }

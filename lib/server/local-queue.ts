@@ -1,6 +1,6 @@
 import { waitUntil } from '@vercel/functions'
 import { getRun, resumeHook, start } from 'workflow/api'
-import { HookConflictError } from 'workflow/errors'
+import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import {
   localPipelineRun,
   parallelGatewayTagRun,
@@ -11,8 +11,6 @@ import {
 } from '../jobs/queue-engine'
 import type { PipelineRun, QueueOutcome } from '../jobs/queue-types'
 import type { TaggingJob } from '../jobs/types'
-import { getJob } from '../jobs/jobs'
-import { wakeKey } from '../jobs/wake-ledger'
 import { jobsDeps } from './context'
 import { json } from './respond'
 
@@ -62,63 +60,42 @@ export async function startQueueWorkflow(run: PipelineRun) {
   await bindQueueWorkflow(jobsDeps(), run.id, attempt.number, workflowId)
 }
 
-/** Notify the waiting queue workflow, for a change that is not a job transition. */
-export async function wakeLocalJob(job: TaggingJob) {
-  if (job.completionHook && job.queueRunId)
-    await resumeHook(job.completionHook, { jobId: job.id }).catch(
-      () => undefined
-    )
-}
+/** How long one wake send may take before it counts as refused. */
+export const wakeSendMs = 10_000
 
-/** How long a sender holds a wake before another sender may take it over. */
-export const wakeHoldMs = 15_000
-
-/** When the server tries a failed wake again, with no request needed. */
-export const wakeRetryMs: readonly number[] = [1_000, 5_000]
+/** When the server sends a refused wake again, with no request needed. */
+export const wakeRetryMs: readonly number[] = [1_000, 5_000, 30_000]
 
 /**
- * Wake the waiting queue workflow once for the job's latest transition. The claim,
- * report and fail routes call it right after the change, and the pipeline list calls
- * it as a watchdog. The wake ledger lets one of them send it and makes the others skip;
- * a failed send is recorded, so the next caller takes it over at once, and the server
- * tries again itself after `wakeRetryMs`.
+ * Wake the queue workflow waiting on this job, in the background. The route that
+ * committed the change calls it and replies at once; the reply never waits for the
+ * wake. A refused or stalled send is tried again after `wakeRetryMs`, unless the stage's
+ * hook is gone. Wakes are harmless to repeat, because the workflow re-reads the stage
+ * from the database on each one, and a wake that never lands is caught by the
+ * workflow's own re-check.
  */
-export async function wakeForTransition(
-  job: TaggingJob,
-  retries: readonly number[] = wakeRetryMs
-): Promise<void> {
-  if (!job.completionHook || !job.queueRunId) return
-  const deps = jobsDeps()
-  const { claimWake, settleWake } = deps.store
-  if (!claimWake || !settleWake) return wakeLocalJob(job)
-  const runId = job.queueRunId
-  const key = wakeKey(job)
-  // If the ledger cannot be read, send anyway: a repeated wake is cheaper than a lost one.
-  const mine = await claimWake
-    .call(deps.store, runId, key, deps.now(), wakeHoldMs)
-    .catch(() => true)
-  if (!mine) return
-  const delivered = await resumeHook(job.completionHook, {
-    jobId: job.id,
-  }).then(
-    () => true,
-    () => false
-  )
-  await settleWake
-    .call(deps.store, runId, key, delivered)
-    .catch(() => undefined)
-  if (delivered || !retries.length) return
-  const [delay, ...later] = retries
-  waitUntil(
-    new Promise((resolve) => setTimeout(resolve, delay))
-      .then(async () => {
-        // A newer transition brings its own wake; an older one must not overwrite it.
-        const latest = await getJob(jobsDeps(), job.id)
-        if (latest && wakeKey(latest) === key)
-          await wakeForTransition(latest, later)
-      })
-      .catch(() => undefined)
-  )
+export function wakeAfterReply(job: TaggingJob) {
+  if (job.completionHook && job.queueRunId)
+    waitUntil(sendWake(job.completionHook, job.id))
+}
+
+async function sendWake(token: string, jobId: string) {
+  for (const delay of [...wakeRetryMs, null]) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const outcome = await Promise.race([
+      resumeHook(token, { jobId }).then(
+        () => 'delivered' as const,
+        (error) =>
+          HookNotFoundError.is(error) ? ('gone' as const) : ('refused' as const)
+      ),
+      new Promise<'refused'>((resolve) => {
+        timer = setTimeout(() => resolve('refused'), wakeSendMs)
+      }),
+    ])
+    clearTimeout(timer)
+    if (outcome !== 'refused' || delay === null) return
+    await new Promise((resolve) => setTimeout(resolve, delay))
+  }
 }
 
 /** Check a run's linked workflow and reconcile terminal status into the queue attempt. */

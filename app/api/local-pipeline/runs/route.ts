@@ -15,7 +15,6 @@ import {
   queueResponse,
   reconcileQueueWorkflow,
   startQueueWorkflow,
-  wakeForTransition,
 } from '../../../../lib/server/local-queue'
 import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
 import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
@@ -23,25 +22,13 @@ import { queueProgress } from '../../../../lib/jobs/run-progress'
 import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'
 
 /**
- * Reconnect the workflow and recover the current stage from persisted state. Waking the
- * workflow here recovers a wake the claim, report or fail route lost; the wake ledger
- * skips one that was already delivered or is being sent.
+ * Reconnect the workflow from persisted state. Reads never wake it: each committed change
+ * wakes it from its own route, and the workflow re-checks the stage on a timer.
  */
 async function reconcileRun(run: QueueRunView) {
   if (run.status !== 'queued' && run.status !== 'running') return false
   const reconciled = await reconcileQueueWorkflow(run).catch(() => false)
   await startQueueWorkflow(run).catch(() => undefined)
-  const attempt = run.attempts.at(-1)!
-  const current = run.jobs.find(
-    (job) =>
-      job.queueAttempt === attempt.number && job.queueStep === attempt.cursor
-  )
-  if (
-    current &&
-    current.state !== 'queued' &&
-    (current.state !== 'claimed' || run.waitReason === 'resource')
-  )
-    await wakeForTransition(current)
   return reconciled
 }
 
