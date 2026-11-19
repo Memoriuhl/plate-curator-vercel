@@ -15,6 +15,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import {
   Suspense,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -39,6 +40,7 @@ import { useSWRConfig } from 'swr'
 import { usePlateDrag } from './use-plate-drag'
 import { collectDragTargets } from './drag-target-elements'
 import { DragPreview } from './drag-preview'
+import { StatusToast } from './status-toast'
 import { Conflict, type Issue } from '@/components/plate/edit-conflict'
 import { FamilyCard } from '@/components/plate/family-card'
 import { UserAvatar, userAvatarName } from '@/components/app/user-avatar'
@@ -97,6 +99,8 @@ export function FamilyGrid({
   const [heldOverlay, setHeldOverlay] = useState<typeof latestOverlay | null>(
     null
   )
+  const [notice, setNotice] = useState<{ message: string } | null>(null)
+  const dismissNotice = useCallback(() => setNotice(null), [])
   const overlaid = heldOverlay ?? latestOverlay
   const baselineFamilies = useMemo(() => groupFamilies(overlaid), [overlaid])
   const attachedIds = useMemo(
@@ -488,7 +492,8 @@ export function FamilyGrid({
     !canEdit || drag.saving || edits.pending || bulkEdits.pending
   useSelectionKeyboard({
     close,
-    promote: drag.promote,
+    /** Use the viewport toast for the keyboard action's result. */
+    promote: () => drag.promote((message) => setNotice({ message })),
     disabled: selectionDisabled,
     dragging: !!drag.active,
   })
@@ -746,6 +751,7 @@ export function FamilyGrid({
         ) : null}
       </Suspense>
       {drag.standardDialog}
+      <StatusToast notice={notice} onDismiss={dismissNotice} />
       <p className="sr-only" aria-live="assertive" aria-atomic="true">
         {drag.announcement}
       </p>

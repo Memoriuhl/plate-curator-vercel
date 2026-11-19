@@ -1015,3 +1015,86 @@ test.each(['background', 'background gap', 'Backspace'] as const)(
     }
   }
 )
+
+test('the destination Template context menu moves the selection through the existing family merge', async () => {
+  const view = render(<Workspace actor={editor} />)
+  await ready(view)
+  const variant = view.container.querySelector('[data-plate-row="AK.v"]')!
+  const destination = view.container.querySelector('[data-plate-row="AK.b"]')!
+  const foreign = { ...cards[1], id: 'CA.v', state: 'CA' }
+  fireEvent.click(variant)
+  act(() => plateSelection.add([cards[0], foreign]))
+  fireEvent.contextMenu(destination, { clientX: 320, clientY: 30 })
+  const menu = within(document.body).getByRole('menuitem', {
+    name: 'Move selection (3) to this Template',
+  })
+  expect(plateSelection.has('AK.v')).toBe(true)
+  fireEvent.click(menu)
+  await waitFor(async () => {
+    expect((await saved()).proposed.variantOfPlateId).toBe('AK.b')
+    expect(plateSelection.has('AK.v')).toBe(false)
+  })
+  expect(plateSelection.has('AK.a')).toBe(true)
+  expect(plateSelection.has(foreign.id)).toBe(true)
+  expect(view.container.textContent).toContain(
+    'Skipped 1 plate from another state'
+  )
+  expect(
+    requests.filter((request) => request.path.endsWith('/family-merge'))
+  ).toEqual([
+    expect.objectContaining({
+      body: expect.objectContaining({
+        batchRevision: 0,
+        destination: { id: 'AK.b', revision: plateRevision(plates[2]) },
+        members: [
+          { id: 'AK.v', revision: plateRevision(plates[1]) },
+          { id: 'AK.a', revision: plateRevision(plates[0]) },
+        ],
+      }),
+    }),
+  ])
+})
+
+test('only eligible Template cards offer the context action', async () => {
+  const view = render(<Workspace actor={editor} />)
+  await ready(view)
+  const row = (id: string) =>
+    view.container.querySelector('[data-plate-row="' + id + '"]')!
+  const empty = fireEvent.contextMenu(row('AK.b'))
+  expect(empty).toBe(true)
+  fireEvent.click(row('AK.v'))
+  expect(fireEvent.contextMenu(row('AK.v'))).toBe(true)
+  expect(fireEvent.contextMenu(row('AK.a'))).toBe(true)
+  expect(
+    within(document.body).queryByRole('menuitem', {
+      name: /Move selection/,
+    })
+  ).toBeNull()
+  fireEvent.contextMenu(row('AK.b'))
+  expect(
+    within(document.body).getByRole('menuitem', {
+      name: 'Move selection (1) to this Template',
+    })
+  ).toBeTruthy()
+})
+
+test.each(['Backspace', 'Delete'])(
+  '%s makes the selection a Template and shows a dismissible status toast',
+  async (key) => {
+    const view = render(<Workspace actor={editor} />)
+    await ready(view)
+    fireEvent.click(view.container.querySelector('[data-plate-row="AK.v"]')!)
+    fireEvent.keyDown(window, { key })
+    const message = await within(document.body).findByText(
+      '1 plate is now a Template',
+      { selector: '[role="status"]' }
+    )
+    expect((await saved()).proposed.templateRole).toBe('template')
+    const dismiss = within(document.body).getByRole('button', {
+      name: 'Dismiss notification',
+    })
+    fireEvent.click(dismiss)
+    expect(message.textContent).toBe('')
+    expect(plateSelection.has('AK.v')).toBe(false)
+  }
+)
