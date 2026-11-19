@@ -289,7 +289,10 @@ export function FamilyCard({
               ? 'cursor-grab!'
               : 'cursor-pointer'),
           plate.id === focusPlateId &&
-            'outline-2 outline-offset-4 outline-[var(--primary)]',
+            cn(
+              'outline-2 outline-[var(--primary)]',
+              small ? 'outline-offset-0' : 'outline-offset-4'
+            ),
           plate.deleted && 'opacity-60 [&_h3]:line-through',
           matches && !matches(plate) && 'opacity-35'
         )}

@@ -1,5 +1,7 @@
 export const VARIANT_ROW_HEIGHT = 62
 export const VARIANT_ROW_GAP = 8
+/** Room inside the variant list so selection rings and focus outlines are not clipped. */
+export const VARIANT_LIST_INSET = 4
 
 /**
  * Cap long variant lists halfway through the sixth row to signal that more rows can
@@ -16,6 +18,7 @@ export function estimatedFamilyHeight(variantCount: number) {
   return (
     102 +
     (variantCount ? 24 : 0) +
+    (variantCount >= 6 ? VARIANT_LIST_INSET * 2 : 0) +
     Math.min(variantCount, 5.5) * VARIANT_ROW_HEIGHT +
     Math.min(Math.max(variantCount - 1, 0), 5) * VARIANT_ROW_GAP
   )
