@@ -470,7 +470,8 @@ async function fold(
     .map((batch) => ({
       id: batch.id,
       state: batch.state,
-      reason: 'conflict: resolve it in the old Batch view',
+      reason:
+        'conflict: open it read-only in Review and redo its changes in the shared draft',
     }))
   if (options.apply) {
     await ensureDraft(d, env, options.actor)

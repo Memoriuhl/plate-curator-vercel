@@ -26,7 +26,11 @@ import {
 } from '@/lib/client/hooks'
 import type { BatchDetail } from '@/lib/client/hooks'
 import { canEdit, editableStates } from '@/lib/review/access'
-import { isRelease, isSharedDraft } from '@/lib/review/draft-id'
+import {
+  isRelease,
+  isSharedDraft,
+  isSharedDraftId,
+} from '@/lib/review/draft-id'
 import type {
   DraftChangeTarget,
   EditableFields,
@@ -1067,7 +1071,10 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                 href={
                   batchId && (filters.run || since !== null)
                     ? reviewHref(undefined, undefined, batchId)
-                    : batchHref('/', batchId)
+                    : batchHref(
+                        '/',
+                        batchId && isSharedDraftId(batchId) ? batchId : null
+                      )
                 }
                 className="underline"
               >
