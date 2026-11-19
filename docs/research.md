@@ -49,6 +49,21 @@ on the executing host. Without keys, Wikipedia remains available and web search
 reports its unavailable status. API keys belong in the environment or Eve's login
 store, never in prompts, committed files, or benchmark artifacts.
 
+Only Plate-screen research searches the web: Eve's `search_web` tool reads the keys
+from the deployment environment, and the desktop runner's legacy story stage reads
+them from the `research:worker` process, which loads `.env.local` in the checkout it
+runs from. Dashboard Research / enrich, local or hosted, uses Wikipedia and issuer
+pages only and needs neither key.
+
+Check a host's providers without printing keys:
+
+- Locally or on the desktop: `npm run research:providers` reports whether each key is
+  set; add `-- --probe` to spend one search per provider and learn whether the key
+  works, was rejected, or is out of quota.
+- On a deployment: an Owner can call `GET /api/research/providers`, or
+  `GET /api/research/providers?probe=1` for the live check. Environment changes reach
+  a deployment only after its next build.
+
 Example conversation after the pilot is enabled:
 
 > Research Arizona's Arizona Highways plate. Explain its purpose, suggest up to

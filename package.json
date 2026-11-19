@@ -26,6 +26,7 @@
     "research:baseline": "node --env-file-if-exists=.env.local --import tsx worker/research-benchmark.ts --executor desktop",
     "research:benchmark": "node --env-file-if-exists=.env.local --import tsx worker/research-benchmark.ts",
     "research:report": "tsx worker/research-report.ts",
+    "research:providers": "node --env-file-if-exists=.env.local --import tsx worker/research-providers.ts",
     "research:worker": "node --env-file-if-exists=.env.local --import tsx worker/research-main.ts",
     "research:chat": "eve dev",
     "research:remote": "eve remote connect",
