@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { usePathname } from 'next/navigation'
 import { useSession } from '../../lib/client/session'
 import {
   launchContentPending,
@@ -18,7 +17,6 @@ const STABLE_CHECKS = 3
  */
 export function LaunchSplashHost() {
   const { ready: sessionReady } = useSession()
-  const pathname = usePathname()
   const [ready, setReady] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -28,7 +26,7 @@ export function LaunchSplashHost() {
     const id = setInterval(() => {
       const settled = launchReady({
         sessionReady,
-        pathname,
+        pathname: window.location.pathname,
         pending: launchContentPending(document),
         elapsedMs: performance.now(),
       })
@@ -36,7 +34,7 @@ export function LaunchSplashHost() {
       if (stable >= STABLE_CHECKS) setReady(true)
     }, CHECK_MS)
     return () => clearInterval(id)
-  }, [ready, sessionReady, pathname])
+  }, [ready, sessionReady])
 
   if (done) return null
   return <LaunchSplash ready={ready} onDone={() => setDone(true)} />
