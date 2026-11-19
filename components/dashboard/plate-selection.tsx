@@ -17,16 +17,23 @@ export function createPlateSelection() {
   let ids = new Set<string>()
   let anchor: string | null = null
   let visible: PlateCardData[] = []
+  let visibleIds = new Set<string>()
   let loaded: PlateCardData[] = []
-  const fullStateSelections = new Set<string>()
+  let loadedIds = new Set<string>()
+  let hiddenCount = 0
   const states = new Map<string, PlateCardData[]>()
   let templatesWithVariants = new Set<string>()
   const listeners = new Set<() => void>()
+  const notify = () => listeners.forEach((listener) => listener())
+  const countHidden = () =>
+    selected.filter((plate) => loadedIds.has(plate.id) && !visibleIds.has(plate.id))
+      .length
   /** Normalize the next selection, update its ID index and notify subscribers. */
   const publish = (next: readonly PlateCardData[]) => {
     selected = next.filter((plate) => !plate.deleted)
     ids = new Set(selected.map((plate) => plate.id))
-    listeners.forEach((listener) => listener())
+    hiddenCount = countHidden()
+    notify()
   }
   return {
     /** Register a listener and return the cleanup used by React's external store. */
@@ -40,6 +47,7 @@ export function createPlateSelection() {
      * Expose the current selection snapshot without allocating a new array per render.
      */
     snapshot: () => selected,
+    hiddenCount: () => hiddenCount,
     /** Check whether the plate ID is currently selected. */
     has: (id: string) => ids.has(id),
     /** Expose the most recently registered plates to workspace selection actions. */
@@ -51,9 +59,8 @@ export function createPlateSelection() {
      * filter.
      */
     statePlates: (state: string) => states.get(state) ?? [],
-    /** Replace the selection and reset any whole-state selection markers. */
+    /** Replace the selection. */
     replace(plates: readonly PlateCardData[]) {
-      fullStateSelections.clear()
       publish(plates)
     },
     /**
@@ -63,6 +70,7 @@ export function createPlateSelection() {
     register(plates: PlateCardData[]) {
       if (loaded === plates) return
       loaded = plates
+      loadedIds = new Set(plates.map((plate) => plate.id))
       for (const [state, group] of Map.groupBy(plates, (plate) => plate.state))
         states.set(state, group)
       templatesWithVariants = new Set(
@@ -79,25 +87,20 @@ export function createPlateSelection() {
         publish(next)
     },
     /**
-     * Update the visible range used by keyboard and shift selection and drop hidden
-     * selections when needed.
+     * Update the range used for keyboard and shift selection and count the
+     * selected plates hidden by the current filter.
      */
     visible(plates: PlateCardData[]) {
       visible = plates.filter((plate) => !plate.deleted)
-      const loadedIds = new Set(loaded.map((plate) => plate.id))
-      const visibleIds = new Set(plates.map((plate) => plate.id))
-      const next = selected.filter(
-        (plate) =>
-          fullStateSelections.has(plate.state) ||
-          !loadedIds.has(plate.id) ||
-          visibleIds.has(plate.id)
-      )
-      if (next.length !== selected.length) publish(next)
+      visibleIds = new Set(visible.map((plate) => plate.id))
+      const next = countHidden()
+      if (next === hiddenCount) return
+      hiddenCount = next
+      notify()
     },
-    /** Clear the selected plates and reset the range anchor and whole-state markers. */
+    /** Clear the selected plates and reset the range anchor. */
     clear() {
       anchor = null
-      fullStateSelections.clear()
       publish([])
     },
     /** Add plates to the selection without duplicating plate IDs. */
@@ -115,21 +118,19 @@ export function createPlateSelection() {
     selectState(state: string) {
       const plates = states.get(state)
       if (!plates?.length) return
-      fullStateSelections.add(state)
       publish([
         ...new Map(
           [...selected, ...plates].map((plate) => [plate.id, plate])
         ).values(),
       ])
     },
-    /**
-     * Select all visible plates and update whole-state markers for the affected states.
-     */
+    /** Select only matching plates in this view and retain selections in other states. */
     all() {
-      const visibleStates = new Set(visible.map((plate) => plate.state))
-      for (const state of visibleStates) fullStateSelections.delete(state)
+      const currentStates = new Set(
+        (loaded.length ? loaded : visible).map((plate) => plate.state)
+      )
       publish([
-        ...selected.filter((plate) => !visibleStates.has(plate.state)),
+        ...selected.filter((plate) => !currentStates.has(plate.state)),
         ...visible,
       ])
     },
@@ -153,7 +154,6 @@ export function createPlateSelection() {
         (selectedPlate) => selectedPlate.state !== plate.state
       )
       if (modifiers.shiftKey && a >= 0) {
-        fullStateSelections.delete(plate.state)
         publish([
           ...otherStates,
           ...visible.slice(Math.min(a, b), Math.max(a, b) + 1),
@@ -161,8 +161,6 @@ export function createPlateSelection() {
         return
       }
       const exists = selected.some((plate) => plate.id === id)
-      if (!exists && !modifiers.ctrlKey && !modifiers.metaKey)
-        fullStateSelections.delete(plate.state)
       publish(
         exists
           ? selected.filter((plate) => plate.id !== id)
@@ -183,6 +181,14 @@ export function useSelectedPlates() {
     plateSelection.subscribe,
     plateSelection.snapshot,
     () => empty
+  )
+}
+/** Subscribe to the count of selected plates hidden by the current filter. */
+export function useHiddenSelectionCount() {
+  return useSyncExternalStore(
+    plateSelection.subscribe,
+    plateSelection.hiddenCount,
+    () => 0
   )
 }
 /** Subscribe to whether a jurisdiction contains any selected plates. */

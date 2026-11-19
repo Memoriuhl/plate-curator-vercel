@@ -76,6 +76,7 @@ type Options = {
     | undefined
   targets(): TargetRect[]
   holdOverlay?(held: boolean): void
+  onDropSaved?(state: string): void
   closePreview(): void
   reload(): Promise<unknown>
 }
@@ -149,8 +150,6 @@ export function usePlateDrag(options: Options) {
   })
   const enabled =
     options.canEdit &&
-    options.show === 'all' &&
-    !options.query &&
     !options.edits.pending &&
     !options.ordering.pending &&
     !saving &&
@@ -328,16 +327,17 @@ export function usePlateDrag(options: Options) {
     ]
   }
   function confirmOrder(
-    state: string,
     previousFirst: string | undefined,
     first: string,
-    plates: readonly PlateCardData[]
+    plates: readonly PlateCardData[],
+    demoted: ReadonlySet<string> = new Set()
   ) {
-    const baseline = latest.current.orderBaseline?.(state)
-    if (baseline && baseline.first !== first)
-      return standardConfirmation.confirm(baseline.plates, first)
-    if (previousFirst !== first)
-      return standardConfirmation.confirm(plates, first)
+    const firstChanged = previousFirst !== first
+    if (
+      firstChanged ||
+      plates.some((plate) => plate.isStandard && demoted.has(plate.id))
+    )
+      return standardConfirmation.confirm(plates, first, true)
   }
 
   /**
@@ -408,7 +408,6 @@ export function usePlateDrag(options: Options) {
         .filter((family) => family.template.state === state)
         .flatMap((family) => [family.template, ...family.variants])
       const confirmation = confirmOrder(
-        state,
         previousOrders.get(state)?.[0],
         order[0],
         statePlates
@@ -796,7 +795,6 @@ export function usePlateDrag(options: Options) {
       return
     }
     const confirmation = confirmOrder(
-      item.plate.state,
       familyOrder(families)[0],
       order[0],
       statePlates
@@ -1183,31 +1181,14 @@ export function usePlateDrag(options: Options) {
   }
   const item = active?.item
   const target = active?.target
-  // Background placement still promotes Variants only.
-  const previewPlate =
-    active &&
-    target?.kind === 'family-slot' &&
-    target.background &&
-    item?.kind === 'family'
-      ? active.selection.find(
-          (plate) =>
-            !plate.deleted &&
-            plate.state === item.plate.state &&
-            plate.templateRole === 'variant'
-        )
-      : item?.plate
-  const previewKind = previewPlate === item?.plate ? item?.kind : 'variant'
+  const selection = active?.selection
   // Pointer motion within a drop slot can reuse the same reflowed family layout.
   const reflow = useMemo(
     () =>
-      previewPlate && previewKind
-        ? reflowForDrop(
-            options.families,
-            { kind: previewKind, plate: previewPlate },
-            target ?? null
-          )
+      item && selection
+        ? reflowForDrop(options.families, item, target ?? null, selection)
         : null,
-    [options.families, previewPlate, previewKind, target]
+    [options.families, item, selection, target]
   )
   return {
     standardDialog: standardConfirmation.dialog,
@@ -1245,9 +1226,6 @@ export function usePlateDrag(options: Options) {
         suppress.current = false
       }
     },
-    handleTitle:
-      options.show !== 'all' || options.query
-        ? 'Clear filters to reorder'
-        : 'Drag or press Shift+Space to reorder',
+    handleTitle: 'Drag or press Shift+Space to reorder',
   }
 }

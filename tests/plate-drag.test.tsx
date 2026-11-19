@@ -306,15 +306,13 @@ test('keyboard lifts, moves, drops once and removes the global cursor', async ()
   expect(document.body.classList.contains('plate-dragging')).toBe(false)
 })
 
-test('a drag in a fresh Batch can keep the inherited Standard first', async () => {
+test('a drag that keeps the displayed first plate skips a legacy Standard warning', async () => {
   const displayed = [
     { template: { ...a, isStandard: true }, variants: [v, w] },
     { template: b, variants: [] },
   ]
   const baseline = [{ ...b, isStandard: true }, a, v, w]
   const reorder = vi.fn().mockResolvedValue(success)
-  const standard = { from: b.id, to: a.id }
-  confirmStandard.mockResolvedValueOnce(standard)
   function Harness() {
     const drag = usePlateDrag({
       families: displayed,
@@ -344,21 +342,21 @@ test('a drag in a fresh Batch can keep the inherited Standard first', async () =
   fireEvent.keyDown(handle, { key: 'ArrowUp' })
   fireEvent.keyDown(handle, { key: ' ' })
   await waitFor(() =>
-    expect(reorder).toHaveBeenCalledExactlyOnceWith(
+    expect(reorder.mock.calls[0]?.slice(0, 4)).toEqual([
       w.state,
       [a.id, w.id, v.id, b.id],
-      standard,
+      undefined,
       [
         {
           plateIds: [w.id],
           placement: { kind: 'before-plate', anchorId: v.id },
         },
-      ]
-    )
+      ],
+    ])
   )
-  expect(confirmStandard).toHaveBeenCalledWith(baseline, a.id)
+  expect(confirmStandard).not.toHaveBeenCalled()
 })
-test('escape cancels and filters and roles prevent lifting', () => {
+test('escape cancels, editing roles are required, and filters and search allow lifting', () => {
   const { handle, reorder } = setup()
   fireEvent.keyDown(handle, { key: ' ' })
   fireEvent.keyDown(handle, { key: 'Escape' })
@@ -368,8 +366,7 @@ test('escape cancels and filters and roles prevent lifting', () => {
   cleanup()
   const filtered = setup({ show: 'changed' })
   fireEvent.keyDown(filtered.handle, { key: ' ' })
-  expect(screen.queryByText(/Lifted/)).toBeNull()
-  expect(filtered.handle.title).toBe('Clear filters to reorder')
+  expect(screen.getByText(/Lifted Army family/)).toBeTruthy()
   cleanup()
   const readonly = setup({ canEdit: false })
   fireEvent.keyDown(readonly.handle, { key: ' ' })
@@ -377,7 +374,7 @@ test('escape cancels and filters and roles prevent lifting', () => {
   cleanup()
   const searched = setup({ query: 'Army' })
   fireEvent.keyDown(searched.handle, { key: ' ' })
-  expect(screen.queryByText(/Lifted/)).toBeNull()
+  expect(screen.getByText(/Lifted Army family/)).toBeTruthy()
 })
 test('failed reorder snaps back, announces the error and reloads', async () => {
   const { handle, reload } = setup({ error: true })
@@ -656,6 +653,21 @@ test('variant previews shift within a family and promotion opens a family gap; m
       { kind: 'merge', familyId: b.id }
     )
   ).toBeNull()
+})
+
+test('a family slot preserves the order of selected heads, promotes explicit Variants and keeps other Variants with their Templates', () => {
+  const preview = reflowForDrop(
+    families,
+    { kind: 'family', plate: a },
+    { kind: 'family-slot', index: 2 },
+    [v, a, { ...b, id: 'ON.a', state: 'ON' }]
+  )
+  expect(preview?.order).toEqual([b.id, a.id, w.id, v.id])
+  expect(preview?.families.map(({ template }) => template.id)).toEqual([
+    b.id,
+    a.id,
+    v.id,
+  ])
 })
 
 test('keyboard arrows update the gap, cancel restores it, and drop commits exactly the preview', async () => {

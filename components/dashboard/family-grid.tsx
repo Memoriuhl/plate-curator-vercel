@@ -141,8 +141,21 @@ export function FamilyGrid({
    * Apply the current search and completeness filters with the precomputed family
    * context.
    */
-  const matches = (plate: PlateCardData) =>
-    matchesPlate(plate, show, query, changedIds, standardIds, attachedIds)
+  const matches = useCallback(
+    (plate: PlateCardData) =>
+      matchesPlate(plate, show, query, changedIds, standardIds, attachedIds),
+    [show, query, changedIds, standardIds, attachedIds]
+  )
+  const matchingIds = useMemo(
+    () => new Set(overlaid.filter(matches).map((plate) => plate.id)),
+    [overlaid, matches]
+  )
+  const filterKey = JSON.stringify([pathname, show, query])
+  const [dropVisibility, setDropVisibility] = useState<{
+    key: string
+    dimmed: ReadonlySet<string>
+    before?: string[]
+  } | null>(null)
   const container = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({
     columns: 5,
@@ -241,6 +254,17 @@ export function FamilyGrid({
     },
     /** Freeze the projected grid while a drag or write is using its current geometry. */
     holdOverlay: (held) => setHeldOverlay(held ? overlaid : null),
+    onDropSaved: (state: string) => {
+      if (show === 'all' && !query) return
+      const before = overlaid
+        .filter((plate) => plate.state === state && matchingIds.has(plate.id))
+        .map((plate) => plate.id)
+      setDropVisibility((previous) => ({
+        key: filterKey,
+        dimmed: previous?.key === filterKey ? previous.dimmed : new Set(),
+        before,
+      }))
+    },
     /**
      * Collect drop targets from the baseline families so drag hit testing stays
      * anchored.
@@ -332,9 +356,34 @@ export function FamilyGrid({
     drag.optimisticEdits,
   ])
   const displayedFamilies = drag.reflow?.families ?? families
+  const retained = dropVisibility?.key === filterKey ? dropVisibility : null
+  const retainedBefore = new Set(retained?.before)
+  // Compare with the saved overlay after the drag releases the previous layout.
+  useLayoutEffect(() => {
+    if (!dropVisibility) return
+    if (dropVisibility.key !== filterKey) {
+      setDropVisibility(null)
+    } else if (dropVisibility.before && !heldOverlay && !drag.saving) {
+      setDropVisibility({
+        key: filterKey,
+        dimmed: new Set([
+          ...dropVisibility.dimmed,
+          ...dropVisibility.before.filter((id) => !matchingIds.has(id)),
+        ]),
+      })
+    }
+  }, [dropVisibility, filterKey, heldOverlay, drag.saving, matchingIds])
   const visible = displayedFamilies
     .map((family, index) => ({ ...family, number: index + 1 }))
-    .filter((family) => [family.template, ...family.variants].some(matches))
+    .filter((family) =>
+      [family.template, ...family.variants].some(
+        (plate) =>
+          matches(plate) ||
+          retained?.dimmed.has(plate.id) ||
+          retainedBefore.has(plate.id) ||
+          (drag.saving && matchingIds.has(plate.id))
+      )
+    )
   useEffect(() => {
     plateSelection.register(overlaid)
     plateSelection.visible(
@@ -516,7 +565,7 @@ export function FamilyGrid({
     if (drag.active || drag.saving || !keyboardSource.current) return
     const id = keyboardSource.current
     keyboardSource.current = null
-    const index = families.findIndex(
+    const index = visible.findIndex(
       (family) =>
         family.template.id === id ||
         family.variants.some((plate) => plate.id === id)
@@ -535,7 +584,7 @@ export function FamilyGrid({
         ?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(frame)
-  }, [drag.active, drag.saving, families, virtualizer, layout.columns])
+  }, [drag.active, drag.saving, visible, virtualizer, layout.columns])
   const keyboardSlot =
     drag.active?.keyboard && drag.active.target?.kind === 'family-slot'
       ? drag.active.target.index

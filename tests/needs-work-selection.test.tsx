@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { FamilyGrid } from '../components/dashboard/family-grid'
 import { plateSelection } from '../components/dashboard/plate-selection'
@@ -7,7 +7,13 @@ import { projectFamilyPlate } from '../components/dashboard/family-data'
 import { TooltipProvider } from '../components/ui/tooltip'
 import { alaskaFixture } from '../fixtures/dashboard-frame'
 
-const data = vi.hoisted(() => ({ overlay: vi.fn(), replace: vi.fn() }))
+const data = vi.hoisted(() => ({
+  overlay: vi.fn(),
+  replace: vi.fn(),
+  move: vi.fn(),
+  reorder: vi.fn(),
+  query: 'q=gold',
+}))
 vi.mock('../lib/client/hooks', () => ({
   useDraftOverlay: data.overlay,
   /** Supply the selected batch and its editability for this workspace scenario. */
@@ -21,7 +27,12 @@ vi.mock('../lib/client/hooks', () => ({
   /**
    * Provide a harmless reorder stub so filter selection tests can run the family grid.
    */
-  useReorderState: () => ({ reorder: vi.fn(), pending: false }),
+  useReorderState: () => ({
+    reorder: data.reorder,
+    move: data.move,
+    capture: () => ({ batchId: 'draft', revision: 1 }),
+    pending: false,
+  }),
   /** Disable detail prefetch requests while exercising needs-work selection. */
   usePreloadPlateDetail: () => vi.fn(),
   /** Name the shared draft the Dashboard edits without a linked Batch. */
@@ -35,7 +46,7 @@ vi.mock('../lib/client/session', () => ({
 }))
 vi.mock('next/navigation', () => ({
   /** Supply the query parameters that define the fixture workspace state. */
-  useSearchParams: () => new URLSearchParams('q=gold'),
+  useSearchParams: () => new URLSearchParams(data.query),
   /** Supply the current pathname for the navigation state under test. */
   usePathname: () => '/states/AK',
   /** Capture or stub navigation so the test can drive routing without Next.js. */
@@ -51,7 +62,7 @@ vi.mock('@tanstack/react-virtual', () => ({
   /** Render predictable virtual rows without depending on a real browser viewport. */ useWindowVirtualizer:
     () => ({
       /** Expose the deterministic virtual rows used by the test layout. */
-      getVirtualItems: () => [],
+      getVirtualItems: () => [{ key: 0, index: 0, start: 0 }],
       /** Report the virtual list size expected by the layout fixture. */ getTotalSize:
         () => 0,
       measureElement: vi.fn(),
@@ -59,6 +70,7 @@ vi.mock('@tanstack/react-virtual', () => ({
     }),
 }))
 beforeEach(() => {
+  data.query = 'q=gold'
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -66,6 +78,55 @@ beforeEach(() => {
       /** Satisfy observer cleanup in the test DOM without installing a browser observer. */ disconnect() {}
     }
   )
+})
+
+test('a saved drop keeps a newly unmatched plate dimmed until the filter changes', async () => {
+  const [one, two] = alaskaFixture.plates
+  const first = {
+    ...one,
+    sortOrder: 0,
+    isStandard: true,
+    templateRole: 'template' as const,
+    variantOfPlateId: null,
+  }
+  const orphan = {
+    ...two,
+    sortOrder: 1,
+    isStandard: false,
+    templateRole: 'variant' as const,
+    templateFamily: 'orphan',
+    variantOfPlateId: null,
+  }
+  const plates = [first, orphan].map(projectFamilyPlate)
+  data.query = 'show=noFamily'
+  let overlaid = [first, orphan]
+  data.overlay.mockImplementation(() => overlaid)
+  const grid = (
+    <TooltipProvider>
+      <FamilyGrid code="AK" plates={plates} />
+    </TooltipProvider>
+  )
+  const view = render(grid)
+  const renderGrid = () => view.rerender({ ...grid })
+  const save = async () => {
+    overlaid = [first, { ...orphan, templateRole: 'template' as const }]
+    renderGrid()
+    return { ok: true }
+  }
+  data.move.mockImplementation(save)
+  data.reorder.mockImplementation(save)
+  const row = () => document.querySelector(`[data-plate-row="${orphan.id}"]`)
+  const handle = document.querySelector(`[data-drag-handle-id="${orphan.id}"]`)!
+  expect(row()?.className).not.toContain('opacity-35')
+  fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
+  fireEvent.keyDown(window, { key: ' ' })
+  await waitFor(() => expect(row()?.className).toContain('opacity-35'))
+  data.query = 'show=all'
+  renderGrid()
+  expect(row()?.className).not.toContain('opacity-35')
+  data.query = 'show=noFamily'
+  renderGrid()
+  expect(row()).toBeNull()
 })
 afterEach(() => {
   cleanup()
