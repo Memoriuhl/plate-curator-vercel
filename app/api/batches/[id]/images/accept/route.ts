@@ -1,3 +1,4 @@
+import { batchTarget } from '../../../../../../lib/server/draft-target'
 import { acceptImage } from '@/lib/review/image'
 import { currentActor, jobsDeps, reviewDeps } from '@/lib/server/context'
 import { catalogChanged } from '@/lib/server/catalog-head'
@@ -25,7 +26,7 @@ export async function POST(
     )
   )
     return badRequest()
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const saved = await acceptImage(reviewDeps(), jobsDeps(), auth.actor, {
     batchId: id,
     jobId: body.jobId as string,

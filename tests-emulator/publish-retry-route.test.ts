@@ -518,30 +518,6 @@ test('an Editor cannot confirm a Publish', async () => {
   expect(mocks.start).not.toHaveBeenCalled()
 })
 
-test('an active Batch stays open for incremental draft writes until its run settles', async () => {
-  const { submitBatch } = await import('../lib/review/batch')
-  await db
-    .doc('reviewBatches/batch')
-    .set({ ...batch, env, state: 'open', approval: null })
-  const run = db.doc('localPipelineRuns/active-batch')
-  try {
-    await run.set({ batchId: batch.id, status: 'running' })
-    expect(
-      await submitBatch(mocks.deps(), owner, batch.id, batch.revision)
-    ).toEqual({ ok: false, error: 'pipeline_busy' })
-    expect(await mocks.deps().store.getBatch(batch.id)).toMatchObject({
-      state: 'open',
-      revision: batch.revision,
-    })
-    await run.update({ status: 'failed' })
-    expect(
-      await submitBatch(mocks.deps(), owner, batch.id, batch.revision)
-    ).toMatchObject({ ok: true, value: { state: 'submitted' } })
-  } finally {
-    await run.delete()
-  }
-})
-
 test('one Owner confirmation publishes the full 1,000-Plate draft in one Snapshot', async () => {
   const deps = mocks.deps()
   const plates = Array.from({ length: 1000 }, (_, index) => ({

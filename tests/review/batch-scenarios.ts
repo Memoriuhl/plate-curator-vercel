@@ -1,12 +1,9 @@
+import { draftCommitAttempts } from '../../lib/review/retry'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import {
-  approveBatch,
-  proposeEdit,
-  reorderState,
-  submitBatch,
-} from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { limits } from '../../lib/review/fields'
 import { validateTagging } from '../../lib/review/tagging'
 import { plateRevision } from '../../lib/review/revision'
@@ -648,7 +645,7 @@ export function reviewBatchScenarios(
     })
   })
 
-  test('three commit mismatches exhaust proposal retries', async () => {
+  test('repeated commit mismatches exhaust the bounded proposal retries', async () => {
     const { deps, input } = await setup()
     let attempts = 0
     deps.store.commit = async () => {
@@ -659,7 +656,7 @@ export function reviewBatchScenarios(
       ok: false,
       error: 'superseded_revision',
     })
-    expect(attempts).toBe(3)
+    expect(attempts).toBe(draftCommitAttempts)
   })
 
   test(

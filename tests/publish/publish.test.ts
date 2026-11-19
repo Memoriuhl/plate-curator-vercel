@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
 import { validateSnapshot } from '../../lib/publish/validation'
@@ -44,8 +45,6 @@ test('only an approved current revision publishes', async () => {
 
 test('an edit after approval supersedes Publish without advancing the catalog', async () => {
   const f = fixture()
-  const supersedeRun = vi.fn(async () => {})
-  f.deps.supersedeRun = supersedeRun
   expect(
     await proposeEdit(f.deps, owner, {
       batchId: 'batch',
@@ -57,7 +56,6 @@ test('an edit after approval supersedes Publish without advancing the catalog', 
     ok: true,
     value: { batch: { state: 'open', revision: 3, approval: null } },
   })
-  expect(supersedeRun).toHaveBeenCalledWith(batch)
   expect(await publishBatch(f.deps, owner, command)).toEqual({
     ok: false,
     error: 'superseded_revision',

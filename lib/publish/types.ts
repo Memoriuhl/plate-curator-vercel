@@ -114,6 +114,8 @@ export interface PublishSnapshots {
 }
 export interface PublishRecords {
   pipelineBusy?(): Promise<boolean>
+  /** How many pipeline runs (and unrun jobs) are queued or running. */
+  activePipelineRuns?(): Promise<number>
   nextVersion(token: string, now: string): Promise<number | null>
   abandon(
     record: PublishRecord,

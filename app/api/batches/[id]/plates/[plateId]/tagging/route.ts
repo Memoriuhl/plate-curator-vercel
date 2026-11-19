@@ -1,4 +1,5 @@
 import { chooseRunTaggingModel } from '../../../../../../../lib/jobs/model-binding'
+import { batchTarget } from '../../../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { validateTagging } from '../../../../../../../lib/review/tagging'
 import {
@@ -33,7 +34,9 @@ export async function POST(
       ? badRequest()
       : json({ error: 'unavailable' }, 422)
 
-  const { id, plateId } = await ctx.params
+  const params = await ctx.params
+  const plateId = params.plateId
+  const id = await batchTarget(params.id, auth.actor)
   const validation = await validateTagging(
     reviewDeps(),
     auth.actor,

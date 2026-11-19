@@ -100,7 +100,7 @@ vi.mock('../../lib/server/context', () => ({
 }))
 
 const { cachedCatalogHead } = await import('../../lib/server/catalog-head')
-const { approvalRun } = await import('../../workflows/approval')
+const { publishRun } = await import('../../workflows/approval')
 const { PATCH } =
   await import('../../app/api/batches/[id]/plates/[plateId]/route')
 const { PUT } =
@@ -164,20 +164,22 @@ test('the catalog head is served from cache until something clears its tag', asy
   expect(tagCache.revalidations).toEqual([])
 })
 
-test('a Publish inside the approval run makes the next catalog read fresh', async () => {
+test('a Publish run makes the next catalog read fresh', async () => {
   expect((await head()).version).toBe(14)
   firestore.version = 15
   mocks.reviewDeps.mockReturnValue({
     store: {
       /** Return controlled batch data so the test can exercise the review state. */ getBatch:
         async () => approved,
+      /** An older Batch has no shared draft to rebase. */ readBatch:
+        async () => null,
     },
   })
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
   mocks.publishBatch.mockResolvedValue({ ok: true, value: { toVersion: 15 } })
-  expect(await approvalRun('batch', 1)).toEqual({
+  expect(await publishRun('batch', 2, { ownerUid: 'owner' })).toEqual({
     outcome: 'published',
     version: 15,
+    rebased: true,
     push: { status: 'disabled', sent: 0, failed: 0, pruned: 0 },
   })
   expect(tagCache.revalidations).toEqual([['catalog-head', { expire: 0 }]])
@@ -192,13 +194,14 @@ test('a failed Publish leaves the cached head alone', async () => {
         async () => approved,
     },
   })
-  mocks.createHook.mockResolvedValue({ ownerUid: 'owner' })
   mocks.publishBatch.mockResolvedValue({
     ok: false,
     error: 'invalid_snapshot',
     reasons: [],
   })
-  expect((await approvalRun('batch', 1)).outcome).toBe('publish_failed')
+  expect((await publishRun('batch', 2, { ownerUid: 'owner' })).outcome).toBe(
+    'publish_failed'
+  )
   expect(tagCache.revalidations).toEqual([])
 })
 

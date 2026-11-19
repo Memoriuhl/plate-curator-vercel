@@ -2,12 +2,11 @@ import { standardScenarios } from '../tests/review/standard-scenarios'
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import {
-  approveBatch,
   proposeEdit,
   reorderState,
   revertPipelineField,
-  submitBatch,
 } from '../lib/review/batch'
+import { approveBatch, submitBatch } from '../tests/helpers/legacy-approval'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
 import { seedDemo } from '../lib/review/demo-seed'

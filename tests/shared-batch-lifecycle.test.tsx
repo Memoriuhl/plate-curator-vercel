@@ -23,12 +23,8 @@ import {
 } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
-import {
-  approveBatch,
-  proposeEdit,
-  reorderState,
-  submitBatch,
-} from '../lib/review/batch'
+import { proposeEdit, reorderState } from '../lib/review/batch'
+import { approveBatch, submitBatch } from './helpers/legacy-approval'
 import { discardPlateChanges } from '../lib/review/discard-changes'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'

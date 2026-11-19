@@ -3,6 +3,7 @@ import { createEnhanceImageRunner } from '../../worker/enhance-image'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
+import { sharedDraftId } from '../../lib/review/draft-id'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
 import {
   dispatchQueueStage,
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   resume: vi.fn(),
   workflow: vi.fn(),
+  review: vi.fn(),
 }))
 vi.mock('../../lib/server/context', () => ({
   currentActor: mocks.auth,
@@ -33,7 +35,9 @@ vi.mock('../../lib/server/context', () => ({
   /** Authenticate a fixture worker for the queue report endpoints. */ currentWorker:
     async () => ({ ok: true, workerId: 'worker' }),
   /** Supply isolated review dependencies to the route or workflow under test. */ reviewDeps:
-    () => ({}),
+    () => mocks.review(),
+  /** Scope the shared draft to the fixture environment. */ reviewEnv: () =>
+    'route-test',
   /** Provide the catalog source needed to validate a queue selection. */ catalog:
     () => ({
       /** Return the fixed baseline version for the fixture's local queue requests. */ readSnapshot:
@@ -88,6 +92,14 @@ beforeEach(() => {
       approval: null,
     },
   ])
+  mocks.review.mockReturnValue({
+    store: review,
+    baseline: async () => plate,
+    baselineAtVersion: async () => plate,
+    stateBaseline: async () => [plate],
+    now: () => '2026-11-18T12:00:00.000Z',
+    liveVersion: async () => 1,
+  })
   deps = {
     store: createMemoryJobsStore(review, localJobsEnvironment('route-test')),
     localScope: 'route-test',
@@ -272,7 +284,7 @@ test('GET records an actual exhausted Workflow failure as retryable failure when
   expect(mocks.start).toHaveBeenCalledTimes(1)
 })
 
-test('a named selection creates and starts one new draft instead of using the existing Batch', async () => {
+test('a named selection from an older client lands in the shared draft instead of a new Batch', async () => {
   /** Build the POST request the route fixture passes to its handler. */
   const request = () =>
     new Request('https://example.org/api/local-pipeline/runs/selection', {
@@ -287,19 +299,32 @@ test('a named selection creates and starts one new draft instead of using the ex
   const initial = await createSelection(request())
   expect(initial.status).toBe(202)
   const value = await initial.json()
-  expect(value.batchId).not.toBe('batch')
+  expect(value.batchId).toBe(sharedDraftId('route-test'))
   expect(value).toMatchObject({
     run: { incrementalDrafts: true, batchId: value.batchId },
     runIds: [value.run.id],
   })
   expect(
     await deps.store.transaction((tx) => tx.batch(value.batchId))
-  ).toMatchObject({ name: 'New Alaska draft', plateIds: body.plateIds })
+  ).toMatchObject({ kind: 'shared-draft', state: 'open', baselineVersion: 1 })
   expect(await (await createSelection(request())).json()).toMatchObject({
     batchId: value.batchId,
     runIds: value.runIds,
   })
   expect(mocks.start).toHaveBeenCalledTimes(1)
+})
+
+test('a run started against the draft alias writes into the shared draft', async () => {
+  const response = await POST(
+    new Request('https://example.org/api/local-pipeline/runs', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, requestId: 'alias', batchId: 'draft' }),
+    })
+  )
+  expect(response.status).toBe(202)
+  expect((await response.json()).run).toMatchObject({
+    batchId: sharedDraftId('route-test'),
+  })
 })
 
 test('enhancement options reach the capable worker and the completed WebP is private to the run', async () => {

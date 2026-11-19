@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
 import { buildPlate } from '../../lib/catalog/dashboard-build'

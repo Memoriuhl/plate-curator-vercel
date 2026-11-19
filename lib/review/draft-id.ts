@@ -1,18 +1,28 @@
-import { liveEnvKey } from './live-signal'
 import type { ReviewBatch } from './types'
 
 /** Route alias for the environment's shared working draft. */
 export const SHARED_DRAFT_ALIAS = 'draft'
 
-const draftPrefix = 'draft~'
+const draftPrefix = 'shared-draft-'
+
+/** FNV-1a, enough to keep two environment names apart after they are made id-safe. */
+function shortHash(value: string) {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
 
 /**
  * Name the shared draft document for one review environment. The `reviewBatches`
  * collection is shared by production, previews and development, so the environment is
- * part of the id.
+ * part of the id. The id stays within the characters pipeline requests accept.
  */
 export function sharedDraftId(env: string) {
-  return `${draftPrefix}${liveEnvKey(env)}`
+  const safe = env.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60)
+  return `${draftPrefix}${safe === env ? safe : `${safe}-${shortHash(env)}`}`
 }
 
 /** Recognize the shared draft id, including the route alias. */

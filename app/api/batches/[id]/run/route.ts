@@ -1,3 +1,4 @@
+import { batchTarget } from '../../../../../lib/server/draft-target'
 import { getRun } from 'workflow/api'
 import {
   approvalRunStatus,
@@ -17,7 +18,7 @@ export async function GET(
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   if (auth.actor.role !== 'owner') return json({ error: 'forbidden' }, 403)
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const batch = await reviewDeps().store.getBatch(id)
   if (!batch) return json({ error: 'not_found' }, 404)
   if (!batch.approvalRun) return json(approvalRunStatus(batch))

@@ -89,7 +89,6 @@ async function request(uid = 'outsider') {
 test.each([
   ['me', me.GET],
   ['Batch list', batches.GET],
-  ['Batch create', batches.POST],
 ] as const)(
   'a non-Member receives 403 not_member on %s',
   async (_, handler) => {

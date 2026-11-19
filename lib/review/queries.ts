@@ -65,65 +65,48 @@ export async function listBatches(
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
+/**
+ * Read the shared draft's saved orders and edits for the Dashboard's jurisdictions. Every
+ * curator's work is in the one draft, so the overlay no longer depends on who is signed
+ * in.
+ */
 export async function dashboardDrafts(
   d: ReviewDeps,
-  actor: Actor,
+  draftId: string,
   jurisdictions: ReadonlySet<string>
 ): Promise<BatchDetail[]> {
-  const states: BatchState[] = ['open', 'submitted', 'approved']
-  const batches = await listBatches(d, { states, createdBy: actor.uid })
+  const snapshot = await d.store.readBatch(draftId)
+  if (!snapshot || snapshot.batch.state !== 'open') return []
   const inScope = (plateId: string) => jurisdictions.has(plateId.split('.')[0])
-  const snapshots = await Promise.all(
-    batches
+  const { batch, edits } = snapshot
+  const plates = await Promise.all(
+    edits
       .filter(
-        (batch) =>
-          batch.plateIds.some(inScope) ||
-          Object.keys(batch.stateOrders).some((state) =>
-            jurisdictions.has(state)
-          )
+        (edit) => inScope(edit.plateId) && Object.keys(edit.fields).length
       )
-      .map((batch) => d.store.readBatch(batch.id))
-  )
-  const drafts: BatchDetail[] = []
-  for (const snapshot of snapshots) {
-    if (
-      !snapshot ||
-      snapshot.batch.createdBy !== actor.uid ||
-      !states.includes(snapshot.batch.state)
-    )
-      continue
-    const { batch, edits } = snapshot
-    const plates = await Promise.all(
-      edits
-        .filter(
-          (edit) => inScope(edit.plateId) && Object.keys(edit.fields).length
+      .map(async (edit) => {
+        const baseline = await d.baselineAtVersion(
+          batch.baselineVersion,
+          edit.plateId
         )
-        .map(async (edit) => {
-          const baseline = await d.baselineAtVersion(
-            batch.baselineVersion,
-            edit.plateId
-          )
-          return baseline
-            ? {
-                baseline,
-                proposed: { ...baseline, ...edit.fields },
-                edit,
-                revision: edit.resultRevision,
-              }
-            : null
-        })
+        return baseline
+          ? {
+              baseline,
+              proposed: { ...baseline, ...edit.fields },
+              edit,
+              revision: edit.resultRevision,
+            }
+          : null
+      })
+  )
+  const stateOrders = Object.fromEntries(
+    Object.entries(batch.stateOrders).filter(([state]) =>
+      jurisdictions.has(state)
     )
-    const stateOrders = Object.fromEntries(
-      Object.entries(batch.stateOrders).filter(([state]) =>
-        jurisdictions.has(state)
-      )
-    )
-    drafts.push({
-      batch: { ...batch, stateOrders },
-      plates: plates.filter((plate) => plate !== null),
-    })
-  }
-  return drafts
+  )
+  const inScopePlates = plates.filter((plate) => plate !== null)
+  if (!inScopePlates.length && !Object.keys(stateOrders).length) return []
+  return [{ batch: { ...batch, stateOrders }, plates: inScopePlates }]
 }
 
 /**

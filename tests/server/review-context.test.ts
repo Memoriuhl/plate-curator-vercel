@@ -108,31 +108,12 @@ test.each(['fixture', 'firestore'])(
   }
 )
 
-test.each(['submitted', 'approved'] as const)(
-  'superseding %s wakes both hooks across an approval transition',
-  async (state) => {
-    await reviewDeps().supersedeRun?.({
-      id: 'batch',
-      name: '',
-      createdBy: 'editor',
-      createdByName: null,
-      createdAt: '',
-      state,
-      revision: state === 'submitted' ? 4 : 5,
-      baselineVersion: 7,
-      stateOrders: {},
-      plateIds: [],
-      approval: null,
-      approvalRun: { runId: 'run', revision: 4 },
-    })
-    expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:4', {
-      superseded: true,
-    })
-    expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:5', {
-      superseded: true,
-    })
-  }
-)
+test('the review context no longer wakes approval hooks and reads the live version for the shared draft', () => {
+  const deps = reviewDeps()
+  expect(deps.supersedeRun).toBeUndefined()
+  expect(typeof deps.liveVersion).toBe('function')
+  expect(mocks.resumeHook).not.toHaveBeenCalled()
+})
 
 test.each(['fixture', 'firestore'])(
   'versioned plate baselines use the immutable jurisdiction for %s',

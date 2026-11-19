@@ -33,7 +33,7 @@ import { uploadError } from './upload'
 import { sameObject } from './object'
 import type { EditableFields, ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
-import { hasActivePipeline } from './pipeline-gate'
+import { countActivePipeline, hasActivePipeline } from './pipeline-gate'
 import {
   isPublishStop,
   PIPELINE_BUSY,
@@ -551,6 +551,12 @@ export function firestorePublishRecords(
     /** Check for active pipeline work in a read-only transaction before publishing. */
     async pipelineBusy() {
       return db.runTransaction((tx) => hasActivePipeline(db, tx, env), {
+        readOnly: true,
+      })
+    },
+    /** Count active pipeline work so a blocked Publish can say how much remains. */
+    async activePipelineRuns() {
+      return db.runTransaction((tx) => countActivePipeline(db, tx, env), {
         readOnly: true,
       })
     },

@@ -1,3 +1,4 @@
+import { batchTarget } from '../../../../../lib/server/draft-target'
 import { createJob } from '@/lib/jobs/jobs'
 import { prepareGroupScope } from '@/lib/review/group'
 import {
@@ -71,7 +72,7 @@ export async function POST(
         422
       )
   }
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const prepared = await prepareGroupScope(reviewDeps(), auth.actor, {
     batchId: id,
     batchRevision: Number(body.batchRevision),

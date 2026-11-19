@@ -1,4 +1,5 @@
 import { chooseRunTaggingModel } from '../../../../../lib/jobs/model-binding'
+import { batchTarget } from '../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { canEdit } from '../../../../../lib/review/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
@@ -25,7 +26,7 @@ export async function POST(
 
   if (auth.actor.role !== 'owner') return json({ error: 'forbidden' }, 403)
 
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const body = await readJson(request)
   if (!body) return badRequest()
   const choice = await chooseRunTaggingModel(

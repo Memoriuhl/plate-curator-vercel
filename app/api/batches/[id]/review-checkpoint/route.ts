@@ -1,3 +1,4 @@
+import { batchTarget } from '../../../../../lib/server/draft-target'
 import { currentActiveOwner, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'
 
@@ -15,7 +16,7 @@ export async function POST(
     body.revision < 0
   )
     return badRequest()
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const { store, now } = reviewDeps()
   const marked = await store.markViewed?.(
     id,
@@ -41,7 +42,7 @@ export async function GET(
   const raw = new URL(request.url).searchParams.get('since')
   if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))
     return badRequest()
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const plateIds = await reviewDeps().store.recentPlateIds?.(id, Number(raw))
   return plateIds ? json({ plateIds }) : json({ error: 'not_found' }, 404)
 }
