@@ -184,6 +184,8 @@ function setup({
   singleton = false,
   deletedSource = false,
   deletedDestination = false,
+  targets = undefined as
+    Parameters<typeof usePlateDrag>[0]['targets'] | undefined,
   save = vi.fn().mockResolvedValue(success),
 } = {}) {
   const edit = save
@@ -218,14 +220,19 @@ function setup({
       reload,
       closePreview,
       /** Provide the drop targets used by the drag fixture. */
-      targets: () => [
-        {
-          target: merge
-            ? { kind: 'merge', familyId: singleton || ownFamily ? a.id : b.id }
-            : { kind: 'family-slot', index: 2 },
-          rect: { left: 0, right: 500, top: 0, bottom: 500 },
-        },
-      ],
+      targets:
+        targets ??
+        (() => [
+          {
+            target: merge
+              ? {
+                  kind: 'merge',
+                  familyId: singleton || ownFamily ? a.id : b.id,
+                }
+              : { kind: 'family-slot', index: 2 },
+            rect: { left: 0, right: 500, top: 0, bottom: 500 },
+          },
+        ]),
     })
     const item = {
       kind: variant ? ('variant' as const) : ('family' as const),
@@ -258,6 +265,7 @@ function setup({
         <output aria-live="polite">{drag.announcement}</output>
         <span data-testid="order">{drag.optimisticOrder?.join(',')}</span>
         <span data-testid="gap">{drag.reflow?.order.join(',')}</span>
+        <FamilyCard template={b} variants={[]} drag={drag} />
       </>
     )
   }
@@ -274,7 +282,7 @@ function setup({
       ? document.querySelector<HTMLElement>(
           '[data-plate-row="' + (variant ? v.id : a.id) + '"]'
         )!
-      : screen.getByRole('button'),
+      : screen.getByRole('button', { name: 'Handle' }),
   }
 }
 
@@ -408,7 +416,7 @@ test('pointer merge saves a single Variant and preserves a subthreshold click', 
   expect(document.body.classList.contains('plate-dragging')).toBe(false)
   pointer('pointerup', 103)
   pointer('pointerdown', 100)
-  pointer('pointermove', 110)
+  dwellPointer(() => pointer('pointermove', 110))
   pointer('pointerup', 110)
   await waitFor(() =>
     expect(mergeSave).toHaveBeenCalledExactlyOnceWith(
@@ -453,26 +461,7 @@ test('touch lifts only after the long press and unmount cleans the cursor', () =
 
 test('merging a template moves the template and all its variants into the destination family', async () => {
   const { handle, mergeSave, reorder } = setup({ merge: true })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointerup', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-  }
+  pointerDrag(handle, 110)
   await waitFor(() =>
     expect(mergeSave).toHaveBeenCalledExactlyOnceWith(
       { destination: ref(b), members: [ref(a)] },
@@ -484,26 +473,7 @@ test('merging a template moves the template and all its variants into the destin
 
 test('dragging a variant out sends promotion and order together', async () => {
   const { handle, edit, reorder, move } = setup({ variant: true })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointerup', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-  }
+  pointerDrag(handle, 110)
   await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
   expect(move).toHaveBeenCalledExactlyOnceWith(
     v.state,
@@ -518,26 +488,7 @@ test('dragging a variant out sends promotion and order together', async () => {
 test('a failed promotion does not send a reorder', async () => {
   const { handle, move, reorder } = setup({ variant: true })
   move.mockResolvedValue({ ok: false, error: 'forbidden' })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointerup', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-  }
+  pointerDrag(handle, 110)
   await waitFor(() =>
     expect(
       screen.getByText("Only the batch's creator or an Owner can edit it.")
@@ -549,26 +500,7 @@ test('a failed promotion does not send a reorder', async () => {
 
 test('a family without variants can merge back into another family', async () => {
   const { handle, mergeSave, reorder } = setup({ singleton: true, merge: true })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointerup', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-  }
+  pointerDrag(handle, 110)
   await waitFor(() =>
     expect(mergeSave).toHaveBeenCalledExactlyOnceWith(
       { destination: ref(a), members: [ref(b)] },
@@ -763,32 +695,14 @@ test('pointer movement within the same slot retains the memoized preview', () =>
     )
   }
   render(<Harness />)
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointermove', 120],
-    ['pointermove', 130],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown'
-        ? screen.getByRole('button')
-        : window
-      ).dispatchEvent(event)
-    })
-  }
-  expect(previews.length).toBeGreaterThanOrEqual(3)
-  expect(previews.every((preview) => preview === previews[0])).toBe(true)
+  const handle = screen.getByRole('button')
+  dragPointer(handle, 'pointerdown', 100)
+  dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+  const accepted = previews.at(-1)
+  expect(accepted).toBeTruthy()
+  dragPointer(handle, 'pointermove', 120)
+  dragPointer(handle, 'pointermove', 130)
+  expect(previews.slice(-3).every((preview) => preview === accepted)).toBe(true)
   expect(
     sameDropTarget(
       { kind: 'family-slot', index: 2 },
@@ -1237,26 +1151,7 @@ test('deleted Templates cannot receive a merge', async () => {
     merge: true,
     variant: true,
   })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 200],
-    ['pointerup', 200],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-  }
+  pointerDrag(handle, 200)
   await waitFor(() =>
     expect(
       screen.getByText('Drop onto an active Template family.')
@@ -1304,28 +1199,155 @@ test('deleted cards and Variants expose disabled handles and reject drops withou
 /**
  * Dispatch a full pointer sequence from press through movement and drop in the test DOM.
  */
-function pointerDrag(handle: HTMLElement, x: number) {
-  for (const [type, position] of [
-    ['pointerdown', 100],
-    ['pointermove', x],
-    ['pointerup', x],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: position,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
+function dragPointer(handle: HTMLElement, type: string, x: number) {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: x,
+    clientY: 100,
+    button: 0,
+  })
+  Object.defineProperties(event, {
+    pointerId: { value: 1 },
+    pointerType: { value: 'mouse' },
+  })
+  act(() => {
+    ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
+  })
+}
+
+/** Advance a hover to acceptance without changing release and click timers. */
+function dwellPointer(move: () => void) {
+  vi.useFakeTimers()
+  try {
+    move()
+    act(() => vi.advanceTimersByTime(450))
+  } finally {
+    vi.useRealTimers()
   }
 }
+
+function pointerDrag(handle: HTMLElement, x: number) {
+  dragPointer(handle, 'pointerdown', 100)
+  dwellPointer(() => dragPointer(handle, 'pointermove', x))
+  dragPointer(handle, 'pointerup', x)
+}
+
+test('pointer lift is immediate and small movements leave the gap dwell running', () => {
+  vi.useFakeTimers()
+  try {
+    const { handle } = setup()
+    dragPointer(handle, 'pointerdown', 100)
+    dragPointer(handle, 'pointermove', 110)
+    expect(document.body.classList.contains('plate-dragging')).toBe(true)
+    expect(screen.getByTestId('gap').textContent).toBe('')
+    act(() => vi.advanceTimersByTime(200))
+    dragPointer(handle, 'pointermove', 112)
+    act(() => vi.advanceTimersByTime(49))
+    expect(screen.getByTestId('gap').textContent).toBe('')
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByTestId('gap').textContent).toBe('AK.b,AK.a,AK.v,AK.w')
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})
+
+test('a join outline appears only when the longer dwell completes', () => {
+  vi.useFakeTimers()
+  try {
+    const { handle } = setup({ merge: true })
+    const destination = document.querySelector('[data-drag-family="AK.b"]')!
+    dragPointer(handle, 'pointerdown', 100)
+    dragPointer(handle, 'pointermove', 110)
+    act(() => vi.advanceTimersByTime(449))
+    expect(destination.className).not.toContain('outline-2')
+    act(() => vi.advanceTimersByTime(1))
+    expect(destination.className).toContain('outline-2')
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})
+
+test.each([110, 700])('release before accepting x=%i writes nothing', (x) => {
+  const { handle, move, mergeSave, reorder } = setup({
+    merge: true,
+    variant: true,
+  })
+  dragPointer(handle, 'pointerdown', 100)
+  dragPointer(handle, 'pointermove', x)
+  dragPointer(handle, 'pointerup', x)
+  expect(move).not.toHaveBeenCalled()
+  expect(mergeSave).not.toHaveBeenCalled()
+  expect(reorder).not.toHaveBeenCalled()
+  expect(screen.getByTestId('gap').textContent).toBe('')
+})
+
+test('release uses the visible gap while a new join is still dwelling', async () => {
+  vi.useFakeTimers()
+  try {
+    const { handle, reorder, mergeSave } = setup({
+      targets: () => [
+        {
+          target: { kind: 'family-slot', index: 2 },
+          rect: { left: 110, right: 150, top: 50, bottom: 150 },
+        },
+        {
+          target: { kind: 'merge', familyId: b.id },
+          rect: { left: 160, right: 200, top: 50, bottom: 150 },
+        },
+      ],
+    })
+    dragPointer(handle, 'pointerdown', 100)
+    dragPointer(handle, 'pointermove', 120)
+    act(() => vi.advanceTimersByTime(250))
+    dragPointer(handle, 'pointermove', 180)
+    act(() => vi.advanceTimersByTime(200))
+    expect(screen.getByTestId('gap').textContent).toBe('AK.b,AK.a,AK.v,AK.w')
+    await act(async () => dragPointer(handle, 'pointerup', 180))
+    expect(reorder).toHaveBeenCalledWith(a.state, [
+      'AK.b',
+      'AK.a',
+      'AK.v',
+      'AK.w',
+    ])
+    expect(mergeSave).not.toHaveBeenCalled()
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})
+
+test('card zones scale with width and its own Variant rows take precedence', () => {
+  const root = document.createElement('div')
+  root.innerHTML =
+    '<article data-drag-family="AK.a"><div data-drag-variant="AK.v"></div></article>'
+  const card = root.querySelector('article')!
+  const row = card.firstElementChild!
+  vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(30, 50, 320, 200)
+  )
+  vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(40, 140, 300, 60)
+  )
+  const targets = collectDragTargets(root, families)
+  expect(targetAt(100, 100, targets)).toEqual({ kind: 'family-slot', index: 0 })
+  expect(targetAt(110.1, 100, targets)).toEqual({
+    kind: 'merge',
+    familyId: a.id,
+  })
+  expect(targetAt(269.9, 100, targets)).toEqual({
+    kind: 'merge',
+    familyId: a.id,
+  })
+  expect(targetAt(280, 100, targets)).toEqual({ kind: 'family-slot', index: 1 })
+  expect(targetAt(70, 156, targets)).toEqual({
+    kind: 'variant-slot',
+    familyId: a.id,
+    index: 0,
+  })
+})
 
 test('background drop promotes selected variants and ignores selected templates', async () => {
   plateSelection.visible([a, v, w])
@@ -1365,27 +1387,10 @@ test('Shift selection from rendered rows is captured at pointer-down and sent as
     v.id,
     w.id,
   ])
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-    ['pointerup', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => {
-      ;(type === 'pointerdown' ? handle : window).dispatchEvent(event)
-    })
-    if (type === 'pointerdown') act(() => plateSelection.replace([v]))
-  }
+  dragPointer(handle, 'pointerdown', 100)
+  act(() => plateSelection.replace([v]))
+  dwellPointer(() => dragPointer(handle, 'pointermove', 110))
+  dragPointer(handle, 'pointerup', 110)
   await waitFor(() => expect(screen.getByText('2 plates moved')).toBeTruthy())
   expect(mergeSave).toHaveBeenCalledExactlyOnceWith(
     { destination: ref(b), members: [ref(v), ref(w)] },
@@ -1593,22 +1598,8 @@ test('multi-merge displays a valid target for selected templates with variants',
   }
   const view = render(<Harness />)
   const handle = screen.getByRole('button', { name: 'Handle' })
-  for (const [type, x] of [
-    ['pointerdown', 100],
-    ['pointermove', 110],
-  ] as const) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      clientX: x,
-      clientY: 100,
-      button: 0,
-    })
-    Object.defineProperties(event, {
-      pointerId: { value: 1 },
-      pointerType: { value: 'mouse' },
-    })
-    act(() => (type === 'pointerdown' ? handle : window).dispatchEvent(event))
-  }
+  dragPointer(handle, 'pointerdown', 100)
+  dwellPointer(() => dragPointer(handle, 'pointermove', 110))
   expect(view.container.querySelector('article')?.className).toContain(
     'outline-2'
   )
@@ -2152,7 +2143,7 @@ test('viewport auto-scroll and wheel scrolling retain a multi-drag and retarget 
     const position = lifted.style.transform
     fireEvent.wheel(window, { deltaY: 900 })
     vi.stubGlobal('scrollY', 900)
-    fireEvent.scroll(window)
+    dwellPointer(() => fireEvent.scroll(window))
     expect(document.body.classList.contains('plate-dragging')).toBe(true)
     expect(lifted.style.transform).toBe(position)
     pointer('pointerup', 110, 350)

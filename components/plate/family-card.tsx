@@ -145,7 +145,7 @@ export function FamilyCard({
   const target = drag?.active?.target
   const merge = target?.kind === 'merge' && target.familyId === template.id
   const invalidMerge = merge && !drag?.canMergeInto({ template, variants })
-  const placeholder = drag?.reflow?.placeholder
+  const placeholder = drag?.placeholder
   const gapHeight = drag?.active?.geometry.height ?? 0
   if (number === 1 && template.imageUrl?.startsWith('https:'))
     preconnect(new URL(template.imageUrl).origin)
@@ -475,7 +475,12 @@ export function FamilyCard({
             ? 'cursor-grab'
             : 'cursor-pointer'),
         'gap-3 rounded-[var(--radius-lg)] bg-[var(--card)] p-4 text-[var(--ink)]',
+        drag?.active &&
+          'motion-safe:transition-[scale,box-shadow] motion-safe:duration-150',
         merge && 'outline-2 outline-[var(--primary)]',
+        merge &&
+          !invalidMerge &&
+          'motion-safe:scale-[1.015] shadow-[inset_0_0_0_2px_var(--primary)]',
         invalidMerge && 'outline-dashed outline-[var(--danger)]'
       )}
     >

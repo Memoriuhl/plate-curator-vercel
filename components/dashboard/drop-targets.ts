@@ -3,7 +3,7 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 export type DragFamily = { template: PlateCardData; variants: PlateCardData[] }
 export type DragItem = { kind: 'family' | 'variant'; plate: PlateCardData }
 export type DropTarget =
-  | { kind: 'family-slot'; index: number }
+  | { kind: 'family-slot'; index: number; background?: true }
   | { kind: 'variant-slot'; familyId: string; index: number }
   | { kind: 'merge'; familyId: string }
 export type TargetRect = {
@@ -105,7 +105,8 @@ export function targetAt(
       x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
   )
   return (
-    hit.find(({ target }) => target.kind !== 'merge')?.target ??
+    hit.find(({ target }) => target.kind === 'variant-slot')?.target ??
+    hit.find(({ target }) => target.kind === 'family-slot')?.target ??
     hit[0]?.target ??
     null
   )
