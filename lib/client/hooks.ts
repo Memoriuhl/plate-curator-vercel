@@ -495,6 +495,8 @@ export function useReviewActions() {
             'The draft moved past this revision. Reload the Publish view and confirm the current revision.',
           [PUBLISH_ERRORS.notWaiting]:
             'This run is no longer waiting for Publish. Refresh to see its status.',
+          release_in_progress:
+            'An earlier revision is still publishing or waits for Retry or Abandon. Reload the Publish view to follow it.',
           forbidden: 'Only the Owner can Publish.',
           not_found: 'The draft could not be found.',
         }

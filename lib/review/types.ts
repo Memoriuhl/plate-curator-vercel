@@ -75,6 +75,8 @@ export type DraftConflict =
       fromVersion: number
       toVersion: number
     }
+/** What a release of the shared draft is doing; null when it no longer holds the draft. */
+export type ReleaseActivity = 'publishing' | 'interrupted' | null
 export type ReviewBatch = {
   id: string
   name: string
@@ -266,5 +268,10 @@ export type ReviewDeps = {
    * receipt claims it (an outside change to the pointer).
    */
   versionOrigin?(version: number): Promise<VersionOrigin | null>
+  /**
+   * What a release of the draft is doing, classified as the Publish view does. Without
+   * it every unabandoned release is treated as publishing.
+   */
+  releaseActivity?(release: ReviewBatch): Promise<ReleaseActivity>
   now(): string
 }

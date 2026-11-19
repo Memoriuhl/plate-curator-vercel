@@ -37,6 +37,10 @@ import {
 import { ensureDraft, freezeRelease } from '../../../../../lib/review/draft'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../../../../../lib/review/write-budget'
 import { draftPublishSummary } from '../../../../../lib/review/publish-view'
+import {
+  classifyRelease,
+  draftReleases,
+} from '../../../../../lib/publish/release-activity'
 import type {
   Actor,
   ReviewBatch,
@@ -177,6 +181,33 @@ async function pipelineBusyResponse(publishing: PublishDeps) {
 }
 
 /**
+ * Whether an earlier release of the draft is still publishing or waits for the Owner to
+ * retry or abandon it. A new Publish command waits for it, as the Publish view shows, so
+ * a stale tab cannot start a second release past a Snapshot awaiting recovery.
+ */
+async function releaseHoldsDraft(
+  deps: ReviewDeps,
+  publishing: PublishDeps,
+  draftId: string,
+  requestedBy: ReturnType<typeof requesterAuthority>
+) {
+  const [approved, control] = await Promise.all([
+    deps.store.list({ states: ['approved'] }),
+    publishing.control.read(),
+  ])
+  const releases = await draftReleases(approved, draftId, (release) =>
+    classifyRelease(
+      publishing.records,
+      release,
+      control?.generation,
+      deps.now(),
+      requestedBy
+    )
+  )
+  return releases.some(({ activity }) => activity !== null)
+}
+
+/**
  * Publish the shared draft at the revision the Owner reviewed: freeze that revision into
  * a release and confirm it through the Owner publish path. A retry with the same command
  * resumes the same release.
@@ -208,6 +239,8 @@ async function publishDraft(
   }
   if (await publishing.records.pipelineBusy?.())
     return await pipelineBusyResponse(publishing)
+  if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
+    return json({ error: 'release_in_progress' }, 409)
   const draft = await ensureDraft(deps, env, actor)
   const frozen = await freezeRelease(deps, env, actor, revision)
   if (!frozen.ok) {
@@ -409,41 +442,6 @@ export async function GET(
 }
 
 /**
- * What an approved release of the draft is doing. It holds Publish while its run is live,
- * or after its receipt moved the pointer until that publish finishes. A run that stopped
- * after preparing a Snapshot also holds it until the Owner retries or abandons that
- * release. An abandoned release, or one whose run ended before preparing a Snapshot, no
- * longer holds the draft.
- */
-async function releaseActivity(
-  publishing: PublishDeps,
-  release: ReviewBatch,
-  requestedBy: ReturnType<typeof requesterAuthority>,
-  generation: number | undefined,
-  now: string
-): Promise<'publishing' | 'interrupted' | null> {
-  if (release.publishAbandonment) return null
-  const receipt = await publishing.records.get(
-    receiptId(release.id, release.revision)
-  )
-  if (receipt?.committedAt)
-    return receipt.state === 'done' ? null : 'publishing'
-  const { reason } = await publishing.records.eligibility(
-    {
-      batchId: release.id,
-      revision: release.revision,
-      commandId: randomUUID(),
-      requestedBy,
-      generation,
-    },
-    now
-  )
-  if (reason === 'locked' || reason === PUBLISH_ERRORS.notWaiting)
-    return 'publishing'
-  return receipt?.state === 'uploaded' ? 'interrupted' : null
-}
-
-/**
  * The Owner's Publish view of the shared draft: the revision that Publish will ship, what
  * each state changes, and why Publish is blocked when it is. A release that is already
  * publishing is returned so the view can follow it.
@@ -474,26 +472,14 @@ async function draftPublishView(
     ? { error: stop }
     : await publishBaselineStatus(publishing, snapshot.batch)
   const enabledHere = publishAllowed()
-  const releases = await Promise.all(
-    active
-      .filter(
-        (batch) =>
-          isRelease(batch) && batch.source?.batchId === snapshot.batch.id
-      )
-      .sort(
-        (left, right) =>
-          (right.source?.revision ?? 0) - (left.source?.revision ?? 0)
-      )
-      .map(async (release) => ({
-        release,
-        activity: await releaseActivity(
-          publishing,
-          release,
-          requesterAuthority(actor),
-          control?.generation,
-          deps.now()
-        ),
-      }))
+  const releases = await draftReleases(active, snapshot.batch.id, (release) =>
+    classifyRelease(
+      publishing.records,
+      release,
+      control?.generation,
+      deps.now(),
+      requesterAuthority(actor)
+    )
   )
   const activeRelease = releases.find(
     ({ activity }) => activity === 'publishing'

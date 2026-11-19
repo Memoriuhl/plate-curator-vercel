@@ -726,6 +726,43 @@ test('a release that stopped after preparing its Snapshot waits for recovery, an
   ).toBe(202)
 })
 
+test('a stale Publish of a newer revision is refused while a release waits for Retry or Abandon, and the accepted command still replays', async () => {
+  const { deps, accepted } = await acceptThenCorrect('publish-stuck')
+  const pointer = deps.pointer
+  deps.pointer = {
+    ...pointer,
+    /** The run stops after the Snapshot is prepared, before the pointer moves. */
+    advance: async () => {
+      throw new Error('stopped')
+    },
+  }
+  expect(await publishBatch(deps, owner, accepted)).toMatchObject({
+    ok: false,
+  })
+  deps.pointer = pointer
+  mocks.status.mockResolvedValue('failed')
+  const releases = async () =>
+    (await deps.store.list({ states: ['open', 'approved'] })).filter(
+      (batch: ReviewBatch) => batch.kind === 'release'
+    )
+  const before = await releases()
+  const starts = mocks.start.mock.calls.length
+
+  // A tab opened before the run stopped still offers Publish for revision 2.
+  const stale = await POST(draftRequest(2, 'publish-stale'), draftCtx)
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({ error: 'release_in_progress' })
+  expect(await releases()).toEqual(before)
+  expect(mocks.start.mock.calls.length).toBe(starts)
+  expect(await deps.records.command('publish-stale')).toBeNull()
+
+  // The accepted command itself is not held by its own release.
+  const replay = await POST(draftRequest(1, 'publish-stuck'), draftCtx)
+  expect(await replay.json()).not.toMatchObject({
+    error: 'release_in_progress',
+  })
+})
+
 test('an Editor cannot confirm a Publish', async () => {
   mocks.actor.mockResolvedValue({
     ok: false,
