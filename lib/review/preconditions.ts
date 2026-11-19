@@ -137,8 +137,9 @@ export async function plateFieldConflicts(
       changedFields.add(field)
       const author =
         change.contributors.length === 1 ? change.contributors[0] : undefined
+      // A revert can restore an older pipeline result and its provenance.
+      // Credit the revision that changed the field when its writer is known.
       const attribution =
-        pendingAttribution(after, field, updated[field]) ??
         (after?.revision === change.revision
           ? {
               by: after.authorId,
@@ -150,7 +151,7 @@ export async function plateFieldConflicts(
               by: author.uid,
               byName: author.name,
               at: change.at,
-            })
+            }) ?? pendingAttribution(after, field, updated[field])
       if (attribution) {
         const { by, byName, at } = attribution
         conflicts[field] = { by, byName, at, value: current[field] ?? null }

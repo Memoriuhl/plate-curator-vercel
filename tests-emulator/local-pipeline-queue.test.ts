@@ -25,6 +25,7 @@ import {
 } from '../lib/jobs/queue-engine'
 import { claimHostedQueueJob, claimNext, reportResult } from '../lib/jobs/jobs'
 import { proposeEdit, revertPipelineField } from '../lib/review/batch'
+import { plateEditVersion } from '../lib/review/edit-history'
 import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
@@ -1038,6 +1039,101 @@ test('returning a plate to its baseline keeps prior pipeline attribution without
       jobId: first.jobId,
     })
   ).toMatchObject({ value: { plate: { description: null } } })
+}, 20_000)
+
+test('a stale form credits the Owner who reverted the latest pipeline description', async () => {
+  const baseline = plates[0]
+  const plateId = baseline.id
+  const batchId = 'shared-draft'
+  const fixture = await review.store.getBatch('batch')
+  if (!fixture) throw Error('Missing queue fixture batch')
+  await review.store.create({ ...fixture, id: batchId, kind: 'shared-draft' })
+
+  async function saveDescription(requestId: string, description: string) {
+    const selection = await enqueueSelection(jobs, actor, {
+      requestId,
+      batchId,
+      plateIds: [plateId],
+      stages: ['describe'],
+    })
+    if (!selection.ok) throw Error(selection.error)
+    const [run] = selection.value
+    await dispatchQueueStage(jobs, run.id, 1, 0, `hook-${requestId}`)
+    const claim = (await claimNext(jobs, 'worker'))!
+    const jobId = claim.job.id
+    expect(
+      await reportResult(jobs, 'worker', jobId, claim.claimId, {
+        backend: 'fixture',
+        model: 'test',
+        promptVersion: 'v1',
+        durationMs: 1,
+        fieldSuggestion: {
+          kind: 'fields',
+          stage: 'describe',
+          fields: { description },
+          sources: ['https://example.org/source'],
+        },
+      })
+    ).toMatchObject({ ok: true })
+    await observeQueueStage(jobs, run.id, 1, 0)
+    return jobId
+  }
+
+  const firstTime = new Date(time).toISOString()
+  const firstJobId = await saveDescription('description-a', 'Pipeline A')
+  const viewed = await review.store.readBatch(batchId)
+  const viewedPlate = { ...baseline, ...viewed?.edits[0]?.fields }
+  expect(viewedPlate.description).toBe('Pipeline A')
+  const baseRevision = plateRevision(viewedPlate)
+  const editVersion = plateEditVersion(viewed?.batch, plateId)
+  expect(editVersion).toBe(1)
+
+  time += 1000
+  const secondJobId = await saveDescription('description-b', 'Pipeline B')
+  expect(await review.store.getEdit(batchId, plateId)).toMatchObject({
+    fields: { description: 'Pipeline B' },
+  })
+  const owner = {
+    uid: 'reverting-owner',
+    role: 'owner' as const,
+    name: 'Reverting Owner',
+  }
+  const revertTime = '2026-11-18T18:00:00.000Z'
+  expect(
+    await revertPipelineField({ ...review, now: () => revertTime }, owner, {
+      batchId,
+      plateId,
+      field: 'description',
+      jobId: secondJobId,
+    })
+  ).toMatchObject({ ok: true, value: { plate: { description: 'Pipeline A' } } })
+  expect(await review.store.getEdit(batchId, plateId)).toMatchObject({
+    pipelineChanges: {
+      description: { jobId: firstJobId, by: actor.uid, at: firstTime },
+    },
+  })
+
+  expect(
+    await proposeEdit(review, actor, {
+      batchId,
+      plateId,
+      baseRevision,
+      editVersion,
+      fields: { description: 'Unsubmitted form text' },
+    })
+  ).toMatchObject({
+    ok: false,
+    error: 'stale_plate',
+    current: { description: 'Pipeline A' },
+    conflicts: {
+      description: {
+        by: owner.uid,
+        byName: owner.name,
+        at: revertTime,
+        value: 'Pipeline A',
+      },
+    },
+  })
 }, 20_000)
 
 test('a configured Owner can still save a draft without a member record', async () => {
