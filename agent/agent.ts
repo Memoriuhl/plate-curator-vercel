@@ -1,10 +1,7 @@
 import { defineAgent, defineDynamic } from 'eve'
 import { gateway } from 'ai'
 import { guardedResearchModel } from '../lib/research/model'
-import {
-  DEFAULT_HOSTED_RESEARCH_MODEL,
-  RESEARCH_MODELS,
-} from '../lib/research/models'
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models'
 
 export default defineAgent({
   defaultTools: false,
@@ -15,12 +12,8 @@ export default defineAgent({
       session: { ...ctx.session, turn: { id: ctx.turn?.id ?? 'initial' } },
     })
     const model = run.binding?.model ?? DEFAULT_HOSTED_RESEARCH_MODEL
-    if (
-      !RESEARCH_MODELS.some(
-        (choice) => choice.executor === 'eve' && choice.model === model
-      )
-    )
-      throw Error('Research model is no longer permitted; start a new run')
+    if (model !== run.model)
+      throw Error('Research model does not match the run binding')
     return {
       modelContextWindowTokens: 16384,
       model: guardedResearchModel(

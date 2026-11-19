@@ -14,6 +14,7 @@ import { reserveResearchSpend } from './budget'
 import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
 import { researchContentFields, researchOutcome } from './outcome'
 import { enrichmentTargets } from './enrichment'
+import type { HostedModelBinding } from '../models/selection'
 
 type SessionContext = {
   session: {
@@ -64,6 +65,8 @@ export async function researchTurn(
     binding?.jobId ??
     `${ctx.session.id}/${ctx.session.turn.id}`
   let jobDeadline: number | undefined
+  let model: string = DEFAULT_HOSTED_RESEARCH_MODEL
+  let hostedModel: HostedModelBinding | undefined
   // Judge the draft against what this plate lacked; unknown requests need both fields.
   let requested: ResearchContentField[] | undefined = binding?.input?.requested
   if (binding?.pipelineJobId && !providedStore) {
@@ -72,11 +75,11 @@ export async function researchTurn(
     const job = await deps.store.transaction((tx) =>
       tx.get(binding.pipelineJobId!)
     )
-    const run =
-      job &&
-      (await deps.store.transaction((tx) => tx.runs())).find(
-        (run) => run.id === job.queueRunId
-      )
+    const run = job?.queueRunId
+      ? await deps.store.transaction((tx) => tx.getRun(job.queueRunId!))
+      : null
+    const runModel =
+      run?.modelBindings?.research?.model ?? run?.researchModel?.model
     if (
       !job ||
       job.localScope !== deps.scope ||
@@ -84,12 +87,15 @@ export async function researchTurn(
       job.stage !== 'research' ||
       job.state !== 'claimed' ||
       job.requestedBy !== binding.ownerUid ||
-      job.researchModel?.model !== binding.model ||
+      !runModel ||
+      job.researchModel?.model !== runModel ||
       !run ||
       !['queued', 'running'].includes(run.status) ||
       run.cancelRequestedAt !== undefined
     )
       throw Error('Pipeline research is no longer active')
+    model = runModel
+    hostedModel = run.modelBindings?.research
     jobDeadline = job.leaseExpiresAt
     const targets = enrichmentTargets(
       job.inputPlate ?? {},
@@ -107,9 +113,12 @@ export async function researchTurn(
     if (
       !job ||
       job.executor !== 'eve' ||
+      job.requestedBy !== binding.ownerUid ||
       !['queued', 'running'].includes(job.state)
     )
       throw new Error('Research request is no longer active')
+    model = job.hostedModel?.model ?? job.model
+    hostedModel = job.hostedModel
     jobDeadline = job.deadline
   }
   const deadline = await store.update<number, number>(
@@ -124,6 +133,8 @@ export async function researchTurn(
     runId,
     deadline,
     binding,
+    model,
+    hostedModel,
     requested,
     /**
      * Open a budgeted model attempt for the current research run using its configured

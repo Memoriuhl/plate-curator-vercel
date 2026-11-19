@@ -17,13 +17,18 @@ vi.mock('../../lib/research/runtime', () => ({
 
 afterEach(() => vi.unstubAllEnvs())
 
-test.each(['google/gemini-2.5-flash-lite', 'google/gemma-4-26b-a4b-it'])(
+test.each([
+  'google/gemini-2.5-flash-lite',
+  'google/gemma-4-26b-a4b-it',
+  'openai/test-tool',
+])(
   'Eve uses the queued model %s for the guarded submit_draft call',
   async (modelId) => {
     vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true')
     const modelAttempt = vi.fn()
     mocks.researchTurn.mockResolvedValue({
       binding: { pipelineJobId: 'job', model: modelId },
+      model: modelId,
       modelAttempt,
     })
     const upstream = new MockLanguageModelV4({
@@ -68,3 +73,21 @@ test.each(['google/gemini-2.5-flash-lite', 'google/gemma-4-26b-a4b-it'])(
     ])
   }
 )
+
+test('Eve refuses a session model that differs from the stored run model', async () => {
+  mocks.researchTurn.mockResolvedValue({
+    binding: { pipelineJobId: 'job', model: 'google/gemma-4-26b-a4b-it' },
+    model: 'google/gemini-2.5-flash-lite',
+  })
+  mocks.gateway.mockClear()
+  const { resolve } = researchAgent.model as unknown as {
+    resolve(context: {
+      session: { id: string }
+      turn: { id: string }
+    }): Promise<unknown>
+  }
+  await expect(
+    resolve({ session: { id: 'session' }, turn: { id: 'turn' } })
+  ).rejects.toThrow('Research model does not match the run binding')
+  expect(mocks.gateway).not.toHaveBeenCalled()
+})
