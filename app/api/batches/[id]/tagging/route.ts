@@ -1,10 +1,7 @@
+import { chooseRunTaggingModel } from '../../../../../lib/jobs/model-binding'
 import { start } from 'workflow/api'
 import { canEdit } from '../../../../../lib/review/batch'
-import {
-  chooseModel,
-  currentActor,
-  reviewDeps,
-} from '../../../../../lib/server/context'
+import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import {
   badRequest,
   json,
@@ -26,14 +23,21 @@ export async function POST(
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
 
+  if (auth.actor.role !== 'owner') return json({ error: 'forbidden' }, 403)
+
   const { id } = await ctx.params
   const body = await readJson(request)
   if (!body) return badRequest()
-  const choice = chooseModel(body.model, 'gateway')
+  const choice = await chooseRunTaggingModel(
+    body.model,
+    body.modelOptions,
+    auth.actor.role === 'owner',
+    'gateway'
+  )
   if (!choice.ok)
     return choice.error === 'bad_request'
       ? badRequest()
-      : respond({ ok: false, error: 'invalid_state' })
+      : json({ error: 'unavailable' }, 422)
   const requested = body.plateIds
   if (
     requested !== undefined &&
@@ -68,6 +72,7 @@ export async function POST(
     requests,
     auth.actor.uid,
     choice.model.id,
+    choice.binding,
   ])
   return json({ runId: run.runId, model: choice.model.id, jobs: requests }, 202)
 }

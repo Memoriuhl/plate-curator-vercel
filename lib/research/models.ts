@@ -36,19 +36,6 @@ export function allowedResearchModels(hosted: boolean, owner: boolean) {
     (model) => model.executor === 'desktop' || (hosted && owner)
   )
 }
-/** Resolve the requested model or a default from the models this caller can run. */
-export function resolveResearchModel(
-  id: unknown,
-  hosted: boolean,
-  owner: boolean
-) {
-  return (
-    allowedResearchModels(hosted, owner).find(
-      (model) => model.id === (id ?? RESEARCH_MODELS[0].id)
-    ) ?? null
-  )
-}
-
 export const CURATED_RESEARCH_MODELS = [
   DEFAULT_HOSTED_RESEARCH_MODEL,
   'google/gemma-4-26b-a4b-it',

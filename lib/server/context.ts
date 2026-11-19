@@ -1,3 +1,4 @@
+import type { HostedModelBinding } from '../models/selection'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
@@ -288,16 +289,29 @@ export function chooseModel(
 }
 
 /** Build the Gateway tagging executor and its catalog plate and image readers. */
-export async function hostedTaggingDeps(modelId: string): Promise<HostedDeps> {
+export async function hostedTaggingDeps(
+  modelId: string,
+  binding?: HostedModelBinding
+): Promise<HostedDeps> {
   const choice = taggingModel(modelId)
-  if (choice?.runsOn !== 'gateway')
+  const model =
+    binding?.model ?? (choice?.runsOn === 'gateway' ? choice.model : null)
+  if (!model || (binding && model !== (choice?.model ?? modelId)))
     throw new Error('Hosted tagging needs a gateway model')
   const source = catalog()
   return {
     jobs: jobsDeps(),
     adapter: gatewayAdapter({
       apiKey: process.env.AI_GATEWAY_API_KEY || (await getVercelOidcToken()),
-      model: choice.model,
+      model,
+      ...(binding
+        ? {
+            pricing: {
+              input: String(binding.price.input),
+              output: String(binding.price.output),
+            },
+          }
+        : {}),
     }),
     /** Resolve the job's pinned input plate and its image URL for hosted inference. */
     async plate(job) {

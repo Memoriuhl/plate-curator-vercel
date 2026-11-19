@@ -89,9 +89,10 @@ export function researchResponse<T>(
       : result.error === 'not_found'
         ? 404
         : result.error === 'unavailable'
-          ? 503
+          ? 422
           : result.error === 'invalid_result' ||
-              result.error === 'invalid_state'
+              result.error === 'invalid_state' ||
+              result.error === 'bad_request'
             ? 400
             : 409
   return Response.json(result, {

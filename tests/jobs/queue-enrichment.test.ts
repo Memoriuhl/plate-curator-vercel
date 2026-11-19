@@ -37,6 +37,9 @@ import type { Plate } from '../../lib/catalog/types'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { EnrichmentPolicy } from '../../lib/research/enrichment'
 import type { PipelineRun } from '../../lib/jobs/queue-types'
+import { useModelCatalogFixture } from '../models/fixture'
+
+useModelCatalogFixture()
 
 const actor = { uid: 'owner', role: 'owner' as const, name: null }
 const source = evidenceSource(
@@ -947,7 +950,7 @@ test.each(['desktop', 'eve'] as const)(
   }
 )
 
-test('research model allowlist rejects arbitrary/expensive models and retries retain the saved model and policy', async () => {
+test('research model validation rejects arbitrary/expensive models and retries retain the saved model and policy', async () => {
   const s = setup()
   const input = {
     requestId: 'models',
@@ -975,10 +978,10 @@ test('research model allowlist rejects arbitrary/expensive models and retries re
   }
   expect(
     await enqueueRun(s.jobs, { ...actor, role: 'editor' }, hosted)
-  ).toMatchObject({ error: 'invalid_state' })
+  ).toMatchObject({ error: 'unavailable' })
   vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'false')
   expect(await enqueueRun(s.jobs, actor, hosted)).toMatchObject({
-    error: 'invalid_state',
+    error: 'unavailable',
   })
   const created = await enqueueRun(s.jobs, actor, {
     ...input,

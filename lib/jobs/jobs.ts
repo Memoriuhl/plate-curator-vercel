@@ -105,6 +105,7 @@ export async function createJob(
     route?: 'hosted'
     workflowId?: string
     modelId?: string
+    hostedModel?: TaggingJob['hostedModel']
     stage?: PipelineStage
     groupScope?: GroupInput
     stageOptions?: ImageGroupOptions

@@ -299,10 +299,15 @@ export async function dispatchQueueStage(
         : step.stage === 'tag'
           ? (run.tagModelId ?? run.modelId)
           : run.modelId
+    const hostedModel =
+      step.stage === 'tag' || step.stage === 'research'
+        ? run.modelBindings?.[step.stage]
+        : undefined
     const hosted =
       step.stage === 'research'
         ? run.researchModel?.executor === 'eve'
-        : step.stage === 'tag' && taggingModel(modelId)?.runsOn === 'gateway'
+        : step.stage === 'tag' &&
+          (hostedModel || taggingModel(modelId)?.runsOn === 'gateway')
     const job: TaggingJob = {
       id: jobId,
       batchId: run.batchId,
@@ -328,6 +333,7 @@ export async function dispatchQueueStage(
       executionHash: projected.executionHash,
       ...(completionHook ? { completionHook } : {}),
       ...(hosted ? { route: 'hosted' as const } : {}),
+      ...(hostedModel ? { hostedModel } : {}),
       ...(step.stage === 'tag' ? {} : { stage: step.stage }),
       ...(modelId && pipelineNeedsModel([step], run.options)
         ? { modelId }

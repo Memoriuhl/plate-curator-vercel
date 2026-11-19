@@ -1,3 +1,4 @@
+import type { HostedModelBinding } from '../models/selection'
 import type { Plate } from '../catalog/types'
 import type {
   EditableFields,
@@ -74,6 +75,7 @@ export type TaggingJob = {
   env: Environment
   route?: 'local' | 'hosted'
   modelId?: string
+  hostedModel?: HostedModelBinding
   researchModel?: { id: string; executor: 'desktop' | 'eve'; model: string }
   researchPolicy?: 'fill-missing' | 'replace'
   eve?: { sessionId: string; deliveryId: string }

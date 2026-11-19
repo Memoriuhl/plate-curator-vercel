@@ -1,11 +1,10 @@
 import { z } from 'zod'
 import { CURATED_RESEARCH_MODELS } from '../research/models'
 import { CURATED_TAG_MODELS, TAGGING_MODELS } from '../tagging/models'
+import { DEFAULT_MODEL_CAP } from './selection'
 
 export type HostedStep = 'research' | 'tag'
 export type ModelPrice = { input: number; output: number }
-
-export const DEFAULT_MODEL_CAP = 0.01
 
 const CATALOG_URL = 'https://ai-gateway.vercel.sh/v1/models'
 const CATALOG_TTL_MS = 60 * 60 * 1000
@@ -19,7 +18,8 @@ const PROFILES = {
 
 const price = z
   .union([z.number(), z.string().trim().min(1)])
-  .pipe(z.coerce.number().nonnegative())
+  .transform(Number)
+  .pipe(z.number().nonnegative())
 const entry = z.object({
   id: z.string().min(1),
   name: z.string(),

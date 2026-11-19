@@ -29,6 +29,9 @@ import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
+import { useModelCatalogFixture } from '../tests/models/fixture'
+
+useModelCatalogFixture()
 
 if (!process.env.FIRESTORE_EMULATOR_HOST)
   throw Error('Queue emulator tests require a localhost emulator')
@@ -221,13 +224,17 @@ test('real serialized runs survive store recreation, dedupe, and enforce one GPU
 
 test('Gateway Tag reserves two plates together and keeps out-of-order results in one Batch', async () => {
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
-  const created = await enqueueSelection(jobs, actor, {
-    requestId: 'parallel-tags',
-    batchId: 'batch',
-    plateIds: plates.map((plate) => plate.id),
-    stages: ['tag'],
-    tagModelId: 'gateway-gemma4-26b',
-  })
+  const created = await enqueueSelection(
+    jobs,
+    { ...actor, role: 'owner' },
+    {
+      requestId: 'parallel-tags',
+      batchId: 'batch',
+      plateIds: plates.map((plate) => plate.id),
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    }
+  )
   if (!created.ok) throw Error(created.error)
   const [run] = created.value
   const items = await dispatchGatewayTagWave(jobs, run.id, 1, 0)
@@ -265,13 +272,17 @@ test('concurrent hosted and desktop claims across runs never double-claim a job'
   const hosted: string[] = []
   const gatewayRuns: string[] = []
   for (let index = 0; index < 4; index++) {
-    const created = await enqueueRun(jobs, actor, {
-      requestId: `gateway-${index}`,
-      batchId: 'batch',
-      plateIds: plates.map((plate) => plate.id),
-      stages: ['tag'],
-      tagModelId: 'gateway-gemma4-26b',
-    })
+    const created = await enqueueRun(
+      jobs,
+      { ...actor, role: 'owner' },
+      {
+        requestId: `gateway-${index}`,
+        batchId: 'batch',
+        plateIds: plates.map((plate) => plate.id),
+        stages: ['tag'],
+        tagModelId: 'gateway-gemma4-26b',
+      }
+    )
     if (!created.ok) throw Error(created.error)
     const { id } = created.value
     await bindQueueWorkflow(jobs, id, 1, `workflow-gateway-${index}`)
@@ -327,13 +338,17 @@ test('drafts from concurrent runs in the same Batch both land', async () => {
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const runs: string[] = []
   for (const plate of plates) {
-    const created = await enqueueSelection(jobs, actor, {
-      requestId: `draft-${plate.slug}`,
-      batchId: 'batch',
-      plateIds: [plate.id],
-      stages: ['tag'],
-      tagModelId: 'gateway-gemma4-26b',
-    })
+    const created = await enqueueSelection(
+      jobs,
+      { ...actor, role: 'owner' },
+      {
+        requestId: `draft-${plate.slug}`,
+        batchId: 'batch',
+        plateIds: [plate.id],
+        stages: ['tag'],
+        tagModelId: 'gateway-gemma4-26b',
+      }
+    )
     if (!created.ok) throw Error(created.error)
     const [run] = created.value
     await bindQueueWorkflow(jobs, run.id, 1, `workflow-${plate.slug}`)

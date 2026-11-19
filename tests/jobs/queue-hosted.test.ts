@@ -18,8 +18,11 @@ import { tagHostedJob, type HostedDeps } from '../../lib/jobs/hosted'
 import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import type { JobsDeps } from '../../lib/jobs/types'
+import { useModelCatalogFixture } from '../models/fixture'
 
-const actor = { uid: 'editor', role: 'editor' as const, name: null }
+useModelCatalogFixture()
+
+const actor = { uid: 'owner', role: 'owner' as const, name: null }
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
   vi.stubEnv('TAGGING_MODELS', 'desktop-gemma4-12b,gateway-gemma4-26b')
@@ -269,7 +272,7 @@ test('a disabled hosted model is rejected at enqueue and hosted failure never ed
     tagModelId: 'gateway-gemma4-26b',
   }
   expect(await enqueueRun(s.jobs, actor, input)).toMatchObject({
-    error: 'invalid_state',
+    error: 'unavailable',
   })
   vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
   const run = await enqueueRun(s.jobs, actor, input)

@@ -1,7 +1,7 @@
+import { chooseRunTaggingModel } from '../../../../../../../lib/jobs/model-binding'
 import { start } from 'workflow/api'
 import { validateTagging } from '../../../../../../../lib/review/tagging'
 import {
-  chooseModel,
   currentActor,
   reviewDeps,
 } from '../../../../../../../lib/server/context'
@@ -23,11 +23,15 @@ export async function POST(
   if (!auth.ok) return auth.response
 
   const body = (await readJson(request)) ?? {}
-  const choice = chooseModel(body.model)
+  const choice = await chooseRunTaggingModel(
+    body.model,
+    body.modelOptions,
+    auth.actor.role === 'owner'
+  )
   if (!choice.ok)
     return choice.error === 'bad_request'
       ? badRequest()
-      : respond({ ok: false, error: 'invalid_state' })
+      : json({ error: 'unavailable' }, 422)
 
   const { id, plateId } = await ctx.params
   const validation = await validateTagging(
@@ -47,6 +51,7 @@ export async function POST(
           plateId,
           auth.actor.uid,
           choice.model.id,
+          choice.binding,
         ])
       : await start(taggingRun, [
           jobId,
