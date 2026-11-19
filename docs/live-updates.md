@@ -223,10 +223,13 @@ includes that path (License-Plate-Game, #227).
   workflow; the pipeline list only reconnects a run whose workflow is missing.
 - While a run waits on a stage, its workflow re-checks its own persisted state every
   90 seconds (`workflows/local-pipeline.ts`), so a lost wake costs at most 90 seconds
-  and needs no browser. One timer serves every wait until it fires, because each
-  pending timer costs a workflow call when it elapses. A wake only re-reads the stage,
-  so a duplicate wake is harmless. The re-check costs about 40 workflow calls an hour
-  per active run; a finished run leaves no timer behind.
+  and needs no browser. The run keeps one timer, due at a claimed job's lease deadline
+  or after 90 seconds, whichever is earlier. Wakes reuse it and a new one starts only
+  after it fires, because a sleep cannot be cancelled and each one pending costs a
+  workflow call when it elapses. A wake only re-reads the stage, so a duplicate wake
+  is harmless. The re-check costs about 40 workflow calls an hour per active run. A run
+  that finishes on a wake leaves its one timer pending; when it fires, the runtime
+  refuses the event for the finished run and does not replay the workflow.
 
 ### Browser
 
@@ -254,7 +257,9 @@ includes that path (License-Plate-Game, #227).
   the listener recovers.
 - The queue list and an open run's results share one request per round: the run's
   results ride on the list request that selects the run, or turn the list's
-  unselected request into one.
+  unselected request into one. Rounds can overlap, so each request takes a response
+  only from a round newer than the last one it took, and a slow response never rolls
+  a view back.
 - Some views keep a slow safety refresh while visible, for state that changes without
   a Firestore write:
 
