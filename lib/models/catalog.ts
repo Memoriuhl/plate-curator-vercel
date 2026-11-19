@@ -11,7 +11,12 @@ import {
   hostedTagMeasurement,
   TAGGING_MODELS,
 } from '../tagging/models'
-import { DEFAULT_MODEL_CAP, fitsModelCap } from './selection'
+import {
+  DEFAULT_MODEL_CAP,
+  fitsModelCap,
+  REASONING_OUTPUT_TOKENS_BOUND,
+  STANDARD_OUTPUT_TOKENS_BOUND,
+} from './selection'
 
 export type HostedStep = 'research' | 'tag'
 export type ModelPrice = { input: number; output: number }
@@ -93,6 +98,9 @@ export async function searchableCatalog(step: HostedStep, capUsd: number) {
         label: model.name,
         provider: model.owned_by,
         price: model.pricing,
+        outputTokensBound: model.tags.includes('reasoning')
+          ? REASONING_OUTPUT_TOKENS_BOUND
+          : STANDARD_OUTPUT_TOKENS_BOUND,
         estimatedUsd,
       },
     ]
@@ -115,6 +123,7 @@ export function pinnedHostedModel(step: HostedStep) {
     label: pinned.label,
     provider: 'google',
     price,
+    outputTokensBound: REASONING_OUTPUT_TOKENS_BOUND,
     estimatedUsd: estimateUsd(price, PROFILES[step]),
     ...('measured' in pinned
       ? { measured: hostedTagMeasurement(pinned.model) ?? pinned.measured }

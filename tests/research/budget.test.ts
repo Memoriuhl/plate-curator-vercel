@@ -6,7 +6,10 @@ import {
 } from '../../lib/research/budget'
 import { createResearchModelAttempt } from '../../lib/research/model-attempt'
 import { researchTurn } from '../../lib/research/runtime'
+import { bindHostedModel } from '../../lib/jobs/model-binding'
+import { installModelCatalogFixture } from '../models/fixture'
 
+installModelCatalogFixture()
 afterEach(() => vi.unstubAllEnvs())
 
 test('parallel callers share one two-dollar budget and cannot start excess requests', async () => {
@@ -20,6 +23,35 @@ test('parallel callers share one two-dollar budget and cannot start excess reque
   expect(
     await reserveResearchSpend(store, 'campaign', 'run', 'search', 0.01, 2)
   ).toBe(false)
+})
+
+test('two concurrent reasoning calls cannot both reserve a campaign with 1.5 cents left', async () => {
+  const store = createResearchMemoryState()
+  const choice = await bindHostedModel(
+    'research',
+    'google/gemini-2.5-flash-lite',
+    {}
+  )
+  if (!choice.ok) throw new Error('Expected the fixture model to bind')
+
+  const options = {
+    campaign: 'reasoning',
+    limitUsd: 0.015,
+    deadline: Date.now() + 10000,
+    ...choice.binding,
+  }
+  const results = await Promise.allSettled([
+    createResearchModelAttempt(store, 'first', options),
+    createResearchModelAttempt(store, 'second', options),
+  ])
+  expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1)
+  expect(results).toContainEqual({
+    status: 'rejected',
+    reason: new Error('Research campaign budget exhausted'),
+  })
+  expect(await store.read('budget/reasoning')).toMatchObject({
+    committedMicros: 9200,
+  })
 })
 
 test('known model charges release unused reservations while unknown charges remain reserved', async () => {
@@ -81,33 +113,60 @@ test('queued plates share a twenty-cent campaign after an earlier charged call',
   )
   const outcomes = await Promise.allSettled(calls.map((start) => start()))
   expect(outcomes.filter(({ status }) => status === 'fulfilled')).toHaveLength(
-    31
+    21
   )
   expect(await store.read('budget/campaign')).toMatchObject({
     limitMicros: 200000,
-    committedMicros: 199037,
+    committedMicros: 193837,
   })
 })
 
-test('call reservations scale with the bound price and cover a more expensive fallback', async () => {
-  const store = createResearchMemoryState()
-  const common = {
-    campaign: 'prices',
-    limitUsd: 2,
-    deadline: Date.now() + 10000,
-  }
-  const price = { input: 0.000001, output: 0.000002 }
-  await createResearchModelAttempt(store, 'primary', { ...common, price })
-  await createResearchModelAttempt(store, 'with-fallback', {
-    ...common,
-    price,
-    fallbackPrice: { input: 0.000002, output: 0.000004 },
-  })
-  expect(await store.read('budget/prices')).toMatchObject({
-    committedMicros: 186000,
-    runs: {
-      'primary/model/1': { modelReservedMicros: 62000 },
-      'with-fallback/model/1': { modelReservedMicros: 124000 },
+const price = { input: 0.000001, output: 0.000002 }
+const fallbackPrice = { input: 0.000002, output: 0.000004 }
+
+test.each([
+  ['standard primary', { outputTokensBound: 1000 }, 62000],
+  ['reasoning primary', { outputTokensBound: 8000 }, 76000],
+  ['legacy primary', {}, 76000],
+  [
+    'standard fallback',
+    {
+      outputTokensBound: 8000,
+      fallback: { price: fallbackPrice, outputTokensBound: 1000 },
     },
-  })
-})
+    124000,
+  ],
+  [
+    'reasoning fallback',
+    {
+      outputTokensBound: 1000,
+      fallback: { price: fallbackPrice, outputTokensBound: 8000 },
+    },
+    152000,
+  ],
+  [
+    'legacy fallback',
+    { outputTokensBound: 1000, fallback: { price: fallbackPrice } },
+    152000,
+  ],
+  [
+    'higher-cost primary',
+    { outputTokensBound: 8000, fallback: { price, outputTokensBound: 1000 } },
+    76000,
+  ],
+] as const)(
+  'reserves %s at its snapshotted rates',
+  async (_, snapshot, expected) => {
+    const store = createResearchMemoryState()
+    await createResearchModelAttempt(store, 'plate', {
+      campaign: 'prices',
+      limitUsd: 2,
+      deadline: Date.now() + 10000,
+      price,
+      ...snapshot,
+    })
+    expect(await store.read('budget/prices')).toMatchObject({
+      committedMicros: expected,
+    })
+  }
+)
