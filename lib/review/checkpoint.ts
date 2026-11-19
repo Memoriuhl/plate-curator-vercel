@@ -9,10 +9,75 @@ export type ReviewChanges = {
   contributors: string[]
 }
 type Author = Pick<Actor, 'uid' | 'name'>
+/**
+ * What one commit replaced, so the draft at an earlier revision can be rebuilt (Publish
+ * at the revision the Owner reviewed) and a change can be reverted later. `null` means
+ * the value did not exist before the commit.
+ */
+export type DraftChangeBefore = {
+  edits: Record<string, ProposedEdit | null>
+  stateOrders: Record<string, string[] | null>
+  baselineOrders: Record<string, string[] | null>
+}
 export type DraftChange = {
   revision: number
   plateIds: string[]
   contributors: Author[]
+  /** Jurisdictions this commit touched, through plate edits or state orders. */
+  states?: string[]
+  /** Jurisdictions whose saved order this commit changed. */
+  orderStates?: string[]
+  before?: DraftChangeBefore
+}
+
+const sameList = (left?: string[] | null, right?: string[] | null) =>
+  (left ?? null) === (right ?? null) ||
+  (!!left &&
+    !!right &&
+    left.length === right.length &&
+    left.every((id, index) => id === right[index]))
+
+/**
+ * Capture the edits and state orders a commit is about to replace. `previousEdits`
+ * holds the stored edit (or null) for every plate the commit writes or deletes.
+ */
+export function changeBefore(
+  previous: ReviewBatch,
+  next: ReviewBatch,
+  previousEdits: ReadonlyMap<string, ProposedEdit | null>
+): DraftChangeBefore {
+  const before: DraftChangeBefore = {
+    edits: Object.fromEntries(previousEdits),
+    stateOrders: {},
+    baselineOrders: {},
+  }
+  const states = new Set([
+    ...Object.keys(previous.stateOrders ?? {}),
+    ...Object.keys(next.stateOrders ?? {}),
+  ])
+  for (const state of states)
+    if (!sameList(previous.stateOrders?.[state], next.stateOrders?.[state]))
+      before.stateOrders[state] = previous.stateOrders?.[state] ?? null
+  const baselineStates = new Set([
+    ...Object.keys(previous.baselineOrders ?? {}),
+    ...Object.keys(next.baselineOrders ?? {}),
+  ])
+  for (const state of baselineStates)
+    if (
+      !sameList(previous.baselineOrders?.[state], next.baselineOrders?.[state])
+    )
+      before.baselineOrders[state] = previous.baselineOrders?.[state] ?? null
+  return before
+}
+
+/** States a change touched through plate edits or state orders. */
+function touchedStates(plateIds: Iterable<string>, before?: DraftChangeBefore) {
+  return [
+    ...new Set([
+      ...[...plateIds].map((id) => id.split('.')[0]),
+      ...Object.keys(before?.stateOrders ?? {}),
+    ]),
+  ].sort()
 }
 
 /**
@@ -24,8 +89,9 @@ export function draftChange(
   next: ReviewBatch,
   edits: ProposedEdit[],
   deleted: string[],
-  actor?: Author
-) {
+  actor?: Author,
+  before?: DraftChangeBefore
+): DraftChange | null {
   const plateIds = new Set([...edits.map((edit) => edit.plateId), ...deleted])
   for (const [state, order] of Object.entries(next.stateOrders)) {
     const old =
@@ -44,7 +110,12 @@ export function draftChange(
     ])
   )
   if (actor) contributors.set(actor.uid, actor)
-  if (plateIds.size === 0) return null
+  const replaced =
+    !!before &&
+    (Object.keys(before.edits).length > 0 ||
+      Object.keys(before.stateOrders).length > 0 ||
+      Object.keys(before.baselineOrders).length > 0)
+  if (plateIds.size === 0 && !replaced) return null
   return {
     revision: next.revision,
     plateIds: [...plateIds],
@@ -52,6 +123,13 @@ export function draftChange(
       uid,
       name,
     })),
+    ...(before
+      ? {
+          states: touchedStates(plateIds, before),
+          orderStates: Object.keys(before.stateOrders).sort(),
+          before,
+        }
+      : {}),
   }
 }
 

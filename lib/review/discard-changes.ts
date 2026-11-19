@@ -1,4 +1,5 @@
 import { canEdit, editableStates } from './access'
+import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
 import { validRegroup } from './batch'
 import { familyRole } from '../catalog/families'
 import { orderDifferences, restorePlateOrder } from './order-diff'
@@ -19,21 +20,39 @@ import type {
   ReviewDeps,
 } from './types'
 
-export async function discardPlateChanges(
+type DiscardInput = {
+  batchId: string
+  plateId: string
+  batchRevision: number
+  target: DraftChangeTarget
+}
+
+export function discardPlateChanges(
   d: ReviewDeps,
   actor: Actor,
-  input: {
-    batchId: string
-    plateId: string
-    batchRevision: number
-    target: DraftChangeTarget
-  }
+  input: DiscardInput
 ): Promise<Outcome<ReviewBatch>> {
+  return retryDraftRace(() => discardPlateChangesOnce(d, actor, input))
+}
+
+async function discardPlateChangesOnce(
+  d: ReviewDeps,
+  actor: Actor,
+  input: DiscardInput
+): Promise<Outcome<ReviewBatch> | typeof retryDraft> {
   const snapshot = await d.store.readBatch(input.batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
   const { batch, edits } = snapshot
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      plateIds: [input.plateId],
+      orderStates:
+        input.target === 'order' || input.target === 'all'
+          ? [input.plateId.split('.')[0]]
+          : [],
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (!editableStates.includes(batch.state))
     return { ok: false, error: 'invalid_state' }
@@ -225,11 +244,7 @@ export async function discardPlateChanges(
     edits: nextEdits,
     deleteEditsFor: deletedEdits,
   })
-  if (result !== 'ok')
-    return {
-      ok: false,
-      error: result === 'pipeline_busy' ? result : 'superseded_revision',
-    }
-  if (batch.state !== 'open') await d.supersedeRun?.(batch)
+  if (result === 'revision_mismatch') return retryDraft
+  if (result !== 'ok') return { ok: false, error: result }
   return { ok: true, value: next }
 }

@@ -3,7 +3,14 @@ import { canEdit, editableStates } from './access'
 import { familyRole } from '../catalog/families'
 export { canEdit } from './access'
 import type { Plate } from '../catalog/types'
-import { draftGroupingFields, editableKeys, limits } from './fields'
+import {
+  batchPlateLimit,
+  draftGroupingFields,
+  editableKeys,
+  limits,
+} from './fields'
+import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
+import { draftCommitAttempts, draftRetryPause } from './retry'
 import { sameEditableValue } from './story'
 import {
   hasPipelineHistory,
@@ -140,7 +147,8 @@ async function updatePlate(
       }
   )
 ): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }>> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < draftCommitAttempts; attempt += 1) {
+    await draftRetryPause(attempt)
     const batch = await d.store.getBatch(i.batchId)
     if (!batch) return { ok: false, error: 'not_found' }
     if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
@@ -151,7 +159,7 @@ async function updatePlate(
     const plateIds = batch.plateIds.includes(i.plateId)
       ? batch.plateIds
       : [...batch.plateIds, i.plateId]
-    if (plateIds.length > limits.plates)
+    if (plateIds.length > batchPlateLimit(batch))
       return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(i.batchId, i.plateId)
     const current = { ...baseline, ...existing?.fields }
@@ -386,33 +394,9 @@ async function updatePlate(
           ? { edit }
           : { deleteEditFor: i.plateId }),
     })
-    if (result === 'ok') {
-      if (batch.state !== 'open') await d.supersedeRun?.(batch)
-      return { ok: true, value: { batch: nextBatch, plate } }
-    }
+    if (result === 'ok') return { ok: true, value: { batch: nextBatch, plate } }
   }
   return { ok: false, error: 'superseded_revision' }
-}
-
-/** Move an eligible open batch to submitted at the caller's revision. */
-export async function submitBatch(
-  d: ReviewDeps,
-  a: Actor,
-  batchId: string,
-  revision: number
-): Promise<Outcome<ReviewBatch>> {
-  return transitionBatch(d, a, batchId, revision, 'submitted')
-}
-
-/** Allow an owner to approve a submitted batch at its current revision. */
-export async function approveBatch(
-  d: ReviewDeps,
-  a: Actor,
-  batchId: string,
-  revision: number
-): Promise<Outcome<ReviewBatch>> {
-  if (a.role !== 'owner') return { ok: false, error: 'forbidden' }
-  return transitionBatch(d, a, batchId, revision, 'approved')
 }
 
 /**
@@ -441,64 +425,45 @@ export async function reviewApprovalProblems(
 }
 
 /**
- * Perform a review state transition only while permissions, readiness and revision still
- * match.
- */
-async function transitionBatch(
-  d: ReviewDeps,
-  a: Actor,
-  batchId: string,
-  revision: number,
-  state: 'submitted' | 'approved'
-): Promise<Outcome<ReviewBatch>> {
-  const batch = await d.store.getBatch(batchId)
-  if (!batch) return { ok: false, error: 'not_found' }
-  if (!canEdit(batch, a)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== revision)
-    return { ok: false, error: 'superseded_revision' }
-  if (batch.state !== (state === 'submitted' ? 'open' : 'submitted'))
-    return { ok: false, error: 'invalid_state' }
-  const reasons = await reviewApprovalProblems(d, batch)
-  if (reasons.length)
-    return { ok: false, error: 'standard_change_unconfirmed', reasons }
-  const nextBatch: ReviewBatch = {
-    ...batch,
-    ...(state === 'submitted'
-      ? { publishRequestedAt: null, publishRequestedBy: null }
-      : {}),
-    state,
-    revision: revision + 1,
-    approval:
-      state === 'approved' ? { revision, by: a.uid, at: d.now() } : null,
-  }
-  const result = await d.store.commit(batchId, revision, { batch: nextBatch })
-  if (result === 'pipeline_busy') return { ok: false, error: result }
-  return result === 'ok'
-    ? { ok: true, value: nextBatch }
-    : { ok: false, error: 'superseded_revision' }
-}
-
-/**
  * Save a state's manual ordering and any standard-plate changes together at the expected
  * batch revision.
  */
-export async function reorderState(
+type ReorderInput = {
+  batchId: string
+  state: string
+  /** Draft revision the curator saw; only a later change to this state's order or to a promoted plate blocks the save. */
+  batchRevision: number
+  order: string[]
+  standard?: StandardChange
+  promotion?: { plateId: string; templateFamily: string }
+  promotions?: { plateId: string; templateFamily: string }[]
+}
+
+export function reorderState(
   d: ReviewDeps,
   actor: Actor,
-  input: {
-    batchId: string
-    state: string
-    batchRevision: number
-    order: string[]
-    standard?: StandardChange
-    promotion?: { plateId: string; templateFamily: string }
-    promotions?: { plateId: string; templateFamily: string }[]
-  }
+  input: ReorderInput
 ): Promise<Outcome<ReviewBatch>> {
+  return retryDraftRace(() => reorderStateOnce(d, actor, input))
+}
+
+async function reorderStateOnce(
+  d: ReviewDeps,
+  actor: Actor,
+  input: ReorderInput
+): Promise<Outcome<ReviewBatch> | typeof retryDraft> {
   const batch = await d.store.getBatch(input.batchId)
   if (!batch) return { ok: false, error: 'not_found' }
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      orderStates: [input.state],
+      plateIds: [
+        ...(input.promotions ?? []).map((promotion) => promotion.plateId),
+        ...(input.promotion ? [input.promotion.plateId] : []),
+      ],
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (!editableStates.includes(batch.state))
     return { ok: false, error: 'invalid_state' }
@@ -557,7 +522,7 @@ export async function reorderState(
     })
     if (!plateIds.includes(plateId)) plateIds.push(plateId)
   }
-  if (plateIds.length > limits.plates)
+  if (plateIds.length > batchPlateLimit(batch))
     return { ok: false, error: 'invalid_state' }
   const previousFirst = (batch.stateOrders[input.state] ??
     plates.map((plate) => plate.id))[0]
@@ -617,8 +582,8 @@ export async function reorderState(
     by: actor,
     ...combined.value,
   })
-  if (result === 'ok' && batch.state !== 'open') await d.supersedeRun?.(batch)
-  return result === 'ok'
-    ? { ok: true, value: next }
-    : { ok: false, error: 'superseded_revision' }
+  if (result === 'ok') return { ok: true, value: next }
+  return result === 'revision_mismatch'
+    ? retryDraft
+    : { ok: false, error: result }
 }

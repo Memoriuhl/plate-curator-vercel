@@ -2,7 +2,6 @@ import type { HostedModelBinding } from '../models/selection'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
-import { resumeHook } from 'workflow/api'
 import { workflowPublishRunLookup } from './publish-runs'
 import { verifyPreparedObject } from '../publish/object'
 import { authenticate, parseOwnerUids } from '../auth/actor'
@@ -219,25 +218,8 @@ export function reviewDeps(): ReviewDeps {
           : await source.readCuratorState()
       )
     },
-    /**
-     * Wake an approval workflow when a newer batch revision displaces its saved input.
-     */
-    async supersedeRun(batch) {
-      const revision =
-        batch.approvalRun?.revision ??
-        (batch.state === 'submitted'
-          ? batch.revision
-          : batch.approval?.revision)
-      if (revision === undefined) return
-      await Promise.all([
-        resumeHook(`approval:${batch.id}:${revision}`, {
-          superseded: true,
-        }).catch(() => undefined),
-        resumeHook(`publish:${batch.id}:${revision + 1}`, {
-          superseded: true,
-        }).catch(() => undefined),
-      ])
-    },
+    /** Read the live catalog version the shared draft starts from and rebases onto. */
+    liveVersion: () => catalog().readVersion(),
     /** Return the ISO timestamp used to record review changes. */
     now: () => new Date().toISOString(),
   }

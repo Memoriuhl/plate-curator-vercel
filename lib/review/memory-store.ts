@@ -1,5 +1,6 @@
 import { canCopyForFreshReview } from './access'
 import {
+  changeBefore,
   currentDraftChanges,
   draftChange,
   reviewChanges,
@@ -116,12 +117,36 @@ export function createMemoryStore(
       signals.set(input.batch.id, input.batch.revision)
       return { ok: true, value: structuredClone(input.batch) }
     },
+    /** List change-log entries after a revision, oldest first. */
+    async listChanges(batchId, after) {
+      return structuredClone(
+        (changes.get(batchId) ?? [])
+          .filter((change) => change.revision > after)
+          .sort((left, right) => left.revision - right.revision)
+      )
+    },
+    /** Drop change-log entries at or below a revision; return how many went. */
+    async pruneChanges(batchId, through) {
+      const kept = (changes.get(batchId) ?? []).filter(
+        (change) => change.revision > through
+      )
+      const removed = (changes.get(batchId)?.length ?? 0) - kept.length
+      changes.set(batchId, kept)
+      return removed
+    },
     /** Expose the latest live signal revision recorded for the batch. */
     signalRevision: (batchId) => signals.get(batchId) ?? null,
     /** Create a new batch and initialize its signal while rejecting an existing ID. */
-    async create(batch) {
+    async create(batch, initialEdits) {
       if (batches.has(batch.id)) return 'exists'
       batches.set(batch.id, structuredClone(batch))
+      if (initialEdits?.length)
+        edits.set(
+          batch.id,
+          new Map(
+            initialEdits.map((edit) => [edit.plateId, structuredClone(edit)])
+          )
+        )
       signals.set(batch.id, batch.revision)
       return 'ok'
     },
@@ -210,9 +235,6 @@ export function createMemoryStore(
           )
       }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()
-      if (saved.deleteEditFor !== undefined)
-        batchEdits.delete(saved.deleteEditFor)
-      for (const id of saved.deleteEditsFor ?? []) batchEdits.delete(id)
       const updates = [
         ...(saved.edits ?? []),
         ...(saved.edit ? [saved.edit] : []),
@@ -221,16 +243,40 @@ export function createMemoryStore(
         ...(saved.deleteEditsFor ?? []),
         ...(saved.deleteEditFor ? [saved.deleteEditFor] : []),
       ]
-      const change = draftChange(
-        current,
-        saved.batch,
-        updates,
-        deletes,
-        saved.by
-      )
+      const change =
+        saved.history === false
+          ? null
+          : draftChange(
+              current,
+              saved.batch,
+              updates,
+              deletes,
+              saved.by,
+              saved.batch.kind === 'shared-draft'
+                ? changeBefore(
+                    current,
+                    saved.batch,
+                    new Map(
+                      [...updates.map((edit) => edit.plateId), ...deletes].map(
+                        (id) => [
+                          id,
+                          structuredClone(batchEdits.get(id) ?? null),
+                        ]
+                      )
+                    )
+                  )
+                : undefined
+            )
       if (change)
         changes.set(batchId, [...(changes.get(batchId) ?? []), change])
-      for (const edit of updates) batchEdits.set(edit.plateId, edit)
+      for (const id of deletes) batchEdits.delete(id)
+      for (const edit of updates)
+        batchEdits.set(
+          edit.plateId,
+          saved.batch.kind === 'shared-draft'
+            ? { ...edit, revision: saved.batch.revision }
+            : edit
+        )
       edits.set(batchId, batchEdits)
       batches.set(batchId, saved.batch)
       signals.set(batchId, saved.batch.revision)

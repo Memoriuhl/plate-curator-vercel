@@ -12,6 +12,7 @@ import type {
   ReviewStore,
 } from './types'
 import {
+  changeBefore,
   currentDraftChanges,
   draftChange,
   reviewChanges,
@@ -43,9 +44,18 @@ export function firestoreReviewStore(
   const signal = (batchId: string) =>
     db.doc(signalPath(liveEnvKey(env), batchId))
   /** Stage creation of a batch and its initial live revision signal together. */
-  const create = (transaction: Transaction, batch: ReviewBatch) => {
+  const create = (
+    transaction: Transaction,
+    batch: ReviewBatch,
+    edits: ProposedEdit[] = []
+  ) => {
     transaction.create(batches.doc(batch.id), { ...batch, env })
     transaction.set(signal(batch.id), { revision: batch.revision })
+    for (const edit of edits)
+      transaction.set(
+        batches.doc(batch.id).collection('edits').doc(edit.plateId),
+        edit
+      )
   }
 
   /**
@@ -210,10 +220,10 @@ export function firestoreReviewStore(
      * Create a batch with its live signal and return an existing-ID outcome when
      * retried.
      */
-    async create(batch) {
+    async create(batch, edits) {
       try {
         await db.runTransaction(async (transaction) => {
-          create(transaction, batch)
+          create(transaction, batch, edits)
         })
         return 'ok'
       } catch (error) {
@@ -283,6 +293,40 @@ export function firestoreReviewStore(
         },
         { readOnly: true }
       )
+    },
+    /** List change-log entries after a revision, oldest first. */
+    async listChanges(batchId, after) {
+      const ref = batches.doc(batchId)
+      const batch = await ref.get()
+      if (batch.get('env') !== env) return []
+      const snapshot = await ref
+        .collection('draftChanges')
+        .where('revision', '>', after)
+        .orderBy('revision')
+        .get()
+      return snapshot.docs.map((doc) => doc.data() as DraftChange)
+    },
+    /**
+     * Delete change-log entries at or below a revision in pages, so a long-lived draft
+     * does not keep history it can no longer use.
+     */
+    async pruneChanges(batchId, through) {
+      const ref = batches.doc(batchId)
+      const batch = await ref.get()
+      if (batch.get('env') !== env) return 0
+      let removed = 0
+      while (true) {
+        const page = await ref
+          .collection('draftChanges')
+          .where('revision', '<=', through)
+          .limit(400)
+          .get()
+        if (page.empty) return removed
+        const writes = db.batch()
+        for (const doc of page.docs) writes.delete(doc.ref)
+        await writes.commit()
+        removed += page.size
+      }
     },
     /** Fetch a batch by ID within this environment and normalize missing state orders. */
     async getBatch(id) {
@@ -410,21 +454,53 @@ export function firestoreReviewStore(
           )
             return 'revision_mismatch'
         } else if (next.publishToken !== undefined) return 'revision_mismatch'
+        const draft = next.batch.kind === 'shared-draft'
         const updates = [
           ...(next.edits ?? []),
           ...(next.edit ? [next.edit] : []),
-        ]
+        ].map((edit) =>
+          draft ? { ...edit, revision: next.batch.revision } : edit
+        )
         const deletes = [
           ...(next.deleteEditsFor ?? []),
           ...(next.deleteEditFor ? [next.deleteEditFor] : []),
         ]
-        const change = draftChange(
-          batch.data() as ReviewBatch,
-          next.batch,
-          updates,
-          deletes,
-          next.by
-        )
+        // The shared draft keeps what each commit replaced so an earlier revision can
+        // be rebuilt for Publish. Read before any write in this transaction.
+        const touched = [
+          ...new Set([...updates.map((edit) => edit.plateId), ...deletes]),
+        ]
+        const previousEdits =
+          draft && touched.length && next.history !== false
+            ? await transaction.getAll(
+                ...touched.map((id) => batchRef.collection('edits').doc(id))
+              )
+            : []
+        const previous = batch.data() as ReviewBatch
+        const change =
+          next.history === false
+            ? null
+            : draftChange(
+                previous,
+                next.batch,
+                updates,
+                deletes,
+                next.by,
+                draft
+                  ? changeBefore(
+                      previous,
+                      next.batch,
+                      new Map(
+                        previousEdits.map((snapshot) => [
+                          snapshot.id,
+                          snapshot.exists
+                            ? (snapshot.data() as ProposedEdit)
+                            : null,
+                        ])
+                      )
+                    )
+                  : undefined
+              )
         if (change)
           transaction.set(
             batchRef

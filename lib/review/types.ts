@@ -1,11 +1,21 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
-import type { ReviewChanges } from './checkpoint'
+import type { DraftChange, ReviewChanges } from './checkpoint'
 import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
 export type BatchState =
-  'open' | 'submitted' | 'approved' | 'published' | 'conflict'
+  'open' | 'submitted' | 'approved' | 'published' | 'conflict' | 'folded'
+/** The single working draft, a frozen copy of it being published, or an old Batch. */
+export type BatchKind = 'shared-draft' | 'release'
+export type LastPublish = {
+  releaseId: string
+  revision: number
+  version: number
+  by: string
+  byName: string | null
+  at: string
+}
 export type ReviewBatch = {
   id: string
   name: string
@@ -28,6 +38,12 @@ export type ReviewBatch = {
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
   pipelineApplications?: Record<string, { by: string; at: string }>
+  kind?: BatchKind
+  /** Lowest draft revision that can still be published or reconstructed. */
+  rebaseFloor?: number
+  lastPublish?: LastPublish
+  migratedBatchIds?: string[]
+  foldedInto?: string
 }
 export type EditableFields = Partial<
   Pick<
@@ -70,6 +86,8 @@ export type ProposedEdit = {
   pipelineRunIds?: string[]
   updatedAt: string
   resultRevision: string
+  /** Draft revision of the last write to this plate. */
+  revision?: number
 }
 export type StandardChange = { from: string | null; to: string }
 export type ReviewError =
@@ -110,7 +128,12 @@ export interface ReviewStore {
     batch: ReviewBatch
     edits: ProposedEdit[]
   }): Promise<CopyCommitResult>
-  create(batch: ReviewBatch): Promise<'ok' | 'exists'>
+  /** Create a batch, and optionally its edits, in one atomic write. */
+  create(batch: ReviewBatch, edits?: ProposedEdit[]): Promise<'ok' | 'exists'>
+  /** Change-log entries after a revision, oldest first. */
+  listChanges?(batchId: string, after: number): Promise<DraftChange[]>
+  /** Delete change-log entries at or below a revision; returns how many were removed. */
+  pruneChanges?(batchId: string, through: number): Promise<number>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
   readBatch(
@@ -136,6 +159,8 @@ export interface ReviewStore {
       deleteEditsFor?: string[]
       deleteEditFor?: string
       publishToken?: string
+      /** false skips the change-log entry (rebase commits that set a new floor). */
+      history?: false
     }
   ): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
 }
@@ -166,6 +191,12 @@ export type ReviewDeps = {
     state: string,
     order?: 'snapshot'
   ): Promise<Plate[]>
+  /**
+   * No longer provided: it woke the Submit/Approve workflow, which is retired. Kept
+   * optional so the research accept path compiles until it drops the call.
+   */
   supersedeRun?(batch: ReviewBatch): Promise<void>
+  /** Live catalog version, used to start and rebase the shared draft. */
+  liveVersion?(): Promise<number>
   now(): string
 }
