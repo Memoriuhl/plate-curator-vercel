@@ -358,7 +358,7 @@ export async function hostedTaggingDeps(
 
 /** Resolve the Firestore adapter for publish controls in the staging database. */
 export function publishControl() {
-  return firestorePublishControl(stagingFirestore())
+  return firestorePublishControl(stagingFirestore(), reviewEnv())
 }
 
 /**

@@ -84,6 +84,12 @@ vi.mock('../../lib/client/hooks', () => ({
   useReviewActions: () => ({ revertPipelineRun: mocks.revertRun }),
 }))
 
+// Change-signal refresh has its own tests; here it stays connected and quiet.
+vi.mock('../../lib/client/live-signal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/client/live-signal')>()),
+  useLiveRefresh: () => 'live',
+}))
+
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
   usePathname: () => mocks.pathname,

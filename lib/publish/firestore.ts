@@ -26,6 +26,7 @@ import {
 } from './eligibility'
 import { sharedDraftId } from '../review/draft-id'
 import { liveEnvKey, signalPath } from '../review/live-signal'
+import { signalChange } from '../live/change-signals'
 import {
   deletionPublishFenceRef,
   firestoreReviewStore,
@@ -136,7 +137,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
      */
     async claim(lease, now) {
       if (!unexpired(lease.expiresAt, now)) return false
-      return db.runTransaction(async (transaction) => {
+      const claimed = await db.runTransaction(async (transaction) => {
         const batchRef = db.doc(`reviewBatches/${lease.batchId}`)
         const [lock, batch] = await transaction.getAll(lockRef, batchRef)
         if (lock.exists && unexpired(lock.get('expiresAt'), now)) return false
@@ -168,6 +169,8 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
           })
         return true
       })
+      if (claimed) await signalChange(db, env, 'publish')
+      return claimed
     },
     /** Extend a lease only while its token still owns the active lock. */
     async renew(lease, now) {
@@ -189,9 +192,9 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
     },
     /** Release a matching publish lease or retain its freeze for receipt recovery. */
     async release(token, keepBatchFrozen) {
-      await db.runTransaction(async (transaction) => {
+      const released = await db.runTransaction(async (transaction) => {
         const lock = await transaction.get(lockRef)
-        if (lock.get('token') !== token || lock.get('env') !== env) return
+        if (lock.get('token') !== token || lock.get('env') !== env) return false
         const batchRef = db.doc(`reviewBatches/${lock.get('batchId')}`)
         const batch = await transaction.get(batchRef)
         if (
@@ -203,7 +206,9 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
           })
         }
         transaction.delete(lockRef)
+        return true
       })
+      if (released) await signalChange(db, env, 'publish')
     },
   }
 }
@@ -1246,7 +1251,7 @@ export function firestorePublishPointer(
       const verified = observed.get('committedAt')
         ? true
         : await verifyObject(record)
-      return db.runTransaction(async (transaction) => {
+      const outcome = await db.runTransaction(async (transaction) => {
         const recordRef = db.doc(`publishRecords/${record.id}`)
         const requesterRef = memberDocRef(db, record.requestedBy?.email)
         const [lock, batch, receipt, pointer, control, stopped, member] =
@@ -1335,8 +1340,10 @@ export function firestorePublishPointer(
           publishedAt: now,
         })
         transaction.update(recordRef, { committedAt: now })
-        return 'advanced'
+        return 'advanced' as const
       })
+      if (outcome === 'advanced') await signalChange(db, env, 'publish')
+      return outcome
     },
   }
 }
@@ -1422,8 +1429,14 @@ export function firestorePublishCurator(
   }
 }
 
-/** Build the Firestore adapter for global publish controls and durable command stops. */
-export function firestorePublishControl(db: Firestore): PublishControl & {
+/**
+ * Build the Firestore adapter for global publish controls and durable command stops. A
+ * change is signaled to publish listeners in `liveEnv`, the caller's review environment.
+ */
+export function firestorePublishControl(
+  db: Firestore,
+  liveEnv?: string
+): PublishControl & {
   change(
     paused: boolean,
     actor: { uid: string; email: string },
@@ -1441,7 +1454,7 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
      * generation.
      */
     async change(paused, actor, now) {
-      return db.runTransaction(async (transaction) => {
+      const result = await db.runTransaction(async (transaction) => {
         const requesterRef = memberDocRef(db, actor.email)
         if (!requesterRef) return null
         const [snapshot, member] = await transaction.getAll(ref, requesterRef)
@@ -1458,6 +1471,9 @@ export function firestorePublishControl(db: Firestore): PublishControl & {
         transaction.set(ref, control)
         return control
       })
+      if (result && typeof result === 'object' && liveEnv !== undefined)
+        await signalChange(db, liveEnv, 'publish')
+      return result
     },
     /** Check publish control and requester authority and persist any command stop. */
     async check(command: PublishCommand, now: string) {

@@ -7,6 +7,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { ApiError } from '@/lib/client/api'
 import { useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
+import { useLiveRefresh } from '@/lib/client/live-signal'
 import { confirmQueueRequest, queueRequestId } from '@/lib/client/queue-intents'
 import type {
   EnqueueInput,
@@ -109,12 +110,14 @@ export function usePipelineQueue(
   const list = useSWR<QueueSnapshot>(
     enabled && local && uid ? key : null,
     api.get,
-    {
-      refreshInterval: (data) =>
-        data?.runs.some((run) => run.status === 'running') ? 1250 : 3000,
-      keepPreviousData: !detailId,
-    }
+    { keepPreviousData: !detailId }
   )
+  // Refetch when the server signals a queue change. The slow safety refresh catches a
+  // worker going quiet, which changes what the drawer shows without any write.
+  const live = useLiveRefresh(['pipeline'], () => list.mutate(), {
+    enabled: enabled && local && uid !== null,
+    safetyMs: 60_000,
+  })
   const snapshot = list.data
   const loaded = !list.isLoading
   useEffect(() => {
@@ -416,6 +419,7 @@ export function usePipelineQueue(
     loading: local && (ready === false || (list.isLoading && !list.data)),
     error: list.error,
     refresh: list.mutate,
+    live,
     action,
     message,
     disabledReason,

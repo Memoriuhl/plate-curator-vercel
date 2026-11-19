@@ -7,6 +7,7 @@ import {
 } from '../components/publish/batch-changes'
 vi.mock('../lib/client/live-signal', () => ({
   useBatchRevisionSignal: () => 'Live',
+  useLiveRefresh: () => 'live',
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn() }),

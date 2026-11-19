@@ -48,6 +48,7 @@ import type {
 } from '../publish/types'
 import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
 import { useSession } from './session'
+import { useLiveRefresh } from './live-signal'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../review/write-budget'
 
@@ -231,32 +232,40 @@ export function useBatchRun(id: string | null) {
   const { user, api } = useSession()
   const me = useMe()
   const { mutate } = useSWRConfig()
-  const [pendingUntil, setPendingUntil] = useState(0)
+  const [pending, setPending] = useState(false)
   useEffect(() => {
+    let expiry: ReturnType<typeof setTimeout> | undefined
     /**
-     * Read the pending publish window so polling can continue while the workflow starts.
+     * Track the pending publish window so updates continue while the workflow starts,
+     * and end it when the window closes.
      */
-    const update = () => setPendingUntil(publishWindows.get(id ?? '') ?? 0)
+    const update = () => {
+      clearTimeout(expiry)
+      const remaining = (publishWindows.get(id ?? '') ?? 0) - Date.now()
+      setPending(remaining > 0)
+      if (remaining > 0) expiry = setTimeout(() => setPending(false), remaining)
+    }
     update()
     window.addEventListener('batch-publish-requested', update)
-    return () => window.removeEventListener('batch-publish-requested', update)
+    return () => {
+      clearTimeout(expiry)
+      window.removeEventListener('batch-publish-requested', update)
+    }
   }, [id])
-  // Share each batch's run status between review and publish as polling updates it.
+  // Share each batch's run status between review and publish.
   const run = useSWR<BatchRun>(
     user && me.data?.role === 'owner' && id ? `${batchApiPath(id)}/run` : null,
-    api.get,
-    {
-      /**
-       * Poll during active publishing and the short window immediately after a publish
-       * request.
-       */
-      refreshInterval: (data) =>
-        data?.phase === 'publishing' ||
-        (data?.phase === 'waiting-for-publish' && pendingUntil > Date.now())
-          ? 2000
-          : 0,
-    }
+    api.get
   )
+  // During active publishing and the short window after a publish request, refetch on
+  // publish change signals. Workflow status is not a Firestore write, so a 5 s safety
+  // refresh catches the run finishing.
+  useLiveRefresh(['publish'], () => run.mutate(), {
+    enabled:
+      run.data?.phase === 'publishing' ||
+      (run.data?.phase === 'waiting-for-publish' && pending),
+    safetyMs: 5000,
+  })
   useEffect(() => {
     const phase = run.data?.phase
     const previous = previousRun.current
@@ -332,14 +341,22 @@ export type PublishBaselineStatus = {
   | { error: PublishStop; reviewedVersion?: never; liveVersion?: never }
 )
 
-/** Share publish controls between views and poll so external pause changes appear. */
+/**
+ * Share publish controls between views and refetch on publish change signals so external
+ * pause changes appear. The control is global but signals are per environment, so a slow
+ * safety refresh picks up a pause made from another environment.
+ */
 export function usePublishControl() {
   const { user, api } = useSession()
   const { mutate } = useSWRConfig()
   const status = useSWR<{
     control: PublishControlState | null
     enabledHere: boolean
-  }>(user ? '/api/publish/control' : null, api.get, { refreshInterval: 30000 })
+  }>(user ? '/api/publish/control' : null, api.get)
+  useLiveRefresh(['publish'], () => status.mutate(), {
+    enabled: Boolean(user),
+    safetyMs: 300_000,
+  })
   return {
     ...status,
     async change(paused: boolean) {
@@ -364,18 +381,22 @@ export function usePublishControl() {
 }
 
 /**
- * Share publish eligibility by batch and poll while active pipeline work can change it.
+ * Share publish eligibility by batch and refetch on pipeline or publish change signals
+ * while active pipeline work or the publish lock can change it.
  */
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
-  return useSWR<PublishBaselineStatus>(
+  const baseline = useSWR<PublishBaselineStatus>(
     user && id ? `${batchApiPath(id)}/publish` : null,
-    api.get,
-    {
-      refreshInterval: (data) =>
-        data?.pipelineBusy || data?.retryReason === 'locked' ? 5000 : 0,
-    }
+    api.get
   )
+  useLiveRefresh(['pipeline', 'publish'], () => baseline.mutate(), {
+    enabled:
+      baseline.data?.pipelineBusy === true ||
+      baseline.data?.retryReason === 'locked',
+    safetyMs: 60_000,
+  })
+  return baseline
 }
 
 /** The Owner's Publish view of the shared draft (`GET /api/batches/<draft>/publish`). */

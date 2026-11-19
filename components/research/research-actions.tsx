@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { useRouter } from 'next/navigation'
 import { useEnsureBatch, useMe, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
+import { useLiveRefresh } from '@/lib/client/live-signal'
 import { ApiError } from '@/lib/client/api'
 import { researchMessage } from '@/lib/client/research'
 import type {
@@ -102,17 +103,18 @@ function ResearchRun({
   const [pending, setPending] = useState(false)
   const posting = useRef(false)
   const [message, setMessage] = useState('')
-  // Cache the latest job response so status stays visible between active polls.
+  // Cache the latest job response so status stays visible between refreshes.
   const research = useSWR<Reply>(
     intent?.jobId ? `/api/research/${intent.jobId}` : null,
-    api.get,
-    {
-      /** Poll only while the tracked research job is queued or running. */ refreshInterval:
-        (reply) =>
-          reply && ['queued', 'running'].includes(reply.value.state) ? 2000 : 0,
-    }
+    api.get
   )
   const job = research.data?.value
+  // While the job is active, refetch on research change signals. The slow safety refresh
+  // lets the server expire a job whose deadline passed, which happens only on a read.
+  useLiveRefresh(['research'], () => research.mutate(), {
+    enabled: job !== undefined && ['queued', 'running'].includes(job.state),
+    safetyMs: 60_000,
+  })
   const blocked = workspace.mode === 'selected' && workspace.status !== 'ready'
   /** Persist the request intent so a reload can recover the same research run. */
   function remember(next: Intent) {

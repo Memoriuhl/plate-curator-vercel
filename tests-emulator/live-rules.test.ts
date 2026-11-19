@@ -67,6 +67,17 @@ test('a signed-in member with a fresh environment grant can get only the revisio
   })
 })
 
+test('the same grant covers change topic signals in its environment', async () => {
+  const topic = 'curatorLive/preview%3Afeat%2Fx/batchRevisions/topic:pipeline'
+  await db.doc(topic).set({ revision: 3 })
+  expect((await getDoc(doc(client('rules-member'), topic))).data()).toEqual({
+    revision: 3,
+  })
+  await expect(
+    getDoc(doc(client('rules-non-member'), topic))
+  ).rejects.toMatchObject({ code: 'permission-denied' })
+})
+
 test.each([undefined, 'rules-non-member'])(
   'denies identity %s without a grant even with a known batch id',
   async (uid) => {

@@ -2,6 +2,14 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
+  createLiveHub,
+  type LiveGrant,
+  type LiveHub,
+  type LiveSignalSource,
+  type LiveStatus,
+} from './live-hub'
+import type { ChangeTopic } from '../live/topics'
+import {
   connectFirestoreEmulator,
   doc,
   getFirestore,
@@ -14,14 +22,7 @@ import { countClientUsage } from './usage'
 import { useSession } from './session'
 import { signalPath } from '../review/live-signal'
 
-export type LiveSignalSource = {
-  subscribe(
-    envKey: string,
-    batchId: string,
-    next: (revision: number | null) => void,
-    error: (error: { code?: string }) => void
-  ): () => void
-}
+export type { LiveSignalSource, LiveStatus } from './live-hub'
 /** Resolve the browser Firestore instance, using the local emulator for demo projects. */
 function clientFirestore() {
   const db = getFirestore(clientApp())
@@ -65,6 +66,54 @@ const source: LiveSignalSource = {
 }
 const LiveSource = createContext<LiveSignalSource>(source)
 export const LiveSignalProvider = LiveSource.Provider
+
+// One hub per signal source, so every hook in the tab shares listeners and the grant.
+const hubs = new WeakMap<LiveSignalSource, LiveHub>()
+
+/**
+ * Refetch with `refresh` when the server signals a change to any of `topics`, instead of
+ * polling. Refreshes run at most once per two seconds, stop while the tab is hidden, and
+ * fall back to a slow poll if the listener fails. `safetyMs` adds a slow refresh while
+ * visible, for state that can change without a write, such as a worker going quiet.
+ */
+export function useLiveRefresh(
+  topics: readonly ChangeTopic[],
+  refresh: () => unknown,
+  options: { enabled?: boolean; safetyMs?: number } = {}
+): LiveStatus {
+  const selectedSource = useContext(LiveSource)
+  const session = useSession(false)
+  const api = session?.api
+  const uid = session?.user?.uid ?? null
+  const latest = useRef({ refresh, api })
+  useEffect(() => {
+    latest.current = { refresh, api }
+  })
+  const enabled = (options.enabled ?? true) && uid !== null && api !== undefined
+  const key = topics.join(' ')
+  const safetyMs = options.safetyMs
+  const [status, setStatus] = useState<LiveStatus>('connecting')
+  useEffect(() => {
+    if (!enabled) return
+    let hub = hubs.get(selectedSource)
+    if (!hub) {
+      hub = createLiveHub({ source: selectedSource })
+      hubs.set(selectedSource, hub)
+    }
+    hub.setGrant(async () => {
+      const sender = latest.current.api
+      if (!sender) throw new Error('Signed out')
+      return sender.send<LiveGrant>('POST', '/api/live-access', {})
+    })
+    return hub.subscribe({
+      topics: key.split(' ') as ChangeTopic[],
+      refresh: () => latest.current.refresh(),
+      safetyMs,
+      onStatus: setStatus,
+    })
+  }, [enabled, uid, key, safetyMs, selectedSource])
+  return enabled ? status : 'connecting'
+}
 
 /**
  * Watch for newer batch revisions and refresh SWR detail while managing the live access

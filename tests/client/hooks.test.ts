@@ -28,6 +28,10 @@ import {
 } from '../../components/dashboard/family-data'
 import { usePlateDrag } from '../../components/dashboard/use-plate-drag'
 import { usePublishBaseline, usePublishControl } from '../../lib/client/hooks'
+import {
+  LiveSignalProvider,
+  type LiveSignalSource,
+} from '../../lib/client/live-signal'
 
 test('batch cache keys distinguish mine and compose it with states', () => {
   expect(batchesKey()).toBe('/api/batches')
@@ -1608,7 +1612,7 @@ test('Editor never requests run status', async () => {
 })
 
 test.each(['published', 'failed', 'superseded'])(
-  'Publish polls through delayed start and stops at %s',
+  'Publish follows publish signals through delayed start and stops at %s',
   async (terminal) => {
     let phase = 'waiting-for-publish'
     const id = `poll-${terminal}`
@@ -1618,14 +1622,40 @@ test.each(['published', 'failed', 'superseded'])(
         ? { role: 'owner' }
         : { phase, runId: id, outcome: null, updatedAt: null }
     )
-    session.api.send.mockResolvedValue({ status: 'publishing' })
+    session.api.send.mockImplementation(
+      async (_method: string, path: string) =>
+        path === '/api/live-access'
+          ? {
+              envKey: 'development',
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            }
+          : { status: 'publishing' }
+    )
+    const signals: ((revision: number | null) => void)[] = []
+    const source: LiveSignalSource = {
+      subscribe(_envKey, signalId, next) {
+        if (signalId !== 'topic:publish') return () => {}
+        signals.push(next)
+        return () => signals.splice(signals.indexOf(next), 1)
+      },
+    }
+    const { wrapper } = harness({}, null)
     const { result } = renderHook(
       () => ({ run: useBatchRun(id), actions: useReviewActions() }),
-      harness({}, null)
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(
+            LiveSignalProvider,
+            { value: source },
+            wrapper({ children })
+          ),
+      }
     )
     await waitFor(() =>
       expect(result.current.run.data?.phase).toBe('waiting-for-publish')
     )
+    // Nothing listens before a publish is requested.
+    expect(signals).toHaveLength(0)
     vi.useFakeTimers()
     try {
       await act(async () =>
@@ -1633,16 +1663,24 @@ test.each(['published', 'failed', 'superseded'])(
           ok: true,
         })
       )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(signals).toHaveLength(1)
       phase = 'publishing'
       await act(async () => {
+        signals[0](4)
         await vi.advanceTimersByTimeAsync(2100)
       })
       expect(result.current.run.data?.phase).toBe('publishing')
       phase = terminal
       await act(async () => {
+        signals[0](5)
         await vi.advanceTimersByTimeAsync(2100)
       })
       expect(result.current.run.data?.phase).toBe(terminal)
+      // A finished run stops listening.
+      expect(signals).toHaveLength(0)
       expect(navigation.refresh).toHaveBeenCalledTimes(
         terminal === 'published' ? 1 : 0
       )

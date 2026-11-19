@@ -12,10 +12,12 @@ import { firestoreReviewStore } from '../review/firestore-store'
 import type { PipelineRun } from './queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import {
+  capabilitiesVisiblyChanged,
   shouldWriteCapabilities,
   type WorkerCapabilityRecord,
 } from './capabilities'
 import { liveEnvKey, signalPath } from '../review/live-signal'
+import { signalChange } from '../live/change-signals'
 import { compareJobAge, isStandaloneDesktopJob } from './claim-eligibility'
 
 const claimPageSize = 16
@@ -85,27 +87,31 @@ export function firestoreJobsStore(
      * changed.
      */
     async writeCapabilities(scope, record) {
-      await db.runTransaction(async (transaction) => {
+      const changed = await db.runTransaction(async (transaction) => {
         const ref = capabilities.doc(`${encodeURIComponent(env)}--${scope}`)
-        const previous = await transaction.get(ref)
-        if (
-          shouldWriteCapabilities(
-            previous.exists
-              ? (previous.data() as WorkerCapabilityRecord)
-              : null,
-            record
-          )
-        )
-          transaction.set(ref, record)
+        const snapshot = await transaction.get(ref)
+        const previous = snapshot.exists
+          ? (snapshot.data() as WorkerCapabilityRecord)
+          : null
+        if (!shouldWriteCapabilities(previous, record)) return false
+        transaction.set(ref, record)
+        return capabilitiesVisiblyChanged(previous, record)
       })
+      if (changed) await signalChange(db, reviewEnv, 'pipeline')
     },
     /**
      * Run an operation against a single Firestore transaction so queue and review
-     * updates commit together.
+     * updates commit together. After a transaction that wrote, tell pipeline listeners,
+     * and Gateway listeners too when it wrote a hosted job.
      */
-    transaction(run) {
-      return db.runTransaction(async (transaction) =>
-        run({
+    async transaction(run) {
+      let wrote = false
+      let hosted = false
+      const result = await db.runTransaction(async (transaction) => {
+        wrote = false
+        hosted = false
+        const review = firestoreReviewStore(db, reviewEnv, transaction)
+        return run({
           /** Check for a publish lock in the review environment before queueing work. */
           canQueue: () => canQueueDuringPublish(db, transaction, reviewEnv),
           /**
@@ -113,6 +119,7 @@ export function firestoreJobsStore(
            * uses it.
            */
           async createDraftBatch(batch) {
+            wrote = true
             transaction.create(db.collection('reviewBatches').doc(batch.id), {
               ...batch,
               env: reviewEnv,
@@ -177,6 +184,7 @@ export function firestoreJobsStore(
           },
           /** Stage the run document update in the current transaction. */
           setRun(run) {
+            wrote = true
             transaction.set(runs.doc(run.id), run)
           },
           /** Resolve a job by ID within the current jobs environment. */
@@ -260,22 +268,35 @@ export function firestoreJobsStore(
               ? member.role
               : null
           },
-          commitDraft: firestoreReviewStore(db, reviewEnv, transaction).commit,
+          commitDraft(...args) {
+            wrote = true
+            return review.commit(...args)
+          },
           /**
            * Stage a create-only job write so duplicate IDs cannot overwrite earlier work.
            */
           create(job) {
+            wrote = true
+            if (job.route === 'hosted') hosted = true
             transaction.create(jobs.doc(job.id), job)
           },
           /** Stage the updated job record in the current transaction. */
           set(job) {
+            wrote = true
+            if (job.route === 'hosted') hosted = true
             transaction.set(jobs.doc(job.id), job)
           },
           setEnhancedImage(id, bytes) {
+            wrote = true
             transaction.create(enhancedImages.doc(id), { bytes, env })
           },
         })
-      )
+      })
+      await Promise.all([
+        wrote && signalChange(db, reviewEnv, 'pipeline'),
+        hosted && signalChange(db, reviewEnv, 'gateway'),
+      ])
+      return result
     },
     /** Load the worker token record by hash within the adapter's environment. */
     async getToken(hash) {

@@ -26,6 +26,7 @@ export default defineConfig({
             'tests/plate-drag.test.tsx',
             'tests/client/navigation-layout.test.tsx',
             'tests/client/review-comparison.test.tsx',
+            'tests/client/live-refresh.test.tsx',
           ],
           environment: 'jsdom',
         },
@@ -53,6 +54,7 @@ export default defineConfig({
             'tests/plate-drag.test.tsx',
             'tests/client/navigation-layout.test.tsx',
             'tests/client/review-comparison.test.tsx',
+            'tests/client/live-refresh.test.tsx',
             ...(process.env.FIRESTORE_EMULATOR_HOST
               ? []
               : ['tests-emulator/**']),

@@ -1,5 +1,6 @@
 import { firestoreReviewStore } from '../review/firestore-store'
 import type { Firestore } from '@google-cloud/firestore'
+import { signalChange } from '../live/change-signals'
 import type { ResearchStore, ResearchToken } from './store'
 import type { ResearchJob } from './types'
 
@@ -14,11 +15,13 @@ export function firestoreResearchStore(
     env,
     /**
      * Run research job updates in a Firestore transaction and share its review context
-     * when supplied.
+     * when supplied. After a transaction that changed a job, tell research listeners.
      */
-    transaction(run) {
-      return db.runTransaction(async (transaction) =>
-        run({
+    async transaction(run) {
+      let wrote = false
+      const result = await db.runTransaction(async (transaction) => {
+        wrote = false
+        return run({
           review: firestoreReviewStore(db, env, transaction),
           /** Read a research job only when it belongs to the adapter's environment. */
           async get(id) {
@@ -48,10 +51,13 @@ export function firestoreResearchStore(
           set(job) {
             if (job.env !== env)
               throw new Error('Research environment mismatch')
+            wrote = true
             transaction.set(jobs.doc(job.id), job)
           },
         })
-      )
+      })
+      if (wrote) await signalChange(db, env, 'research')
+      return result
     },
     /** Read a worker token by hash within the adapter's environment. */
     async getToken(hash) {
