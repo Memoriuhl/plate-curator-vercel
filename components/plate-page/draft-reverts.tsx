@@ -1,41 +1,35 @@
 'use client'
 
 import { useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
 import { FieldAttribution } from '@/components/review/field-attribution'
 import { Button } from '@/components/ui/button'
 import { ApiError, apiErrorReasons } from '@/lib/client/api'
-import {
-  useBatch,
-  useReviewActions,
-  useSharedDraftId,
-} from '@/lib/client/hooks'
-import { isSharedDraftId } from '@/lib/review/draft-id'
+import { type BatchDetail, useReviewActions } from '@/lib/client/hooks'
 import { editableKeys } from '@/lib/review/fields'
 import { changedDraftField } from '@/lib/review/story'
 import type { DraftChangeTarget } from '@/lib/review/types'
 
 export function PlateDraftReverts({
   plateId,
+  draft,
+  batchId,
   disabled,
   onReverted,
 }: {
   plateId: string
+  draft: BatchDetail | undefined
+  batchId: string | undefined
   disabled: boolean
   onReverted: (target: DraftChangeTarget) => void
 }) {
-  const selected = useSearchParams().get('batch')
-  const shared = useSharedDraftId()
-  const id = selected && !isSharedDraftId(selected) ? null : shared
-  const { data } = useBatch(id, { reuse: true })
   const actions = useReviewActions()
   const [pending, setPending] = useState(false)
   const [feedback, setFeedback] = useState<{
     message: string
     error: boolean
   } | null>(null)
-  const entry = data?.plates.find((item) => item.baseline.id === plateId)
+  const entry = draft?.plates.find((item) => item.baseline.id === plateId)
   const fields = entry
     ? editableKeys.filter((field) =>
         changedDraftField(field, entry.baseline[field], entry.proposed[field])
@@ -43,14 +37,14 @@ export function PlateDraftReverts({
     : []
 
   async function revert(target: DraftChangeTarget) {
-    if (!data || pending || disabled) return
+    if (!draft || !batchId || pending || disabled) return
     setPending(true)
     setFeedback(null)
     try {
       await actions.discardPlateChanges(
-        data.batch.id,
+        batchId,
         plateId,
-        data.batch.revision,
+        draft.batch.revision,
         target
       )
       onReverted(target)
@@ -69,7 +63,7 @@ export function PlateDraftReverts({
     }
   }
 
-  if (!id) return null
+  if (!draft) return null
   return (
     <>
       {(fields.length > 0 || entry?.order) && (

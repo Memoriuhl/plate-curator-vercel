@@ -38,7 +38,13 @@ vi.mock('swr', async (importOriginal) => ({
 }))
 vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: state.draft }),
-  useSharedDraftId: () => 'shared-draft-test',
+  useMe: () => ({ data: { draftId: 'shared-draft-test', role: 'owner' } }),
+  useWorkspaceBatch: () => {
+    const id = new URLSearchParams(state.query).get('batch')
+    return id === null
+      ? { mode: 'personal' }
+      : { mode: 'selected', id, detail: state.draft, status: 'ready' }
+  },
   useReviewActions: () => ({ discardPlateChanges: state.discard }),
   /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
   useEditPlate: () => ({ edit: state.edit, pending: state.pending }),
@@ -93,7 +99,23 @@ function saveDescription(value: string) {
 beforeEach(() => {
   state.query = 'show=tags&q=army'
   state.pending = false
-  state.draft = undefined
+  state.draft = {
+    batch: {
+      id: 'shared-draft-test',
+      name: 'Shared draft',
+      kind: 'shared-draft',
+      state: 'open',
+      revision: 0,
+      baselineVersion: 1,
+      createdBy: 'owner',
+      createdByName: null,
+      createdAt: '',
+      stateOrders: {},
+      plateIds: [],
+      approval: null,
+    },
+    plates: [],
+  }
   state.discard.mockReset().mockResolvedValue(undefined)
   state.remote = null
   state.refreshed = false
@@ -107,65 +129,69 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-test('plate page reverts one draft field or its position using the displayed revision', async () => {
-  const baseline = {
-    id: props.plate.id,
-    state: props.plate.state,
-    slug: 'army',
-    displayName: props.plate.displayName,
-    tags: props.plate.tags,
-    image: 'army.webp',
-    description: props.plate.description,
-  }
-  state.draft = {
-    batch: {
-      id: 'shared-draft-test',
-      name: 'Shared draft',
-      kind: 'shared-draft',
-      state: 'open',
-      revision: 5,
-      baselineVersion: 1,
-      createdBy: 'owner',
-      createdByName: null,
-      createdAt: '',
-      stateOrders: {},
-      plateIds: [baseline.id],
-      approval: null,
-    },
-    plates: [
-      {
-        baseline,
-        proposed: { ...baseline, description: 'draft' },
-        edit: null,
-        revision: 'r',
-        order: { before: 1, after: 2, total: 4 },
+test.each(['shared-draft-test', 'draft'])(
+  'plate page reverts one draft field or its position using the displayed revision (%s)',
+  async (batchId) => {
+    if (batchId === 'draft') state.query = 'batch=draft'
+    const baseline = {
+      id: props.plate.id,
+      state: props.plate.state,
+      slug: 'army',
+      displayName: props.plate.displayName,
+      tags: props.plate.tags,
+      image: 'army.webp',
+      description: props.plate.description,
+    }
+    state.draft = {
+      batch: {
+        id: 'shared-draft-test',
+        name: 'Shared draft',
+        kind: 'shared-draft',
+        state: 'open',
+        revision: 5,
+        baselineVersion: 1,
+        createdBy: 'owner',
+        createdByName: null,
+        createdAt: '',
+        stateOrders: {},
+        plateIds: [baseline.id],
+        approval: null,
       },
-    ],
+      plates: [
+        {
+          baseline,
+          proposed: { ...baseline, description: 'draft' },
+          edit: null,
+          revision: 'r',
+          order: { before: 1, after: 2, total: 4 },
+        },
+      ],
+    }
+    render(<PlatePage {...props} />)
+    fireEvent.click(screen.getByText('Revert draft changes'))
+    fireEvent.click(screen.getByRole('button', { name: 'Revert description' }))
+    await waitFor(() =>
+      expect(state.discard).toHaveBeenCalledWith(
+        batchId,
+        baseline.id,
+        5,
+        'description'
+      )
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Reverted to the catalog.')).toBeTruthy()
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Revert position' }))
+    await waitFor(() =>
+      expect(state.discard).toHaveBeenCalledWith(
+        batchId,
+        baseline.id,
+        5,
+        'order'
+      )
+    )
   }
-  render(<PlatePage {...props} />)
-  fireEvent.click(screen.getByText('Revert draft changes'))
-  fireEvent.click(screen.getByRole('button', { name: 'Revert description' }))
-  await waitFor(() =>
-    expect(state.discard).toHaveBeenCalledWith(
-      'shared-draft-test',
-      baseline.id,
-      5,
-      'description'
-    )
-  )
-  await waitFor(() =>
-    expect(screen.getByText('Reverted to the catalog.')).toBeTruthy()
-  )
-  fireEvent.click(screen.getByRole('button', { name: 'Revert position' }))
-  await waitFor(() =>
-    expect(state.discard).toHaveBeenCalledWith(
-      'shared-draft-test',
-      baseline.id,
-      5,
-      'order'
-    )
-  )
-})
+)
 
 test('story controls require the local flag on the plate page', () => {
   vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')

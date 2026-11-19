@@ -13,6 +13,7 @@ import {
 } from './specialized-suggestion'
 import { useSession } from '@/lib/client/session'
 import { useSWRConfig } from 'swr'
+import { plateEditVersion } from '@/lib/review/edit-history'
 
 /**
  * Merge saved and proposed tags into a normalized, deduplicated list for curator review.
@@ -51,6 +52,7 @@ export function TagRunBanner({
       workspace.id !== batchId ||
       workspace.detail?.batch.state !== 'open')
   const detail = useBatch(batchId, { reuse: true })
+  const fieldEditsBlocked = blocked || detail.isLoading
   const { api } = useSession()
   const { mutate } = useSWRConfig()
   const { edit, pending } = useEditPlate()
@@ -67,6 +69,15 @@ export function TagRunBanner({
         (state !== 'completed' || !entry.job.stageError)
     ).length
   const active = starting || counts('queued') + counts('claimed') > 0
+
+  /** Pair a reviewed hash with the version of that same plate snapshot. */
+  function reviewedVersion(plate: RunPlate, revision: string) {
+    const entry = detail.data?.plates.find(
+      (item) => item.proposed.id === plate.id
+    )
+    if ((entry?.revision ?? plate.revision) === revision)
+      return plateEditVersion(detail.data?.batch, plate.id) || undefined
+  }
   /**
    * Apply a specialized stage result through its endpoint and refresh the saved batch.
    */
@@ -93,13 +104,20 @@ export function TagRunBanner({
    */
   async function acceptFields(entry: RunEntry, suggestion: Suggestion) {
     if (entry.job.previewOnly || suggestion.kind !== 'fields') return
-    if (saving.current || blocked || !batchId || !entry.job.inputHash) return
+    if (saving.current || fieldEditsBlocked || !batchId || !entry.job.inputHash)
+      return
+    const baseRevision = entry.job.inputHash
+    const editVersion = reviewedVersion(entry.plate, baseRevision)
     saving.current = true
     try {
       const result = await edit(
         entry.plate as Parameters<typeof edit>[0],
         suggestion.fields,
-        { batchId, baseRevision: entry.job.inputHash }
+        {
+          batchId,
+          baseRevision,
+          ...(editVersion !== undefined && { editVersion }),
+        }
       )
       setMessages((current) => ({
         ...current,
@@ -128,7 +146,7 @@ export function TagRunBanner({
     suggestions: string[],
     revision: string
   ) {
-    if (saving.current || blocked || !batchId) return
+    if (saving.current || fieldEditsBlocked || !batchId) return
     saving.current = true
     const currentTags =
       detail.data?.plates.find((entry) => entry.proposed.id === plate.id)
@@ -136,11 +154,16 @@ export function TagRunBanner({
       saved[plate.id] ??
       plate.tags
     const tags = mergeTags(currentTags, suggestions)
+    const editVersion = reviewedVersion(plate, revision)
     try {
       const result = await edit(
         plate as Parameters<typeof edit>[0],
         { tags },
-        { batchId, baseRevision: revision }
+        {
+          batchId,
+          baseRevision: revision,
+          ...(editVersion !== undefined && { editVersion }),
+        }
       )
       setMessages((current) => ({
         ...current,
@@ -246,7 +269,9 @@ export function TagRunBanner({
                         (item) => item.proposed.id === entry.plate.id
                       )?.proposed
                     }
-                    blocked={pending || blocked || !entry.job.inputHash}
+                    blocked={
+                      pending || fieldEditsBlocked || !entry.job.inputHash
+                    }
                     accepted={
                       !!entry.job.inputHash &&
                       savedFields[entry.plate.id] ===
@@ -307,7 +332,7 @@ export function TagRunBanner({
                         key={tag}
                         size="sm"
                         variant="outline"
-                        disabled={pending || blocked}
+                        disabled={pending || fieldEditsBlocked}
                         aria-label={`Accept ${tag} for ${entry.plate.displayName}`}
                         onClick={() =>
                           void accept(
@@ -323,7 +348,7 @@ export function TagRunBanner({
                     {suggestions.length ? (
                       <Button
                         size="sm"
-                        disabled={pending || blocked}
+                        disabled={pending || fieldEditsBlocked}
                         onClick={() =>
                           void accept(
                             entry.plate,
