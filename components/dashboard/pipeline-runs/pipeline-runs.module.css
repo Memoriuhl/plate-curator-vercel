@@ -470,7 +470,7 @@
   margin-block-start: var(--space-1);
 }
 .overviewPlates .watchTimeline {
-  grid-auto-rows: var(--timeline-row-height);
+  grid-auto-rows: minmax(var(--timeline-row-height), auto);
   margin-block-start: var(--space-1);
 }
 .overviewPlates .watchTimeline,
@@ -838,8 +838,7 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
 .watchTimeline {
   position: relative;
   display: grid;
-  width: max-content;
-  min-width: 100%;
+  min-width: 0;
   max-height: 16rem;
   margin-top: var(--space-3);
   overflow: auto;
@@ -848,7 +847,7 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
 }
 .timelineRow {
   display: grid;
-  min-width: max-content;
+  min-width: 0;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
 }
@@ -863,6 +862,7 @@ a.stage:is(:hover, :focus-visible) .stageResultIcon {
 }
 .phaseList {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
 }

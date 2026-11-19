@@ -9,6 +9,7 @@ import {
   variantListCap,
   VARIANT_ROW_HEIGHT,
   VARIANT_ROW_GAP,
+  VARIANT_LIST_INSET,
 } from '@/components/dashboard/family-grid/variant-list-layout'
 
 /**
@@ -151,8 +152,11 @@ export function VirtualizedVariants({
       tabIndex={0}
       role="list"
       aria-label="Variants"
-      className="min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
-      style={{ height: cap }}
+      className="min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)]"
+      style={{
+        height: cap === undefined ? undefined : cap + VARIANT_LIST_INSET * 2,
+        padding: VARIANT_LIST_INSET,
+      }}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget) && !keyboard)
           setFocusedId(null)

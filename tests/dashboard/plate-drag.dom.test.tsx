@@ -41,6 +41,7 @@ import {
 import {
   variantListCap,
   estimatedFamilyHeight,
+  VARIANT_LIST_INSET,
   VARIANT_ROW_HEIGHT,
   VARIANT_ROW_GAP,
 } from '../../components/dashboard/family-grid/variant-list-layout'
@@ -893,7 +894,9 @@ test('cap uses the rendered sixth row, including unequal row heights and gaps', 
   expect(variantListCap(rows)).toBe(655)
   expect(VARIANT_ROW_HEIGHT).toBe(62)
   expect(VARIANT_ROW_GAP).toBe(8)
-  expect(estimatedFamilyHeight(6) - estimatedFamilyHeight(5)).toBe(39)
+  expect(estimatedFamilyHeight(6) - estimatedFamilyHeight(5)).toBe(
+    39 + 2 * VARIANT_LIST_INSET
+  )
   expect(estimatedFamilyHeight(100)).toBe(estimatedFamilyHeight(6))
   expect(estimatedFamilyHeight(5)).toBeLessThan(estimatedFamilyHeight(6))
 })
@@ -948,14 +951,14 @@ test('five variants stay uncapped; six show five measured rows and half the sixt
     const list = view.container.querySelector<HTMLElement>(
       '[data-variant-scroll]'
     )!
-    expect(list.style.height).toBe('655px')
+    expect(list.style.height).toBe(`${655 + 2 * VARIANT_LIST_INSET}px`)
     expect(list.className).toContain('overflow-y-auto')
     expect(list.className).not.toContain('[scrollbar-gutter:stable]')
     expect(list.className).not.toContain('overscroll-contain')
     expect(observe).toHaveBeenCalledTimes(6)
     sizes[5] = 200
     act(() => resized())
-    expect(list.style.height).toBe('685px')
+    expect(list.style.height).toBe(`${685 + 2 * VARIANT_LIST_INSET}px`)
   } finally {
     bounds.mockRestore()
     vi.unstubAllGlobals()

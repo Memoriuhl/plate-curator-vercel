@@ -49,9 +49,11 @@ input,
 [tabindex] {
   -webkit-tap-highlight-color: transparent;
 }
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 4px;
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+  }
 }
 button {
   cursor: pointer;
@@ -381,7 +383,7 @@ body {
   display: flex;
   gap: var(--space-2);
   overflow-x: auto;
-  padding-bottom: var(--space-1);
+  padding: 6px;
   min-height: 100px;
 }
 .jurisdiction-region {
@@ -575,7 +577,7 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding: 0 var(--space-1) var(--space-1) 0;
+    padding: 0 6px 6px;
     flex-direction: column;
   }
   .states-layout .jurisdiction-card {
