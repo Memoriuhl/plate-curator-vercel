@@ -67,10 +67,6 @@ export async function claimHostedQueueJob(d: JobsDeps, id: string) {
       leaseExpiresAt: now + queueStageTimeoutMs,
     }
     const run = runs.find((run) => run.id === job.queueRunId)!
-    run.lastDispatchedAt = Math.max(
-      d.now(),
-      ...runs.map((run) => (run.lastDispatchedAt ?? 0) + 1)
-    )
     run.status = 'running'
     run.waitReason = 'inference'
     run.updatedAt = d.now()
@@ -260,10 +256,6 @@ export async function claimNext(
       const run = runs.find((run) => run.id === job.queueRunId)!
       const step = run.attempts.at(-1)?.steps[job.queueStep!]
       if (step) Object.assign(step, { status: 'running', startedAt: now })
-      run.lastDispatchedAt = Math.max(
-        now,
-        ...runs.map((run) => (run.lastDispatchedAt ?? 0) + 1)
-      )
       run.status = 'running'
       run.updatedAt = now
       run.waitReason = 'resource'

@@ -288,7 +288,7 @@ test('a disabled hosted model is rejected at enqueue and hosted failure never ed
   expect(await s.review.listEdits('batch')).toEqual([])
 })
 
-test('a 23-plate Gateway Tag run issues at most six model calls concurrently and keeps one run', async () => {
+test('a 23-plate Gateway Tag run and a later run together issue at most six model calls concurrently', async () => {
   const s = setup(Array.from({ length: 24 }, (_, i) => `plate-${i}`))
   const result = await enqueueSelection(s.jobs, actor, {
     requestId: 'gateway-23',
@@ -315,7 +315,9 @@ test('a 23-plate Gateway Tag run issues at most six model calls concurrently and
     'later'
   ))!
   let peak = 0
-  for (const start of [0, 6, 12, 18]) {
+  let cursor = 0
+  let rounds = 0
+  while (cursor < 23) {
     let release!: () => void
     const barrier = new Promise<void>((resolve) => {
       release = resolve
@@ -328,34 +330,45 @@ test('a 23-plate Gateway Tag run issues at most six model calls concurrently and
       return { tags: ['blue'], usage: { tokens: 12 } }
     })
     const jobs = []
-    for (let i = start; i < Math.min(start + 6, 23); i++) {
+    for (let i = cursor; i < Math.min(cursor + 6, 23); i++) {
       jobs.push((await dispatchQueueStage(s.jobs, run.id, 1, i, `phase-${i}`))!)
     }
     expect(jobs.every(Boolean)).toBe(true)
     expect(
-      await dispatchQueueStage(s.jobs, run.id, 1, start + 6, 'beyond-window')
+      await dispatchQueueStage(s.jobs, run.id, 1, cursor + 6, 'beyond-window')
     ).toBeNull()
-    expect(
-      await executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
-    ).toBe('waiting')
-    const parallel = jobs.map((jobId) =>
+    // The later run does not wait for this one: it shares the Gateway slots from the
+    // first round.
+    const offered = rounds === 0 ? [...jobs, laterJob] : jobs
+    const parallel = offered.map((jobId) =>
       executeHostedQueueStage(s.jobs, jobId, async () => s.hosted)
     )
     try {
-      await vi.waitFor(() => expect(inFlight).toBe(jobs.length))
+      await vi.waitFor(() => expect(inFlight).toBe(Math.min(6, offered.length)))
     } finally {
       release()
     }
-    expect(await Promise.all(parallel)).toEqual(jobs.map(() => 'settled'))
-    for (const [offset, jobId] of jobs.entries()) {
+    const outcomes = await Promise.all(parallel)
+    if (rounds === 0)
+      expect(outcomes).toEqual([
+        ...jobs.slice(0, 5).map(() => 'settled'),
+        'waiting',
+        'settled',
+      ])
+    else expect(outcomes).toEqual(jobs.map(() => 'settled'))
+    const settled = jobs.filter((_, offset) => outcomes[offset] === 'settled')
+    for (const [offset, jobId] of settled.entries()) {
       expect(await getJob(s.jobs, jobId)).toMatchObject({ state: 'completed' })
       expect(
-        await observeQueueStage(s.jobs, run.id, 1, start + offset)
-      ).toMatchObject({ phase: start + offset === 22 ? 'done' : 'next' })
+        await observeQueueStage(s.jobs, run.id, 1, cursor + offset)
+      ).toMatchObject({ phase: cursor + offset === 22 ? 'done' : 'next' })
     }
+    cursor += settled.length
+    rounds++
   }
+  expect(rounds).toBe(4)
   expect(peak).toBe(6)
-  expect(s.suggest).toHaveBeenCalledTimes(23)
+  expect(s.suggest).toHaveBeenCalledTimes(24)
   expect(await s.review.listEdits('batch')).toHaveLength(23)
   expect(await listRuns(s.jobs, actor)).toMatchObject({
     value: expect.arrayContaining([
@@ -366,9 +379,7 @@ test('a 23-plate Gateway Tag run issues at most six model calls concurrently and
       }),
     ]),
   })
-  await expect(
-    executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
-  ).resolves.toBe('settled')
+  expect(await getJob(s.jobs, laterJob)).toMatchObject({ state: 'completed' })
 })
 
 test('cancel stops unsent Gateway Tag requests and keeps the already running results', async () => {

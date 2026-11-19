@@ -67,7 +67,6 @@ export type PipelineRun = {
   queuedAt: number
   enqueueSequence: number
   updatedAt: number
-  lastDispatchedAt?: number
   waitReason?: 'worker' | 'resource' | 'inference' | 'image_choice' | 'recovery'
   status: RunStatus
   dismissedAt?: number

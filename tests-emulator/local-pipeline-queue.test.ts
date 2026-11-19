@@ -255,6 +255,130 @@ test('Gateway Tag reserves two plates together and keeps out-of-order results in
   })
 }, 20_000)
 
+test('concurrent hosted and desktop claims across runs never double-claim a job', async () => {
+  const desktop = []
+  for (const requestId of ['gpu-a', 'gpu-b', 'gpu-c']) {
+    desktop.push(await enqueue(requestId))
+    time++
+  }
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const hosted: string[] = []
+  const gatewayRuns: string[] = []
+  for (let index = 0; index < 4; index++) {
+    const created = await enqueueRun(jobs, actor, {
+      requestId: `gateway-${index}`,
+      batchId: 'batch',
+      plateIds: plates.map((plate) => plate.id),
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    })
+    if (!created.ok) throw Error(created.error)
+    const { id } = created.value
+    await bindQueueWorkflow(jobs, id, 1, `workflow-gateway-${index}`)
+    const wave = await dispatchGatewayTagWave(jobs, id, 1, 0)
+    hosted.push(...wave.map((job) => job.id))
+    gatewayRuns.push(id)
+    time++
+  }
+  expect(hosted).toHaveLength(8)
+  /** Give each claim its own store, as separate server processes would have. */
+  const process = () => ({
+    ...jobs,
+    store: firestoreJobsStore(
+      db,
+      localJobsEnvironment('queue-emulator'),
+      'development'
+    ),
+  })
+  const [hostedClaims, desktopClaims] = await Promise.all([
+    Promise.all(
+      [...hosted, ...hosted].map((id) => claimHostedQueueJob(process(), id))
+    ),
+    Promise.all(
+      ['one', 'two', 'three'].map((worker) => claimNext(process(), worker))
+    ),
+  ])
+  const stored = await jobs.store.transaction((tx) => tx.list())
+  const claimed = stored.filter((job) => job.state === 'claimed')
+  // Six Gateway Tag calls shared across all four runs, and one GPU job.
+  expect(claimed.filter((job) => job.route === 'hosted')).toHaveLength(6)
+  expect(
+    gatewayRuns.map(
+      (id) => claimed.filter((job) => job.queueRunId === id).length
+    )
+  ).toEqual([2, 2, 1, 1])
+  expect(claimed.filter((job) => job.route !== 'hosted')).toHaveLength(1)
+  expect(new Set(claimed.map((job) => job.claimId)).size).toBe(7)
+  for (const id of hosted) {
+    const issued = new Set(
+      hostedClaims.flatMap((claim) =>
+        claim?.job.id === id ? [claim.claimId] : []
+      )
+    )
+    const job = stored.find((job) => job.id === id)!
+    expect(issued.size).toBe(job.state === 'claimed' ? 1 : 0)
+    if (job.state === 'claimed') expect([...issued]).toEqual([job.claimId])
+  }
+  expect(desktopClaims.filter(Boolean)).toHaveLength(1)
+  expect(desktopClaims.find(Boolean)?.job.queueRunId).toBe(desktop[0].id)
+}, 30_000)
+
+test('drafts from concurrent runs in the same Batch both land', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const runs: string[] = []
+  for (const plate of plates) {
+    const created = await enqueueSelection(jobs, actor, {
+      requestId: `draft-${plate.slug}`,
+      batchId: 'batch',
+      plateIds: [plate.id],
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    })
+    if (!created.ok) throw Error(created.error)
+    const [run] = created.value
+    await bindQueueWorkflow(jobs, run.id, 1, `workflow-${plate.slug}`)
+    await dispatchQueueStage(jobs, run.id, 1, 0, `hook-${plate.slug}`)
+    runs.push(run.id)
+    time++
+  }
+  const claims = await Promise.all(
+    runs.map((id) => claimHostedQueueJob(jobs, `${id}-1-0`))
+  )
+  expect(claims.every(Boolean)).toBe(true)
+  for (const [index, claim] of claims.entries())
+    expect(
+      await reportResult(jobs, 'hosted', claim!.job.id, claim!.claimId, {
+        backend: 'fixture',
+        model: 'google/gemma-4-26b-a4b-it',
+        promptVersion: 'v1',
+        durationMs: 10,
+        suggestions: [index ? 'red' : 'blue'],
+      })
+    ).toMatchObject({ ok: true })
+  const process = () => ({
+    ...jobs,
+    store: firestoreJobsStore(
+      db,
+      localJobsEnvironment('queue-emulator'),
+      'development'
+    ),
+  })
+  expect(
+    await Promise.all(runs.map((id) => observeQueueStage(process(), id, 1, 0)))
+  ).toEqual([{ phase: 'done' }, { phase: 'done' }])
+  const saved = await review.store.readBatch('batch')
+  expect(saved?.batch.revision).toBe(2)
+  expect(
+    saved?.edits.map((edit) => [edit.plateId, edit.fields.tags]).sort()
+  ).toEqual([
+    ['AK.one', ['blue']],
+    ['AK.two', ['red']],
+  ])
+  expect(await listRuns(jobs, actor)).toMatchObject({
+    value: [{ status: 'completed' }, { status: 'completed' }],
+  })
+}, 30_000)
+
 test('stale worker restart remains reserved until verified stopped recovery; queued cancellation and retry retain history', async () => {
   const run = await enqueue('stale')
   const claim = (await claimNext(jobs, 'dead-worker'))!

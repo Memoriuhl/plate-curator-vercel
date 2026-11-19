@@ -771,6 +771,8 @@ test('the drawer shows pipeline types and keeps open runs across polling and new
 
 test('the drawer groups running, queued and finished runs, and marks worker pickup as waiting', () => {
   const active = saved({ id: 'active', status: 'running' })
+  // One curator's hosted runs can run at the same time.
+  const alsoActive = saved({ id: 'also-active', status: 'running' })
   const first = saved({
     id: 'first',
     createdAt: 200,
@@ -792,7 +794,7 @@ test('the drawer groups running, queued and finished runs, and marks worker pick
     queuedAt: 50,
   })
   const queue = {
-    runs: [second, settled, active, first],
+    runs: [second, settled, alsoActive, active, first],
     loading: false,
     error: null,
     refresh: vi.fn(),
@@ -815,6 +817,7 @@ test('the drawer groups running, queued and finished runs, and marks worker pick
       .map((article) => article.getAttribute('aria-label'))
   ).toEqual([
     'Pipeline run active',
+    'Pipeline run also-active',
     'Pipeline run first',
     'Pipeline run second',
     'Pipeline run settled',
@@ -833,7 +836,12 @@ test('the drawer groups running, queued and finished runs, and marks worker pick
   expect(
     waiting.queryByText('Waiting for the local worker to pick up this step')
   ).toBeNull()
-  expect(rail.getByRole('button', { name: /Run second.*Queued/ })).toBeTruthy()
+  fireEvent.click(rail.getByRole('button', { name: /Run second.*Queued/ }))
+  expect(
+    within(
+      rail.getByRole('article', { name: 'Pipeline run second' })
+    ).getByText('Waiting for other runs in the queue')
+  ).toBeTruthy()
 })
 
 test('running cards open by default and only reopen for a new start', () => {
