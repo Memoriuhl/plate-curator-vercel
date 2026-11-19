@@ -69,18 +69,20 @@ export async function retryDraftRace<T>(
   return { ok: false, error: 'superseded_revision' }
 }
 
-/** Identify the latest write to each requested field by walking this plate's before-images. */
+/** Identify the latest write to each requested field since the curator viewed the plate. */
 export async function plateFieldConflicts(
   d: ReviewDeps,
   batch: ReviewBatch,
   baseline: Plate,
   existing: ProposedEdit | null,
   seen: string,
-  fields: EditableFields
+  fields: EditableFields,
+  seenEditVersion?: number
 ): Promise<PlateFieldConflicts | undefined> {
   const relevant = editableKeys.filter((field) => Object.hasOwn(fields, field))
   const current = { ...baseline, ...existing?.fields }
-  if (plateRevision(current) === seen) return undefined
+  if (seenEditVersion === undefined && plateRevision(current) === seen)
+    return undefined
   const baselineRevision = plateRevision(baseline)
   const floor = batch.rebaseFloor ?? 0
   const pendingAttribution = (
@@ -100,7 +102,10 @@ export async function plateFieldConflicts(
   )
   const changes =
     batch.kind === 'shared-draft' && d.store.listChanges
-      ? await d.store.listChanges(batch.id, needsLegacyHistory ? 0 : floor)
+      ? await d.store.listChanges(
+          batch.id,
+          seenEditVersion ?? (needsLegacyHistory ? 0 : floor)
+        )
       : []
   const conflicts: PlateFieldConflicts = {}
   const changedFields = new Set<keyof EditableFields>()
@@ -117,7 +122,7 @@ export async function plateFieldConflicts(
     // the same through the rebase.
     if (
       change.revision <= floor &&
-      (after?.baseRevision !== baselineRevision ||
+      ((after && after.baseRevision !== baselineRevision) ||
         (before && before.baseRevision !== baselineRevision))
     )
       break
@@ -151,7 +156,7 @@ export async function plateFieldConflicts(
         conflicts[field] = { by, byName, at, value: current[field] ?? null }
       }
     }
-    if (plateRevision(old) === seen) {
+    if (seenEditVersion === undefined && plateRevision(old) === seen) {
       for (const field of relevant)
         if (sameEditableValue(field, old[field], current[field]))
           delete conflicts[field]
@@ -162,17 +167,18 @@ export async function plateFieldConflicts(
 
   // Before-images are pruned after Publish and were absent in legacy Batches.
   // If the screen showed the current baseline, remaining draft fields still differ.
-  if (baselineRevision !== seen) return undefined
-  for (const field of relevant) {
-    if (sameEditableValue(field, baseline[field], current[field]))
-      delete conflicts[field]
-    else if (!conflicts[field] && existing) {
-      const attribution = pendingAttribution(existing, field, current[field])
-      if (attribution) {
-        const { by, byName, at } = attribution
-        conflicts[field] = { by, byName, at, value: current[field] ?? null }
+  if (baselineRevision === seen) {
+    for (const field of relevant) {
+      if (sameEditableValue(field, baseline[field], current[field])) {
+        if (seenEditVersion === undefined) delete conflicts[field]
+      } else if (!conflicts[field] && existing) {
+        const attribution = pendingAttribution(existing, field, current[field])
+        if (attribution) {
+          const { by, byName, at } = attribution
+          conflicts[field] = { by, byName, at, value: current[field] ?? null }
+        }
       }
     }
-  }
+  } else if (seenEditVersion === undefined) return undefined
   return Object.keys(conflicts).length ? conflicts : undefined
 }

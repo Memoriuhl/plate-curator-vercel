@@ -26,7 +26,6 @@ type Input = {
 }
 
 type Plan = Parameters<ReviewStore['transactStateMove']>[3]
-const stateQueues = new Map<string, Promise<unknown>>()
 
 function loadMoveCatalog(
   d: ReviewDeps,
@@ -48,10 +47,9 @@ function loadMoveCatalog(
   return Promise.all([statePlates, catalog])
 }
 
-/** Sequence moves accepted by this process before reading the draft. */
+/** Apply placements to the current draft in Firestore commit order. */
 export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
   const { batchId, operationId, state, moves, standard } = input
-  const key = JSON.stringify([batchId, state])
   const fingerprint = createHash('sha256')
     .update(JSON.stringify([actor.uid, state, moves, standard]))
     .digest('hex')
@@ -64,20 +62,13 @@ export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
     }
     return catalog
   }
-  const pending = (stateQueues.get(key) ?? Promise.resolve()).then(() =>
-    d.store.transactStateMove(
-      batchId,
-      operationId,
-      fingerprint,
-      (detail) => planStateMove(d, actor, input, detail, load),
-      load
-    )
+  return d.store.transactStateMove(
+    batchId,
+    operationId,
+    fingerprint,
+    (detail) => planStateMove(d, actor, input, detail, load),
+    load
   )
-  const tail = pending.catch(() => undefined)
-  stateQueues.set(key, tail)
-  return pending.finally(() => {
-    if (stateQueues.get(key) === tail) stateQueues.delete(key)
-  })
 }
 
 async function planStateMove(

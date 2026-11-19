@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { setTimeout as delay } from 'node:timers/promises'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { moveState } from '../lib/review/move-state'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { Plate } from '../lib/catalog/types'
@@ -48,7 +47,8 @@ async function fixture() {
     plate: string,
     anchor: string,
     withDeps = deps,
-    operationId = randomUUID()
+    operationId = randomUUID(),
+    apply = moveState
   ) => {
     const actor: Actor = { uid: plate, name: plate, role: 'editor' }
     const input = {
@@ -65,7 +65,7 @@ async function fixture() {
         },
       ],
     }
-    return moveState(withDeps, actor, input)
+    return apply(withDeps, actor, input)
   }
   return {
     batchId,
@@ -76,39 +76,51 @@ async function fixture() {
   }
 }
 
-test('same-state placements at one anchor follow arrival order even when the first read pauses', async () => {
+test('same-anchor placements from separate server instances survive in commit order', async () => {
   const { batchId, store, deps, move, cleanup } = await fixture()
-  const baseline = deps.stateBaseline
+  vi.resetModules()
+  const { moveState: moveInOtherInstance } =
+    await import('../lib/review/move-state')
+  const other = { ...deps, store: firestoreReviewStore(db, batchId) }
   const paused = Promise.withResolvers<void>()
   const resume = Promise.withResolvers<void>()
-  let firstRead = true
   deps.stateBaseline = async (...args) => {
-    if (firstRead) {
-      firstRead = false
-      paused.resolve()
-      await resume.promise
-    }
-    return baseline(...args)
+    paused.resolve()
+    await resume.promise
+    return other.stateBaseline(...args)
   }
+  const firstId = randomUUID()
+  const secondId = randomUUID()
+  const first = move('AK', 'd', 'b', deps, firstId)
   try {
-    const operationId = randomUUID()
-    const first = move('AK', 'd', 'b', deps, operationId)
     await paused.promise
-    const second = move('AK', 'e', 'b', {
-      ...deps,
-      store: firestoreReviewStore(db, batchId),
+    const second = await move(
+      'AK',
+      'e',
+      'b',
+      other,
+      secondId,
+      moveInOtherInstance
+    )
+    expect(second).toEqual({
+      ok: true,
+      value: { revision: 13, order: ['AK.a', 'AK.e', 'AK.b', 'AK.c', 'AK.d'] },
     })
-    await Promise.race([second, delay(1000)])
     resume.resolve()
-    const results = await Promise.all([first, second])
-    expect(results.every((result) => result.ok)).toBe(true)
-    expect(await move('AK', 'd', 'b', deps, operationId)).toEqual(results[0])
+    const last = await first
+    const order = ['AK.a', 'AK.e', 'AK.d', 'AK.b', 'AK.c']
+    expect(last).toEqual({ ok: true, value: { revision: 14, order } })
+    expect(await move('AK', 'd', 'b', deps, firstId)).toEqual(last)
+    expect(
+      await move('AK', 'e', 'b', other, secondId, moveInOtherInstance)
+    ).toEqual(second)
     expect(await store.getBatch(batchId)).toMatchObject({
       revision: 14,
-      stateOrders: { AK: ['AK.a', 'AK.d', 'AK.e', 'AK.b', 'AK.c'] },
+      stateOrders: { AK: order },
     })
   } finally {
     resume.resolve()
+    await first.catch(() => undefined)
     await cleanup()
   }
 })

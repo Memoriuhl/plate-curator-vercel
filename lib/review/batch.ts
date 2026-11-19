@@ -215,7 +215,10 @@ async function updatePlate(
           baseline,
           existing,
           i.baseRevision,
-          i.fields
+          i.fields,
+          i.editVersion !== undefined && i.editVersion < editVersion
+            ? i.editVersion
+            : undefined
         )
         return {
           ok: false,

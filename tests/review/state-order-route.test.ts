@@ -266,6 +266,65 @@ test('rejects an old plate form after a different curator restores the original 
   expect(await stale.json()).toMatchObject({ currentEditVersion: 6 })
 })
 
+test('credits the curator who restored a field even when the viewed content hash matches', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const [plate] = statePlates('AK', ['one'])
+  deps.baselineAtVersion = async () => plate
+  const viewed = { baseRevision: plateRevision(plate), editVersion: 0 }
+  const changed = await patchPlate(plate.id, {
+    ...viewed,
+    fields: { tags: ['temporary'] },
+  })
+  expect(changed.status).toBe(200)
+
+  const restoredAt = '2026-11-18T22:10:00Z'
+  deps.now = () => restoredAt
+  context.currentActor.mockResolvedValueOnce({
+    ok: true,
+    actor: { uid: 'restorer', name: 'Restoring Curator', role: 'editor' },
+  })
+  const restored = await patchPlate(plate.id, {
+    baseRevision: plateRevision((await changed.json()).plate),
+    editVersion: 5,
+    fields: { tags: [] },
+  })
+  expect(restored.status).toBe(200)
+
+  const stale = await patchPlate(plate.id, {
+    ...viewed,
+    fields: { tags: ['stale'] },
+  })
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({
+    currentRevision: viewed.baseRevision,
+    currentEditVersion: 6,
+    conflicts: {
+      tags: {
+        value: [],
+        by: 'restorer',
+        byName: 'Restoring Curator',
+        at: restoredAt,
+      },
+    },
+  })
+
+  const afterRestore = { ...viewed, editVersion: 6 }
+  expect(
+    (
+      await patchPlate(plate.id, {
+        ...afterRestore,
+        fields: { description: 'Saved after the restore' },
+      })
+    ).status
+  ).toBe(200)
+  const later = await patchPlate(plate.id, {
+    ...afterRestore,
+    fields: { tags: ['new'] },
+  })
+  expect(later.status).toBe(409)
+  expect((await later.json()).conflicts?.tags).toBeUndefined()
+})
+
 test('allows active standalone cards as moved plates and positional anchors', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   const plates = statePlates('AK', ['a', 'b', 'c', 'u'])

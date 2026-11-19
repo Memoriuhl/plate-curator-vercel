@@ -23,6 +23,7 @@ import {
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
 import { POST as familyDrop } from '../app/api/batches/[id]/family-merge/route'
+import { PATCH as patchPlate } from '../app/api/batches/[id]/plates/[plateId]/route'
 import { plateSelection } from '../components/dashboard/plate-selection'
 import { proposeEdit, reorderState } from '../lib/review/batch'
 import { batchDetail } from '../lib/review/queries'
@@ -85,6 +86,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 const editor: Actor = { uid: 'editor-uid', name: 'Editor', role: 'editor' }
 const owner: Actor = { uid: 'owner-uid', name: 'Owner', role: 'owner' }
+vi.mock('../lib/server/catalog-head', () => ({ catalogChanged: vi.fn() }))
 vi.mock('../lib/server/context', () => ({
   /**
    * Use the fixture request header to choose the editor or owner for route
@@ -282,20 +284,18 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         const [, , , batchId, , plateId] = path.split('/')
-        const result = await proposeEdit(deps, actor, {
-          batchId,
-          plateId,
-          ...(body as { baseRevision: string; fields: EditableFields }),
-        })
-        if (!result.ok) {
-          const response = respond(result)
-          throw new ApiError(
-            response.status,
-            result.error,
-            await response.json()
-          )
-        }
-        return result.value
+        const response = await patchPlate(
+          new Request('https://fixture.invalid' + path, {
+            method,
+            headers: { Authorization: actor.uid },
+            body: JSON.stringify(body),
+          }),
+          { params: Promise.resolve({ id: batchId, plateId }) }
+        )
+        const parsed = await response.json()
+        if (!response.ok)
+          throw new ApiError(response.status, parsed.error, parsed)
+        return parsed
       },
     },
   }
@@ -899,6 +899,38 @@ test('Reapply mine succeeds against the saved revision shown in the conflict', a
     requests.filter((r) => r.method === 'PATCH').at(-1)?.body
   ).toMatchObject({ baseRevision: revision })
   expect((await saved()).proposed.description).toBe('My story')
+})
+
+test('Dashboard Reapply mine restores a deleted Variant after a competing description save', async () => {
+  await remote({ deleted: true })
+  const dashboard = render(<Workspace actor={editor} />)
+  await ready(dashboard)
+  const undo = button(dashboard, 'Undo delete')
+
+  // The description write lands before the Dashboard receives its live signal.
+  const subscribed = listeners.get('shared')!
+  listeners.delete('shared')
+  await remote({ description: 'Saved while the Variant was deleted' })
+  listeners.set('shared', subscribed)
+  const reviewed = await saved()
+
+  fireEvent.click(undo)
+  const reapply = await within(dashboard.container).findByRole('button', {
+    name: 'Reapply mine',
+  })
+  fireEvent.click(reapply)
+  await waitFor(async () => {
+    expect((await saved()).proposed.deleted).not.toBe(true)
+  })
+  expect((await saved()).proposed.description).toBe(
+    'Saved while the Variant was deleted'
+  )
+  expect(requests.filter((r) => r.method === 'PATCH').at(-1)?.body).toEqual({
+    baseRevision: reviewed.revision,
+    editVersion: 2,
+    fields: { deleted: false },
+  })
+  expect(within(dashboard.container).queryByRole('alert')).toBeNull()
 })
 
 test('a third save before reapply produces another conflict with newer saved values', async () => {

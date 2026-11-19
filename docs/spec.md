@@ -119,7 +119,8 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 
 **Shared draft** (owned by the domain module; it replaced per-person Batches and the Submit and Approve steps in #216):
 - One draft per review environment. Dashboard moves and merges, Plate edits and applied pipeline results all write into it. Curators never pick a Batch.
-- Every change is one compare-and-swap write to the draft document, guarded by the draft revision. Saves to different Plates retry with jitter instead of conflicting. A save over someone's newer value for the same Plate is still refused, and a pipeline result never overwrites a field a curator changed after the run started.
+- Plate saves check the content hash and the per-Plate edit version the curator saw. Saves to different Plates retry with jitter if the draft advances. A pipeline result checks the content it started from before applying its field changes.
+- Dashboard order and family moves send the selected Plates and a placement anchor. Firestore applies each move to the current State order in commit order across server instances. Concurrent moves of different Plates to the same anchor both survive in that order. The transaction saves a move's result with its changes, so a retry with the same operation ID returns the original result. Each move requires the first Plate to be the sole active Standard Template, and grouping changes enforce Publish's family rules.
 - Each change also records its before-images in a change log, so an earlier revision can be rebuilt.
 - Publish is Owner-only. It freezes the draft at the revision shown into an immutable release and ships the whole release. It records who, when, the revision and the baseline catalog version.
 - After a Publish, the draft rebases onto the new catalog version. Published edits drop out and edits made after the published revision stay. Change log entries up to the published revision are pruned.
