@@ -603,7 +603,9 @@ test('a draft read while Publish is still finishing waits for the receipt, then 
   const curator = deps.curator
   let during: ReviewBatch | undefined
   deps.curator = {
-    async writeStateOrders(...args: Parameters<typeof curator.writeStateOrders>) {
+    async writeStateOrders(
+      ...args: Parameters<typeof curator.writeStateOrders>
+    ) {
       during = await ensureDraft(deps, env, owner)
       return curator.writeStateOrders(...args)
     },
@@ -674,9 +676,9 @@ test('a release whose run is live holds the draft Publish; once it fails before 
   expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
   expect(view.activeRelease).toBeUndefined()
   expect(view.interruptedRelease).toBeUndefined()
-  expect((await POST(draftRequest(2, 'publish-corrected'), draftCtx)).status).toBe(
-    202
-  )
+  expect(
+    (await POST(draftRequest(2, 'publish-corrected'), draftCtx)).status
+  ).toBe(202)
 })
 
 test('a release that stopped after preparing its Snapshot waits for recovery, and after Abandon the corrected revision can publish', async () => {
@@ -717,9 +719,9 @@ test('a release that stopped after preparing its Snapshot waits for recovery, an
   expect(view).toMatchObject({ draftRevision: 2, canPublish: true })
   expect(view.interruptedRelease).toBeUndefined()
   expect(view.activeRelease).toBeUndefined()
-  expect((await POST(draftRequest(2, 'publish-after-abandon'), draftCtx)).status).toBe(
-    202
-  )
+  expect(
+    (await POST(draftRequest(2, 'publish-after-abandon'), draftCtx)).status
+  ).toBe(202)
 })
 
 test('an Editor cannot confirm a Publish', async () => {

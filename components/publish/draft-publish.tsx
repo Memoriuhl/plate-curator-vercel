@@ -121,8 +121,8 @@ export function DraftConflicts({
         The live Catalog changed values this draft would publish.
       </p>
       <p>
-        Publishing now would replace those changes. Edit or discard each value in
-        Review, or keep the draft&apos;s values if you checked them.
+        Publishing now would replace those changes. Edit or discard each value
+        in Review, or keep the draft&apos;s values if you checked them.
       </p>
       <ul className="list-disc pl-5">
         {conflicts.map((conflict) => {
