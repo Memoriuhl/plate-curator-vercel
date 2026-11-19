@@ -10,7 +10,10 @@ export const changeTopics = [
   'research',
   'publish',
 ] as const
-export type ChangeTopic = (typeof changeTopics)[number]
+type DraftTopic = `draft:${string}`
+export type ChangeTopic = (typeof changeTopics)[number] | DraftTopic
+
+export const draftTopic = (state: string): DraftTopic => `draft:${state}`
 
 /**
  * Topic signals share the batch revision collection, so the existing grant-gated

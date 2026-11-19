@@ -1,4 +1,7 @@
-import { firestoreReviewStore } from '../review/firestore-store'
+import {
+  firestoreReviewStore,
+  reviewTransaction,
+} from '../review/firestore-store'
 import type { Firestore } from '@google-cloud/firestore'
 import { signalChange } from '../live/change-signals'
 import type { ResearchStore, ResearchToken } from './store'
@@ -18,11 +21,12 @@ export function firestoreResearchStore(
      * when supplied. After a transaction that changed a job, tell research listeners.
      */
     async transaction(run) {
+      const transact = reviewTransaction(db, env)
       let wrote = false
-      const result = await db.runTransaction(async (transaction) => {
+      const result = await transact(async (transaction, touch) => {
         wrote = false
         return run({
-          review: firestoreReviewStore(db, env, transaction),
+          review: firestoreReviewStore(db, env, transaction, touch),
           /** Read a research job only when it belongs to the adapter's environment. */
           async get(id) {
             const record = await transaction.get(jobs.doc(id))

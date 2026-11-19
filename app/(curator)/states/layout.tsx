@@ -53,7 +53,7 @@ export default function StatesLayout({
               }
             >
               <ReviewStrip />
-              <SelectedBatchBar />
+              <SelectedBatchBar stateScope />
             </Suspense>
           </div>
           <Suspense fallback={<DashboardSkeleton kind="jurisdictions" />}>

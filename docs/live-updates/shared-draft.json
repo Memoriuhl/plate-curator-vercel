@@ -1,0 +1,121 @@
+{
+  "label": "shared-draft",
+  "scenario": "run",
+  "measuredAt": "2026-11-19T05:18:10.612Z",
+  "observedMinutes": 1.3,
+  "jobsReported": 6,
+  "routes": {
+    "GET /api/local-pipeline/runs": {
+      "observed": 30,
+      "perHour": 1421
+    },
+    "POST /api/worker/claim": {
+      "observed": 16,
+      "perHour": 758
+    },
+    "GET /api/batches": {
+      "observed": 14,
+      "perHour": 663
+    },
+    "POST /.well-known/workflow/v1/flow": {
+      "observed": 14,
+      "perHour": 663
+    },
+    "POST /api/worker/jobs/[id]/report": {
+      "observed": 6,
+      "perHour": 284
+    },
+    "GET /api/plates/[id]": {
+      "observed": 1,
+      "perHour": 47
+    },
+    "PATCH /api/batches/[id]/plates/[plateId]": {
+      "observed": 1,
+      "perHour": 47
+    },
+    "POST /api/local-pipeline/runs/selection": {
+      "observed": 1,
+      "perHour": 47
+    }
+  },
+  "browserRequests": {
+    "GET /api/local-pipeline/runs": {
+      "observed": 30,
+      "perHour": 1421
+    },
+    "GET /api/batches": {
+      "observed": 14,
+      "perHour": 663
+    },
+    "GET /__nextjs_font/geist-latin.woff2": {
+      "observed": 2,
+      "perHour": 95
+    }
+  },
+  "sharedDraft": {
+    "idleReads": {
+      "owner": 0,
+      "editor": 0
+    },
+    "idleMs": 8000,
+    "ownerLagMs": 222,
+    "editorSaveReads": {
+      "owner": 1,
+      "editor": 1
+    },
+    "totalReads": {
+      "owner": 7,
+      "editor": 7
+    },
+    "draftRunReads": {
+      "owner": 6,
+      "editor": 6
+    }
+  },
+  "firestore": {
+    "documentReads": {
+      "members": 24,
+      "localPipelineCapabilities": 46,
+      "reviewBatches": 62,
+      "reviewBatches/*/edits": 44,
+      "workerTokens": 22,
+      "locks": 1,
+      "localPipelineRuns": 69,
+      "jobs": 234
+    },
+    "queries": {
+      "localPipelineRuns": 37,
+      "jobs": 76,
+      "reviewBatches/*/edits": 17,
+      "members": 24
+    },
+    "writes": {
+      "reviewBatches": 7,
+      "curatorLive/*/batchRevisions": 49,
+      "reviewBatches/*/draftChanges": 7,
+      "reviewBatches/*/edits": 7,
+      "localPipelineCapabilities": 10,
+      "localPipelineRuns": 28,
+      "jobs": 18
+    }
+  },
+  "client": {
+    "listens": {
+      "topic:draft:AK": 1,
+      "topic:pipeline": 1,
+      "topic:gateway": 1
+    },
+    "snapshots": {
+      "topic:draft:AK": 8,
+      "topic:pipeline": 36,
+      "topic:gateway": 1
+    }
+  },
+  "totals": {
+    "requestsPerHour": 3931,
+    "browserRequestsPerHour": 2179,
+    "documentReadsPerHour": 23777,
+    "queriesPerHour": 7294,
+    "writesPerHour": 5968
+  }
+}

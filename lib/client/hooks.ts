@@ -39,7 +39,7 @@ import { sameEditableValue } from '../review/story'
 import { plateEditVersion } from '../review/edit-history'
 import { canEdit, editableStates } from '../review/access'
 import type { RunRevertTarget } from '../jobs/revert-target'
-import { isSharedDraft } from '../review/draft-id'
+import { isSharedDraft, SHARED_DRAFT_ALIAS } from '../review/draft-id'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type {
   Abandonment,
@@ -47,9 +47,15 @@ import type {
   PublishStop,
   RequesterAuthority,
 } from '../publish/types'
-import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
+import {
+  ApiError,
+  apiErrorReasons,
+  batchApiPath,
+  dashboardDraftPath,
+  type ApiClient,
+} from './api'
 import { useSession } from './session'
-import { useLiveRefresh } from './live-signal'
+import { useDashboardDraftSignal, useLiveRefresh } from './live-signal'
 import type { MemberInvite, MemberSummary } from '../members/summary'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../review/write-budget'
 
@@ -58,11 +64,16 @@ const runRevertPath = (runId: string) =>
 
 export function useRunRevertTarget(runId: string) {
   const { user, api } = useSession()
-  return useSWR<RunRevertTarget | null>(
-    user ? runRevertPath(runId) : null,
-    api.get,
-    { refreshInterval: (target) => (target === null ? 4_000 : 0) }
-  )
+  const key = user ? runRevertPath(runId) : null
+  const target = useSWR<RunRevertTarget | null>(key, api.get, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  })
+  useLiveRefresh(['pipeline'], () => target.mutate(), {
+    enabled: key !== null && target.data === null,
+    key: key ?? undefined,
+  })
+  return target
 }
 
 export type BatchDetail = {
@@ -76,6 +87,95 @@ export type BatchDetail = {
     revision: string
     order?: { before: number; after: number; total: number }
   }[]
+}
+
+export type DashboardDraft = {
+  draft: BatchDetail & { orderStates?: string[] }
+  catalog?: { catalogVersion: number; plates: PlateCardData[] }
+}
+
+const draftOverviewKey = (draftId: string) =>
+  ['draft-overview', draftId] as const
+type DraftOverview = { batch: ReviewBatch; orderStates: string[] }
+
+/** Read the newest overview supplied by a Dashboard state refresh. */
+export function useDraftOverview(draftId: string | null) {
+  return useSWR<DraftOverview>(draftId ? draftOverviewKey(draftId) : null, null)
+    .data
+}
+
+/** Revalidate one jurisdiction through the hub and SWR's per-key request ordering. */
+export function useDashboardDraft(code?: string, catalogVersion?: number) {
+  const { user, api } = useSession()
+  const { cache, mutate } = useSWRConfig()
+  const selectedId = useSelectedBatchId()
+  const draftId = useSharedDraftId()
+  const path = dashboardDraftPath(code ?? '')
+  const scoped =
+    !!code &&
+    catalogVersion !== undefined &&
+    (selectedId === null ||
+      selectedId === draftId ||
+      selectedId === SHARED_DRAFT_ALIAS)
+  const key =
+    user && scoped && draftId
+      ? `${path}&catalogVersion=${catalogVersion}`
+      : null
+  const local = useSWR<BatchDetail>(
+    user && scoped && draftId ? batchApiPath(draftId) : null,
+    null
+  )
+  const state = useSWR<DashboardDraft>(
+    key,
+    async (key) => {
+      const previous = cache.get(key)?.data as DashboardDraft | undefined
+      const version = previous?.catalog?.catalogVersion ?? catalogVersion
+      const fetched = await api.get<DashboardDraft>(
+        `${path}&catalogVersion=${version}`
+      )
+      const current = cache.get(key)?.data as DashboardDraft | undefined
+      if (
+        current &&
+        current.draft.batch.revision > fetched.draft.batch.revision
+      )
+        return current
+      if (
+        !fetched.catalog &&
+        previous?.catalog?.catalogVersion ===
+          fetched.draft.batch.baselineVersion
+      )
+        return { ...fetched, catalog: previous.catalog }
+      return fetched
+    },
+    {
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  )
+  useDashboardDraftSignal(key && code ? code : null, state.mutate)
+  const snapshot = state.data?.draft
+  useEffect(() => {
+    if (!draftId || !snapshot?.orderStates) return
+    const next = { batch: snapshot.batch, orderStates: snapshot.orderStates }
+    void mutate<DraftOverview>(
+      draftOverviewKey(draftId),
+      (current) =>
+        current && current.batch.revision >= next.batch.revision
+          ? current
+          : next,
+      { revalidate: false }
+    )
+  }, [draftId, mutate, snapshot])
+  if (!scoped) return undefined
+  const detail = state.data
+  const cached = local.data
+  if (!detail) return null
+  return cached &&
+    cached.batch.baselineVersion === detail.draft.batch.baselineVersion &&
+    cached.batch.revision > detail.draft.batch.revision
+    ? { ...detail, draft: cached }
+    : detail
 }
 
 /** Build the batch list cache key from its state and creation filters. */
@@ -700,21 +800,28 @@ export function useWorkspaceBatch() {
  * catalog plates. "Changed in a batch" marks everything in the draft that differs from
  * live, whoever made the change.
  */
-export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
+export function useDraftOverlay(
+  plates: PlateCardData[],
+  scoped?: DashboardDraft | null
+): OverlaidPlate[] {
   const { user, api } = useSession()
   const draftId = useSharedDraftId()
   const workspace = useWorkspaceBatch()
-  const personal = useBatch(workspace.mode === 'personal' ? draftId : null, {
+  const personalId = workspace.mode === 'personal' ? draftId : null
+  const personal = useBatch(scoped === undefined ? personalId : null, {
     reuse: true,
   })
-  const detail =
+  const legacy =
     workspace.mode === 'selected' ? workspace.detail : personal.data
+  const detail = scoped === undefined ? legacy : scoped?.draft
   const jurisdictions = useMemo(
     () => [...new Set(plates.map((plate) => plate.state))].sort().join(','),
     [plates]
   )
   const { data } = useSWR<{ drafts: BatchDetail[] }>(
-    user && jurisdictions ? `/api/batches?dashboard=${jurisdictions}` : null,
+    scoped === undefined && user && jurisdictions
+      ? `/api/batches?dashboard=${jurisdictions}`
+      : null,
     api.get,
     {
       revalidateIfStale: false,
@@ -1138,21 +1245,27 @@ async function sendMove<T>(
  * Expose ordering and family edits together with revision capture and shared pending
  * state.
  */
-export function useReorderState() {
+export function useReorderState(scoped?: DashboardDraft | null) {
   const { api } = useSession()
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
   const draftId = useSharedDraftId()
   const personalId = workspace.mode === 'personal' ? draftId : null
-  const personal = useBatch(personalId, { reuse: true })
+  const personal = useBatch(scoped === undefined ? personalId : null, {
+    reuse: true,
+  })
   const displayed =
-    workspace.mode === 'selected' ? workspace.detail : personal.data
+    scoped === undefined
+      ? workspace.mode === 'selected'
+        ? workspace.detail
+        : personal.data
+      : scoped?.draft
   // Let the dashboard finish loading its draft before enabling drag.
   const ready =
     workspace.mode === 'selected'
       ? workspace.status === 'ready'
-      : !!personalId && personal.data?.batch.id === personalId
+      : !!personalId && displayed?.batch.id === personalId
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
@@ -1318,10 +1431,11 @@ export function useReorderState() {
       workspace.mode === 'selected'
         ? workspace.id
         : (displayed?.batch.id ?? draftId ?? undefined)
-    const batch = id
-      ? ((cache.get(batchApiPath(id))?.data as BatchDetail | undefined)
-          ?.batch ?? displayed?.batch)
+    const cached = id
+      ? (cache.get(batchApiPath(id))?.data as BatchDetail | undefined)?.batch
       : undefined
+    const batch =
+      scoped === undefined ? (cached ?? displayed?.batch) : displayed?.batch
     return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 

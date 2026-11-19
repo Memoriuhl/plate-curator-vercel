@@ -79,12 +79,18 @@ export function reviewEnv(): string {
 /** Build the dependencies that authenticate the current route request. */
 export function currentActor(request: Request) {
   const projectId = requireEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID')
+  const emulatedAuth = authEmulatorEnabled(projectId)
+  // Use the emulator's real member records when both services are on the same demo project.
+  const emulatedMembers =
+    emulatedAuth &&
+    projectId === process.env.GCP_PROJECT_ID &&
+    !!process.env.FIRESTORE_EMULATOR_HOST?.trim()
   /** Select the fixture or live membership store used by the request's catalog mode. */
   const store = () =>
     catalogSourceKind({
       CATALOG_SOURCE: process.env.CATALOG_SOURCE,
       VERCEL_ENV: process.env.VERCEL_ENV,
-    }) === 'fixture'
+    }) === 'fixture' && !emulatedMembers
       ? fixtureMembers
       : membersStore()
   return authenticate(request, {
@@ -93,7 +99,7 @@ export function currentActor(request: Request) {
       verifyIdToken(token, {
         projectId,
         jwks: googleSecureTokenJwks(),
-        emulator: authEmulatorEnabled(projectId),
+        emulator: emulatedAuth,
       }),
     ownerUids: parseOwnerUids(process.env.OWNER_UIDS),
     members: {

@@ -9,6 +9,8 @@ import type { TaggingJob } from '../lib/jobs/types'
 import { firestoreResearchStore } from '../lib/research/firestore-store'
 import type { ResearchJob } from '../lib/research/types'
 import { firestorePublishLock } from '../lib/publish/firestore'
+import { firestoreReviewStore } from '../lib/review/firestore-store'
+import type { ReviewBatch } from '../lib/review/types'
 import './setup'
 
 const db = new Firestore({ projectId: 'demo-plate-curator-signals' })
@@ -256,3 +258,75 @@ for (const mode of ['held', 'refused'] as const)
       vi.restoreAllMocks()
     }
   })
+
+test('draft state topics follow committed edits, removed orders and scoped pipeline writes', async () => {
+  const store = firestoreReviewStore(db, env)
+  const batch: ReviewBatch = {
+    id: 'shared-draft-signals',
+    kind: 'shared-draft',
+    name: 'Shared draft',
+    revision: 0,
+    baselineVersion: 1,
+    plateIds: [],
+    stateOrders: { AK: ['AK.one'] },
+    state: 'open',
+    createdAt: '',
+    createdBy: 'owner',
+    createdByName: null,
+    approval: null,
+  }
+  const edit = {
+    plateId: 'AL.one',
+    baseRevision: 'before',
+    resultRevision: 'after',
+    updatedAt: '',
+    authorId: 'editor',
+    fields: { tags: ['saved'] },
+  }
+  const topic = (state: string) => `draft:${state}` as ChangeTopic
+  await store.create(batch)
+  const edited = { ...batch, revision: 1, plateIds: [edit.plateId] }
+  expect(await store.commit(batch.id, 0, { batch: edited, edit })).toBe('ok')
+  expect(await revision(topic('AL'))).toBe(1)
+  expect(await revision(topic('AK'))).toBe(0)
+  expect(await store.commit(batch.id, 0, { batch: edited, edit })).toBe(
+    'revision_mismatch'
+  )
+  expect(await revision(topic('AL'))).toBe(1)
+
+  const jobs = firestoreJobsStore(db, env)
+  const applied = {
+    batch: { ...edited, revision: 2, plateIds: ['AL.one', 'AL.two'] },
+    edit: { ...edit, plateId: 'AL.two' },
+  }
+  await expect(
+    jobs.transaction(async (tx) => {
+      expect(await tx.commitDraft(batch.id, 1, applied)).toBe('ok')
+      throw new Error('rolled back')
+    })
+  ).rejects.toThrow('rolled back')
+  expect(await revision(topic('AL'))).toBe(1)
+  expect(
+    await jobs.transaction((tx) => tx.commitDraft(batch.id, 1, applied))
+  ).toBe('ok')
+  expect(await revision(topic('AL'))).toBe(2)
+  expect(await revision(topic('AK'))).toBe(0)
+  expect((await store.readBatch(batch.id, new Set(['AK'])))?.edits).toEqual([])
+
+  expect(
+    await store.commit(batch.id, 2, {
+      batch: {
+        ...applied.batch,
+        revision: 3,
+        baselineVersion: 2,
+        stateOrders: {},
+        plateIds: [],
+      },
+      deleteEditsFor: ['AL.one', 'AL.two'],
+      history: false,
+    })
+  ).toBe('ok')
+  expect(await revision(topic('AK'))).toBe(1)
+  expect(await revision(topic('AL'))).toBe(3)
+  expect(await revision(topic('CA'))).toBe(0)
+})

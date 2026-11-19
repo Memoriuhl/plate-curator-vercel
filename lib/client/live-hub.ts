@@ -37,6 +37,8 @@ export type LiveSettings = {
 export type LiveSubscription = LiveSettings & {
   topics: readonly ChangeTopic[]
   refresh: () => unknown
+  /** Reconcile state on show even when the first snapshot has the same revision. */
+  refreshOnResume?: boolean
   onStatus?: (status: LiveStatus) => void
 }
 
@@ -62,6 +64,7 @@ type Topic = {
   stop: (() => void) | null
   /** Last revision seen, kept across reconnects so a resumed listener can catch up. */
   seen: number | null
+  resuming: boolean
   status: LiveStatus
   retried: boolean
   /** Bumped on every connect so a slow grant cannot attach an outdated listener. */
@@ -163,6 +166,14 @@ export function createLiveHub(options: LiveHubOptions) {
   function refreshAll(topic: Topic) {
     for (const subscriber of topic.subscribers) subscriber.dirty = true
     schedule()
+  }
+
+  /** State reads also reconcile writes whose bump never reached the topic. */
+  function reconcileResume(topic: Topic) {
+    if (!topic.resuming) return
+    topic.resuming = false
+    for (const subscriber of topic.subscribers)
+      if (subscriber.refreshOnResume) subscriber.dirty = true
   }
 
   function statusOf(subscriber: Subscriber): LiveStatus {
@@ -277,6 +288,7 @@ export function createLiveHub(options: LiveHubOptions) {
     topic.status = 'unavailable'
     announce(topic)
     // Anything owed from before a resume runs now rather than at the first poll.
+    reconcileResume(topic)
     schedule()
   }
 
@@ -321,7 +333,9 @@ export function createLiveHub(options: LiveHubOptions) {
             }
             // The first snapshot also refreshes once (after the throttle window), since a
             // change can land between a view's first fetch and the listener attaching.
-            // Otherwise run anything owed from before the tab was hidden.
+            // On resume, a missing bump and an unchanged state look the same to the
+            // listener. Reconcile opted-in views in the same round as any newer revision.
+            reconcileResume(topic)
             if (previous === null || current > previous) refreshAll(topic)
             else schedule()
           },
@@ -365,6 +379,7 @@ export function createLiveHub(options: LiveHubOptions) {
     } else scheduleRenewal()
     for (const [name, topic] of topics) {
       // Resumed: retry a failed listener, and let the first snapshot decide on catch-up.
+      topic.resuming = true
       if (topic.status === 'unavailable') {
         topic.retried = false
         for (const subscriber of topic.subscribers) subscriber.dirty = true
@@ -410,6 +425,7 @@ export function createLiveHub(options: LiveHubOptions) {
             subscribers: new Set(),
             stop: null,
             seen: null,
+            resuming: false,
             status: 'connecting',
             retried: false,
             attempt: 0,

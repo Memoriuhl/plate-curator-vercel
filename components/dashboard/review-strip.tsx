@@ -2,7 +2,12 @@
 
 import Link from 'next/link'
 import { IoTimeOutline } from 'react-icons/io5'
-import { useBatch, useMe, useSharedDraftId } from '@/lib/client/hooks'
+import {
+  useBatch,
+  useDraftOverview,
+  useMe,
+  useSharedDraftId,
+} from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
 import { PublishButton } from './publish-button'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
@@ -14,14 +19,21 @@ import { BatchLastChanged } from '@/components/review/batch-last-changed'
 export function ReviewStrip() {
   const draftId = useSharedDraftId()
   const detail = useBatch(draftId, { reuse: true })
+  const overview = useDraftOverview(draftId)
   const me = useMe()
-  if (detail.error) return <p role="alert">Could not load the shared draft.</p>
-  const batch = detail.data?.batch
+  const cached = detail.data?.batch
+  const latest =
+    overview && (!cached || overview.batch.revision >= cached.revision)
+      ? overview
+      : null
+  if (detail.error && !latest)
+    return <p role="alert">Could not load the shared draft.</p>
+  const batch = latest?.batch ?? cached
   if (!batch || !draftId) return null
   const states = [
     ...new Set([
       ...batch.plateIds.map((id) => id.split('.')[0]),
-      ...Object.keys(batch.stateOrders),
+      ...(latest?.orderStates ?? Object.keys(batch.stateOrders)),
     ]),
   ].sort()
   if (!batch.plateIds.length && !states.length) return null

@@ -262,7 +262,8 @@ export interface ReviewStore {
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
   readBatch(
-    batchId: string
+    batchId: string,
+    jurisdictions?: ReadonlySet<string>
   ): Promise<{ batch: ReviewBatch; edits: ProposedEdit[] } | null>
   getBatch(id: string): Promise<ReviewBatch | null>
   getEdit(batchId: string, plateId: string): Promise<ProposedEdit | null>
@@ -297,6 +298,8 @@ export interface ReviewStore {
       migrationHold?: MigrationHold
       /** false skips the change-log entry (rebase commits that set a new floor). */
       history?: false
+      /** Published states whose edits may already have been removed from the draft. */
+      publishedStates?: ReadonlySet<string>
     }
   ): Promise<
     'ok' | 'revision_mismatch' | 'pipeline_busy' | 'superseded_revision'

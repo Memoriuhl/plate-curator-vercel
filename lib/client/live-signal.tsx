@@ -9,7 +9,7 @@ import {
   type LiveSignalSource,
   type LiveStatus,
 } from './live-hub'
-import type { ChangeTopic } from '../live/topics'
+import { draftTopic, type ChangeTopic } from '../live/topics'
 import {
   connectFirestoreEmulator,
   doc,
@@ -17,7 +17,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore'
 import { useSWRConfig } from 'swr'
-import { batchApiPath } from './api'
+import { batchApiPath, dashboardDraftPath, isDashboardDraftKey } from './api'
 import { clientApp, emulatorConnected, emulatorHost } from './firebase'
 import { countClientUsage } from './usage'
 import { useSession } from './session'
@@ -81,7 +81,12 @@ const hubs = new WeakMap<LiveSignalSource, LiveHub>()
 export function useLiveRefresh(
   topics: readonly ChangeTopic[],
   refresh: () => unknown,
-  options: { enabled?: boolean; safetyMs?: number; key?: string } = {}
+  options: {
+    enabled?: boolean
+    safetyMs?: number
+    key?: string
+    refreshOnResume?: boolean
+  } = {}
 ): LiveStatus {
   const selectedSource = useContext(LiveSource)
   const session = useSession(false)
@@ -93,7 +98,7 @@ export function useLiveRefresh(
   })
   const enabled = (options.enabled ?? true) && uid !== null && api !== undefined
   const topicKey = topics.join(' ')
-  const { safetyMs, key } = options
+  const { safetyMs, key, refreshOnResume } = options
   const settings = useRef({ safetyMs, key })
   const handle = useRef<LiveHandle | null>(null)
   const [status, setStatus] = useState<LiveStatus>('connecting')
@@ -112,6 +117,7 @@ export function useLiveRefresh(
     const subscription = hub.subscribe({
       topics: topicKey.split(' ') as ChangeTopic[],
       refresh: () => latest.current.refresh(),
+      refreshOnResume,
       ...settings.current,
       onStatus: setStatus,
     })
@@ -120,12 +126,25 @@ export function useLiveRefresh(
       handle.current = null
       subscription()
     }
-  }, [enabled, uid, topicKey, selectedSource])
+  }, [enabled, uid, topicKey, selectedSource, refreshOnResume])
   useEffect(() => {
     settings.current = { safetyMs, key }
     handle.current?.update({ safetyMs, key })
   }, [safetyMs, key])
   return enabled ? status : 'connecting'
+}
+
+/** Share one state refresh round between the grid and the linked draft bar. */
+export function useDashboardDraftSignal(
+  code: string | null,
+  refresh: () => unknown
+) {
+  return useLiveRefresh(code ? [draftTopic(code)] : [], refresh, {
+    enabled: code !== null,
+    key: code ? dashboardDraftPath(code) : undefined,
+    refreshOnResume: true,
+    safetyMs: 600_000,
+  })
 }
 
 /**
@@ -184,7 +203,7 @@ export function useBatchRevisionSignal(
               key === batchKey + '/publish' ||
               key === batchKey + '/run' ||
               key === '/api/batches' ||
-              key.startsWith('/api/batches?'))
+              (key.startsWith('/api/batches?') && !isDashboardDraftKey(key)))
         )
         if (!disposed && !stopped && seen === revision) updateStatus('Live')
       } catch {

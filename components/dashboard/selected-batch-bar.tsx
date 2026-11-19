@@ -2,27 +2,60 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { batchApiPath } from '@/lib/client/api'
-import { useWorkspaceBatch } from '@/lib/client/hooks'
-import { useBatchRevisionSignal } from '@/lib/client/live-signal'
+import { batchApiPath, isDashboardDraftKey } from '@/lib/client/api'
+import { useDraftOverview, useMe, useWorkspaceBatch } from '@/lib/client/hooks'
+import {
+  useBatchRevisionSignal,
+  useDashboardDraftSignal,
+} from '@/lib/client/live-signal'
 import { useSWRConfig } from 'swr'
 import { Button } from '@/components/ui/button'
+import { isSharedDraft, SHARED_DRAFT_ALIAS } from '@/lib/review/draft-id'
 import { batchHref } from '@/lib/review/href'
 
 /**
  * Keep the selected batch connected to live revisions and provide a return link to its
  * review.
  */
-export function SelectedBatchBar() {
+export function SelectedBatchBar({
+  stateScope = false,
+}: {
+  stateScope?: boolean
+}) {
   const workspace = useWorkspaceBatch()
   const pathname = usePathname()
   const params = useSearchParams()
   const { mutate } = useSWRConfig()
   const selected = workspace.mode === 'selected'
   const batch = selected ? workspace.detail?.batch : undefined
-  const live = useBatchRevisionSignal(
-    selected ? workspace.id : null,
+  const draftId = useMe(stateScope && selected).data?.draftId ?? null
+  const code = stateScope
+    ? /^\/states\/([A-Z]{2})$/i.exec(pathname)?.[1].toUpperCase()
+    : undefined
+  const scoped =
+    !!code &&
+    !!draftId &&
+    selected &&
+    (workspace.id === draftId || workspace.id === SHARED_DRAFT_ALIAS)
+  const overview = useDraftOverview(scoped ? draftId : null)
+  const refreshState = () => mutate((key) => isDashboardDraftKey(key, code))
+  const stateLive = useDashboardDraftSignal(scoped ? code : null, refreshState)
+  const batchLive = useBatchRevisionSignal(
+    selected && !scoped && (!code || (batch && !isSharedDraft(batch)))
+      ? workspace.id
+      : null,
     batch?.revision ?? -1
+  )
+  const live = scoped
+    ? {
+        live: 'Live',
+        connecting: 'Updating',
+        unavailable: 'Live updates unavailable',
+      }[stateLive]
+    : batchLive
+  const revision = Math.max(
+    batch?.revision ?? -1,
+    overview?.batch.revision ?? -1
   )
   if (!selected) return null
   const back = new URLSearchParams(params.toString())
@@ -32,7 +65,7 @@ export function SelectedBatchBar() {
       className="batch-actions"
       aria-label="Selected Batch"
       data-batch-id={workspace.id}
-      data-batch-revision={batch?.revision}
+      data-batch-revision={revision < 0 ? undefined : revision}
     >
       {!batch ? (
         <strong>
@@ -49,7 +82,9 @@ export function SelectedBatchBar() {
       {live === 'Live updates unavailable' ? (
         <Button
           variant="outline"
-          onClick={() => void mutate(batchApiPath(workspace.id))}
+          onClick={() =>
+            void (scoped ? refreshState() : mutate(batchApiPath(workspace.id)))
+          }
         >
           Refresh
         </Button>

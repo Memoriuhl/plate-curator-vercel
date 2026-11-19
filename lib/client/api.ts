@@ -1,6 +1,17 @@
 export const batchApiPath = (id: string) =>
   `/api/batches/${encodeURIComponent(id)}`
 
+export const dashboardDraftPath = (code: string) =>
+  `/api/batches?dashboard=${code}`
+
+/** Match state-scoped Dashboard reads without matching the legacy overlay. */
+export function isDashboardDraftKey(key: unknown, code?: string): boolean {
+  if (typeof key !== 'string') return false
+  return code === undefined
+    ? /^\/api\/batches\?dashboard=[A-Z]{2}&catalogVersion=/.test(key)
+    : key.startsWith(`${dashboardDraftPath(code)}&catalogVersion=`)
+}
+
 export class ApiError extends Error {
   /**
    * Preserve the HTTP status, application error code and response body for callers that
