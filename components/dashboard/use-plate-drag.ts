@@ -18,6 +18,11 @@ import type {
   useEditPlate,
   useReorderState,
 } from '@/lib/client/hooks'
+import {
+  allowsFirstPlacement,
+  placementHeads,
+  placementsForOrder,
+} from '@/lib/client/state-moves'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import {
   planFamilyMerge,
@@ -445,14 +450,15 @@ export function usePlateDrag(options: Options) {
             ? placement.origin
             : ordering.capture()
         const standard = acknowledgements.get(state)
-        const promotions = members.map((plate) => ({
-          plateId: plate.id,
-          templateFamily: planned.get(plate.id)!.templateFamily!,
-        }))
-        const proposal = promotions.length === 1 ? promotions[0] : promotions
-        const result = standard
-          ? await ordering.move(state, order, proposal, origin, standard)
-          : await ordering.move(state, order, proposal, origin)
+        const moves = placementsForOrder(
+          order,
+          members.map(({ id }) => id),
+          {
+            familyHeads: placementHeads(initialFamilies),
+            promote: true,
+          }
+        )
+        const result = await ordering.move(state, moves, origin, standard)
         if (!result.ok) {
           failure =
             ('message' in result && result.message) || errors[result.error]
@@ -466,6 +472,9 @@ export function usePlateDrag(options: Options) {
               revision:
                 result.revisions?.[plate.id] ??
                 (members.length === 1 ? result.revision : undefined),
+              editVersion:
+                result.editVersions?.[plate.id] ??
+                (members.length === 1 ? result.editVersion : undefined),
             },
           }))
         )
@@ -478,17 +487,25 @@ export function usePlateDrag(options: Options) {
         let reverted = 0
         let orderRestored = true
         const restoredRevisions: Record<string, string> = {}
+        const restoredEditVersions: Record<string, number> = {}
         for (const [state, order] of previousOrders) {
           if (!succeeded.some((entry) => entry.plate.state === state)) continue
           try {
             const from = orders.get(state)![0]
             const standard =
               from !== order[0] ? { from, to: order[0] } : undefined
-            const result = standard
-              ? await ordering.reorder(state, order, standard)
-              : await ordering.reorder(state, order)
+            const moves = placementsForOrder(
+              order,
+              succeeded
+                .filter(({ plate }) => plate.state === state)
+                .map(({ plate }) => plate.id)
+            )
+            const result = await ordering.reorder(state, order, standard, moves)
             if (!result.ok) orderRestored = false
-            else Object.assign(restoredRevisions, result.revisions)
+            else {
+              Object.assign(restoredRevisions, result.revisions)
+              Object.assign(restoredEditVersions, result.editVersions)
+            }
           } catch {
             orderRestored = false
           }
@@ -513,7 +530,12 @@ export function usePlateDrag(options: Options) {
               const restored = await edits.edit(
                 { ...plate, revision },
                 fields,
-                { batchId: result.batchId, baseRevision: revision }
+                {
+                  batchId: result.batchId,
+                  baseRevision: revision,
+                  editVersion:
+                    restoredEditVersions[plate.id] ?? result.editVersion,
+                }
               )
               if (restored.ok) {
                 reverted++
@@ -761,6 +783,18 @@ export function usePlateDrag(options: Options) {
       family.template,
       ...family.variants,
     ])
+    const currentFirst = latest.current.orderBaseline?.(item.plate.state)?.first
+    if (
+      (!currentFirst || order.includes(currentFirst)) &&
+      !allowsFirstPlacement(
+        statePlates.find(({ id }) => id === order[0]),
+        promote && order[0] === item.plate.id
+      )
+    ) {
+      latest.current.holdOverlay?.(false)
+      announce('The first plate must be an active Template.')
+      return
+    }
     const confirmation = confirmOrder(
       item.plate.state,
       familyOrder(families)[0],
@@ -786,30 +820,36 @@ export function usePlateDrag(options: Options) {
         setOptimisticEdit({ plateId: item.plate.id, fields })
         if (!ordering.move || !drag.origin)
           throw new Error('Reload before moving a Variant')
-        result = standard
-          ? await ordering.move(
-              item.plate.state,
-              order,
-              {
-                plateId: item.plate.id,
-                templateFamily: fields.templateFamily!,
-              },
-              drag.origin,
-              standard
-            )
-          : await ordering.move(
-              item.plate.state,
-              order,
-              {
-                plateId: item.plate.id,
-                templateFamily: fields.templateFamily!,
-              },
-              drag.origin
-            )
+        result = await ordering.move(
+          item.plate.state,
+          placementsForOrder(order, [item.plate.id], {
+            familyHeads: placementHeads(families),
+            promote: true,
+          }),
+          drag.origin,
+          standard
+        )
       } else
-        result = standard
-          ? await ordering.reorder(item.plate.state, order, standard)
-          : await ordering.reorder(item.plate.state, order)
+        result = await ordering.reorder(
+          item.plate.state,
+          order,
+          standard,
+          placementsForOrder(
+            item.kind === 'variant'
+              ? order.filter(
+                  (id) =>
+                    (id === source.template.id && !source.template.deleted) ||
+                    source.variants.some(
+                      (variant) => variant.id === id && !variant.deleted
+                    )
+                )
+              : order,
+            [item.plate.id],
+            item.kind === 'family'
+              ? { familyHeads: placementHeads(families) }
+              : undefined
+          )
+        )
       if (!result.ok) {
         announce(
           ('message' in result && result.message) || errors[result.error]

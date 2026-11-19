@@ -24,7 +24,9 @@ export function planFamilyMerge(
   families: Family[],
   destination: Family,
   selectedIds: readonly string[],
-  firstId?: string
+  firstId?: string,
+  protectStandard = true,
+  newFamilyLabel = destination.template.id
 ) {
   const byId = new Map(
     families
@@ -40,7 +42,7 @@ export function planFamilyMerge(
   ])
   /** Protect a state's standard and first plate from being moved into another family. */
   const protectedPlate = (plate: Member) =>
-    plate.isStandard === true || plate.id === firstId
+    protectStandard && (plate.isStandard === true || plate.id === firstId)
   const moving = new Set<string>()
   const result: FamilyMergeResult = {
     moved: [],
@@ -65,7 +67,7 @@ export function planFamilyMerge(
   const changes = new Map<string, EditableFields>()
   if (moving.size) {
     const parent = destination.template
-    const templateFamily = parent.templateFamily || parent.id
+    const templateFamily = parent.templateFamily || newFamilyLabel
     const fields: EditableFields = {
       templateRole: 'variant',
       variantOfPlateId: parent.id,

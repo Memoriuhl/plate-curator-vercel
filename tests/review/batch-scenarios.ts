@@ -508,7 +508,7 @@ export function reviewBatchScenarios(
   test('refuses a stale edit and returns the current plate', async () => {
     const { deps, input } = await setup()
     await proposeEdit(deps, editor, input)
-    expect(await proposeEdit(deps, editor, input)).toEqual({
+    expect(await proposeEdit(deps, editor, input)).toMatchObject({
       ok: false,
       error: 'stale_plate',
       current: { ...baseline[0], tags: ['changed'] },

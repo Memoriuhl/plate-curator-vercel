@@ -25,7 +25,8 @@ export async function standardEdits(
   baseline: Plate[],
   order: string[],
   changes: Map<string, EditableFields>,
-  acknowledgement?: StandardChange
+  acknowledgement?: StandardChange,
+  options?: { existingEdits: ProposedEdit[]; preserveStandard: boolean }
 ): Promise<
   Outcome<{
     edits: ProposedEdit[]
@@ -33,7 +34,7 @@ export async function standardEdits(
     plateIds: string[]
   }>
 > {
-  const existing = await d.store.listEdits(batch.id)
+  const existing = options?.existingEdits ?? (await d.store.listEdits(batch.id))
   const byId = new Map(existing.map((edit) => [edit.plateId, edit]))
   const before = baseline.map((plate) => ({
     ...plate,
@@ -51,6 +52,7 @@ export async function standardEdits(
     ? standards.some((plate) => plate.id === acknowledgement?.from)
     : acknowledgement?.from === null
   if (
+    !options?.preserveStandard &&
     (standards.length !== 1 || standards[0].id !== first.id) &&
     (!confirmedFrom || acknowledgement?.to !== first.id)
   ) {
@@ -63,8 +65,10 @@ export async function standardEdits(
     const base = baseline[index]
     const current = effective[index]
     if (!current.deleted && base.deleted === undefined) delete current.deleted
-    if (current.id === first.id) current.isStandard = true
-    else if (current.isStandard) current.isStandard = false
+    if (!options?.preserveStandard) {
+      if (current.id === first.id) current.isStandard = true
+      else if (current.isStandard) current.isStandard = false
+    }
     if (
       JSON.stringify(current) === JSON.stringify(before[index]) &&
       !changes.has(current.id)
@@ -88,6 +92,7 @@ export async function standardEdits(
         fields: delta,
         ...attribution,
         authorId: actor.uid,
+        ...(actor.name ? { authorName: actor.name } : {}),
         updatedAt: d.now(),
         resultRevision: plateRevision(current),
       })

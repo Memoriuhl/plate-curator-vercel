@@ -70,13 +70,21 @@ export async function PATCH(
   const standard = parseStandardChange(body?.standard)
   if (standard === null) return badRequest()
   const fields = parseEditableFields(body?.fields)
-  if (typeof body?.baseRevision !== 'string' || fields === null)
+  const editVersion = body?.editVersion === undefined ? 0 : body.editVersion
+  if (
+    typeof body?.baseRevision !== 'string' ||
+    fields === null ||
+    typeof editVersion !== 'number' ||
+    !Number.isSafeInteger(editVersion) ||
+    editVersion < 0
+  )
     return badRequest()
 
   const outcome = await proposeEdit(reviewDeps(), auth.actor, {
     batchId: id,
     plateId,
     baseRevision: body.baseRevision,
+    editVersion,
     fields,
     standard,
   })

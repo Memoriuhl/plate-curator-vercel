@@ -57,6 +57,7 @@ export type PlateCardData = StoryFields & {
   isStandard: boolean
   sortOrder: number
   revision: string
+  editVersion?: number
   checks: PlateChecks
   complete: boolean
 }

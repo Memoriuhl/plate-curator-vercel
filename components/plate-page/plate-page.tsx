@@ -342,7 +342,7 @@ export function PlatePage(props: PlatePageProps) {
   async function save(
     target: PlateCardData,
     fields: EditableFields,
-    reviewed?: { batchId: string; baseRevision: string },
+    reviewed?: { batchId: string; baseRevision: string; editVersion?: number },
     standard?: StandardChange
   ) {
     setStatus('Saving to your batch…')
@@ -424,7 +424,13 @@ export function PlatePage(props: PlatePageProps) {
           !(await save(
             issue.plate,
             result.draft,
-            { batchId: result.batchId, baseRevision: result.currentRevision },
+            {
+              batchId: result.batchId,
+              baseRevision: result.currentRevision,
+              ...(result.currentEditVersion !== undefined && {
+                editVersion: result.currentEditVersion,
+              }),
+            },
             issue.standard
           ))
         )

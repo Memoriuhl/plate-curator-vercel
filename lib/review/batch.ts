@@ -9,7 +9,12 @@ import {
   editableKeys,
   limits,
 } from './fields'
-import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
+import {
+  plateFieldConflicts,
+  retryDraft,
+  retryDraftRace,
+  unchangedSince,
+} from './preconditions'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { sameEditableValue } from './story'
 import { deletionPublishing, resolveConflicts } from './draft'
@@ -19,6 +24,7 @@ import {
   retainedPipelineChanges,
 } from './pipeline-changes'
 import { plateRevision } from './revision'
+import { plateEditVersion } from './edit-history'
 import type {
   Actor,
   EditableFields,
@@ -110,6 +116,7 @@ export function proposeEdit(
     batchId: string
     plateId: string
     baseRevision: string
+    editVersion?: number
     fields: EditableFields
     standard?: StandardChange
   }
@@ -136,6 +143,7 @@ async function updatePlate(
   i: { batchId: string; plateId: string } & (
     | {
         baseRevision: string
+        editVersion?: number
         fields: EditableFields
         standard?: StandardChange
         revert?: never
@@ -147,7 +155,9 @@ async function updatePlate(
         standard?: never
       }
   )
-): Promise<Outcome<{ batch: ReviewBatch; plate: Plate }>> {
+): Promise<
+  Outcome<{ batch: ReviewBatch; plate: Plate; editVersion?: number }>
+> {
   for (let attempt = 0; attempt < draftCommitAttempts; attempt += 1) {
     await draftRetryPause(attempt)
     const batch = await d.store.getBatch(i.batchId)
@@ -163,6 +173,7 @@ async function updatePlate(
     if (plateIds.length > batchPlateLimit(batch))
       return { ok: false, error: 'invalid_state' }
     const existing = await d.store.getEdit(i.batchId, i.plateId)
+    const editVersion = plateEditVersion(batch, i.plateId)
     const current = { ...baseline, ...existing?.fields }
     let requested: EditableFields
     let revertedFields: (keyof EditableFields)[] = []
@@ -194,8 +205,31 @@ async function updatePlate(
       }
       requested = Object.fromEntries(previous)
     } else {
-      if (plateRevision(current) !== i.baseRevision)
-        return { ok: false, error: 'stale_plate', current }
+      if (
+        plateRevision(current) !== i.baseRevision ||
+        (i.editVersion !== undefined && i.editVersion !== editVersion)
+      ) {
+        const conflicts = await plateFieldConflicts(
+          d,
+          batch,
+          baseline,
+          existing,
+          i.baseRevision,
+          i.fields,
+          i.editVersion !== undefined && i.editVersion < editVersion
+            ? i.editVersion
+            : undefined
+        )
+        return {
+          ok: false,
+          error: 'stale_plate',
+          current,
+          ...(batch.kind === 'shared-draft' && {
+            currentEditVersion: editVersion,
+          }),
+          ...(conflicts && { conflicts }),
+        }
+      }
       requested = i.fields
     }
     const changes = Object.fromEntries(
@@ -404,7 +438,22 @@ async function updatePlate(
           ? { edit }
           : { deleteEditFor: i.plateId }),
     })
-    if (result === 'ok') return { ok: true, value: { batch: nextBatch, plate } }
+    if (result === 'ok') {
+      const touched =
+        !combined?.ok ||
+        combined.value.edits.some((edit) => edit.plateId === i.plateId) ||
+        combined.value.deleteEditsFor.includes(i.plateId)
+      return {
+        ok: true,
+        value: {
+          batch: nextBatch,
+          plate,
+          ...(batch.kind === 'shared-draft' && {
+            editVersion: touched ? nextBatch.revision : editVersion,
+          }),
+        },
+      }
+    }
   }
   return { ok: false, error: 'superseded_revision' }
 }

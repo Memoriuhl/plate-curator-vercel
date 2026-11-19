@@ -1,3 +1,5 @@
+import { moveState } from '../lib/review/move-state'
+import type { StateMove } from '../lib/review/state-move'
 import { createContext, useContext } from 'react'
 import {
   act,
@@ -147,7 +149,6 @@ let requests: { actor: string; method: string; path: string; body: unknown }[]
 let reads: Map<string, number>
 let failures: Map<string, (error: { code?: string }) => void>
 let connected: boolean
-let failedOrder: unknown
 const supersedeRun = vi.fn(async () => {})
 const source: LiveSignalSource = {
   /**
@@ -277,10 +278,10 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         if (path.endsWith('/state-order/AK') || path.endsWith('/submit')) {
           const result = path.endsWith('/state-order/AK')
-            ? await reorderState(deps, actor, {
+            ? await moveState(deps, actor, {
                 batchId: path.split('/')[3],
                 state: 'AK',
-                ...(body as { batchRevision: number; order: string[] }),
+                ...(body as { operationId: string; moves: StateMove[] }),
               })
             : await submitBatch(
                 deps,
@@ -289,10 +290,9 @@ function session(actor: Actor, id: string | null = 'shared') {
                 (body as { revision: number }).revision
               )
           if (!result.ok) {
-            failedOrder = result
             throw new ApiError(409, result.error, result)
           }
-          return result.value
+          return 'batch' in result.value ? result.value.batch : result.value
         }
         if (path.endsWith('/approve')) {
           const result = await approveBatch(
@@ -356,7 +356,6 @@ function Workspace({
 }
 beforeEach(() => {
   connected = true
-  failedOrder = undefined
   supersedeRun.mockClear()
   failures = new Map()
   requests = []
@@ -470,10 +469,20 @@ function OrderAction() {
   return (
     <button
       onClick={() =>
-        void reorder('AK', ['AK.b', 'AK.a', 'AK.v'], {
-          from: 'AK.a',
-          to: 'AK.b',
-        })
+        void reorder(
+          'AK',
+          ['AK.b', 'AK.a', 'AK.v'],
+          {
+            from: 'AK.a',
+            to: 'AK.b',
+          },
+          [
+            {
+              plateIds: ['AK.b'],
+              placement: { kind: 'before', anchorId: 'AK.a' },
+            },
+          ]
+        )
       }
     >
       Reverse State order
@@ -528,9 +537,10 @@ test('State order and Standard reach the other Dashboard and appear in Review wi
   ).toMatchObject({
     path: '/api/batches/shared/state-order/AK',
     body: {
-      batchRevision: 0,
       standard: { from: 'AK.a', to: 'AK.b' },
-      order: ['AK.b', 'AK.a', 'AK.v'],
+      moves: [
+        { plateIds: ['AK.b'], placement: { kind: 'before', anchorId: 'AK.a' } },
+      ],
     },
   })
   expect(
@@ -551,7 +561,7 @@ test('State order and Standard reach the other Dashboard and appear in Review wi
   })
 })
 
-test('a stale State order submission changes neither draft nor signal', async () => {
+test('repeating an already applied placement changes neither draft nor signal', async () => {
   const { first, second } = await twoSessions()
   connected = false
   expect(
@@ -566,7 +576,11 @@ test('a stale State order submission changes neither draft nor signal', async ()
   const before = await deps.store.readBatch('shared')
   fireEvent.click(within(first.container).getByText('Reverse State order'))
   await waitFor(() =>
-    expect(failedOrder).toEqual({ ok: false, error: 'superseded_revision' })
+    expect(
+      first.container
+        .querySelector('[data-batch-id]')
+        ?.getAttribute('data-batch-revision')
+    ).toBe('1')
   )
   expect(await deps.store.readBatch('shared')).toEqual(before)
   expect(signals.get('shared')).toBe(1)

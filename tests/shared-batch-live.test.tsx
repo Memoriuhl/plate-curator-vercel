@@ -24,7 +24,7 @@ import {
 } from '../lib/client/live-signal'
 import { ApiError } from '../lib/client/api'
 import { createMemoryStore } from '../lib/review/memory-store'
-import { mergeFamily, type FamilyMerge } from '../lib/review/family-merge'
+import { moveState } from '../lib/review/move-state'
 import { canEdit, proposeEdit } from '../lib/review/batch'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
@@ -98,6 +98,7 @@ const plates: Plate[] = [
     tags: [],
     templateRole: 'template',
     templateFamily: 'army',
+    isStandard: true,
   },
   {
     id: 'AK.v',
@@ -126,7 +127,7 @@ const cards = plates.map((plate, index) => ({
   ...plate,
   imageUrl: null,
   variantOfPlateId: plate.variantOfPlateId ?? null,
-  isStandard: false,
+  isStandard: plate.isStandard ?? false,
   sortOrder: index,
   revision: plateRevision(plate),
 }))
@@ -240,9 +241,21 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         if (method === 'POST' && path.endsWith('/family-merge')) {
           await hold
-          const result = await mergeFamily(deps, actor, {
+          const { destinationId, plateIds, operationId } = body as {
+            destinationId: string
+            plateIds: string[]
+            operationId: string
+          }
+          const result = await moveState(deps, actor, {
             batchId: path.split('/')[3],
-            ...(body as FamilyMerge & { batchRevision: number }),
+            operationId,
+            state: 'AK',
+            moves: [
+              {
+                plateIds,
+                placement: { kind: 'join', anchorId: destinationId },
+              },
+            ],
           })
           if (!result.ok)
             throw new ApiError(
@@ -250,7 +263,10 @@ function session(actor: Actor, id: string | null = 'shared') {
               result.error,
               result
             )
-          return result.value
+          return {
+            ...result.value.merge,
+            revision: result.value.revision,
+          }
         }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
         await hold
@@ -318,7 +334,14 @@ function Probe() {
         onClick={() =>
           void order.reorder(
             'AK',
-            plates.map((p) => p.id)
+            plates.map((p) => p.id),
+            undefined,
+            [
+              {
+                plateIds: ['AK.v'],
+                placement: { kind: 'after-plate', anchorId: 'AK.a' },
+              },
+            ]
           )
         }
       >
@@ -650,7 +673,7 @@ test('unavailable and read-only selections cannot edit or reorder or fall back t
   expect(requests.filter((r) => r.path !== '/api/live-access')).toEqual([])
 })
 
-test('remote revision waits for drag settlement and preserves the lifted Plate precondition', async () => {
+test('remote revision waits for drag settlement and an already applied join becomes a no-op', async () => {
   const view = render(<Workspace value={session(editor)} />)
   await waitFor(() =>
     expect(
@@ -691,7 +714,7 @@ test('remote revision waits for drag settlement and preserves the lifted Plate p
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(view.container.textContent).toContain(
-      'The Batch changed. Drag again using the latest selection.'
+      'No plates moved. 1 already in this family'
     )
   )
   expect(
@@ -702,8 +725,8 @@ test('remote revision waits for drag settlement and preserves the lifted Plate p
   expect(
     requests.find((r) => r.path.endsWith('/family-merge'))?.body
   ).toMatchObject({
-    batchRevision: 0,
-    members: [{ id: 'AK.v', revision: plateRevision(plates[1]) }],
+    destinationId: 'AK.b',
+    plateIds: ['AK.v'],
   })
 })
 
@@ -917,7 +940,7 @@ test('second selected Plate save sends the draft revision and succeeds', async (
     requests.filter((r) => r.method === 'PATCH').map((r) => r.body)
   ).toEqual([
     { baseRevision: cards[1].revision, fields: { tags: ['first'] } },
-    { baseRevision: revision, fields: { tags: ['second'] } },
+    { baseRevision: revision, editVersion: 1, fields: { tags: ['second'] } },
   ])
 })
 

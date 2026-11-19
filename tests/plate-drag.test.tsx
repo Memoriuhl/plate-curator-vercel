@@ -297,12 +297,12 @@ test('keyboard lifts, moves, drops once and removes the global cursor', async ()
   expect(screen.getByText('Moved to position 2')).toBeTruthy()
   fireEvent.keyDown(handle, { key: ' ' })
   await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
-  expect(reorder).toHaveBeenCalledExactlyOnceWith(a.state, [
-    'AK.b',
-    'AK.a',
-    'AK.v',
-    'AK.w',
-  ])
+  expect(reorder).toHaveBeenCalledExactlyOnceWith(
+    a.state,
+    ['AK.b', 'AK.a', 'AK.v', 'AK.w'],
+    undefined,
+    [{ plateIds: [a.id], placement: { kind: 'after', anchorId: b.id } }]
+  )
   expect(document.body.classList.contains('plate-dragging')).toBe(false)
 })
 
@@ -347,7 +347,13 @@ test('a drag in a fresh Batch can keep the inherited Standard first', async () =
     expect(reorder).toHaveBeenCalledExactlyOnceWith(
       w.state,
       [a.id, w.id, v.id, b.id],
-      standard
+      standard,
+      [
+        {
+          plateIds: [w.id],
+          placement: { kind: 'before-plate', anchorId: v.id },
+        },
+      ]
     )
   )
   expect(confirmStandard).toHaveBeenCalledWith(baseline, a.id)
@@ -477,9 +483,15 @@ test('dragging a variant out sends promotion and order together', async () => {
   await waitFor(() => expect(screen.getByText('Dropped')).toBeTruthy())
   expect(move).toHaveBeenCalledExactlyOnceWith(
     v.state,
-    ['AK.a', 'AK.w', 'AK.b', 'AK.v'],
-    { plateId: v.id, templateFamily: 'ak_v' },
-    { batchId: 'batch', revision: 4 }
+    [
+      {
+        plateIds: [v.id],
+        placement: { kind: 'after', anchorId: b.id },
+        promote: true,
+      },
+    ],
+    { batchId: 'batch', revision: 4 },
+    undefined
   )
   expect(edit).not.toHaveBeenCalled()
   expect(reorder).not.toHaveBeenCalled()
@@ -659,7 +671,12 @@ test('keyboard arrows update the gap, cancel restores it, and drop commits exact
   fireEvent.keyDown(handle, { key: 'ArrowRight' })
   fireEvent.keyDown(handle, { key: ' ' })
   await waitFor(() =>
-    expect(reorder).toHaveBeenCalledExactlyOnceWith(a.state, preview)
+    expect(reorder).toHaveBeenCalledExactlyOnceWith(
+      a.state,
+      preview,
+      undefined,
+      [{ plateIds: [a.id], placement: { kind: 'after', anchorId: b.id } }]
+    )
   )
 })
 
@@ -1306,12 +1323,12 @@ test('release uses the visible gap while a new join is still dwelling', async ()
     act(() => vi.advanceTimersByTime(200))
     expect(screen.getByTestId('gap').textContent).toBe('AK.b,AK.a,AK.v,AK.w')
     await act(async () => dragPointer(handle, 'pointerup', 180))
-    expect(reorder).toHaveBeenCalledWith(a.state, [
-      'AK.b',
-      'AK.a',
-      'AK.v',
-      'AK.w',
-    ])
+    expect(reorder).toHaveBeenCalledWith(
+      a.state,
+      ['AK.b', 'AK.a', 'AK.v', 'AK.w'],
+      undefined,
+      [{ plateIds: [a.id], placement: { kind: 'after', anchorId: b.id } }]
+    )
     expect(mergeSave).not.toHaveBeenCalled()
   } finally {
     cleanup()
@@ -1358,12 +1375,15 @@ test('background drop promotes selected variants and ignores selected templates'
   expect(edit).not.toHaveBeenCalled()
   expect(move).toHaveBeenCalledWith(
     v.state,
-    [a.id, b.id, v.id, w.id],
     [
-      { plateId: v.id, templateFamily: 'ak_v' },
-      { plateId: w.id, templateFamily: 'ak_w' },
+      {
+        plateIds: [v.id, w.id],
+        placement: { kind: 'after', anchorId: b.id },
+        promote: true,
+      },
     ],
-    expect.any(Object)
+    expect.any(Object),
+    undefined
   )
   expect(reorder).not.toHaveBeenCalled()
   await waitFor(() =>
@@ -1452,7 +1472,7 @@ test('dropping wholly within the current family explains the no-op without writi
   expect(mergeSave).not.toHaveBeenCalled()
 })
 
-test('promotion de-duplicates slugs across the selection and advances full State orders', async () => {
+test('promotion sends selected Variants together relative to their source family', async () => {
   const template = { ...a, templateFamily: 'ak_v' }
   const second = { ...w, id: 'AK.v_2' }
   plateSelection.add([v, second])
@@ -1487,12 +1507,15 @@ test('promotion de-duplicates slugs across the selection and advances full State
   await waitFor(() => expect(move).toHaveBeenCalledOnce())
   expect(move).toHaveBeenCalledExactlyOnceWith(
     v.state,
-    [a.id, v.id, second.id],
     [
-      { plateId: v.id, templateFamily: 'ak_v_2' },
-      { plateId: second.id, templateFamily: 'ak_v_2_2' },
+      {
+        plateIds: [v.id, second.id],
+        placement: { kind: 'after', anchorId: a.id },
+        promote: true,
+      },
     ],
-    { batchId: 'batch', revision: 1 }
+    { batchId: 'batch', revision: 1 },
+    undefined
   )
 })
 
@@ -2237,7 +2260,17 @@ test('cross-state partial promotion rollback preserves a legacy Standard below t
   )
   expect(reorder).toHaveBeenCalledExactlyOnceWith(
     'AK',
-    familyOrder(localFamilies)
+    familyOrder(localFamilies),
+    undefined,
+    [
+      {
+        plateIds: [variant.id],
+        placement: {
+          kind: 'before-plate',
+          anchorId: localFamilies[1].template.id,
+        },
+      },
+    ]
   )
   expect(edit).toHaveBeenCalledExactlyOnceWith(
     { ...variant, revision: 'restored-order' },

@@ -1,33 +1,11 @@
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
-import { mergeFamily } from '@/lib/review/family-merge'
-import { limits } from '@/lib/review/fields'
+import { moveState } from '@/lib/review/move-state'
+import { isStateMoveId, parseStateMoves } from '@/lib/review/state-move'
+import { parseStandardChange } from '@/lib/review/standard-change'
 import { currentActor, reviewDeps } from '@/lib/server/context'
 import { badRequest, readJson, respond } from '@/lib/server/respond'
 
-/** Validate the plate ID and revision used to guard each part of a family merge. */
-function plateReference(
-  value: unknown
-): value is { id: string; revision: string } {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    !('id' in value) ||
-    !('revision' in value)
-  )
-    return false
-  return (
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    value.id.length <= limits.text &&
-    typeof value.revision === 'string' &&
-    /^[0-9a-f]{20}$/.test(value.revision)
-  )
-}
-
-/**
- * Validate a family merge request and commit it against the supplied catalog and batch
- * revisions.
- */
+/** Join the selected plates to the current destination family. */
 export async function POST(
   request: Request,
   ctx: RouteContext<'/api/batches/[id]/family-merge'>
@@ -35,33 +13,34 @@ export async function POST(
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
   const body = await readJson(request)
-  if (!body) return badRequest()
-  const { destination, members, catalogVersion, batchRevision } = body
+  const standard = parseStandardChange(body?.standard)
+  const destinationId = body?.destinationId
   if (
-    !plateReference(destination) ||
-    !Array.isArray(members) ||
-    !members.length ||
-    members.length > limits.plates ||
-    !members.every(plateReference) ||
-    typeof batchRevision !== 'number' ||
-    !Number.isSafeInteger(batchRevision) ||
-    batchRevision < 0 ||
-    (catalogVersion !== undefined &&
-      (typeof catalogVersion !== 'number' ||
-        !Number.isSafeInteger(catalogVersion) ||
-        catalogVersion < 0))
+    typeof destinationId !== 'string' ||
+    !isStateMoveId(body?.operationId) ||
+    standard === null
   )
     return badRequest()
+  const moves = parseStateMoves([
+    {
+      plateIds: body?.plateIds,
+      placement: { kind: 'join', anchorId: destinationId },
+    },
+  ])
+  if (!moves) return badRequest()
   const target = await draftWriteTarget((await ctx.params).id, auth.actor)
   if (!target.ok) return target.response
-  const id = target.id
-  return respond(
-    await mergeFamily(reviewDeps(), auth.actor, {
-      batchId: id,
-      destination,
-      members,
-      catalogVersion,
-      batchRevision,
-    })
-  )
+  const outcome = await moveState(reviewDeps(), auth.actor, {
+    batchId: target.id,
+    operationId: body.operationId,
+    state: destinationId.split('.')[0],
+    moves,
+    standard,
+    keepStandardOnJoin: !standard,
+  })
+  if (!outcome.ok) return respond(outcome)
+  return respond({
+    ok: true,
+    value: { ...outcome.value.merge!, revision: outcome.value.revision },
+  })
 }
