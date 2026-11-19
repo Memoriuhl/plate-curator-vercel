@@ -57,9 +57,19 @@ export function Conflict({
       <strong>Someone changed this while you were editing.</strong>
       {Object.keys(issue.fields).map((key) => {
         const field = key as keyof EditableFields
+        const conflict = result.conflicts?.[field]
         return (
           <div key={key} className="grid gap-1 break-words sm:grid-cols-2">
             <span className="label sm:col-span-2">{key}</span>
+            {conflict && (
+              <p className="sm:col-span-2">
+                {conflict.byName || conflict.by} saved this field on{' '}
+                <time dateTime={conflict.at}>
+                  {new Date(conflict.at).toLocaleString()}
+                </time>
+                .
+              </p>
+            )}
             <p>Saved: {format(result.current[field])}</p>
             <p>Proposed: {format(result.draft[field])}</p>
           </div>

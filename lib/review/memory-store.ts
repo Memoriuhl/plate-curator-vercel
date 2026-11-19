@@ -7,7 +7,14 @@ import {
   type DraftChange,
   type ReviewCheckpoint,
 } from './checkpoint'
-import type { ProposedEdit, ReviewBatch, ReviewStore } from './types'
+import { retryDraft, retryDraftRace } from './preconditions'
+import { nextPlateEditVersions, recordEditAuthors } from './edit-history'
+import type {
+  ProposedEdit,
+  ReviewBatch,
+  ReviewStore,
+  StateMoveResult,
+} from './types'
 
 /**
  * Create an in-memory review adapter that supports revision checks, checkpoints and
@@ -35,6 +42,10 @@ export function createMemoryStore(
 
   const checkpoints = new Map<string, Map<string, ReviewCheckpoint>>()
   const changes = new Map<string, DraftChange[]>()
+  const moveReceipts = new Map<
+    string,
+    { fingerprint: string; result: StateMoveResult }
+  >()
 
   /**
    * Read draft changes after a revision and retain only changes still present in the
@@ -50,6 +61,39 @@ export function createMemoryStore(
     )
 
   return {
+    async transactStateMove(batchId, operationId, fingerprint, plan) {
+      const key = JSON.stringify([batchId, operationId])
+      return retryDraftRace(async () => {
+        const receipt = moveReceipts.get(key)
+        if (receipt)
+          return receipt.fingerprint === fingerprint
+            ? { ok: true, value: structuredClone(receipt.result) }
+            : { ok: false, error: 'superseded_revision' }
+        const detail = await this.readBatch(batchId)
+        if (!detail) return { ok: false, error: 'not_found' }
+        const proposed = await plan(detail)
+        if (
+          moveReceipts.has(key) ||
+          batches.get(batchId)?.revision !== detail.batch.revision
+        )
+          return retryDraft
+        if (!proposed.ok) return proposed
+        if (proposed.mutation) {
+          const saved = await this.commit(
+            batchId,
+            detail.batch.revision,
+            proposed.mutation
+          )
+          if (saved === 'revision_mismatch') return retryDraft
+          if (saved !== 'ok') return { ok: false, error: saved }
+        }
+        moveReceipts.set(key, {
+          fingerprint,
+          result: structuredClone(proposed.value),
+        })
+        return { ok: true, value: proposed.value }
+      })
+    },
     /** Return the distinct active draft plate IDs changed after a given revision. */
     async recentPlateIds(batchId, since) {
       const batch = batches.get(batchId)
@@ -235,7 +279,7 @@ export function createMemoryStore(
           )
       }
       const batchEdits = edits.get(batchId) ?? new Map<string, ProposedEdit>()
-      const updates = [
+      let updates = [
         ...(saved.edits ?? []),
         ...(saved.edit ? [saved.edit] : []),
       ]
@@ -243,6 +287,21 @@ export function createMemoryStore(
         ...(saved.deleteEditsFor ?? []),
         ...(saved.deleteEditFor ? [saved.deleteEditFor] : []),
       ]
+      const touched = [...updates.map((edit) => edit.plateId), ...deletes]
+      if (saved.batch.kind === 'shared-draft') {
+        const versions = nextPlateEditVersions(
+          current,
+          saved.batch.revision,
+          saved.history === false ? [] : touched
+        )
+        if (versions) saved.batch.plateEditVersions = versions
+        updates = updates.map((edit) => ({
+          ...(saved.history === false
+            ? edit
+            : recordEditAuthors(edit, batchEdits.get(edit.plateId))),
+          revision: saved.batch.revision,
+        }))
+      }
       const change =
         saved.history === false
           ? null
@@ -257,12 +316,10 @@ export function createMemoryStore(
                     current,
                     saved.batch,
                     new Map(
-                      [...updates.map((edit) => edit.plateId), ...deletes].map(
-                        (id) => [
-                          id,
-                          structuredClone(batchEdits.get(id) ?? null),
-                        ]
-                      )
+                      touched.map((id) => [
+                        id,
+                        structuredClone(batchEdits.get(id) ?? null),
+                      ])
                     )
                   )
                 : undefined
@@ -270,13 +327,7 @@ export function createMemoryStore(
       if (change)
         changes.set(batchId, [...(changes.get(batchId) ?? []), change])
       for (const id of deletes) batchEdits.delete(id)
-      for (const edit of updates)
-        batchEdits.set(
-          edit.plateId,
-          saved.batch.kind === 'shared-draft'
-            ? { ...edit, revision: saved.batch.revision }
-            : edit
-        )
+      for (const edit of updates) batchEdits.set(edit.plateId, edit)
       edits.set(batchId, batchEdits)
       batches.set(batchId, saved.batch)
       signals.set(batchId, saved.batch.revision)

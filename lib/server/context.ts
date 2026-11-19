@@ -51,7 +51,7 @@ import { firestoreReviewStore } from '../review/firestore-store'
 import { firestoreVersionOrigin } from '../review/firestore-version-origin'
 import type { ReviewDeps } from '../review/types'
 import { json } from './respond'
-import { cachedJurisdiction } from './snapshot-cache'
+import { cachedCatalogFamilies, cachedJurisdiction } from './snapshot-cache'
 import { membersStore } from './members'
 import { createMemoryMembersStore } from '../members/memory-store'
 import { readCommonsImage } from '../../worker/remote-image'
@@ -220,6 +220,14 @@ export function reviewDeps(): ReviewDeps {
           : await source.readCuratorState()
       )
     },
+    catalogFamilies: (version) =>
+      cachedCatalogFamilies(
+        version,
+        catalogSourceKind({
+          CATALOG_SOURCE: process.env.CATALOG_SOURCE,
+          VERCEL_ENV: process.env.VERCEL_ENV,
+        })
+      ),
     /** Read the live catalog version the shared draft starts from and rebases onto. */
     liveVersion: () => catalog().readVersion(),
     /** Read the committed publish receipt that moved the pointer to a version. */

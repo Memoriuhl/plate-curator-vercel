@@ -77,6 +77,7 @@ test('dashboard reads saved orders and every curator’s edits from the shared d
       batch: {
         ...draft,
         revision: 3,
+        plateEditVersions: { [plate.id]: 2, [other.id]: 3 },
         stateOrders: { AK: ['AK.two', plate.id] },
       },
       plates: [

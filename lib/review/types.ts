@@ -1,5 +1,6 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
 import type { DraftChange, ReviewChanges } from './checkpoint'
+import type { FamilyMergeResult } from './family-merge-plan'
 import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
@@ -99,6 +100,8 @@ export type ReviewBatch = {
   stateOrderChangedAt?: Record<string, string>
   baselineOrders?: Record<string, string[]>
   plateIds: string[]
+  /** Last curator write per plate, including plates restored to baseline. */
+  plateEditVersions?: Record<string, number>
   approvalRun?: { runId: string; revision: number }
   publishAbandonment?: Abandonment
   publishCommand?: { commandId: string; revision: number }
@@ -155,6 +158,12 @@ export type ProposedEdit = {
   fields: EditableFields
   authorId: string
   authorName?: string | null
+  fieldAuthors?: Partial<
+    Record<
+      keyof EditableFields,
+      { by: string; byName: string | null; at: string }
+    >
+  >
   pipelineChanges?: Partial<Record<keyof EditableFields, PipelineFieldChange>>
   pipelineRunIds?: string[]
   updatedAt: string
@@ -162,6 +171,17 @@ export type ProposedEdit = {
   /** Draft revision of the last write to this plate. */
   revision?: number
 }
+export type PlateFieldConflicts = Partial<
+  Record<
+    keyof EditableFields,
+    {
+      by: string
+      byName: string | null
+      at: string
+      value: EditableFields[keyof EditableFields] | null
+    }
+  >
+>
 export type StandardChange = { from: string | null; to: string }
 export type ReviewError =
   | 'pipeline_busy'
@@ -175,8 +195,37 @@ export type ReviewError =
   | 'invalid_state'
 export type Outcome<T> =
   | { ok: true; value: T }
-  | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
+  | {
+      ok: false
+      error: ReviewError
+      current?: Plate
+      currentEditVersion?: number
+      reasons?: string[]
+      conflicts?: PlateFieldConflicts
+    }
+export type StateMoveResult = {
+  revision: number
+  order: string[]
+  merge?: FamilyMergeResult
+}
+type StateMovePlan =
+  | Extract<Outcome<StateMoveResult>, { ok: false }>
+  | {
+      ok: true
+      value: StateMoveResult
+      mutation?: Parameters<ReviewStore['commit']>[2]
+    }
 export interface ReviewStore {
+  transactStateMove(
+    batchId: string,
+    operationId: string,
+    fingerprint: string,
+    plan: (detail: {
+      batch: ReviewBatch
+      edits: ProposedEdit[]
+    }) => Promise<StateMovePlan>,
+    prepare: (baselineVersion: number) => Promise<unknown>
+  ): Promise<Outcome<StateMoveResult>>
   markViewed?(
     batchId: string,
     uid: string,
@@ -274,6 +323,9 @@ export type ReviewDeps = {
     state: string,
     order?: 'snapshot'
   ): Promise<Plate[]>
+  catalogFamilies?(
+    version: number
+  ): Promise<Pick<Plate, 'id' | 'state' | 'templateFamily' | 'deleted'>[]>
   /**
    * No longer provided: it woke the Submit/Approve workflow, which is retired. Kept
    * optional so the research accept path compiles until it drops the call.

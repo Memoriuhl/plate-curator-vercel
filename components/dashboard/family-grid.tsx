@@ -281,11 +281,13 @@ export function FamilyGrid({
     setResolutionError('')
     try {
       if (reapply) {
-        const { currentRevision, batchId, draft } = issue.result
+        const { currentRevision, currentEditVersion, batchId, draft } =
+          issue.result
         if (!currentRevision) throw new Error('Missing conflict revision')
         const result = await edits.edit(issue.plate, draft, {
           batchId,
           baseRevision: currentRevision,
+          editVersion: currentEditVersion,
           ...(issue.standard ? { standard: issue.standard } : {}),
         })
         setIssue(result.ok ? null : { ...issue, result })

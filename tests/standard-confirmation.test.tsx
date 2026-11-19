@@ -96,7 +96,13 @@ test('keyboard reorder of the first family confirms before any write; Cancel res
     expect(reorder).toHaveBeenCalledExactlyOnceWith(
       'AK',
       ['second', 'first', 'third'],
-      { from: 'first', to: 'second' }
+      { from: 'first', to: 'second' },
+      [
+        {
+          plateIds: ['first'],
+          placement: { kind: 'before', anchorId: 'third' },
+        },
+      ]
     )
   )
 })
@@ -104,11 +110,17 @@ test('reorder below the first family saves without a dialog', async () => {
   const { reorder, drop } = setup(second)
   drop()
   await waitFor(() =>
-    expect(reorder).toHaveBeenCalledExactlyOnceWith('AK', [
-      'first',
-      'third',
-      'second',
-    ])
+    expect(reorder).toHaveBeenCalledExactlyOnceWith(
+      'AK',
+      ['first', 'third', 'second'],
+      undefined,
+      [
+        {
+          plateIds: ['second'],
+          placement: { kind: 'after', anchorId: 'third' },
+        },
+      ]
+    )
   )
   expect(screen.queryByRole('alertdialog')).toBeNull()
 })
@@ -177,8 +189,14 @@ test.each([false, true])(
     expect(move).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Make Standard' }))
     await waitFor(() => expect(move).toHaveBeenCalledOnce())
-    expect(move.mock.calls[0][1][0]).toBe(variant.id)
-    expect(move.mock.calls[0][4]).toEqual({ from: first.id, to: variant.id })
+    expect(move.mock.calls[0][1]).toEqual([
+      {
+        plateIds: multi ? [variant.id, other.id] : [variant.id],
+        placement: { kind: 'before', anchorId: first.id },
+        promote: true,
+      },
+    ])
+    expect(move.mock.calls[0][3]).toEqual({ from: first.id, to: variant.id })
   }
 )
 

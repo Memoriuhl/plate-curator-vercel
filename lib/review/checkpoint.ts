@@ -22,6 +22,7 @@ export type DraftChangeBefore = {
 export type DraftChange = {
   revision: number
   plateIds: string[]
+  at?: string
   contributors: Author[]
   /** Jurisdictions this commit touched, through plate edits or state orders. */
   states?: string[]
@@ -125,6 +126,7 @@ export function draftChange(
     })),
     ...(before
       ? {
+          ...(next.lastChangedAt && { at: next.lastChangedAt }),
           states: touchedStates(plateIds, before),
           orderStates: Object.keys(before.stateOrders).sort(),
           before,
