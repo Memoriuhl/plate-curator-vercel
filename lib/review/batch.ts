@@ -12,6 +12,7 @@ import {
 import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { sameEditableValue } from './story'
+import { deletionPublishing, resolveConflicts } from './draft'
 import {
   hasPipelineHistory,
   pipelineImageFields,
@@ -222,6 +223,11 @@ async function updatePlate(
           familyRole(plate) !== 'template'))
     )
       return { ok: false, error: 'standard_required' }
+    if (existing?.fields.deleted && !plate.deleted) {
+      const publishing = await deletionPublishing(d, batch, i.plateId)
+      if (publishing)
+        return { ok: false, error: 'invalid_state', reasons: [publishing] }
+    }
     if (!plate.deleted && (plate.variantOfPlateId || plate.templateFamily)) {
       const edits = await d.store.listEdits(batch.id)
       const deleted = edits.filter(
@@ -276,14 +282,17 @@ async function updatePlate(
         .map((key) => [key, plate[key]])
     )
     const changedAt = d.now()
-    const nextBatch: ReviewBatch = {
-      ...batch,
-      lastChangedAt: changedAt,
-      plateIds,
-      state: 'open',
-      revision: batch.revision + 1,
-      approval: null,
-    }
+    const nextBatch: ReviewBatch = resolveConflicts(
+      {
+        ...batch,
+        lastChangedAt: changedAt,
+        plateIds,
+        state: 'open',
+        revision: batch.revision + 1,
+        approval: null,
+      },
+      { plateId: i.plateId, fields: Object.keys(changes) }
+    )
     const attribution = retainedPipelineChanges(existing, plate)
     for (const field of revertedFields) {
       const change = existing?.pipelineChanges?.[field]
@@ -561,24 +570,28 @@ async function reorderStateOnce(
       )
   if (!combined.ok) return combined
   const changedAt = d.now()
-  const next: ReviewBatch = {
-    ...batch,
-    lastChangedAt: changedAt,
-    plateIds: combined.value.plateIds,
-    state: 'open',
-    approval: null,
-    revision: batch.revision + 1,
-    stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
-    stateOrderChangedAt: {
-      ...batch.stateOrderChangedAt,
-      [input.state]: changedAt,
+  const next: ReviewBatch = resolveConflicts(
+    {
+      ...batch,
+      lastChangedAt: changedAt,
+      plateIds: combined.value.plateIds,
+      state: 'open',
+      approval: null,
+      revision: batch.revision + 1,
+      stateOrders: { ...batch.stateOrders, [input.state]: [...input.order] },
+      stateOrderChangedAt: {
+        ...batch.stateOrderChangedAt,
+        [input.state]: changedAt,
+      },
+      baselineOrders: {
+        ...batch.baselineOrders,
+        [input.state]:
+          batch.baselineOrders?.[input.state] ??
+          plates.map((plate) => plate.id),
+      },
     },
-    baselineOrders: {
-      ...batch.baselineOrders,
-      [input.state]:
-        batch.baselineOrders?.[input.state] ?? plates.map((plate) => plate.id),
-    },
-  }
+    { state: input.state }
+  )
   const result = await d.store.commit(batch.id, batch.revision, {
     batch: next,
     by: actor,

@@ -16,6 +16,44 @@ export type LastPublish = {
   byName: string | null
   at: string
 }
+/**
+ * The committed publish that moved the live catalog pointer to a version, read from its
+ * receipt.
+ */
+export type VersionOrigin = {
+  batchId: string
+  revision: number
+  fromVersion: number
+  toVersion: number
+  /** Who asked for the publish, from the accepted command. */
+  by: string
+  byName: string | null
+  /** When the pointer moved. */
+  at: string
+  /** The publish finished, including the curator state-order projection. */
+  settled: boolean
+}
+/**
+ * A pending draft value the live catalog changed underneath, found when the draft moved
+ * onto a version it did not publish itself. Publish waits until each one is changed or
+ * discarded, or the Owner confirms they checked them.
+ */
+export type DraftConflict =
+  | {
+      kind: 'field'
+      plateId: string
+      field: string
+      fromVersion: number
+      toVersion: number
+    }
+  | { kind: 'order'; state: string; fromVersion: number; toVersion: number }
+  | {
+      /** A Publish deleted the plate after a curator undid that deletion. */
+      kind: 'deleted'
+      plateId: string
+      fromVersion: number
+      toVersion: number
+    }
 export type ReviewBatch = {
   id: string
   name: string
@@ -42,6 +80,8 @@ export type ReviewBatch = {
   /** Lowest draft revision that can still be published or reconstructed. */
   rebaseFloor?: number
   lastPublish?: LastPublish
+  /** Pending values the live catalog changed since this draft's earlier baseline. */
+  conflicts?: DraftConflict[]
   migratedBatchIds?: string[]
   foldedInto?: string
 }
@@ -198,5 +238,10 @@ export type ReviewDeps = {
   supersedeRun?(batch: ReviewBatch): Promise<void>
   /** Live catalog version, used to start and rebase the shared draft. */
   liveVersion?(): Promise<number>
+  /**
+   * The committed publish that set the pointer to this version, or null when no publish
+   * receipt claims it (an outside change to the pointer).
+   */
+  versionOrigin?(version: number): Promise<VersionOrigin | null>
   now(): string
 }

@@ -1,6 +1,7 @@
 import { canEdit, editableStates } from './access'
 import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
 import { validRegroup } from './batch'
+import { deletionPublishing, resolveConflicts } from './draft'
 import { familyRole } from '../catalog/families'
 import { orderDifferences, restorePlateOrder } from './order-diff'
 import { draftGroupingFields, editableKeys } from './fields'
@@ -115,6 +116,11 @@ async function discardPlateChangesOnce(
   }
   if (!removed.length && !moved && !(dropAll && existing))
     return { ok: true, value: batch }
+  if (removed.includes('deleted')) {
+    const publishing = await deletionPublishing(d, batch, plateId)
+    if (publishing)
+      return { ok: false, error: 'invalid_state', reasons: [publishing] }
+  }
 
   const changedAt = d.now()
   const nextEdits: ProposedEdit[] = []
@@ -214,17 +220,21 @@ async function discardPlateChangesOnce(
     }
   }
 
-  const next: ReviewBatch = {
-    ...batch,
-    state: 'open',
-    approval: null,
-    revision: batch.revision + 1,
-    lastChangedAt: changedAt,
-    plateIds: dropAll
-      ? batch.plateIds.filter((id) => id !== plateId)
-      : batch.plateIds,
-  }
+  let next: ReviewBatch = resolveConflicts(
+    {
+      ...batch,
+      state: 'open',
+      approval: null,
+      revision: batch.revision + 1,
+      lastChangedAt: changedAt,
+      plateIds: dropAll
+        ? batch.plateIds.filter((id) => id !== plateId)
+        : batch.plateIds,
+    },
+    { plateId, fields: dropAll ? undefined : removed }
+  )
   if (order && order !== oldOrder) {
+    next = resolveConflicts(next, { state })
     next.stateOrders = { ...batch.stateOrders }
     next.stateOrderChangedAt = { ...batch.stateOrderChangedAt }
     if (

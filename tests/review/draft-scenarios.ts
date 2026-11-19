@@ -2,20 +2,24 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
 import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { discardPlateChanges } from '../../lib/review/discard-changes'
 import {
   afterPublish,
   draftAtRevision,
   ensureDraft,
   freezeRelease,
+  keepDraftValues,
 } from '../../lib/review/draft'
 import { sharedDraftId } from '../../lib/review/draft-id'
 import { draftCommitAttempts } from '../../lib/review/retry'
 import { plateRevision } from '../../lib/review/revision'
 import type {
   Actor,
+  EditableFields,
   ProposedEdit,
   ReviewDeps,
   ReviewStore,
+  VersionOrigin,
 } from '../../lib/review/types'
 
 const owner: Actor = { uid: 'owner', name: 'Owner', role: 'owner' }
@@ -50,6 +54,8 @@ export function sharedDraftScenarios(
     const env = `draft-${randomUUID().slice(0, 8)}`
     const store = await makeStore(env)
     const versions = new Map<number, Plate[]>([[1, v1]])
+    // Committed publish receipts by the version they moved the pointer to.
+    const origins = new Map<number, VersionOrigin>()
     let live = 1
     const d: ReviewDeps = {
       store,
@@ -60,11 +66,12 @@ export function sharedDraftScenarios(
       stateBaseline: async (version, state) =>
         (versions.get(version) ?? []).filter((entry) => entry.state === state),
       liveVersion: async () => live,
+      versionOrigin: async (version) => origins.get(version) ?? null,
       now: () => new Date().toISOString(),
     }
     const draftId = sharedDraftId(env)
-    /** Save tags on one plate from the draft's current value. */
-    const tag = async (actor: Actor, id: string, tags: string[]) => {
+    /** Save fields on one plate from the draft's current value. */
+    const save = async (actor: Actor, id: string, fields: EditableFields) => {
       const draft = (await store.getBatch(draftId))!
       const base = (await d.baselineAtVersion(draft.baselineVersion, id))!
       const current = {
@@ -75,11 +82,22 @@ export function sharedDraftScenarios(
         batchId: draftId,
         plateId: id,
         baseRevision: plateRevision(current),
-        fields: { tags },
+        fields,
       })
     }
-    /** Publish a release: the catalog moves to a new version with its edits applied. */
-    const publish = async (releaseId: string) => {
+    /** Save tags on one plate from the draft's current value. */
+    const tag = (actor: Actor, id: string, tags: string[]) =>
+      save(actor, id, { tags })
+    /**
+     * Commit a release the way Publish does: the pointer moves to a new version with its
+     * edits applied (deleted plates removed) and the receipt records who asked and when.
+     * The receipt stays unsettled until `settle`, as it is while the state order
+     * projection is still being written.
+     */
+    const commit = async (
+      releaseId: string,
+      by: { uid: string; email: string } = { uid: 'owner', email: 'owner@x' }
+    ) => {
       const release = (await store.readBatch(releaseId))!
       const edits = new Map(
         release.edits.map((entry) => [entry.plateId, entry])
@@ -89,12 +107,56 @@ export function sharedDraftScenarios(
         next,
         versions
           .get(live)!
+          .filter((entry) => !edits.get(entry.id)?.fields.deleted)
           .map((entry) => ({ ...entry, ...edits.get(entry.id)?.fields }))
       )
+      origins.set(next, {
+        batchId: releaseId,
+        revision: release.batch.revision,
+        fromVersion: live,
+        toVersion: next,
+        by: by.uid,
+        byName: by.email,
+        at: `2026-11-18T12:00:0${next}.000Z`,
+        settled: false,
+      })
       live = next
+      return next
+    }
+    /** Finish the publish that moved the pointer to this version. */
+    const settle = (version: number) => {
+      origins.set(version, { ...origins.get(version)!, settled: true })
+    }
+    /** Publish a release start to finish, then run the post-publish draft step. */
+    const publish = async (releaseId: string) => {
+      const next = await commit(releaseId)
+      settle(next)
       return afterPublish(d, releaseId, next)
     }
-    return { env, store, d, draftId, tag, publish }
+    /** Move the pointer outside any release of this draft, changing some plates. */
+    const outsideChange = (changes: Record<string, Partial<Plate>>) => {
+      const next = live + 1
+      versions.set(
+        next,
+        versions
+          .get(live)!
+          .map((entry) => ({ ...entry, ...changes[entry.id] }))
+      )
+      live = next
+      return next
+    }
+    return {
+      env,
+      store,
+      d,
+      draftId,
+      save,
+      tag,
+      publish,
+      commit,
+      settle,
+      outsideChange,
+    }
   }
 
   /** Fields by plate id, for comparing draft contents. */
@@ -254,6 +316,264 @@ export function sharedDraftScenarios(
         revision: 0,
         baselineVersion: 1,
       })
+    },
+    timeout
+  )
+
+  test(
+    'a read while Publish is still finishing waits, then keeps a reset made after the published revision',
+    async () => {
+      const { store, d, draftId, env, tag, commit, settle } = await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['Reviewed']) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      // Revision 2 puts the tags back, so the draft no longer stores a change.
+      await tag(editor('ben'), 'AK.one', []) // revision 2
+      expect((await store.readBatch(draftId))!.edits).toEqual([])
+
+      const version = await commit(frozen.value.id)
+      // A Dashboard read lands after the pointer moved, before Publish finished.
+      expect(await ensureDraft(d, env, editor('cy'))).toMatchObject({
+        baselineVersion: 1,
+        revision: 2,
+      })
+
+      settle(version)
+      // The release itself is not marked published yet; its receipt names it.
+      expect((await store.getBatch(frozen.value.id))!.state).toBe('open')
+      expect(await ensureDraft(d, env, editor('cy'))).toMatchObject({
+        baselineVersion: 2,
+        lastPublish: { releaseId: frozen.value.id, revision: 1, version: 2 },
+      })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { tags: [] },
+      })
+      expect(await afterPublish(d, frozen.value.id, version)).toMatchObject({
+        ok: true,
+        changed: false,
+      })
+    },
+    timeout
+  )
+
+  test(
+    "an older release's delayed post-publish step leaves a draft a later release already moved on",
+    async () => {
+      const { store, d, draftId, env, tag, commit, settle, publish } =
+        await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['First']) // revision 1
+      const first = await freezeRelease(d, env, owner, 1)
+      if (!first.ok) throw new Error(first.error)
+      const v2 = await commit(first.value.id)
+      settle(v2)
+      // The first release's post-publish step stalls; a read moves the draft instead.
+      await ensureDraft(d, env, editor('ben'))
+      await tag(editor('ben'), 'AK.one', ['Second'])
+      const draft = (await store.getBatch(draftId))!
+      const second = await freezeRelease(d, env, owner, draft.revision)
+      if (!second.ok) throw new Error(second.error)
+      await publish(second.value.id)
+
+      // The stalled step finally runs.
+      expect(await afterPublish(d, first.value.id, v2)).toMatchObject({
+        ok: true,
+        changed: false,
+      })
+      const head = (await store.readBatch(draftId))!
+      expect(head.batch).toMatchObject({
+        baselineVersion: 3,
+        lastPublish: { releaseId: second.value.id },
+      })
+      expect(head.edits).toEqual([])
+      await ensureDraft(d, env, editor('cy'))
+      expect((await store.readBatch(draftId))!.edits).toEqual([])
+    },
+    timeout
+  )
+
+  test(
+    'a field the published revision added and a later revision discarded is cleared on the next Publish',
+    async () => {
+      const { store, d, draftId, env, save, publish } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.one', { description: 'Added' }) // revision 1
+      const frozen = await freezeRelease(d, env, owner, 1)
+      if (!frozen.ok) throw new Error(frozen.error)
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.one',
+          batchRevision: 1,
+          target: 'description',
+        })
+      ).toMatchObject({ ok: true }) // revision 2
+      const rebased = await publish(frozen.value.id)
+      expect(rebased).toMatchObject({ ok: true, warnings: [] })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { description: null },
+      })
+    },
+    timeout
+  )
+
+  test(
+    'undoing a deletion the publishing revision ships is refused, and an undo that slips past is a conflict',
+    async () => {
+      const { store, d, draftId, env, save, publish } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.five', { deleted: true }) // revision 1
+      await save(editor('ana'), 'AK.six', { deleted: true }) // revision 2
+      const frozen = await freezeRelease(d, env, owner, 2)
+      if (!frozen.ok) throw new Error(frozen.error)
+      // Undone before the Owner's confirmation lands: the undo is accepted.
+      expect(
+        await save(editor('ben'), 'AK.five', { deleted: false })
+      ).toMatchObject({ ok: true })
+      // Confirmed: the release is publishing, so a further undo is refused.
+      expect(
+        await store.commit(frozen.value.id, 0, {
+          batch: {
+            ...frozen.value,
+            state: 'approved',
+            revision: 1,
+            approval: { revision: 0, by: owner.uid, at: d.now() },
+          },
+        })
+      ).toBe('ok')
+      expect(
+        await save(editor('ben'), 'AK.six', { deleted: false })
+      ).toMatchObject({
+        ok: false,
+        error: 'invalid_state',
+        reasons: [expect.stringContaining('Revision 2')],
+      })
+
+      await publish(frozen.value.id)
+      const draft = (await store.getBatch(draftId))!
+      expect(draft.conflicts).toEqual([
+        { kind: 'deleted', plateId: 'AK.five', fromVersion: 1, toVersion: 2 },
+      ])
+      expect(await freezeRelease(d, env, owner, draft.revision)).toEqual({
+        ok: false,
+        error: 'draft_conflicts',
+      })
+    },
+    timeout
+  )
+
+  test(
+    'the last publish names who published and when from the receipt, not who froze the release',
+    async () => {
+      const { store, d, draftId, env, tag, commit, settle } = await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['one'])
+      const frozen = await freezeRelease(
+        d,
+        env,
+        { uid: 'olive', name: 'Olive' },
+        1
+      )
+      if (!frozen.ok) throw new Error(frozen.error)
+      const version = await commit(frozen.value.id, {
+        uid: 'bea',
+        email: 'bea@example.com',
+      })
+      settle(version)
+      const expected = {
+        releaseId: frozen.value.id,
+        revision: 1,
+        version: 2,
+        by: 'bea',
+        byName: 'bea@example.com',
+        at: '2026-11-18T12:00:02.000Z',
+      }
+      // A read gets there first; the delayed workflow step keeps the same record.
+      expect((await ensureDraft(d, env, editor('cy'))).lastPublish).toEqual(
+        expected
+      )
+      await afterPublish(d, frozen.value.id, version)
+      expect((await store.getBatch(draftId))!.lastPublish).toEqual(expected)
+    },
+    timeout
+  )
+
+  test(
+    'an outside catalog change to a pending field is a conflict the Owner resolves; an untouched pending field is not',
+    async () => {
+      const { store, d, draftId, env, save, outsideChange } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(editor('ana'), 'AK.one', {
+        tags: ['draft'],
+        description: 'Draft text',
+      })
+      outsideChange({ 'AK.one': { tags: ['live'] } })
+
+      const draft = await ensureDraft(d, env, owner)
+      expect(draft).toMatchObject({
+        baselineVersion: 2,
+        conflicts: [
+          {
+            kind: 'field',
+            plateId: 'AK.one',
+            field: 'tags',
+            fromVersion: 1,
+            toVersion: 2,
+          },
+        ],
+      })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.one': { tags: ['draft'], description: 'Draft text' },
+      })
+      expect(await freezeRelease(d, env, owner, draft.revision)).toEqual({
+        ok: false,
+        error: 'draft_conflicts',
+      })
+
+      // Changing the conflicting field resolves it.
+      await save(editor('ana'), 'AK.one', { tags: ['draft', 'checked'] })
+      const resolved = (await store.getBatch(draftId))!
+      expect(resolved.conflicts).toBeUndefined()
+      expect(
+        await freezeRelease(d, env, owner, resolved.revision)
+      ).toMatchObject({ ok: true })
+    },
+    timeout
+  )
+
+  test(
+    "the Owner can keep the draft's values over an outside change, and only the Owner",
+    async () => {
+      const { store, d, draftId, env, tag, outsideChange } = await setup()
+      await ensureDraft(d, env, owner)
+      await tag(editor('ana'), 'AK.one', ['draft'])
+      outsideChange({ 'AK.one': { tags: ['live'] } })
+      const draft = await ensureDraft(d, env, owner)
+      expect(draft.conflicts).toHaveLength(1)
+      expect(
+        await keepDraftValues(d, editor('ana'), {
+          batchId: draftId,
+          revision: draft.revision,
+        })
+      ).toMatchObject({ ok: false, error: 'forbidden' })
+      expect(
+        await keepDraftValues(d, owner, {
+          batchId: draftId,
+          revision: draft.revision - 1,
+        })
+      ).toMatchObject({ ok: false, error: 'superseded_revision' })
+      expect(
+        await keepDraftValues(d, owner, {
+          batchId: draftId,
+          revision: draft.revision,
+        })
+      ).toMatchObject({
+        ok: true,
+      })
+      const kept = (await store.readBatch(draftId))!
+      expect(kept.batch.conflicts).toBeUndefined()
+      expect(fieldsOf(kept.edits)).toEqual({ 'AK.one': { tags: ['draft'] } })
     },
     timeout
   )
