@@ -409,14 +409,14 @@ test('removing all changes on a replacement Standard keeps the linked plate inta
       })
     ).status
   ).toBe(200)
-  const before = await deps.store.readBatch('batch')
+  const beforeDiscard = await deps.store.readBatch('batch')
   const response = await patchPlate('two', { batchRevision: 5, discard: 'all' })
   expect(response.status).toBe(422)
   expect(await response.json()).toMatchObject({
     error: 'invalid_state',
     reasons: [expect.stringContaining('Standard')],
   })
-  expect(await deps.store.readBatch('batch')).toEqual(before)
+  expect(await deps.store.readBatch('batch')).toEqual(beforeDiscard)
 })
 test('signed-in creator receives the saved placement receipt', async () => {
   const response = await put({
