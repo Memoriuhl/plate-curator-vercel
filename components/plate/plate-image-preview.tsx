@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { EnhancedImageResult } from '@/components/dashboard/enhanced-image-result'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useSession } from '@/lib/client/session'
+import { useLiveRefresh } from '@/lib/client/live-signal'
 import type { EnhancedImageSuggestion } from '@/lib/jobs/image-enhancement'
 
 type PlateImagePreview = {
@@ -15,15 +16,24 @@ type PlateImagePreview = {
 
 export function useLatestEnhancement(plateId: string, enabled: boolean) {
   const session = useSession(false)
-  return useSWR<{
-    result: { jobId: string; suggestion: EnhancedImageSuggestion } | null
-  }>(
+  const key =
     enabled && session?.user && process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
       ? `/api/local-pipeline/plates/${encodeURIComponent(plateId)}/enhancement`
-      : null,
-    session?.api?.get ?? null,
-    { dedupingInterval: 1000, shouldRetryOnError: false, refreshInterval: 5000 }
-  ).data?.result
+      : null
+  const enhancement = useSWR<{
+    result: { jobId: string; suggestion: EnhancedImageSuggestion } | null
+  }>(key, session?.api?.get ?? null, {
+    dedupingInterval: 1000,
+    shouldRetryOnError: false,
+  })
+  // A finished enhancement job is a pipeline write, so its signal brings the new image.
+  // While the preview is open, a slow safety refresh covers a signal that never arrived.
+  useLiveRefresh(['pipeline'], () => enhancement.mutate(), {
+    enabled: key !== null,
+    key: key ?? undefined,
+    safetyMs: 60_000,
+  })
+  return enhancement.data?.result
 }
 
 export function PlateEnhancementPreview({

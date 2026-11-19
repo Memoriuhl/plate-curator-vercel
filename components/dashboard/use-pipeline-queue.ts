@@ -1,12 +1,13 @@
 'use client'
 
 import { isSharedDraftId } from '@/lib/review/draft-id'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
 import { ApiError } from '@/lib/client/api'
 import { useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
+import { useLiveRefresh } from '@/lib/client/live-signal'
 import { confirmQueueRequest, queueRequestId } from '@/lib/client/queue-intents'
 import type {
   EnqueueInput,
@@ -14,6 +15,7 @@ import type {
   PipelineRun,
   QueueRunSummary,
   QueueRunView,
+  RunStatus,
 } from '@/lib/jobs/queue-types'
 import {
   snapshotPipelineOptions,
@@ -28,6 +30,23 @@ export const pipelineQueueKey = '/api/local-pipeline/runs'
 const queueSummaryKey = `${pipelineQueueKey}?detail=none`
 export const gatewayRunsKey = '/api/jobs/runs'
 
+/**
+ * The safety refresh a run list needs while its listener is healthy. While a run is
+ * queued or running, a worker going quiet changes what the drawer shows without any
+ * write, so the list re-reads every minute. With nothing active, every change it shows
+ * is signalled, so it re-reads only every ten minutes to recover a lost signal. A failed
+ * listener polls every 30 seconds either way.
+ */
+export function runListSafetyMs(
+  runs: readonly { status: RunStatus }[] | undefined
+) {
+  return runs?.some(
+    (run) => run.status === 'queued' || run.status === 'running'
+  )
+    ? 60_000
+    : 600_000
+}
+
 export function pipelineRunDetailKey(id: string) {
   return `${pipelineQueueKey}?detail=${encodeURIComponent(id)}&detailOnly=1`
 }
@@ -40,6 +59,149 @@ type QueueSnapshot = {
   capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
 }
 
+/** One queue view's part in a live refresh round. */
+type QueueRefresh = {
+  /** The request the view reads. */
+  key: string
+  get: <T>(path: string) => Promise<T>
+  /** Store a response under a view's key without requesting it again. */
+  write: (key: string, data: QueueSnapshot) => Promise<unknown>
+  /** Request the view's own key. */
+  revalidate: () => Promise<unknown>
+}
+
+let queueRound: { views: QueueRefresh[]; done: Promise<void> } | null = null
+/**
+ * The number of the newest queue read, counting up for the life of the tab. Live rounds and
+ * every SWR read of a queue key (an action's refresh, Refresh, focus) take the next number
+ * when their request starts.
+ */
+let lastRead = 0
+/** The newest read each queue request has started or taken a response from. */
+const appliedRead = new Map<string, number>()
+/** The queue views mounted in the tab, so an action can refresh all of them at once. */
+const mountedViews = new Set<QueueRefresh>()
+
+/**
+ * The SWR fetcher for queue keys. It numbers each read when it starts, so a live round that
+ * started earlier can't replace its answer.
+ */
+export function queueFetcher(get: QueueRefresh['get']) {
+  return <T>(key: string) => {
+    appliedRead.set(key, ++lastRead)
+    return get<T>(key)
+  }
+}
+
+/**
+ * Refresh a queue view as part of the tab's live round. The hub starts every due view's
+ * refresh at once, and views that join before the next microtask share requests: an open
+ * run's results ride on a list request that selects the run, or turn the list's unselected
+ * request into one. The list and an open run's results then cost one request per round.
+ */
+function refreshQueue(view: QueueRefresh): Promise<void> {
+  if (!queueRound) {
+    const views: QueueRefresh[] = []
+    queueRound = {
+      views,
+      done: Promise.resolve().then(() => {
+        queueRound = null
+        return refreshTogether(views, ++lastRead)
+      }),
+    }
+  }
+  // A view that is already in the round shares its request.
+  if (!queueRound.views.some((joined) => joined.key === view.key))
+    queueRound.views.push(view)
+  return queueRound.done
+}
+
+/**
+ * Refresh every queue view mounted in the tab in one round. After an action, the list and an
+ * open run's results both read the change, and both reject any round that started earlier.
+ */
+function refreshMounted() {
+  return Promise.all([...mountedViews].map(refreshQueue))
+}
+
+/** The run a results-only request reads, or null for a list request. */
+function detailOnlyRun(key: string) {
+  const params = new URL(key, 'https://queue.invalid').searchParams
+  return params.get('detailOnly') === '1' ? params.get('detail') : null
+}
+
+const listSelecting = (runId: string) =>
+  `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}`
+
+async function refreshTogether(views: QueueRefresh[], round: number) {
+  // A round can start while an earlier read of the same request is still out, and the
+  // responses can come back in either order. A request takes a round's response only if
+  // the round started after every read it has started or taken, so a slow response never
+  // rolls a view back. A view's own SWR read is numbered by queueFetcher when it starts:
+  // SWR drops that read's answer if an older response is written meanwhile.
+  const take = (key: string) => {
+    if ((appliedRead.get(key) ?? 0) >= round) return false
+    appliedRead.set(key, round)
+    return true
+  }
+  const write = (view: QueueRefresh, data: QueueSnapshot) =>
+    take(view.key) ? view.write(view.key, data) : undefined
+  const revalidate = (view: QueueRefresh) => view.revalidate()
+  type ListRequest = {
+    view: QueueRefresh
+    request: string
+    riders: { view: QueueRefresh; runId: string }[]
+  }
+  const lists = new Map<string, ListRequest>()
+  const alone: QueueRefresh[] = []
+  for (const view of views)
+    if (detailOnlyRun(view.key) === null)
+      lists.set(view.key, { view, request: view.key, riders: [] })
+  for (const view of views) {
+    const runId = detailOnlyRun(view.key)
+    if (runId === null) continue
+    const unselected = lists.get(queueSummaryKey)
+    const list =
+      lists.get(listSelecting(runId)) ??
+      (unselected?.riders.length === 0 ? unselected : undefined)
+    if (!list) {
+      alone.push(view)
+      continue
+    }
+    list.request = listSelecting(runId)
+    list.riders.push({ view, runId })
+  }
+  await Promise.all([
+    ...alone.map(revalidate),
+    ...[...lists.values()].map(async ({ view, request, riders }) => {
+      if (!riders.length) return revalidate(view)
+      let data: QueueSnapshot
+      try {
+        data = await view.get<QueueSnapshot>(request)
+      } catch {
+        // Let each view request its own key, so the error lands where it shows.
+        return Promise.all(
+          [view, ...riders.map((rider) => rider.view)].map(revalidate)
+        )
+      }
+      const { selected, ...list } = data
+      return Promise.all([
+        write(view, view.key === request ? data : list),
+        ...riders.map(({ view: rider, runId }) =>
+          selected?.id === runId
+            ? write(rider, {
+                runs: data.runs.filter((run) => run.id === runId),
+                selected,
+                observedAt: data.observedAt,
+              })
+            : // The list could not select the run (it is not listed), so ask directly.
+              revalidate(rider)
+        ),
+      ])
+    }),
+  ])
+}
+
 export function PipelineQueueWarmup() {
   const { user, api } = useSession()
   const pathname = usePathname()
@@ -47,7 +209,10 @@ export function PipelineQueueWarmup() {
     process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1'
       ? queueSummaryKey
       : gatewayRunsKey
-  useSWR(user && !pathname?.startsWith('/pipeline/runs/') ? key : null, api.get)
+  useSWR(
+    user && !pathname?.startsWith('/pipeline/runs/') ? key : null,
+    key === queueSummaryKey ? queueFetcher(api.get) : api.get
+  )
   return null
 }
 
@@ -106,15 +271,36 @@ export function usePipelineQueue(
     : selectedId && selectedId !== 'none'
       ? `${pipelineQueueKey}?detail=${encodeURIComponent(selectedId)}`
       : queueSummaryKey
+  const active = enabled && local && uid !== null
   const list = useSWR<QueueSnapshot>(
-    enabled && local && uid ? key : null,
-    api.get,
-    {
-      refreshInterval: (data) =>
-        data?.runs.some((run) => run.status === 'running') ? 1250 : 3000,
-      keepPreviousData: !detailId,
-    }
+    active ? key : null,
+    queueFetcher(api.get),
+    { keepPreviousData: !detailId }
   )
+  const refetch = list.mutate
+  const view = useMemo<QueueRefresh>(
+    () => ({
+      key,
+      get: api.get,
+      write: (target, data) => mutate(target, data, { revalidate: false }),
+      revalidate: () => refetch(),
+    }),
+    [key, api.get, mutate, refetch]
+  )
+  useEffect(() => {
+    if (!active) return
+    mountedViews.add(view)
+    return () => {
+      mountedViews.delete(view)
+    }
+  }, [active, view])
+  // Refetch when the server signals a queue change, sharing the round's request with the
+  // tab's other queue views.
+  const live = useLiveRefresh(['pipeline'], () => refreshQueue(view), {
+    enabled: active,
+    key,
+    safetyMs: runListSafetyMs(list.data?.runs),
+  })
   const snapshot = list.data
   const loaded = !list.isLoading
   useEffect(() => {
@@ -201,8 +387,8 @@ export function usePipelineQueue(
       : undefined
 
   /**
-   * Serialize a queue action for the current user and refresh the list after it
-   * resolves.
+   * Serialize a queue action for the current user, then refresh every mounted queue view
+   * in one round after it resolves.
    */
   async function perform<T>(
     label: string,
@@ -216,7 +402,7 @@ export function usePipelineQueue(
     try {
       const run = await operation()
       if (currentUser.current === requestedBy)
-        await list.mutate().catch(() => undefined)
+        await refreshMounted().catch(() => undefined)
       return run
     } catch (error) {
       if (currentUser.current === requestedBy) setMessage(queueError(error))
@@ -415,7 +601,8 @@ export function usePipelineQueue(
     select,
     loading: local && (ready === false || (list.isLoading && !list.data)),
     error: list.error,
-    refresh: list.mutate,
+    refresh: refreshMounted,
+    live,
     action,
     message,
     disabledReason,

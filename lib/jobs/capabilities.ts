@@ -27,7 +27,19 @@ export function shouldWriteCapabilities(
 ): boolean {
   if (!previous) return true
   if (record.reportedAt < previous.reportedAt) return false
-  const unchanged =
+  return (
+    !sameCapabilities(previous, record) ||
+    record.reportedAt - previous.reportedAt >=
+      record.capabilities.pollIntervalMs
+  )
+}
+
+/** Compare the parts of two heartbeats that the dashboard shows. */
+function sameCapabilities(
+  previous: WorkerCapabilityRecord,
+  record: WorkerCapabilityRecord
+): boolean {
+  return (
     previous.workerId === record.workerId &&
     previous.supportsSavedSources === record.supportsSavedSources &&
     previous.capabilities.pollIntervalMs ===
@@ -38,10 +50,23 @@ export function shouldWriteCapabilities(
           record.capabilities[key]?.available &&
         previous.capabilities[key]?.reason === record.capabilities[key]?.reason
     )
+  )
+}
+
+/**
+ * Decide whether a stored heartbeat changes what the dashboard shows: a new worker,
+ * different availability, or a worker reporting again after it went stale. Routine
+ * refreshes of an unchanged worker do not.
+ */
+export function capabilitiesVisiblyChanged(
+  previous: WorkerCapabilityRecord | null,
+  record: WorkerCapabilityRecord
+): boolean {
   return (
-    !unchanged ||
-    record.reportedAt - previous.reportedAt >=
-      record.capabilities.pollIntervalMs
+    !previous ||
+    !sameCapabilities(previous, record) ||
+    record.reportedAt - previous.reportedAt >
+      2 * previous.capabilities.pollIntervalMs
   )
 }
 

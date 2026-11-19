@@ -7,7 +7,7 @@ import {
   json,
   readJson,
 } from '../../../../../../lib/server/respond'
-import { wakeLocalJob } from '../../../../../../lib/server/local-queue'
+import { wakeAfterReply } from '../../../../../../lib/server/local-queue'
 
 const statusFor = {
   not_found: 404,
@@ -45,7 +45,7 @@ export async function POST(
   if (!outcome.ok)
     return json({ error: outcome.error }, statusFor[outcome.error])
 
-  if (outcome.value.queueRunId) await wakeLocalJob(outcome.value)
+  if (outcome.value.queueRunId) wakeAfterReply(outcome.value)
   else
     await resumeHook(`${outcome.value.stage ? 'pipeline' : 'tagging'}:${id}`, {
       jobId: id,

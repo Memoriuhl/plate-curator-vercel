@@ -15,6 +15,9 @@ import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { batch, command, fixture, owner } from '../tests/publish/fixture'
 import { db } from './setup'
 import type { Firestore, Transaction } from '@google-cloud/firestore'
+import { settleSignals } from '../lib/live/change-signals'
+import { topicSignalId } from '../lib/live/topics'
+import { liveEnvKey, signalPath } from '../lib/review/live-signal'
 
 const env = 'publish-test'
 const now = '2026-11-15T12:00:00Z'
@@ -643,6 +646,26 @@ test.each(['bytes', 'head', 'approval', 'stop'])(
     expect((await pointer.read()).version).toBe(changed === 'head' ? 3 : 1)
   }
 )
+
+/** Read the publish topic revision once background signals settle. */
+async function publishRevision() {
+  await settleSignals()
+  const snapshot = await db
+    .doc(signalPath(liveEnvKey(env), topicSignalId('publish')))
+    .get()
+  return (snapshot.get('revision') as number | undefined) ?? 0
+}
+
+test('linking a workflow to an accepted command tells publish listeners; a refused link does not', async () => {
+  const fresh = { ...command, commandId: 'linked-accepted' }
+  await records.accept(fresh, now)
+  const before = await publishRevision()
+  // Another tab waiting for this publish sees the run once it is linked.
+  expect(await records.bindRun(fresh, 'linked-run', now)).toBe(true)
+  expect(await publishRevision()).toBe(before + 1)
+  expect(await records.bindRun(fresh, 'other-run', now)).toBe(false)
+  expect(await publishRevision()).toBe(before + 1)
+})
 
 test('concurrent duplicate command acceptance binds one immutable identity and run', async () => {
   const fresh = { ...command, commandId: 'fresh-accepted' }

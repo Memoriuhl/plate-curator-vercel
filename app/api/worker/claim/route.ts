@@ -12,7 +12,7 @@ import {
   reportLocalWorkerCapabilities,
 } from '../../../../lib/jobs/capabilities'
 import { readJson, badRequest } from '../../../../lib/server/respond'
-import { wakeLocalJob } from '../../../../lib/server/local-queue'
+import { wakeAfterReply } from '../../../../lib/server/local-queue'
 import type { Plate } from '../../../../lib/catalog/types'
 
 /**
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   const plate =
     claim.job.inputPlate ??
     (await legacyInput(claim.job.batchId, claim.job.plateId))
-  if (claim.job.queueRunId) await wakeLocalJob(claim.job)
+  wakeAfterReply(claim.job)
   return json({
     job: {
       id: claim.job.id,

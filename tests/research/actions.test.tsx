@@ -24,6 +24,11 @@ vi.mock('../../lib/client/hooks', () => ({
   /** Resolve the fixture batch without creating one through the API. */ useEnsureBatch:
     () => vi.fn(),
 }))
+// Change-signal refresh has its own tests; here it stays connected and quiet.
+vi.mock('../../lib/client/live-signal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/client/live-signal')>()),
+  useLiveRefresh: () => 'live',
+}))
 vi.mock('next/navigation', () => ({
   /** Capture or stub navigation so the test can drive routing without Next.js. */ useRouter:
     () => ({ refresh: vi.fn() }),

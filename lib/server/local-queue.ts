@@ -1,5 +1,6 @@
+import { waitUntil } from '@vercel/functions'
 import { getRun, resumeHook, start } from 'workflow/api'
-import { HookConflictError } from 'workflow/errors'
+import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import {
   localPipelineRun,
   parallelGatewayTagRun,
@@ -59,12 +60,42 @@ export async function startQueueWorkflow(run: PipelineRun) {
   await bindQueueWorkflow(jobsDeps(), run.id, attempt.number, workflowId)
 }
 
-/** Notify the waiting queue workflow after its worker job changes state. */
-export async function wakeLocalJob(job: TaggingJob) {
+/** How long one wake send may take before it counts as refused. */
+export const wakeSendMs = 10_000
+
+/** When the server sends a refused wake again, with no request needed. */
+export const wakeRetryMs: readonly number[] = [1_000, 5_000, 30_000]
+
+/**
+ * Wake the queue workflow waiting on this job, in the background. The route that
+ * committed the change calls it and replies at once; the reply never waits for the
+ * wake. A refused or stalled send is tried again after `wakeRetryMs`, unless the stage's
+ * hook is gone. Wakes are harmless to repeat, because the workflow re-reads the stage
+ * from the database on each one, and a wake that never lands is caught by the
+ * workflow's own re-check.
+ */
+export function wakeAfterReply(job: TaggingJob) {
   if (job.completionHook && job.queueRunId)
-    await resumeHook(job.completionHook, { jobId: job.id }).catch(
-      () => undefined
-    )
+    waitUntil(sendWake(job.completionHook, job.id))
+}
+
+async function sendWake(token: string, jobId: string) {
+  for (const delay of [...wakeRetryMs, null]) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const outcome = await Promise.race([
+      resumeHook(token, { jobId }).then(
+        () => 'delivered' as const,
+        (error) =>
+          HookNotFoundError.is(error) ? ('gone' as const) : ('refused' as const)
+      ),
+      new Promise<'refused'>((resolve) => {
+        timer = setTimeout(() => resolve('refused'), wakeSendMs)
+      }),
+    ])
+    clearTimeout(timer)
+    if (outcome !== 'refused' || delay === null) return
+    await new Promise((resolve) => setTimeout(resolve, delay))
+  }
 }
 
 /** Check a run's linked workflow and reconcile terminal status into the queue attempt. */

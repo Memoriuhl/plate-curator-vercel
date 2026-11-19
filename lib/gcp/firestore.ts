@@ -2,15 +2,25 @@ import 'server-only'
 import { Firestore } from '@google-cloud/firestore'
 import { requireEnv } from '../env'
 import { gcpAuthClient } from './credentials'
+import { instrumentFirestore } from '../dev/usage-counter'
 
 let firestore: Firestore | undefined
 
-/** Keep one Firestore client per process to reuse its connection and auth setup. */
+/**
+ * Keep one Firestore client per process to reuse its connection and auth setup. A local
+ * emulator needs no cloud credentials.
+ */
 export function stagingFirestore(): Firestore {
-  firestore ??= new Firestore({
-    projectId: requireEnv('GCP_PROJECT_ID'),
-    authClient: gcpAuthClient(),
-  })
+  firestore ??= instrumentFirestore(
+    new Firestore(
+      process.env.FIRESTORE_EMULATOR_HOST
+        ? { projectId: requireEnv('GCP_PROJECT_ID') }
+        : {
+            projectId: requireEnv('GCP_PROJECT_ID'),
+            authClient: gcpAuthClient(),
+          }
+    )
+  )
   return firestore
 }
 
