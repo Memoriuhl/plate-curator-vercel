@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { HostedModelPicker } from '../../components/dashboard/hosted-model-picker'
 import type { HostedModelCatalog } from '../../lib/models/selection'
@@ -93,4 +93,33 @@ test('the picker button shows where the selected model runs', () => {
       .querySelector('[data-model-host]')
       ?.getAttribute('data-model-host')
   ).toBe('cloud')
+})
+
+test('Strict model sits to the right of the model button and explains itself', async () => {
+  render(
+    <HostedModelPicker
+      label="Research model"
+      catalog={{ ...catalog, searchable: catalog.curated }}
+      localModels={local}
+      selected={{ id: catalog.curated[0].id, label: 'Gemma 4 26B' }}
+      options={{ capUsd: 0.01, strict: false }}
+      onChange={vi.fn()}
+      onOptionsChange={vi.fn()}
+    />
+  )
+  const trigger = screen.getByRole('button', { name: /^Research model:/ })
+  const strict = screen.getByRole('checkbox', { name: 'Strict model' })
+  expect(strict.closest('label')!.parentElement!.contains(trigger)).toBe(true)
+  expect(
+    trigger.compareDocumentPosition(strict) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
+  act(() => strict.focus())
+  expect((await screen.findByRole('tooltip')).textContent).toBe(
+    'Use only this model. If it fails, the plate fails instead of switching to the default model.'
+  )
+})
+
+test('an on-device model has no Strict model option', () => {
+  renderPicker()
+  expect(screen.queryByRole('checkbox', { name: 'Strict model' })).toBeNull()
 })

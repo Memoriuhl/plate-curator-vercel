@@ -19,6 +19,12 @@ import {
 } from '@/components/ai-elements/model-selector'
 import { Button } from '@/components/ui/button'
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
   DEFAULT_MODEL_CAP,
   fitsModelCap,
   modelOptionsSchema,
@@ -213,118 +219,133 @@ export function HostedModelPicker({
 
   return (
     <div className="grid min-w-0 gap-2">
-      <ModelSelector
-        open={open}
-        onOpenChange={(value) => {
-          setOpen(value)
-          if (!value) setQuery('')
-        }}
-      >
-        <ModelSelectorTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label={`${label}: ${selected?.label ?? 'Choose model'}`}
-            className="w-fit max-w-full"
-          >
-            {selected && (
-              <ModelHost
-                device={localModels.some(({ id }) => id === selected.id)}
-              />
-            )}
-            <span className="truncate">
-              {label} · {selected?.label ?? 'Choose model'}
-            </span>
-            <IoChevronDownOutline className="chrome-icon" aria-hidden="true" />
-          </Button>
-        </ModelSelectorTrigger>
-        <ModelSelectorContent
-          title={label}
-          onOpenAutoFocus={(event) => {
-            event.preventDefault()
-            input.current?.focus()
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <ModelSelector
+          open={open}
+          onOpenChange={(value) => {
+            setOpen(value)
+            if (!value) setQuery('')
           }}
-          controls={
-            <label className="flex flex-wrap items-center gap-2 text-sm">
-              Price cap per plate
-              <select
-                value={options.capUsd}
-                className="h-8 rounded-full bg-muted px-3 focus-visible:outline-2 focus-visible:outline-primary"
-                onChange={(event) =>
-                  onOptionsChange({
-                    capUsd: Number(event.target.value) as ModelCap,
-                  })
-                }
-              >
-                {catalog.caps.map((cap) => (
-                  <option key={cap} value={cap}>
-                    {dollars.format(cap)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          }
         >
-          <ModelSelectorInput
-            ref={input}
-            placeholder={
-              catalog.unavailable ? 'Catalog unavailable' : 'Search models'
+          <ModelSelectorTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={`${label}: ${selected?.label ?? 'Choose model'}`}
+              className="w-fit max-w-full"
+            >
+              {selected && (
+                <ModelHost
+                  device={localModels.some(({ id }) => id === selected.id)}
+                />
+              )}
+              <span className="truncate">
+                {label} · {selected?.label ?? 'Choose model'}
+              </span>
+              <IoChevronDownOutline
+                className="chrome-icon"
+                aria-hidden="true"
+              />
+            </Button>
+          </ModelSelectorTrigger>
+          <ModelSelectorContent
+            title={label}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault()
+              input.current?.focus()
+            }}
+            controls={
+              <label className="flex flex-wrap items-center gap-2 text-sm">
+                Price cap per plate
+                <select
+                  value={options.capUsd}
+                  className="h-8 rounded-full bg-muted px-3 focus-visible:outline-2 focus-visible:outline-primary"
+                  onChange={(event) =>
+                    onOptionsChange({
+                      capUsd: Number(event.target.value) as ModelCap,
+                    })
+                  }
+                >
+                  {catalog.caps.map((cap) => (
+                    <option key={cap} value={cap}>
+                      {dollars.format(cap)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             }
-            readOnly={catalog.unavailable}
-            value={query}
-            onValueChange={setQuery}
-          />
-          <ModelSelectorList>
-            <ModelSelectorEmpty>
-              {catalog.unavailable
-                ? 'No available models under this cap.'
-                : terms.length
-                  ? 'No models match this search and cap.'
-                  : 'No models under this cap. Search the catalog or raise the cap.'}
-            </ModelSelectorEmpty>
-            {desktop.length > 0 && (
-              <ModelSelectorGroup heading="On-device workers">
-                {desktop.map((model) => item(model))}
-              </ModelSelectorGroup>
-            )}
-            {curated.length > 0 && (
-              <ModelSelectorGroup
-                heading={catalog.unavailable ? 'Pinned default' : 'Curated'}
-              >
-                {curated.map((model) => item(model, model))}
-              </ModelSelectorGroup>
-            )}
-            {[...providers].map(([provider, models]) => (
-              <ModelSelectorGroup key={provider} heading={provider}>
-                {models.map((model) => item(model, model))}
-              </ModelSelectorGroup>
-            ))}
-          </ModelSelectorList>
-        </ModelSelectorContent>
-      </ModelSelector>
+          >
+            <ModelSelectorInput
+              ref={input}
+              placeholder={
+                catalog.unavailable ? 'Catalog unavailable' : 'Search models'
+              }
+              readOnly={catalog.unavailable}
+              value={query}
+              onValueChange={setQuery}
+            />
+            <ModelSelectorList>
+              <ModelSelectorEmpty>
+                {catalog.unavailable
+                  ? 'No available models under this cap.'
+                  : terms.length
+                    ? 'No models match this search and cap.'
+                    : 'No models under this cap. Search the catalog or raise the cap.'}
+              </ModelSelectorEmpty>
+              {desktop.length > 0 && (
+                <ModelSelectorGroup heading="On-device workers">
+                  {desktop.map((model) => item(model))}
+                </ModelSelectorGroup>
+              )}
+              {curated.length > 0 && (
+                <ModelSelectorGroup
+                  heading={catalog.unavailable ? 'Pinned default' : 'Curated'}
+                >
+                  {curated.map((model) => item(model, model))}
+                </ModelSelectorGroup>
+              )}
+              {[...providers].map(([provider, models]) => (
+                <ModelSelectorGroup key={provider} heading={provider}>
+                  {models.map((model) => item(model, model))}
+                </ModelSelectorGroup>
+              ))}
+            </ModelSelectorList>
+          </ModelSelectorContent>
+        </ModelSelector>
+        {selectedHosted && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label className="flex w-fit items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={options.strict}
+                    onChange={(event) =>
+                      onOptionsChange({ strict: event.target.checked })
+                    }
+                  />
+                  Strict model
+                </label>
+              </TooltipTrigger>
+              <TooltipContent>
+                Use only this model. If it fails, the plate fails instead of
+                switching to the default model.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       {catalog.unavailable && (
         <p role="status" className="caption">
           Hosted model catalog unavailable.
         </p>
       )}
       {selectedHosted && (
-        <>
-          <span className="caption">
-            {dollars.format(selectedHosted.estimatedUsd)} / plate est.
-          </span>
-          <label className="flex w-fit items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="accent-primary"
-              checked={options.strict}
-              onChange={(event) =>
-                onOptionsChange({ strict: event.target.checked })
-              }
-            />
-            Strict model
-          </label>
-        </>
+        <span className="caption">
+          {dollars.format(selectedHosted.estimatedUsd)} / plate est.
+        </span>
       )}
     </div>
   )

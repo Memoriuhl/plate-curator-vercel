@@ -1713,7 +1713,7 @@ test.each([
   }
 )
 
-test('saved-source research is visible in the diagram and reaches the queued options', async () => {
+test('research has no saved-sources-only option and always finds sources', async () => {
   mocks.api.get.mockResolvedValue({
     models: RESEARCH_MODELS,
     default: RESEARCH_MODELS[0].id,
@@ -1737,21 +1737,10 @@ test('saved-source research is visible in the diagram and reaches the queued opt
   fireEvent.click(
     screen.getByRole('button', { name: 'More options for Research / enrich' })
   )
-  fireEvent.click(
-    screen.getByRole('checkbox', { name: 'Use saved sources only' })
-  )
-  expect(screen.getByText('Use saved sources')).toBeTruthy()
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), {
-    key: 'Enter',
-  })
-  fireEvent.click(
-    screen.getByRole('menuitemradio', { name: 'Replace existing' })
-  )
+  expect(
+    screen.queryByRole('checkbox', { name: 'Use saved sources only' })
+  ).toBeNull()
   expect(screen.getByText('Find sources')).toBeTruthy()
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Research edits' }), {
-    key: 'Enter',
-  })
-  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fill missing' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Research / enrich' }))
   await screen.findByRole('button', { name: 'Research model' })
   fireEvent.click(screen.getByRole('button', { name: 'Start Run' }))
@@ -1760,7 +1749,7 @@ test('saved-source research is visible in the diagram and reaches the queued opt
       [plate],
       ['research'],
       undefined,
-      { research: { policy: 'fill-missing', reuseSavedSources: true } },
+      { research: { policy: 'fill-missing' } },
       false,
       undefined,
       RESEARCH_MODELS[0].id,
