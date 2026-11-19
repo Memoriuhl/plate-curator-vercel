@@ -767,16 +767,16 @@ test('conflicts from an outside catalog change block Publish until the Owner kee
     ok: false,
     response: Response.json({ error: 'forbidden' }, { status: 403 }),
   })
-  expect((await keepDraftValues(request({ revision: 2 }), draftCtx)).status).toBe(
-    403
-  )
+  expect(
+    (await keepDraftValues(request({ revision: 2 }), draftCtx)).status
+  ).toBe(403)
   // The Owner keeps the values only for the revision they were shown.
-  expect((await keepDraftValues(request({ revision: 1 }), draftCtx)).status).toBe(
-    409
-  )
-  expect((await keepDraftValues(request({ revision: 2 }), draftCtx)).status).toBe(
-    200
-  )
+  expect(
+    (await keepDraftValues(request({ revision: 1 }), draftCtx)).status
+  ).toBe(409)
+  expect(
+    (await keepDraftValues(request({ revision: 2 }), draftCtx)).status
+  ).toBe(200)
   expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
     { draftRevision: 3, conflicts: [], canPublish: true }
   )
@@ -834,6 +834,48 @@ test('an empty draft or a revision the draft has not reached cannot be published
   expect(await ahead.json()).toMatchObject({
     error: 'superseded_revision',
     confirmation: expect.anything(),
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
+})
+
+test('Publish of a draft too large for one write answers 409 with a clear message and starts nothing', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  const store = mocks.reviewDeps().store
+  const draftId = sharedDraftId(reviewEnv())
+  const draft = (await store.getBatch(draftId))!
+  // Seeded past the field limits: 40 plates of 256 KiB descriptions is 10 MiB.
+  const description = 'x'.repeat(256 * 1024)
+  const plates = Array.from({ length: 40 }, (_, i) => ({
+    ...akOne,
+    id: `AK.big${i}`,
+  }))
+  expect(
+    await store.commit(draftId, draft.revision, {
+      batch: {
+        ...draft,
+        plateIds: [...draft.plateIds, ...plates.map((p) => p.id)],
+        revision: draft.revision + 1,
+      },
+      edits: plates.map((p) => ({
+        plateId: p.id,
+        fields: { description },
+        authorId: 'owner',
+        updatedAt: '2026-11-16T12:00:00.000Z',
+        baseRevision: plateRevision(p),
+        resultRevision: plateRevision({ ...p, description }),
+      })),
+      history: false,
+    })
+  ).toBe('ok')
+  const refused = await publish(
+    request({ revision: draft.revision + 1 }),
+    draftCtx
+  )
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toEqual({
+    error: 'draft_too_large',
+    message: expect.stringContaining('too large to publish in one write'),
   })
   expect(mocks.start).not.toHaveBeenCalled()
 })

@@ -12,6 +12,7 @@ import { sharedDraftId } from './draft-id'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
+import { draftWriteBudget, mib, writeBytes } from './write-budget'
 import type {
   Actor,
   BatchState,
@@ -51,7 +52,8 @@ export type MigrationReport = {
   env: string
   draftId: string
   applied: boolean
-  refused?: MigrationBlock | MigrationLost | 'superseded_revision'
+  refused?:
+    MigrationBlock | MigrationLost | 'superseded_revision' | 'draft_too_large'
   /** Draft revision the fold was written at. */
   draftRevision: number | null
   /** Batches folded into the draft (or that would be, on a dry run), oldest first. */
@@ -439,6 +441,14 @@ export async function migrateToSharedDraft(
   const blocked = await options.fence?.acquire()
   if (blocked) return { ...report, refused: blocked }
   try {
+    // Plan first without writing, so a fold too large to commit closes no Batch.
+    const preview = await fold(
+      d,
+      env,
+      { ...options, apply: false },
+      { ...report }
+    )
+    if (preview.refused === 'draft_too_large') return preview
     return await fold(d, env, options, report)
   } finally {
     await options.fence?.release()
@@ -517,6 +527,21 @@ async function fold(
       applied: options.apply,
       draftRevision: stored?.batch.revision ?? null,
     }
+    const bytes = writeBytes([plan.batch, ...plan.edits])
+    if (bytes > draftWriteBudget)
+      return {
+        ...result,
+        applied: false,
+        refused: 'draft_too_large',
+        warnings: [
+          ...result.warnings,
+          `The fold is too large to write in one request: ${mib(bytes)} MiB against a ${mib(draftWriteBudget)} MiB budget. ${
+            options.apply
+              ? 'The Batches it closed stay folded, and a later run plans them again.'
+              : 'Apply refuses it before closing any Batch.'
+          }`,
+        ],
+      }
     if (!options.apply || !sources.length) return result
     // Batches closed under a lost hold, or a fold planned on a version that has moved,
     // stay folded; the next run plans them again.

@@ -1,7 +1,7 @@
 import { orderedStatePlates } from '../catalog/order'
 import { familyRole } from '../catalog/families'
 import type { Plate } from '../catalog/types'
-import { editableKeys, limits } from './fields'
+import { batchPlateLimit, editableKeys } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import type {
@@ -93,7 +93,7 @@ export async function standardEdits(
       })
     }
   }
-  if (plateIds.size > limits.plates)
+  if (plateIds.size > batchPlateLimit(batch))
     return { ok: false, error: 'invalid_state' }
   return { ok: true, value: { edits, deleteEditsFor, plateIds: [...plateIds] } }
 }

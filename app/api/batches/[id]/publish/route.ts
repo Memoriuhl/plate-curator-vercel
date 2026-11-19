@@ -35,6 +35,7 @@ import {
   sharedDraftId,
 } from '../../../../../lib/review/draft-id'
 import { ensureDraft, freezeRelease } from '../../../../../lib/review/draft'
+import { DRAFT_TOO_LARGE_MESSAGE } from '../../../../../lib/review/write-budget'
 import { draftPublishSummary } from '../../../../../lib/review/publish-view'
 import type {
   Actor,
@@ -210,6 +211,11 @@ async function publishDraft(
   const draft = await ensureDraft(deps, env, actor)
   const frozen = await freezeRelease(deps, env, actor, revision)
   if (!frozen.ok) {
+    if (frozen.error === 'draft_too_large')
+      return json(
+        { error: frozen.error, message: DRAFT_TOO_LARGE_MESSAGE },
+        409
+      )
     if (frozen.error !== 'superseded_revision')
       return json({ error: frozen.error }, 409)
     const confirmation = await deps.store.changesSinceReview?.(
@@ -420,7 +426,8 @@ async function releaseActivity(
   const receipt = await publishing.records.get(
     receiptId(release.id, release.revision)
   )
-  if (receipt?.committedAt) return receipt.state === 'done' ? null : 'publishing'
+  if (receipt?.committedAt)
+    return receipt.state === 'done' ? null : 'publishing'
   const { reason } = await publishing.records.eligibility(
     {
       batchId: release.id,

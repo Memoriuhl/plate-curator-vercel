@@ -6,6 +6,7 @@ import { retainedPipelineChanges } from './pipeline-changes'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
+import { draftWriteBudget, writeBytes } from './write-budget'
 import type {
   Actor,
   DraftConflict,
@@ -40,6 +41,7 @@ export type FreezeOutcome =
         | 'superseded_revision'
         | 'empty_draft'
         | 'draft_conflicts'
+        | 'draft_too_large'
     }
 
 export const sameList = (left?: string[] | null, right?: string[] | null) =>
@@ -265,6 +267,9 @@ export async function freezeRelease(
     stateOrderChangedAt: at.batch.stateOrderChangedAt ?? {},
   }
   const edits = at.edits.map((edit) => omit(edit, 'revision'))
+  // The release is written in one request, which Firestore caps at 10 MiB.
+  if (writeBytes([release, ...edits]) > draftWriteBudget)
+    return { ok: false, error: 'draft_too_large' }
   if ((await d.store.create(release, edits)) === 'ok')
     return { ok: true, value: release }
   const raced = await d.store.getBatch(id)
@@ -325,7 +330,10 @@ async function releaseFor(
 }
 
 /** Record who published which draft revision, from the receipt that moved the pointer. */
-function lastPublishOf(release: DraftSnapshot, origin: VersionOrigin): LastPublish {
+function lastPublishOf(
+  release: DraftSnapshot,
+  origin: VersionOrigin
+): LastPublish {
   return {
     releaseId: release.batch.id,
     revision: release.batch.source?.revision ?? 0,
@@ -623,7 +631,10 @@ async function moveOnto(
     baselineOrders,
     conflicts: conflicts.filter((conflict) =>
       conflict.kind === 'field'
-        ? Object.hasOwn(edits.get(conflict.plateId)?.fields ?? {}, conflict.field)
+        ? Object.hasOwn(
+            edits.get(conflict.plateId)?.fields ?? {},
+            conflict.field
+          )
         : conflict.kind === 'order'
           ? conflict.state in stateOrders
           : true

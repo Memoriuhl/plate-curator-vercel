@@ -138,9 +138,7 @@ export function sharedDraftScenarios(
       const next = live + 1
       versions.set(
         next,
-        versions
-          .get(live)!
-          .map((entry) => ({ ...entry, ...changes[entry.id] }))
+        versions.get(live)!.map((entry) => ({ ...entry, ...changes[entry.id] }))
       )
       live = next
       return next
@@ -574,6 +572,42 @@ export function sharedDraftScenarios(
       const kept = (await store.readBatch(draftId))!
       expect(kept.batch.conflicts).toBeUndefined()
       expect(fieldsOf(kept.edits)).toEqual({ 'AK.one': { tags: ['draft'] } })
+    },
+    timeout
+  )
+
+  test(
+    'a Standard change is saved on a draft that already tracks more than 1,000 plates',
+    async () => {
+      const { store, d, draftId, env, save } = await setup()
+      const draft = await ensureDraft(d, env, owner)
+      // The old per-Batch cap was 1,000 plates; the shared draft allows 10,000.
+      const tracked = Array.from({ length: 1_001 }, (_, i) => `ZZ.${i}`)
+      expect(
+        await store.commit(draftId, draft.revision, {
+          batch: { ...draft, plateIds: tracked, revision: draft.revision + 1 },
+          history: false,
+        })
+      ).toBe('ok')
+      expect(
+        await save(owner, 'AK.two', { templateRole: 'template' })
+      ).toMatchObject({ ok: true })
+      const order = ['two', 'one', 'three', 'four', 'five', 'six']
+      expect(
+        await reorderState(d, owner, {
+          batchId: draftId,
+          state: 'AK',
+          batchRevision: draft.revision + 2,
+          order: order.map((n) => `AK.${n}`),
+          standard: { from: null, to: 'AK.two' },
+        })
+      ).toMatchObject({ ok: true })
+      const head = (await store.getBatch(draftId))!
+      expect(head.plateIds).toHaveLength(1_002)
+      expect(head.stateOrders.AK?.[0]).toBe('AK.two')
+      expect(await store.getEdit(draftId, 'AK.two')).toMatchObject({
+        fields: { templateRole: 'template', isStandard: true },
+      })
     },
     timeout
   )

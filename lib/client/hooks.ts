@@ -44,6 +44,7 @@ import type {
 import { ApiError, apiErrorReasons, batchApiPath, type ApiClient } from './api'
 import { useSession } from './session'
 import type { MemberInvite, MemberSummary } from '../members/summary'
+import { DRAFT_TOO_LARGE_MESSAGE } from '../review/write-budget'
 
 export type BatchDetail = {
   batch: ReviewBatch
@@ -483,6 +484,7 @@ export function useReviewActions() {
           [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
           empty_batch: 'The draft has no changes to publish.',
           empty_draft: 'The draft has no changes to publish.',
+          draft_too_large: DRAFT_TOO_LARGE_MESSAGE,
           draft_conflicts:
             'Changes made outside this draft touched values it would publish. Check the conflicts in the Publish view.',
           standard_change_unconfirmed:
