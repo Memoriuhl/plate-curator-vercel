@@ -1747,6 +1747,59 @@ test('an idle Publish view refetches eligibility when another curator starts pip
   }
 })
 
+test.each([
+  ['eligibility', 'idle'],
+  ['run status', 'idle'],
+  ['run status', 'finished'],
+])(
+  'a %s view that is %s catches up within five minutes when its change signal is lost',
+  async (view, state) => {
+    vi.useFakeTimers()
+    try {
+      let version = 1
+      session.api.get.mockImplementation(async (path: string) =>
+        path === '/api/me'
+          ? { role: 'owner' }
+          : view === 'eligibility'
+            ? {
+                error: null,
+                reviewedVersion: version,
+                liveVersion: 1,
+                pipelineBusy: false,
+              }
+            : {
+                phase: state === 'finished' ? 'published' : null,
+                runId: `run-${version}`,
+                outcome: null,
+                updatedAt: null,
+              }
+      )
+      const { signals, wrapper } = topicSource()
+      const { result } = renderHook(
+        () =>
+          view === 'eligibility'
+            ? usePublishBaseline('lost').data?.reviewedVersion
+            : useBatchRun('lost').data?.runId,
+        { wrapper }
+      )
+      await advance(1)
+      await advance(1)
+      const before = view === 'eligibility' ? 1 : 'run-1'
+      expect(result.current).toBe(before)
+      expect(signals.size).toBeGreaterThan(0)
+      // Another curator changes it, and the bump never lands.
+      version = 2
+      await advance(299_000)
+      expect(result.current).toBe(before)
+      await advance(1_100)
+      expect(result.current).toBe(view === 'eligibility' ? 2 : 'run-2')
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  }
+)
+
 test('a run view follows a publish request started in another tab', async () => {
   vi.useFakeTimers()
   try {

@@ -220,6 +220,12 @@ export type BatchRun = RunStatus
 const publishWindows = new Map<string, number>()
 
 /**
+ * How stale an idle Publish view can get when a change signal is lost. Signals are best
+ * effort, so every Publish view keeps at least this slow refresh while visible.
+ */
+const idlePublishSafetyMs = 300_000
+
+/**
  * Track a batch's approval or publish run and refresh the workspace when publishing
  * advances.
  */
@@ -259,7 +265,8 @@ export function useBatchRun(id: string | null) {
   // Refetch on publish change signals while the view is open, so a publish started in
   // another tab appears. Workflow status is not a Firestore write, so while a workflow is
   // waiting to publish or publishing, a 5 s safety refresh catches the run finishing.
-  // A finished run ends the safety refresh at once, even inside the request window.
+  // A finished run drops to the idle safety refresh at once, even inside the request
+  // window; that slow refresh only recovers a lost signal.
   const phase = run.data?.phase
   const finished =
     phase != null &&
@@ -271,7 +278,7 @@ export function useBatchRun(id: string | null) {
       !finished &&
       (pending || phase === 'publishing' || phase === 'waiting-for-publish')
         ? 5000
-        : undefined,
+        : idlePublishSafetyMs,
   })
   useEffect(() => {
     const phase = run.data?.phase
@@ -390,8 +397,9 @@ export function usePublishControl() {
 
 /**
  * Share publish eligibility by batch and refetch on pipeline or publish change signals
- * while the view is open, so work another curator starts appears. The slow safety
- * refresh runs only while active pipeline work or the publish lock can change it.
+ * while the view is open, so work another curator starts appears. The safety refresh is
+ * a minute while active pipeline work or the publish lock can change it, and the idle
+ * safety refresh otherwise.
  */
 export function usePublishBaseline(id: string | null) {
   const { user, api } = useSession()
@@ -404,7 +412,7 @@ export function usePublishBaseline(id: string | null) {
       baseline.data?.pipelineBusy === true ||
       baseline.data?.retryReason === 'locked'
         ? 60_000
-        : undefined,
+        : idlePublishSafetyMs,
   })
   return baseline
 }
