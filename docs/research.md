@@ -286,7 +286,8 @@ Wikimedia's User-Agent policy asks, and retries a 429 up to twice: it waits what
 Retry-After asks, or one then two seconds without it. A plate still fails when
 Wikipedia keeps refusing or asks for more than ten seconds, so don't capture evidence
 from the same machine just before a run. A 40-plate selection is split into
-runs of 25, which run one after the other. Save each finished run's
+runs of 25 and 15. Each run takes one step at a time, and hosted research steps share
+the queue's two I/O slots, so both hosted runs can proceed at once. Save each finished run's
 detail (`GET /api/local-pipeline/runs?detail=<run id>&detailOnly=1`) and score it:
 
 ```sh
