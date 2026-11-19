@@ -5,7 +5,6 @@ import {
   type LiveSignalSource,
   type LiveStatus,
 } from '../../lib/client/live-hub'
-import { coalesce } from '../../lib/live/change-signals'
 
 type Listener = {
   envKey: string
@@ -290,29 +289,6 @@ test('stops the listener when the last subscriber leaves', async () => {
   expect(active('topic:pipeline')).toHaveLength(1)
   stop()
   expect(active('topic:pipeline')).toHaveLength(0)
-})
-
-test('coalesces signal writes to one in flight and one queued', async () => {
-  const resolvers: (() => void)[] = []
-  const write = vi.fn(
-    () => new Promise<void>((resolve) => resolvers.push(resolve))
-  )
-  vi.useRealTimers()
-  const first = coalesce('signal', write)
-  const second = coalesce('signal', write)
-  const third = coalesce('signal', write)
-  expect(second).toBe(third)
-  expect(write).toHaveBeenCalledTimes(1)
-  resolvers[0]()
-  await first
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  expect(write).toHaveBeenCalledTimes(2)
-  resolvers[1]()
-  await Promise.all([second, third])
-  expect(write).toHaveBeenCalledTimes(2)
-
-  await coalesce('signal', async () => {})
-  expect(write).toHaveBeenCalledTimes(2)
 })
 
 test('falls back when the listener cannot start', async () => {

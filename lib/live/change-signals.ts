@@ -1,4 +1,5 @@
 import { FieldValue, type Firestore } from '@google-cloud/firestore'
+import { waitUntil } from '@vercel/functions'
 import { liveEnvKey, signalPath } from '../review/live-signal'
 import { topicSignalId, type ChangeTopic } from './topics'
 
@@ -45,24 +46,52 @@ export function coalesce(
   return start()
 }
 
+/** How long one topic write may hold its topic before later changes go out without it. */
+export const signalDeadlineMs = 10_000
+
+const pending = new Set<Promise<void>>()
+
+/** Resolve after `write`, or reject once `ms` pass without it settling. */
+function withDeadline(write: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)
+  })
+  return Promise.race([write.then(() => undefined), late]).finally(() =>
+    clearTimeout(timer)
+  )
+}
+
 /**
  * Tell listeners in the review environment that data under `topic` changed. Call it after
- * the change commits. The signal is best effort: a failed bump is logged and never fails
- * the caller's operation, and listeners keep a slow safety refresh for that case.
+ * the change commits. It returns at once: the write runs in the background, so a slow or
+ * failing topic never delays a worker reply, a workflow wake or a publish lease. On
+ * Vercel the function stays alive until the write settles, at most `signalDeadlineMs`
+ * per write. A failed bump is logged, and listeners keep a slow safety refresh for it.
  */
-export async function signalChange(
+export function signalChange(
   db: Firestore,
   reviewEnv: string,
   topic: ChangeTopic
-): Promise<void> {
+): void {
   const path = signalPath(liveEnvKey(reviewEnv), topicSignalId(topic))
-  try {
-    await coalesce(path, () =>
-      db.doc(path).set({ revision: FieldValue.increment(1) }, { merge: true })
+  const dispatch = coalesce(path, () =>
+    withDeadline(
+      db.doc(path).set({ revision: FieldValue.increment(1) }, { merge: true }),
+      signalDeadlineMs
     )
-  } catch (error) {
-    console.warn(
-      `[live] ${topic} change signal failed: ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
+  )
+    .catch((error: unknown) => {
+      console.warn(
+        `[live] ${topic} change signal failed: ${error instanceof Error ? error.message : String(error)}`
+      )
+    })
+    .finally(() => pending.delete(dispatch))
+  pending.add(dispatch)
+  waitUntil(dispatch)
+}
+
+/** Wait until every signal dispatched so far has settled. Used by tests and scripts. */
+export async function settleSignals(): Promise<void> {
+  while (pending.size) await Promise.all([...pending])
 }

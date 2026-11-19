@@ -1,6 +1,6 @@
-import { afterAll, beforeEach, expect, test } from 'vitest'
+import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import { Firestore } from '@google-cloud/firestore'
-import { signalChange } from '../lib/live/change-signals'
+import { settleSignals, signalChange } from '../lib/live/change-signals'
 import { topicSignalId, type ChangeTopic } from '../lib/live/topics'
 import { liveEnvKey, signalPath } from '../lib/review/live-signal'
 import { firestoreJobsStore } from '../lib/jobs/firestore-store'
@@ -14,8 +14,9 @@ import './setup'
 const db = new Firestore({ projectId: 'demo-plate-curator-signals' })
 const env = 'preview:signals'
 
-/** Read the current revision of a change topic, treating a missing doc as zero. */
+/** Read a change topic's revision once its signals settle; a missing doc is zero. */
 async function revision(topic: ChangeTopic) {
+  await settleSignals()
   const snapshot = await db
     .doc(signalPath(liveEnvKey(env), topicSignalId(topic)))
     .get()
@@ -67,13 +68,11 @@ test('topic signals live beside batch signals so the existing grant rule covers 
 })
 
 test('each change bumps the topic revision, and a burst coalesces to two writes', async () => {
-  await signalChange(db, env, 'pipeline')
+  signalChange(db, env, 'pipeline')
   expect(await revision('pipeline')).toBe(1)
 
   // One write in flight plus one queued, however many changes arrive meanwhile.
-  await Promise.all(
-    Array.from({ length: 10 }, () => signalChange(db, env, 'pipeline'))
-  )
+  for (let index = 0; index < 10; index++) signalChange(db, env, 'pipeline')
   expect(await revision('pipeline')).toBe(3)
   expect(await revision('research')).toBe(0)
 })
@@ -174,3 +173,86 @@ test('claiming and releasing the publish lock signal publish listeners; a refuse
   await lock.release('first', false)
   expect(await revision('publish')).toBe(2)
 })
+
+/**
+ * The same database, except that every topic signal write runs `write` instead, so a
+ * test can hold one open or refuse it.
+ */
+function withTopicWrites(write: () => Promise<unknown>): Firestore {
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === 'doc')
+        return (path: string) =>
+          path.includes('/batchRevisions/topic:')
+            ? { set: write }
+            : target.doc(path)
+      const value: unknown = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/** Fail if `promise` is still waiting after `ms`, as it would on a held topic write. */
+function promptly<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('still waiting on a topic write')), ms)
+    ),
+  ])
+}
+
+for (const mode of ['held', 'refused'] as const)
+  test(`a ${mode} topic write never holds up the job, heartbeat, research or publish lock commit`, async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // One gate holds every topic write, including follow-ups queued behind the first.
+    let release!: () => void
+    const held = new Promise((resolve) => (release = () => resolve(undefined)))
+    const topicDb = withTopicWrites(() =>
+      mode === 'held' ? held : Promise.reject(new Error('topic write refused'))
+    )
+    try {
+      const jobs = firestoreJobsStore(topicDb, env)
+      await promptly(jobs.transaction(async (tx) => tx.create(job('held-job'))))
+      expect((await db.doc('jobs/held-job').get()).exists).toBe(true)
+      await promptly(
+        jobs.writeCapabilities('scope', {
+          workerId: 'desk',
+          reportedAt: 1000,
+          capabilities,
+        })
+      )
+
+      await promptly(
+        firestoreResearchStore(topicDb, env).transaction(async (tx) =>
+          tx.set({ id: 'held-research', env, state: 'queued' } as ResearchJob)
+        )
+      )
+
+      const lock = firestorePublishLock(topicDb, env)
+      await db
+        .doc('reviewBatches/held-batch')
+        .set({ env, state: 'open', revision: 1 })
+      const now = '2026-11-15T12:00:00Z'
+      expect(
+        await promptly(
+          lock.claim(
+            {
+              token: 'held',
+              batchId: 'held-batch',
+              revision: 1,
+              expiresAt: '2026-11-15T12:01:00Z',
+              purpose: 'abandon',
+            },
+            now
+          )
+        )
+      ).toBe(true)
+      await promptly(lock.release('held', false))
+      expect((await db.doc('locks/publish').get()).exists).toBe(false)
+    } finally {
+      release()
+      await settleSignals()
+      vi.restoreAllMocks()
+    }
+  })

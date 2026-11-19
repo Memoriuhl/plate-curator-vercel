@@ -56,7 +56,7 @@ export function firestoreResearchStore(
           },
         })
       })
-      if (wrote) await signalChange(db, env, 'research')
+      if (wrote) signalChange(db, env, 'research')
       return result
     },
     /** Read a worker token by hash within the adapter's environment. */

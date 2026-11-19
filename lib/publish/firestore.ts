@@ -169,7 +169,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
           })
         return true
       })
-      if (claimed) await signalChange(db, env, 'publish')
+      if (claimed) signalChange(db, env, 'publish')
       return claimed
     },
     /** Extend a lease only while its token still owns the active lock. */
@@ -208,7 +208,7 @@ export function firestorePublishLock(db: Firestore, env: string): PublishLock {
         transaction.delete(lockRef)
         return true
       })
-      if (released) await signalChange(db, env, 'publish')
+      if (released) signalChange(db, env, 'publish')
     },
   }
 }
@@ -1342,7 +1342,7 @@ export function firestorePublishPointer(
         transaction.update(recordRef, { committedAt: now })
         return 'advanced' as const
       })
-      if (outcome === 'advanced') await signalChange(db, env, 'publish')
+      if (outcome === 'advanced') signalChange(db, env, 'publish')
       return outcome
     },
   }
@@ -1472,7 +1472,7 @@ export function firestorePublishControl(
         return control
       })
       if (result && typeof result === 'object' && liveEnv !== undefined)
-        await signalChange(db, liveEnv, 'publish')
+        signalChange(db, liveEnv, 'publish')
       return result
     },
     /** Check publish control and requester authority and persist any command stop. */

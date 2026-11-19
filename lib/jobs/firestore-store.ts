@@ -97,7 +97,7 @@ export function firestoreJobsStore(
         transaction.set(ref, record)
         return capabilitiesVisiblyChanged(previous, record)
       })
-      if (changed) await signalChange(db, reviewEnv, 'pipeline')
+      if (changed) signalChange(db, reviewEnv, 'pipeline')
     },
     /**
      * Run an operation against a single Firestore transaction so queue and review
@@ -292,10 +292,8 @@ export function firestoreJobsStore(
           },
         })
       })
-      await Promise.all([
-        wrote && signalChange(db, reviewEnv, 'pipeline'),
-        hosted && signalChange(db, reviewEnv, 'gateway'),
-      ])
+      if (wrote) signalChange(db, reviewEnv, 'pipeline')
+      if (hosted) signalChange(db, reviewEnv, 'gateway')
       return result
     },
     /** Load the worker token record by hash within the adapter's environment. */
