@@ -37,9 +37,9 @@ import type { Plate } from '../../lib/catalog/types'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { EnrichmentPolicy } from '../../lib/research/enrichment'
 import type { PipelineRun } from '../../lib/jobs/queue-types'
-import { useModelCatalogFixture } from '../models/fixture'
+import { installModelCatalogFixture } from '../models/fixture'
 
-useModelCatalogFixture()
+installModelCatalogFixture()
 
 const actor = { uid: 'owner', role: 'owner' as const, name: null }
 const source = evidenceSource(

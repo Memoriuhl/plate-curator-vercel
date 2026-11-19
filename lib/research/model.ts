@@ -70,8 +70,8 @@ export function guardedResearchModel(
           : undefined
         if (capturedOnly && !submit)
           throw Error('Research requires the structured submit_draft tool')
-        const { models: _fallbacks, ...otherGatewayOptions } =
-          params.providerOptions?.gateway ?? {}
+        const gatewayOptions = { ...params.providerOptions?.gateway }
+        delete gatewayOptions.models
         return {
           ...params,
           maxOutputTokens: Math.min(
@@ -83,7 +83,7 @@ export function guardedResearchModel(
                 providerOptions: {
                   ...params.providerOptions,
                   gateway: {
-                    ...otherGatewayOptions,
+                    ...gatewayOptions,
                     ...routing.gatewayOptions,
                   },
                 },

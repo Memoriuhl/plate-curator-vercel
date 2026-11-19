@@ -105,9 +105,14 @@ export function BatchActions({
             !!run.disabledReason || run.entries.length > 0 || run.starting
           }
           modelError={run.modelError}
-          start={(plates, retry, modelId, stage) => {
-            void run.start(plates, retry, modelId, stage, (runId) =>
-              openPipeline(runId)
+          start={(plates, retry, modelId, stage, modelOptions) => {
+            void run.start(
+              plates,
+              retry,
+              modelId,
+              stage,
+              openPipeline,
+              modelOptions
             )
           }}
         />

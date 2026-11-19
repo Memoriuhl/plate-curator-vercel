@@ -112,6 +112,13 @@ export function PipelineRunCard({
   const clock = progress.endedAt ?? observedAt
   const runStatus =
     runOutcome ?? (partial ? 'Finished with issues' : statusLabels[run.status])
+  const fallbackModels = [
+    ...new Set(
+      progress.steps.flatMap(({ servedByFallback }) =>
+        servedByFallback ? [servedByFallback] : []
+      )
+    ),
+  ]
   const reference = run.id.length > 12 ? run.id.slice(-8) : run.id
   const inspector = progress.workflowUrl ?? progress.gatewayUrl
   const inspectorLabel = progress.workflowUrl
@@ -189,6 +196,11 @@ export function PipelineRunCard({
           </TooltipContent>
         </Tooltip>
       </div>
+      {!disclosure && fallbackModels.length > 0 && (
+        <span className="caption">
+          Served by fallback · {fallbackModels.join(', ')}
+        </span>
+      )}
       {runAction && <div className={styles.runTools}>{runAction}</div>}
     </header>
   )
@@ -260,6 +272,9 @@ export function PipelineRunCard({
                   {run.plateIds.length === 1 ? 'plate' : 'plates'}
                 </span>
               </span>
+              {fallbackModels.length > 0 && (
+                <span>Served by fallback · {fallbackModels.join(', ')}</span>
+              )}
               {execution?.map(({ machine, models }) => (
                 <span key={machine}>
                   {machineLabels[machine]}

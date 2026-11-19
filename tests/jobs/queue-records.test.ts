@@ -2,13 +2,18 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { localJobsEnvironment } from '../../lib/jobs/local-scope'
-import { enqueueRun, parseEnqueue } from '../../lib/jobs/queue'
+import {
+  cancelRun,
+  enqueueRun,
+  parseEnqueue,
+  retryRun,
+} from '../../lib/jobs/queue'
 import { parsePipelineOptions } from '../../lib/jobs/pipeline-options'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { dispatchQueueStage } from '../../lib/jobs/queue-engine'
-import { useModelCatalogFixture } from '../models/fixture'
+import { installModelCatalogFixture } from '../models/fixture'
 
-useModelCatalogFixture()
+installModelCatalogFixture()
 
 const editor = { uid: 'editor', role: 'editor' as const, name: null }
 const other = { ...editor, uid: 'other' }
@@ -439,4 +444,15 @@ test('hosted model selections bind to the run and its dispatched job', async () 
     route: 'hosted',
     hostedModel: run.value.modelBindings?.tag,
   })
+  expect(await cancelRun(s.deps, owner, run.value.id)).toMatchObject({
+    ok: true,
+  })
+  expect(
+    await retryRun(
+      s.deps,
+      { ...owner, role: 'editor', uid: editor.uid },
+      run.value.id,
+      'editor-retry'
+    )
+  ).toEqual({ ok: false, error: 'forbidden' })
 })

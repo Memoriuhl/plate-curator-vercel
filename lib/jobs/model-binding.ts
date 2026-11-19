@@ -1,9 +1,13 @@
-import { searchable, type HostedStep } from '../models/catalog'
+import { curated, searchable, type HostedStep } from '../models/catalog'
+import type { PipelineRun } from './queue-types'
 import {
   DEFAULT_MODEL_CAP,
   gatewayModelId,
+  MODEL_CAP_PRESETS,
+  type HostedModelCatalog,
   modelOptionsSchema,
   type HostedModelBinding,
+  type PickerModel,
 } from '../models/selection'
 import {
   DEFAULT_HOSTED_RESEARCH_MODEL,
@@ -14,6 +18,7 @@ import {
   chooseTaggingModel,
   DEFAULT_GATEWAY_TAG_MODEL,
   enabledTaggingModels,
+  taggingModel,
   type TaggingModel,
 } from '../tagging/models'
 
@@ -156,4 +161,51 @@ export function hostedResearchModelId(requested: unknown): string | null {
   return typeof requested === 'string' && gatewayModelId.test(requested)
     ? requested
     : null
+}
+
+export async function hostedModelCatalog(
+  step: HostedStep
+): Promise<HostedModelCatalog | undefined> {
+  const caps = MODEL_CAP_PRESETS.filter((cap) => cap <= hostedModelCeiling())
+  const max = caps.at(-1)
+  if (!max) return
+  try {
+    const [preferred, all] = await Promise.all([
+      curated(step, max),
+      searchable(step, max),
+    ])
+    return {
+      caps,
+      curated: preferred.map(pickerModel),
+      searchable: all.map(pickerModel),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function pickerModel({
+  id,
+  label,
+  provider,
+  estimatedUsd,
+  measured,
+}: PickerModel): PickerModel {
+  return {
+    id,
+    label,
+    provider,
+    estimatedUsd,
+    ...(measured ? { measured } : {}),
+  }
+}
+
+export function runUsesHostedModels(run: PipelineRun) {
+  return !!(
+    run.modelBindings?.research ||
+    run.modelBindings?.tag ||
+    run.researchModel?.executor === 'eve' ||
+    (run.stages.includes('tag') &&
+      taggingModel(run.tagModelId ?? run.modelId)?.runsOn === 'gateway')
+  )
 }

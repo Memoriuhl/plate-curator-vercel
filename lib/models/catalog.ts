@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CURATED_RESEARCH_MODELS } from '../research/models'
 import { CURATED_TAG_MODELS, TAGGING_MODELS } from '../tagging/models'
-import { DEFAULT_MODEL_CAP } from './selection'
+import { DEFAULT_MODEL_CAP, fitsModelCap } from './selection'
 
 export type HostedStep = 'research' | 'tag'
 export type ModelPrice = { input: number; output: number }
@@ -69,8 +69,7 @@ export async function searchable(step: HostedStep, capUsd: number) {
     if (model.id.endsWith('-batch') || !model.tags.includes(CAPABILITY[step]))
       return []
     const estimatedUsd = estimateUsd(model.pricing, PROFILES[step])
-    // Equivalent decimal prices can differ by a floating-point rounding bit.
-    if (estimatedUsd > capUsd + Number.EPSILON * capUsd) return []
+    if (!fitsModelCap(estimatedUsd, capUsd)) return []
     return [
       {
         id: model.id,

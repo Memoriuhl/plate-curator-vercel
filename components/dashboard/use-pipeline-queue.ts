@@ -19,6 +19,7 @@ import {
   type PipelineOptions,
 } from '@/lib/jobs/pipeline-options'
 import type { RunPlate } from './use-tag-run'
+import type { RunModelOptions } from '@/lib/models/selection'
 import type { TaggingJob } from '@/lib/jobs/types'
 import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 
@@ -57,6 +58,8 @@ function queueError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.code === 'publish_in_progress')
       return 'Wait for the current Publish to finish before queuing more work.'
+    if (error.code === 'unavailable')
+      return 'That hosted model is unavailable. Choose another model.'
     if (error.code === 'invalid_state')
       return 'This Batch or run is no longer available for that action.'
     if (error.code === 'stale_input')
@@ -234,7 +237,8 @@ export function usePipelineQueue(
     previewOnly = false,
     tagModelId?: string,
     researchModelId?: string,
-    newBatchName?: string
+    newBatchName?: string,
+    modelOptions?: RunModelOptions
   ) {
     if (!plates.length || disabledReason) return null
     if (previewOnly && workspace.mode !== 'selected' && !existingBatchId) {
@@ -262,6 +266,7 @@ export function usePipelineQueue(
         ...(modelId ? { modelId } : {}),
         ...(tagModelId ? { tagModelId } : {}),
         ...(researchModelId ? { researchModelId } : {}),
+        ...(modelOptions ? { modelOptions } : {}),
       }
       const requestId = queueRequestId(
         localStorage,

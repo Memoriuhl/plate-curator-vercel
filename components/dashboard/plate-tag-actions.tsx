@@ -22,7 +22,16 @@ export function PlateTagActions({ plate }: { plate: RunPlate }) {
           !!run.disabledReason || run.starting || run.entries.length > 0
         }
         title={run.disabledReason}
-        onClick={() => void run.start([plate], false, choice.modelId)}
+        onClick={() =>
+          void run.start(
+            [plate],
+            false,
+            choice.modelId,
+            undefined,
+            undefined,
+            choice.modelOptions
+          )
+        }
       >
         Run Tag
       </Button>

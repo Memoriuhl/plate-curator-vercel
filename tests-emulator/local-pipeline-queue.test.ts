@@ -29,9 +29,9 @@ import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
-import { useModelCatalogFixture } from '../tests/models/fixture'
+import { installModelCatalogFixture } from '../tests/models/fixture'
 
-useModelCatalogFixture()
+installModelCatalogFixture()
 
 if (!process.env.FIRESTORE_EMULATOR_HOST)
   throw Error('Queue emulator tests require a localhost emulator')

@@ -42,9 +42,9 @@ import {
 import type { JobsDeps, ReportInput } from '../../lib/jobs/types'
 import type { Actor } from '../../lib/review/types'
 import type { LocalRunStage } from '../../lib/jobs/queue-types'
-import { useModelCatalogFixture } from '../models/fixture'
+import { installModelCatalogFixture } from '../models/fixture'
 
-useModelCatalogFixture()
+installModelCatalogFixture()
 
 const actor = { uid: 'editor', role: 'editor' as const, name: null }
 const other = { ...actor, uid: 'other' }

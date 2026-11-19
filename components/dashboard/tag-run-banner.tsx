@@ -339,9 +339,16 @@ export function TagRunBanner({
                     )}
                   </div>
                 ) : null}
+                {entry.job.servedByFallback ? (
+                  <p className="caption">
+                    Served by fallback · {entry.job.model}
+                  </p>
+                ) : null}
                 {entry.job.state === 'failed' ? (
                   <p role="alert">
-                    This stage failed. Later stages did not run.
+                    {entry.job.failure === 'strict_model_failed'
+                      ? 'The selected model failed in Strict mode.'
+                      : 'This stage failed. Later stages did not run.'}
                   </p>
                 ) : null}
                 {entry.job.state === 'cancelled' ? (

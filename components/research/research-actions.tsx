@@ -14,6 +14,11 @@ import type {
 } from '@/lib/research/types'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { ResearchResult } from './research-result'
+import {
+  ResearchModelPicker,
+  useResearchModelChoice,
+} from '@/components/dashboard/research-model-picker'
+import type { ModelOptions } from '@/lib/models/selection'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -29,6 +34,8 @@ type Intent = {
   executor: ResearchExecutor
   jobId?: string
   replaceJobId?: string
+  model?: string
+  modelOptions?: ModelOptions
 }
 type Reply = { ok: true; value: ResearchJob }
 /**
@@ -91,6 +98,7 @@ function ResearchRun({
   const [executor, setExecutor] = useState<ResearchExecutor>(
     intent?.executor ?? 'eve'
   )
+  const modelChoice = useResearchModelChoice(true)
   const [pending, setPending] = useState(false)
   const posting = useRef(false)
   const [message, setMessage] = useState('')
@@ -137,6 +145,14 @@ function ResearchRun({
                   ? workspace.id
                   : await ensureBatch(plate),
               executor,
+              ...(executor === 'eve' &&
+              modelChoice.modelOptions &&
+              modelChoice.model
+                ? {
+                    model: modelChoice.model.model,
+                    modelOptions: modelChoice.modelOptions,
+                  }
+                : {}),
               ...(replace && job ? { replaceJobId: job.id } : {}),
             }
       remember(next)
@@ -146,6 +162,8 @@ function ResearchRun({
         {
           requestKey: next.requestKey,
           executor: next.executor,
+          ...(next.model ? { model: next.model } : {}),
+          ...(next.modelOptions ? { modelOptions: next.modelOptions } : {}),
           ...(next.replaceJobId ? { replaceJobId: next.replaceJobId } : {}),
         }
       )
@@ -231,9 +249,19 @@ function ResearchRun({
               </SelectContent>
             </Select>
           </label>
+          {executor === 'eve' &&
+          modelChoice.hosted &&
+          !pending &&
+          (!intent || intent.jobId) ? (
+            <ResearchModelPicker choice={modelChoice} />
+          ) : null}
           <Button
             variant="outline"
-            disabled={pending || blocked}
+            disabled={
+              pending ||
+              blocked ||
+              (executor === 'eve' && !!modelChoice.hosted && !modelChoice.model)
+            }
             onClick={() => void start(!!job)}
           >
             {pending

@@ -5,7 +5,7 @@ import { useSWRConfig } from 'swr'
 import { ApiError } from '@/lib/client/api'
 import { useEnsureBatch, useWorkspaceBatch } from '@/lib/client/hooks'
 import { useSession } from '@/lib/client/session'
-import type { TaggingModelId } from '@/lib/tagging/models'
+import type { ModelOptions } from '@/lib/models/selection'
 import type {
   FieldSuggestion,
   PipelineStage,
@@ -34,6 +34,9 @@ export type TagJob = {
   stage?: PipelineStage
   fieldSuggestion?: FieldSuggestion | null
   stageError?: StageError | null
+  servedByFallback?: true
+  model?: string | null
+  failure?: string
 }
 export type RunEntry = {
   plate: RunPlate
@@ -90,7 +93,8 @@ export function useTagRun() {
   const [starting, setStarting] = useState(false)
   const generation = useRef(0)
   const posting = useRef(false)
-  const lastModel = useRef<TaggingModelId | undefined>(undefined)
+  const lastModel = useRef<string | undefined>(undefined)
+  const lastModelOptions = useRef<ModelOptions | undefined>(undefined)
   const lastStage = useRef<PipelineStage | undefined>(undefined)
   const entriesRef = useRef(entries)
   useEffect(() => {
@@ -173,17 +177,20 @@ export function useTagRun() {
   async function start(
     plates: RunPlate[],
     retry = false,
-    model?: TaggingModelId,
+    model?: string,
     stage?: PipelineStage,
-    onAccepted?: (runId: string) => void
+    onAccepted?: (runId: string) => void,
+    modelOptions?: ModelOptions
   ) {
     if (stage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
     if (!retry) {
       lastModel.current = model
+      lastModelOptions.current = modelOptions
       lastStage.current = stage
     }
     const chosen = retry ? lastModel.current : model
     const chosenStage = retry ? lastStage.current : stage
+    const chosenOptions = retry ? lastModelOptions.current : modelOptions
     if (chosenStage && process.env.NEXT_PUBLIC_LOCAL_PIPELINE !== '1') return
     if (!plates.length || posting.current || disabledReason) return
     posting.current = true
@@ -232,6 +239,9 @@ export function useTagRun() {
             {
               ...(chosen ? { model: chosen } : {}),
               ...(chosenStage ? { stage: chosenStage } : {}),
+              ...(!chosenStage && chosenOptions
+                ? { modelOptions: chosenOptions }
+                : {}),
             }
           )
           update(plate.id, { jobId: result.jobId, acceptedAt: Date.now() })
@@ -243,7 +253,7 @@ export function useTagRun() {
           if (
             error instanceof ApiError &&
             error.status === 422 &&
-            error.code === 'invalid_state'
+            ['invalid_state', 'unavailable'].includes(error.code)
           ) {
             if (version === generation.current)
               setModelError(

@@ -19,9 +19,9 @@ import { applyQueueBundle } from '../../lib/jobs/queue-bundle'
 import { executeHostedQueueStage } from '../../lib/jobs/queue-hosted'
 import type { JobsDeps } from '../../lib/jobs/types'
 import { gatewayAdapter } from '../../worker/model'
-import { useModelCatalogFixture } from '../models/fixture'
+import { installModelCatalogFixture } from '../models/fixture'
 
-useModelCatalogFixture()
+installModelCatalogFixture()
 
 const actor = { uid: 'owner', role: 'owner' as const, name: null }
 beforeEach(() => {

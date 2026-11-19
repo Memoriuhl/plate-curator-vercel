@@ -25,3 +25,28 @@ export type HostedModelBinding = {
   fallback?: { model: string; price: ModelPrice }
 }
 export type RunModelBindings = Partial<Record<HostedStep, HostedModelBinding>>
+
+export type ModelCap = (typeof MODEL_CAP_PRESETS)[number]
+export type PickerModel = {
+  id: string
+  label: string
+  provider: string
+  estimatedUsd: number
+  measured?: {
+    f1?: number
+    fillRate?: number
+    p50Seconds: number
+    costPerPlate: number | null
+    plates: number
+  }
+}
+export type HostedModelCatalog = {
+  curated: PickerModel[]
+  searchable: PickerModel[]
+  caps: ModelCap[]
+}
+
+export function fitsModelCap(estimate: number, cap: number) {
+  // Equivalent decimal prices can differ by a floating-point rounding bit.
+  return estimate <= cap + Number.EPSILON * cap
+}

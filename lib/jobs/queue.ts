@@ -28,7 +28,11 @@ import type {
 import { chooseTaggingModel, enabledTaggingModels } from '../tagging/models'
 import { completeGroupScope } from '../review/group-context'
 import type { Plate } from '../catalog/types'
-import { chooseRunResearchModel, chooseRunTaggingModel } from './model-binding'
+import {
+  chooseRunResearchModel,
+  chooseRunTaggingModel,
+  runUsesHostedModels,
+} from './model-binding'
 import { gatewayModelId, runModelOptionsSchema } from '../models/selection'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
 import { parallelGatewayTagPlan, parallelTagIndices } from './queue-parallel'
@@ -805,6 +809,8 @@ export async function retryRun(
     const batch = await tx.batch(run.batchId)
     const error = queuePermission(batch, actor)
     if (error) return { ok: false, error }
+    if (actor.role !== 'owner' && runUsesHostedModels(run))
+      return { ok: false, error: 'forbidden' }
     if (run.attempts.some((attempt) => attempt.requestId === requestId))
       return { ok: true, value: run }
     const previous = run.attempts.at(-1)!

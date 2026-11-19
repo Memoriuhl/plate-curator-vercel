@@ -267,15 +267,27 @@ export function PipelineRunControls({
   /** Enqueue the selected run and close the controls only after the request succeeds. */
   async function enqueue() {
     if (blocked) return
+    const tagOptions = tagModel ? tagChoice.modelOptions : undefined
+    const researchOptions = researchModel
+      ? researchChoice.modelOptions
+      : undefined
     const saved = await queue.enqueue(
       [...selected],
       stages,
-      needsModel ? modelId : tagModel,
+      needsModel ? modelId : tagOptions ? undefined : tagModel,
       resolvedOptions,
       false,
       tagModel,
       researchModel?.id,
-      batchName
+      batchName,
+      ...(tagOptions || researchOptions
+        ? ([
+            {
+              ...(tagOptions ? { tag: tagOptions } : {}),
+              ...(researchOptions ? { research: researchOptions } : {}),
+            },
+          ] as const)
+        : [])
     )
     if (saved) {
       setStages([])

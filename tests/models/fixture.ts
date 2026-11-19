@@ -26,7 +26,7 @@ const catalog = {
   })),
 }
 
-export function useModelCatalogFixture() {
+export function installModelCatalogFixture() {
   beforeEach(() => {
     const original = globalThis.fetch
     vi.stubGlobal(

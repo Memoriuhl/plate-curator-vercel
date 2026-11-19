@@ -15,7 +15,7 @@ import {
   TaggingModelPicker,
   useTaggingModelChoice,
 } from './tagging-model-picker'
-import type { TaggingModelId } from '@/lib/tagging/models'
+import type { ModelOptions } from '@/lib/models/selection'
 import type { RunPlate } from './use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
@@ -105,8 +105,9 @@ function LegacyRunMenu({
   start(
     plates: RunPlate[],
     retry: boolean,
-    modelId?: TaggingModelId,
-    stage?: PipelineStage
+    modelId?: string,
+    stage?: PipelineStage,
+    modelOptions?: ModelOptions
   ): void
 }) {
   const selectedPlates = useSelectedPlates()
@@ -145,9 +146,9 @@ function LegacyRunMenu({
   const textChoice = {
     ...choice,
     modelId:
-      (desktopModels?.find((model) => model.id === choice.modelId)?.id as
-        TaggingModelId | undefined) ??
-      (desktopModels?.[0]?.id as TaggingModelId | undefined),
+      desktopModels?.find((model) => model.id === choice.modelId)?.id ??
+      desktopModels?.[0]?.id,
+    hosted: undefined,
     data: choice.data
       ? { ...choice.data, models: desktopModels ?? [] }
       : undefined,
@@ -448,6 +449,14 @@ function LegacyRunMenu({
                       false,
                       definition?.needsModel ? activeChoice.modelId : undefined,
                       pipelineStage
+                    )
+                  else if (choice.modelOptions)
+                    start(
+                      planned,
+                      false,
+                      choice.modelId,
+                      undefined,
+                      choice.modelOptions
                     )
                   else start(planned, false, choice.modelId)
                   setOpen(false)
