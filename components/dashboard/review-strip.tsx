@@ -2,86 +2,61 @@
 
 import Link from 'next/link'
 import { IoTimeOutline } from 'react-icons/io5'
-import { useBatch, useBatches, useMe } from '@/lib/client/hooks'
-import type { ReviewBatch } from '@/lib/review/types'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useBatch, useMe, useSharedDraftId } from '@/lib/client/hooks'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/components/utils'
 import { PublishButton } from './publish-button'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 
-/** Summarize one review batch and link to the actions available for its current state. */
-function ReviewChip({ batch, owner }: { batch: ReviewBatch; owner: boolean }) {
-  const detail = useBatch(batch.id)
-  const loadedBatch = detail.data?.batch
-  const currentBatch =
-    loadedBatch && loadedBatch.revision >= batch.revision ? loadedBatch : batch
-  const states = [
-    ...new Set(detail.data?.plates.map((plate) => plate.baseline.state) ?? []),
-  ].join(', ')
-  return (
-    <div className="review-chip">
-      <Avatar size="sm" player="friend">
-        <AvatarFallback>
-          {batch.createdBy.slice(0, 1).toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-      <strong className="review-states" title={states || undefined}>
-        {states || (detail.error ? 'Unavailable' : '…')}
-      </strong>
-      <span className="review-plate-count">
-        {batch.plateIds.length}{' '}
-        {batch.plateIds.length === 1 ? 'plate' : 'plates'}
-      </span>
-      <span
-        className={cn(
-          'review-status',
-          batch.state === 'approved' ? 'review-approved' : 'review-submitted'
-        )}
-      >
-        {batch.state === 'approved' ? 'Approved' : 'Submitted'}
-      </span>
-      <span className="review-last-changed">
-        <BatchLastChanged batch={currentBatch} />
-      </span>
-      <div className="review-actions">
-        <Button asChild size="sm">
-          <Link href={`/review?batch=${encodeURIComponent(batch.id)}`}>
-            Review
-          </Link>
-        </Button>
-        <PublishButton batchId={batch.id} owner={owner} size="sm" />
-      </div>
-    </div>
-  )
-}
-
-/** Show the current review batches and owner-specific actions in the dashboard strip. */
+/**
+ * Summarize the shared draft's unpublished changes on the Dashboard. There is no Submit
+ * or Approve step: every curator's changes wait here until the Owner publishes them.
+ */
 export function ReviewStrip() {
-  const { data, error, isLoading } = useBatches(['submitted', 'approved'])
+  const draftId = useSharedDraftId()
+  const detail = useBatch(draftId, { reuse: true })
   const me = useMe()
-  if (error)
-    return <p role="alert">Could not load batches waiting for review.</p>
-  if (isLoading)
-    return (
-      <div className="review-loading flex h-11 items-center" role="status">
-        Loading review batches…
-      </div>
-    )
-  if (!data?.length) return null
+  if (detail.error)
+    return <p role="alert">Could not load the shared draft.</p>
+  const batch = detail.data?.batch
+  if (!batch || !draftId) return null
+  const states = [
+    ...new Set([
+      ...batch.plateIds.map((id) => id.split('.')[0]),
+      ...Object.keys(batch.stateOrders),
+    ]),
+  ].sort()
+  if (!batch.plateIds.length && !states.length) return null
   return (
-    <section className="review-strip" aria-label="Waiting for review">
+    <section className="review-strip" aria-label="Unpublished changes">
       <strong className="review-label">
         <IoTimeOutline aria-hidden="true" />
-        Waiting for review
+        Unpublished changes
       </strong>
-      {data.map((batch) => (
-        <ReviewChip
-          key={batch.id}
-          batch={batch}
-          owner={me.data?.role === 'owner'}
-        />
-      ))}
+      <div className="review-chip">
+        <strong className="review-states" title={states.join(', ')}>
+          {states.join(', ') || '…'}
+        </strong>
+        <span className="review-plate-count">
+          {batch.plateIds.length}{' '}
+          {batch.plateIds.length === 1 ? 'plate' : 'plates'}
+        </span>
+        <span className="review-status review-submitted">
+          Shared draft · rev {batch.revision}
+        </span>
+        <span className="review-last-changed">
+          <BatchLastChanged batch={batch} />
+        </span>
+        <div className="review-actions">
+          <Button asChild size="sm">
+            <Link href="/review">Review</Link>
+          </Button>
+          <PublishButton
+            batchId={draftId}
+            owner={me.data?.role === 'owner'}
+            size="sm"
+          />
+        </div>
+      </div>
     </section>
   )
 }

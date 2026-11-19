@@ -5,7 +5,10 @@ import { loadDashboard } from '@/lib/catalog/dashboard'
 import { batchHref } from '@/lib/review/href'
 import { DashboardSkeleton } from '@/components/dashboard/skeleton'
 
-type Search = Promise<{ batch?: string | string[] }>
+type Search = Promise<{
+  batch?: string | string[]
+  pipeline?: string | string[]
+}>
 
 /**
  * Redirect the curator home route to the first available jurisdiction once catalog data
@@ -18,8 +21,15 @@ async function FirstJurisdiction({ searchParams }: { searchParams: Search }) {
     searchParams,
   ])
   const batch = Array.isArray(query.batch) ? query.batch[0] : query.batch
-  if (jurisdictions[0])
-    redirect(batchHref(`/states/${jurisdictions[0].code}`, batch ?? null))
+  if (jurisdictions[0]) {
+    const href = batchHref(`/states/${jurisdictions[0].code}`, batch ?? null)
+    // Keep the Publish view's "open pipeline runs" link working through the redirect.
+    redirect(
+      query.pipeline === 'open'
+        ? `${href}${href.includes('?') ? '&' : '?'}pipeline=open`
+        : href
+    )
+  }
   return <p>No jurisdictions available.</p>
 }
 

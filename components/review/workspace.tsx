@@ -13,7 +13,6 @@ import { PlateChangeIcons } from './plate-change-icons'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   IoChevronBack,
-  IoChevronDown,
   IoChevronForward,
   IoFunnelOutline,
   IoPersonOutline,
@@ -23,9 +22,11 @@ import {
   useBatches,
   useMe,
   useReviewActions,
+  useSharedDraftId,
 } from '@/lib/client/hooks'
 import type { BatchDetail } from '@/lib/client/hooks'
 import { canEdit, editableStates } from '@/lib/review/access'
+import { isRelease, isSharedDraft } from '@/lib/review/draft-id'
 import type {
   DraftChangeTarget,
   EditableFields,
@@ -177,31 +178,27 @@ export function reviewError(error: unknown, revision: number) {
   const code =
     error && typeof error === 'object' && 'code' in error ? error.code : ''
   if (code === 'superseded_revision')
-    return `This batch changed while you were reviewing. Look again at revision ${revision}.`
+    return `This plate changed while you were reviewing. Look again at revision ${revision}.`
   if (code === 'standard_change_unconfirmed')
     return (
       apiErrorReasons(error).join(' ') ||
-      'Use Standard plate issues to make the first Template the Standard, then submit again.'
+      'Use Standard plate issues to make the first Template the Standard, then try again.'
     )
   if (code === 'pipeline_busy')
-    return 'Submit after the Plate Pipeline finishes this Batch.'
+    return 'Try again after the Plate Pipeline finishes its runs.'
   if (code === 'invalid_state')
-    return 'This batch is no longer available for this action. Refresh and look again.'
+    return 'This change is no longer available for this action. Refresh and look again.'
   return 'Could not save this action. Please try again.'
 }
 
 /**
- * Show the displayed Batch revision, changed plate counts, and permitted review actions.
+ * Show what the displayed draft, release or history Batch changes. Review has no Submit
+ * or Approve step: every curator's edits sit in the shared draft until the Owner
+ * publishes it.
  */
 export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const me = useMe()
   const batch = detail.batch
-  const actions = useReviewActions()
-  const latest = useBatch(batch.id, { reuse: true })
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('')
-  const canSubmit = batch.state === 'open' && batch.createdBy === me.data?.uid
-  const canApprove = batch.state === 'submitted' && me.data?.role === 'owner'
   const run = useBatchRun(batch.state === 'published' ? batch.id : null)
   const approvedBy =
     batch.approval?.by === me.data?.uid
@@ -217,41 +214,33 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
   const affectedStates = [
     ...new Set(changed.map((plate) => plate.baseline.state)),
   ].sort()
-  async function saveReviewDecision() {
-    if (busy || (!canSubmit && !canApprove)) return
-    setBusy(true)
-    setMessage('')
-    try {
-      await (canSubmit ? actions.submit : actions.approve)(
-        batch.id,
-        batch.revision
-      )
-    } catch (error) {
-      const current = await latest.mutate().catch(() => undefined)
-      setMessage(reviewError(error, current?.batch.revision ?? batch.revision))
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-[var(--hairline)] pt-4 text-xs">
-      {batch.source && (
-        <p className="w-full">
-          Copied from{' '}
-          <Link
-            className="underline"
-            href={reviewHref(undefined, undefined, batch.source.batchId)}
-          >
-            original Batch revision {batch.source.revision}
-          </Link>
-          . Review against Catalog v{batch.baselineVersion}.
-        </p>
-      )}
+      {batch.source &&
+        (isRelease(batch) ? (
+          <p className="w-full">
+            Release of the shared draft at revision {batch.source.revision},
+            against Catalog v{batch.baselineVersion}.
+          </p>
+        ) : (
+          <p className="w-full">
+            Copied from{' '}
+            <Link
+              className="underline"
+              href={reviewHref(undefined, undefined, batch.source.batchId)}
+            >
+              original Batch revision {batch.source.revision}
+            </Link>
+            . Review against Catalog v{batch.baselineVersion}.
+          </p>
+        ))}
       {batch.state === 'published' ? (
         <p className="font-bold">
           Published · v{run.data?.outcome?.version ?? '?'}
         </p>
-      ) : batch.state === 'approved' ? (
+      ) : batch.state === 'folded' ? (
+        <p>Folded into the shared draft</p>
+      ) : batch.state === 'approved' && !isRelease(batch) ? (
         <p>
           Approved by {approvedBy || 'an Owner'}
           {batch.approval?.at ? ` on ${when(batch.approval.at)}` : ''}
@@ -262,19 +251,17 @@ export function ReviewFooter({ detail }: { detail: BatchDetail }) {
           rev {batch.revision}
         </p>
       )}
-      {(canSubmit || canApprove) && (
-        <Button size="sm" disabled={busy} onClick={saveReviewDecision}>
-          {canSubmit
-            ? 'Submit for review'
-            : `Approve revision ${batch.revision}`}
-        </Button>
-      )}
-      {batch.state === 'submitted' && !canApprove && (
-        <p>Waiting for an Owner to approve</p>
-      )}
-      {message && (
-        <p role="alert" className="w-full">
-          {message}
+      {isSharedDraft(batch) && (
+        <p className="w-full text-muted-foreground">
+          Shared draft · unpublished changes from every curator.
+          {me.data?.role === 'owner' && (
+            <>
+              {' '}
+              <Link className="underline" href="/publish">
+                Publish the draft
+              </Link>
+            </>
+          )}
         </p>
       )}
     </footer>
@@ -289,12 +276,10 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const params = useSearchParams()
   const router = useRouter()
   const batchId = params.get('batch')
-  const review = useBatches(['submitted', 'approved', 'conflict'], {
-    enabled: !batchId,
-    refreshInterval: 5000,
-  })
-  const mine = useBatches(['open'], {
-    mine: true,
+  // Without a linked Batch, Review lists every unpublished change: the shared draft.
+  // Polling the open list is cheap; each loader refetches detail only on a new revision.
+  const draftId = useSharedDraftId()
+  const open = useBatches(['open'], {
     enabled: !batchId,
     refreshInterval: 5000,
   })
@@ -355,10 +340,9 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   )
   const batches = [
     ...new Map(
-      [...(review.data ?? []), ...(mine.data ?? [])].map((batch) => [
-        batch.id,
-        batch,
-      ])
+      (open.data ?? [])
+        .filter((batch) => batch.id === draftId)
+        .map((batch) => [batch.id, batch])
     ).values(),
   ]
   if (
@@ -461,8 +445,8 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
       : orderedStates
   const loading = batchId
     ? selected.isLoading
-    : review.isLoading ||
-      mine.isLoading ||
+    : open.isLoading ||
+      !draftId ||
       batches.some((batch) => !(batch.id in currentDetails))
   const mobile =
     !batchId && params.get('view') === 'states' && !code && !plateId
@@ -578,12 +562,12 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
         <h1 className="p-2 text-xs font-extrabold">
           {batchId
             ? (selected.data?.batch.name ?? 'Batch')
-            : 'All review changes'}
+            : 'Unpublished changes'}
         </h1>
         {batchId && (
           <>
             <Link className="block px-2 pb-2 text-xs underline" href="/review">
-              All review changes
+              Unpublished changes
             </Link>
             <p
               className="px-2 pb-2 text-xs text-muted-foreground"
@@ -601,28 +585,6 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               </Button>
             )}
           </>
-        )}
-        {!batchId && batches.length > 0 && (
-          <details className="group/batches mb-2 border-b border-[var(--hairline)] pb-2">
-            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl p-2 text-xs font-extrabold [&::-webkit-details-marker]:hidden">
-              Batches
-              <IoChevronDown
-                aria-hidden="true"
-                className="size-4 group-open/batches:rotate-180"
-              />
-            </summary>
-            <nav aria-label="Batches">
-              {batches.map((batch) => (
-                <Link
-                  className="block rounded-xl p-2 text-sm underline"
-                  href={reviewHref(undefined, undefined, batch.id)}
-                  key={batch.id}
-                >
-                  {batch.name}
-                </Link>
-              ))}
-            </nav>
-          </details>
         )}
         <nav aria-label="Review states" className="grid gap-1">
           <StateVisibilityControl
@@ -1071,7 +1033,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
               )
             })}
           </>
-        ) : (batchId ? selected.error : review.error || mine.error) ? (
+        ) : (batchId ? selected.error : open.error) ? (
           <p role="alert">Could not load review batches. Please refresh.</p>
         ) : loading ? (
           <p role="status">Loading review batches…</p>
@@ -1086,7 +1048,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                     ? 'No changes for this plate'
                     : batchId
                       ? 'No draft changes in this Batch'
-                      : 'Nothing waiting for review'}
+                      : 'No unpublished changes'}
             </h2>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               <Link

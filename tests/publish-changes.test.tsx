@@ -10,7 +10,8 @@ vi.mock('../lib/client/live-signal', () => ({
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  // Open the Batch from Publish history; without a link Publish shows the shared draft.
+  useSearchParams: () => new URLSearchParams('batch=published'),
 }))
 
 import { PublishWorkspace } from '../components/publish/workspace'
@@ -142,6 +143,8 @@ vi.mock('../lib/client/hooks', () => ({
   }),
   /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({}),
+  /** Name the shared draft listed above Publish history. */
+  useSharedDraftId: () => 'shared-draft-test',
 }))
 
 test('published batch uses the catalog version as its visual anchor', () => {
@@ -175,7 +178,9 @@ test('an invalid approval leaves the Publish button visible and disabled', () =>
   status.value = 'approved'
   render(<PublishWorkspace />)
   expect(
-    screen.getByText('Reopen this Batch on the Dashboard before publishing.')
+    screen.getByText(
+      'This release no longer matches its confirmation. Publish the shared draft again.'
+    )
   ).toBeTruthy()
   expect(
     screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })

@@ -24,6 +24,10 @@ vi.mock('../lib/client/hooks', () => ({
   useReorderState: () => ({ reorder: vi.fn(), pending: false }),
   /** Disable detail prefetch requests while exercising needs-work selection. */
   usePreloadPlateDetail: () => vi.fn(),
+  /** Name the shared draft the Dashboard edits without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
+  /** The shared draft has nothing to show in the filter count. */
+  useBatch: () => ({ data: undefined }),
 }))
 vi.mock('../lib/client/session', () => ({
   /** Supply the fixture session and API client to the component under test. */ useSession:

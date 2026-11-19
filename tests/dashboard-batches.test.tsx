@@ -72,7 +72,9 @@ vi.mock('../lib/client/hooks', () => ({
     data: states.includes('open') ? state.open : state.review,
   }),
   /** Provide batch detail from the fixture in place of an SWR request. */
-  useBatch: () => ({ data: state.detail }),
+  useBatch: (id: string | null) => ({ data: id ? state.detail : undefined }),
+  /** Name the shared draft the Dashboard edits without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
 }))
 vi.mock('../lib/client/session', () => ({
   /** Supply the fixture session and API client to the component under test. */
@@ -113,8 +115,9 @@ vi.mock('../components/ui/button', () => ({
 
 const batch: ReviewBatch = {
   stateOrders: {},
-  id: 'batch-one',
-  name: 'Alaska updates',
+  id: 'shared-draft-test',
+  kind: 'shared-draft',
+  name: 'Shared draft',
   createdBy: 'Jonathan',
   createdByName: null,
   state: 'open',
@@ -166,18 +169,18 @@ beforeEach(() => {
   state.buttons.clear()
 })
 
-test('Owner sees the personal Batch name, persisted change time and Publish', () => {
+test('Owner sees the shared draft, its persisted change time and Publish', () => {
   const html = renderToStaticMarkup(
     <DashboardPipelineProvider>
       <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
     </DashboardPipelineProvider>
   )
-  expect(html).toContain('Alaska updates')
+  expect(html).toContain('Shared draft')
   expect(html).toContain('dateTime="2026-11-17T16:15:00Z"')
   expect(html).toContain('Last changed')
-  expect(html).not.toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('href="/review?batch=')
   expect(html).not.toContain('Open / Share')
-  expect(html).toContain('href="/publish?batch=batch-one"')
+  expect(html).toContain('href="/publish?batch=shared-draft-test"')
   expect(html).not.toContain('Submit for review')
 })
 
@@ -189,12 +192,12 @@ test('Editor sees the Batch identity and can open the pipeline menu', () => {
     </DashboardPipelineProvider>
   )
   expect(html).toContain('Last changed')
-  expect(html).not.toContain('href="/review?batch=batch-one"')
+  expect(html).not.toContain('href="/review?batch=')
   expect(html).not.toContain('href="/publish')
   expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
 })
 
-test('without an open Batch, the dashboard explains the empty workspace', () => {
+test('while the shared draft loads, the Dashboard says so and never offers to create a Batch', () => {
   state.open = []
   state.detail = undefined
   const html = renderToStaticMarkup(
@@ -202,32 +205,37 @@ test('without an open Batch, the dashboard explains the empty workspace', () => 
       <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
     </DashboardPipelineProvider>
   )
-  expect(html).toContain('No open Batch yet')
-  expect(html).not.toContain('href="/publish')
+  expect(html).toContain('Loading the shared draft')
+  expect(html).not.toContain('No open Batch yet')
 })
 
-test('review strip hides when empty and approved batches retain Review with enabled Publish', () => {
+test('review strip hides an empty draft and links unpublished changes to Review and Publish', () => {
+  state.detail = { batch: { ...batch, plateIds: [] }, plates: [] }
   expect(renderToStaticMarkup(<ReviewStrip />)).toBe('')
-  state.review = [{ ...batch, state: 'approved' }]
+  state.detail = { batch, plates: [] }
   const html = renderToStaticMarkup(<ReviewStrip />)
-  expect(html).toContain('href="/review?batch=batch-one"')
-  expect(html).toContain('Approved')
+  expect(html).toContain('Unpublished changes')
+  expect(html).toContain('href="/review"')
+  expect(html).toContain('Shared draft · rev 7')
   expect(html).toContain('Last changed')
-  expect(html).not.toContain('Rev 7')
-  expect(html).toContain('href="/publish?batch=batch-one"')
-  expect(state.buttons.get('Publish to players')?.disabled).not.toBe(true)
+  expect(html).not.toContain('Approved')
+  expect(html).not.toContain('Submitted')
+  expect(html).toContain('href="/publish?batch=shared-draft-test"')
+  state.role = 'editor'
+  expect(renderToStaticMarkup(<ReviewStrip />)).not.toContain('href="/publish')
 })
 
 test.each([0, 1, 3])(
   'review strip pluralizes %i plates and uses body typography',
   (count) => {
-    state.review = [
-      {
+    state.detail = {
+      batch: {
         ...batch,
-        state: 'submitted',
         plateIds: batch.plateIds.slice(0, count),
+        stateOrders: count ? {} : { AK: ['AK.standard_gold'] },
       },
-    ]
+      plates: [],
+    }
     const html = renderToStaticMarkup(<ReviewStrip />)
     expect(html).toContain(`>${count} ${count === 1 ? 'plate' : 'plates'}<`)
     const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap(
@@ -246,11 +254,10 @@ test.each([0, 1, 3])(
 
 test('review strip preserves the full state list in its title', () => {
   const states = ['AK', 'AL', 'AZ', 'CA', 'CO', 'VT']
-  state.review = [{ ...batch, state: 'submitted' }]
-  state.detail!.plates = states.map((code) => ({
-    ...state.detail!.plates[0],
-    baseline: { ...state.detail!.plates[0].baseline, state: code },
-  }))
+  state.detail = {
+    batch: { ...batch, plateIds: states.map((code) => `${code}.standard`) },
+    plates: [],
+  }
   const html = renderToStaticMarkup(<ReviewStrip />)
   const list = states.join(', ')
   expect(html).toContain(
@@ -274,7 +281,7 @@ test('selected Publish keeps the shared Batch ID while its details load', () => 
     </DashboardPipelineProvider>
   )
   expect(html).toContain('href="/publish?batch=shared"')
-  expect(html).not.toContain('href="/publish?batch=batch-one"')
+  expect(html).not.toContain('href="/publish?batch=shared-draft-test"')
 })
 
 test('legacy Batch timestamps distinguish creation from an unknown edit time', () => {

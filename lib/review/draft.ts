@@ -45,6 +45,16 @@ const sameList = (left?: string[] | null, right?: string[] | null) =>
  * Compare a draft value with the live catalog the way Publish writes it: a cleared value
  * (`null`) and a missing one are the same, and `deleted: false` is no deletion.
  */
+/** Copy an object without the named keys. */
+function omit<T extends object, K extends keyof T>(
+  value: T,
+  ...keys: K[]
+): Omit<T, K> {
+  const copy = { ...value }
+  for (const key of keys) delete copy[key]
+  return copy
+}
+
 function sameLiveValue(key: string, value: unknown, live: unknown) {
   if (key === 'deleted') return !value === !live
   return sameEditableValue(key, value ?? null, live ?? null)
@@ -274,7 +284,7 @@ export async function freezeRelease(
     baselineOrders: at.batch.baselineOrders ?? {},
     stateOrderChangedAt: at.batch.stateOrderChangedAt ?? {},
   }
-  const edits = at.edits.map(({ revision: _revision, ...edit }) => edit)
+  const edits = at.edits.map((edit) => omit(edit, 'revision'))
   if ((await d.store.create(release, edits)) === 'ok')
     return { ok: true, value: release }
   const raced = await d.store.getBatch(id)
@@ -341,7 +351,7 @@ export async function rebaseDraft(
           baselineOrders: batch.baselineOrders ?? {},
           plateIds: batch.plateIds,
         }
-    const { pipelineApplications: _applied, ...rest } = batch
+    const rest = omit(batch, 'pipelineApplications')
     const stateOrderChangedAt = Object.fromEntries(
       Object.entries(batch.stateOrderChangedAt ?? {}).filter(
         ([state]) => state in plan.stateOrders
@@ -454,17 +464,14 @@ async function rebasePlan(
         Object.hasOwn(fields, key)
       )
     )
-    const {
-      pipelineChanges: _changes,
-      pipelineRunIds: _runs,
-      revision: _revision,
-      ...base
-    } = edit ?? {
-      plateId,
-      authorId: release!.batch.createdBy,
-      authorName: release!.batch.createdByName,
-      updatedAt: d.now(),
-    }
+    const base = edit
+      ? omit(edit, 'pipelineChanges', 'pipelineRunIds', 'revision')
+      : {
+          plateId,
+          authorId: release!.batch.createdBy,
+          authorName: release!.batch.createdByName,
+          updatedAt: d.now(),
+        }
     const nextEdit: ProposedEdit = {
       ...base,
       fields,

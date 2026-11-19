@@ -305,6 +305,7 @@ async function updatePlate(
       fields,
       ...attribution,
       authorId: a.uid,
+      ...(a.name ? { authorName: a.name } : {}),
       updatedAt: changedAt,
       resultRevision: plateRevision(plate),
     }
@@ -543,6 +544,7 @@ async function reorderStateOnce(
       baseRevision: plateRevision(baseline),
       resultRevision: plateRevision(plate),
       authorId: actor.uid,
+      ...(actor.name ? { authorName: actor.name } : {}),
       updatedAt: d.now(),
     }
   })

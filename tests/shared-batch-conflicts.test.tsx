@@ -146,6 +146,8 @@ const gridPlates = cards.map(projectFamilyPlate)
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return {
     id,
+    // 'shared' is the environment's shared draft; any other id is a Batch from before it.
+    ...(id === 'shared' ? { kind: 'shared-draft' as const } : {}),
     name: id + ' Batch',
     createdBy: actor.uid,
     createdByName: actor.name,
@@ -206,7 +208,7 @@ function session(actor: Actor, id: string | null = 'shared') {
        */
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
-        if (path === '/api/me') return actor
+        if (path === '/api/me') return { ...actor, draftId: 'shared' }
         if (path === '/api/jobs/tag-job')
           return {
             state: 'completed',
@@ -493,7 +495,7 @@ async function ready(view: ReturnType<typeof render>) {
 }
 
 test.each(['pointer', 'keyboard'] as const)(
-  'two sessions reject a stale %s promotion after order or unrelated Tag saves',
+  'two sessions reject a stale %s promotion after an order save on its state, and land it after a Tag save on another plate',
   async (mode) => {
     for (const change of ['order', 'tag'] as const) {
       const first = render(<Workspace actor={editor} />)
@@ -535,6 +537,26 @@ test.each(['pointer', 'keyboard'] as const)(
       ).not.toEqual(['AK.b', 'AK.a'])
       if (mode === 'pointer') pointer(handle, 'pointerup', 540, 100)
       else fireEvent.keyDown(window, { key: ' ' })
+      if (change === 'tag') {
+        // The shared draft only rejects a stale revision when a later commit touched the
+        // same plates or state order; a Tag save on another plate is not a conflict.
+        await waitFor(() =>
+          expect(first.container.textContent).toContain('Dropped')
+        )
+        expect((await saved()).proposed.templateRole).toBe('template')
+        expect((await saved('AK.b')).proposed.tags).toEqual(['remote tag'])
+        expect((await deps.store.getBatch('shared'))!.revision).toBe(
+          revision + 2
+        )
+        expect(
+          requests.filter((r) => r.method === 'PUT').at(-1)?.body
+        ).toMatchObject({
+          batchRevision: revision,
+          promotion: { plateId: 'AK.v' },
+        })
+        cleanup()
+        continue
+      }
       await waitFor(() =>
         expect(first.container.textContent).toContain(
           'This Batch changed. Drag again'

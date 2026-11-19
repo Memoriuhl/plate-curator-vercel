@@ -33,6 +33,8 @@ vi.mock('../lib/client/hooks', () => ({
   useBatch: () => ({ data: state.detail, mutate: state.mutate }),
   /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({ approve: state.approve, submit: state.submit }),
+  /** Name the shared draft Review lists without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
 }))
 vi.mock('../lib/client/review-checkpoint', () => ({
   useReviewCheckpoint: vi.fn(),
@@ -110,21 +112,39 @@ beforeEach(() => {
   state.submit.mockReset()
   state.mutate.mockReset().mockResolvedValue(detail)
 })
-test.each(['open', 'submitted'] as const)(
-  'Review summarizes %s Batches without Publish actions',
-  (status) => {
+test.each(['owner', 'editor'])(
+  'the shared draft footer has no Submit or Approve, and links the %s to Publish only as Owner',
+  (role) => {
+    state.role = role
     const html = renderToStaticMarkup(
       <ReviewFooter
-        detail={{ ...detail, batch: { ...detail.batch, state: status } }}
+        detail={{
+          ...detail,
+          batch: {
+            ...detail.batch,
+            id: 'shared-draft-test',
+            kind: 'shared-draft',
+            state: 'open',
+          },
+        }}
       />
     )
     expect(html).toContain('1 changed plate · rev 4')
     expect(html).toContain(
-      status === 'open' ? 'Submit for review' : 'Approve revision 4'
+      'Shared draft · unpublished changes from every curator.'
     )
-    expect(html).not.toContain('Publish to players')
+    expect(html).not.toContain('Submit for review')
+    expect(html).not.toContain('Approve revision')
+    expect(html.includes('href="/publish"')).toBe(role === 'owner')
   }
 )
+
+test('a submitted Batch from before the shared draft stays readable without actions', () => {
+  const html = renderToStaticMarkup(<ReviewFooter detail={detail} />)
+  expect(html).toContain('1 changed plate · rev 4')
+  expect(html).not.toContain('Approve revision')
+  expect(html).not.toContain('Shared draft')
+})
 test('summaries describe fields, family and standard changes', () => {
   expect(changeSummary(before, after)).toBe(
     'image, name, description, tags, moved to veterans, role, order, now Standard, links'
@@ -184,7 +204,7 @@ test('Review retains existing approval metadata', () => {
 })
 test('superseded and invalid state errors explain recovery', () => {
   expect(reviewError({ code: 'superseded_revision' }, 5)).toBe(
-    'This batch changed while you were reviewing. Look again at revision 5.'
+    'This plate changed while you were reviewing. Look again at revision 5.'
   )
   expect(reviewError({ code: 'invalid_state' }, 4)).toContain('Refresh')
 })
@@ -192,7 +212,7 @@ test('empty state links to dashboard and selection links preserve URL state', ()
   const html = renderToStaticMarkup(
     <ReviewWorkspace states={[{ code: 'AK', name: 'Alaska', plates: [] }]} />
   )
-  expect(html).toContain('Nothing waiting for review')
+  expect(html).toContain('No unpublished changes')
   expect(html).toContain('href="/"')
   expect(html).not.toContain('href="/review?state=AK"')
   expect(reviewHref('AK', 'AK.army', 'batch id')).toBe(

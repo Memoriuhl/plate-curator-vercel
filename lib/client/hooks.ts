@@ -17,9 +17,11 @@ import type { PlateCardData, PlateDetail } from '../catalog/dashboard-types'
 import { isComplete, plateChecks } from '../catalog/plate-checks'
 import useSWR, { preload, useSWRConfig } from 'swr'
 import type { Plate, StoryFields } from '../catalog/types'
+import type { StatePublishSummary } from '../review/publish-view'
 import type {
   Actor,
   BatchState,
+  LastPublish,
   DraftChangeTarget,
   EditableFields,
   ProposedEdit,
@@ -30,7 +32,7 @@ import type { FamilyMerge } from '../review/family-merge'
 import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
 import { canEdit, editableStates } from '../review/access'
-import { mostRecentBatch } from '../review/batch-selection'
+import { isSharedDraft } from '../review/draft-id'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
 import type {
   Abandonment,
@@ -63,14 +65,22 @@ export function batchesKey(states?: BatchState[], opts?: { mine?: boolean }) {
   return `/api/batches${params.length ? `?${params.join('&')}` : ''}`
 }
 
+/** The signed-in member plus the id of this environment's shared working draft. */
+export type Me = Actor & { draftId?: string }
+
 /** Fetch the signed-in user's current membership and environment. */
 export function useMe(enabled = true) {
   const { user, api } = useSession()
   // Share membership across session consumers and reuse it on remount when cached.
-  return useSWR<Actor>(user && enabled ? '/api/me' : null, api.get, {
+  return useSWR<Me>(user && enabled ? '/api/me' : null, api.get, {
     revalidateIfStale: false,
     dedupingInterval: 30000,
   })
+}
+
+/** The shared working draft every curator edits, or null until membership loads. */
+export function useSharedDraftId() {
+  return useMe().data?.draftId ?? null
 }
 
 /** Load the member list only for a signed-in owner. */
@@ -349,6 +359,37 @@ export function usePublishBaseline(id: string | null) {
   )
 }
 
+/** The Owner's Publish view of the shared draft (`GET /api/batches/<draft>/publish`). */
+export type DraftPublishView = {
+  error?: string | null
+  reviewedVersion?: number
+  liveVersion?: number
+  draftId: string
+  draftRevision: number
+  baselineVersion: number
+  destination: string | null
+  enabledHere: boolean
+  states: StatePublishSummary[]
+  pipeline: { busy: boolean; activeRuns?: number }
+  approvalProblems: string[]
+  lastPublish?: LastPublish
+  activeRelease?: { id: string; revision?: number }
+  canPublish: boolean
+}
+
+/**
+ * Poll the shared draft's Publish view so the revision, per-state breakdown and the
+ * pipeline-busy count stay current while curators keep editing.
+ */
+export function useDraftPublishView(draftId: string | null) {
+  const { user, api } = useSession()
+  return useSWR<DraftPublishView>(
+    user && draftId ? `${batchApiPath(draftId)}/publish` : null,
+    api.get,
+    { refreshInterval: 5000 }
+  )
+}
+
 /** Expose batch review actions and keep related caches synchronized after writes. */
 export function useReviewActions() {
   const { api } = useSession()
@@ -430,22 +471,23 @@ export function useReviewActions() {
           publishIntents.current.delete(key)
         const messages: Record<string, string> = {
           [BASELINE_ERRORS.stale]:
-            'The Catalog changed since review. Copy to a new Batch for fresh review.',
+            'The Catalog changed since this revision. Reload the Publish view and try again.',
           [BASELINE_ERRORS.receiptConflict]:
-            'The interrupted Publish used an unreviewed baseline. Copy for fresh review or investigate the receipt.',
+            'The interrupted Publish used an unreviewed baseline. Investigate the receipt before publishing again.',
           ...PUBLISH_STOP_MESSAGES,
           [PIPELINE_BUSY]: PIPELINE_BUSY_MESSAGE,
-          empty_batch: 'This Batch has no changes to publish.',
+          empty_batch: 'The draft has no changes to publish.',
+          empty_draft: 'The draft has no changes to publish.',
           standard_change_unconfirmed:
             apiErrorReasons(error).join(' ') ||
             'Resolve the Standard plate changes before publishing.',
           publish_disabled_here: 'Publishing is disabled in this environment.',
           superseded_revision:
-            'This Batch changed. Confirm the current revision.',
+            'The draft moved past this revision. Reload the Publish view and confirm the current revision.',
           [PUBLISH_ERRORS.notWaiting]:
             'This run is no longer waiting for Publish. Refresh to see its status.',
           forbidden: 'Only the Owner can Publish.',
-          not_found: 'This Batch could not be found.',
+          not_found: 'The draft could not be found.',
         }
         await Promise.all([
           refresh(batchId),
@@ -474,25 +516,6 @@ export function useReviewActions() {
               : 'Could not Publish. Please try again.',
         }
       }
-    },
-    /** Copy the batch to the current baseline and refresh the batch list. */
-    async copy(batchId: string, revision: number, targetVersion: number) {
-      const batch = await api.send<ReviewBatch & { warnings?: string[] }>(
-        'POST',
-        `${batchApiPath(batchId)}/copy`,
-        { revision, targetVersion }
-      )
-      await refresh().catch(() => undefined)
-      return batch
-    },
-    /** Create a review batch and refresh the lists that can show it. */
-    async create(name: string, plateIds: string[]) {
-      const batch = await api.send<ReviewBatch>('POST', '/api/batches', {
-        name,
-        plateIds,
-      })
-      await refresh()
-      return batch
     },
     /** Save a proposed plate edit and refresh the batch detail used by review. */
     async propose(
@@ -545,26 +568,6 @@ export function useReviewActions() {
         await refresh(batchId).catch(() => undefined)
       }
     },
-    /** Submit the batch at its current revision and refresh its review state. */
-    async submit(batchId: string, revision: number) {
-      const batch = await api.send<ReviewBatch>(
-        'POST',
-        `${batchApiPath(batchId)}/submit`,
-        { revision }
-      )
-      await refresh(batchId)
-      return batch
-    },
-    /** Approve the batch at its current revision and reload its updated status. */
-    async approve(batchId: string, revision: number) {
-      const batch = await api.send<ReviewBatch>(
-        'POST',
-        `${batchApiPath(batchId)}/approve`,
-        { revision }
-      )
-      await refresh(batchId)
-      return batch
-    },
   }
 }
 
@@ -576,7 +579,12 @@ export function useSelectedBatchId() {
   return useSearchParams()?.get('batch') ?? null
 }
 
-/** Resolve the URL's batch and its editability for the workspace. */
+/**
+ * Resolve the URL's batch and its editability for the workspace. Without `?batch=` the
+ * workspace edits the shared draft (`mode: 'personal'` is kept as the name of that
+ * default so call sites stay stable). A linked release or pre-draft Batch is read-only
+ * history; only the shared draft is editable.
+ */
 export function useWorkspaceBatch() {
   const id = useSelectedBatchId()
   const detail = useBatch(id, { reuse: true })
@@ -587,7 +595,8 @@ export function useWorkspaceBatch() {
       ? 'unavailable'
       : !detail.data || !me.data
         ? 'loading'
-        : canEdit(detail.data.batch, me.data) &&
+        : isSharedDraft(detail.data.batch) &&
+            canEdit(detail.data.batch, me.data) &&
             editableStates.includes(detail.data.batch.state)
           ? 'ready'
           : 'read-only'
@@ -595,19 +604,17 @@ export function useWorkspaceBatch() {
 }
 
 /**
- * Overlay the selected or most recent batch's draft fields and ordering on the catalog
- * plates.
+ * Overlay the shared draft's (or a linked history Batch's) fields and ordering on the
+ * catalog plates. "Changed in a batch" marks everything in the draft that differs from
+ * live, whoever made the change.
  */
 export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
   const { user, api } = useSession()
-  const { data: batches } = useBatches(['open'], { mine: true })
+  const draftId = useSharedDraftId()
   const workspace = useWorkspaceBatch()
-  const personal = useBatch(
-    workspace.mode === 'personal'
-      ? (mostRecentBatch(batches)?.id ?? null)
-      : null,
-    { reuse: true }
-  )
+  const personal = useBatch(workspace.mode === 'personal' ? draftId : null, {
+    reuse: true,
+  })
   const detail =
     workspace.mode === 'selected' ? workspace.detail : personal.data
   const jurisdictions = useMemo(
@@ -695,7 +702,8 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
           ) ?? []
       const latest = plateChanges.at(-1)
       const base = entry?.proposed ?? latest?.entry.baseline
-      const changedInBatch = !!entry?.edit || reordered
+      const changedInBatch =
+        !!(entry?.edit && Object.keys(entry.edit.fields).length) || reordered
       if (!base) return { ...ordered, changedInBatch }
       const fields = Object.assign(
         {},
@@ -771,47 +779,26 @@ export type EditResult<T = Plate | void> =
       message?: string
     }
 
-// Share one pending lookup or creation per SWR provider and user to avoid duplicate drafts.
-const batchCreations = new WeakMap<object, Map<string, Promise<string>>>()
-
 /**
- * Reuse an editable batch or share one in-flight creation for concurrent edits in the
- * same workspace.
+ * Resolve the batch that edits land in: the shared draft. The draft is created on the
+ * server the first time anyone reads or writes it, so there is nothing to create here.
+ * The plate argument is kept for older call sites.
  */
-export function useEnsureBatch(): (plate: {
+export function useEnsureBatch(): (plate?: {
   id: string
   state: string
 }) => Promise<string> {
   const { user, api } = useSession()
   const { cache, mutate } = useSWRConfig()
-  const { data: batches } = useBatches(['open'], { mine: true })
-  return (plate) => {
-    if (!user) return Promise.reject(new ApiError(401, 'unauthenticated', {}))
-    let creations = batchCreations.get(cache)
-    if (!creations) {
-      creations = new Map()
-      batchCreations.set(cache, creations)
-    }
-    const existing = creations.get(user.uid)
-    if (existing) return existing
-    const creation = (async () => {
-      const key = batchesKey(['open'], { mine: true })
-      const current =
-        (cache.get(key)?.data as ReviewBatch[] | undefined) ??
-        batches ??
-        (await api.get<ReviewBatch[]>(key))
-      const batch = mostRecentBatch(current)
-      if (batch) return batch.id
-      const created = await api.send<ReviewBatch>('POST', batchesKey(), {
-        name: `${plate.state} edits`,
-        plateIds: [plate.id],
-      })
-      // Cache the returned batch so the next edit can find it without refetching the list.
-      await mutate(key, [created, ...current], { revalidate: false })
-      return created.id
-    })().finally(() => creations.delete(user.uid))
-    creations.set(user.uid, creation)
-    return creation
+  const draftId = useSharedDraftId()
+  return async () => {
+    if (!user) throw new ApiError(401, 'unauthenticated', {})
+    if (draftId) return draftId
+    const me =
+      (cache.get('/api/me')?.data as Me | undefined) ??
+      (await mutate('/api/me', api.get<Me>('/api/me'), { revalidate: false }))
+    if (!me?.draftId) throw new ApiError(404, 'not_found', {})
+    return me.draftId
   }
 }
 
@@ -985,19 +972,16 @@ export function useReorderState() {
   const { cache, mutate } = useSWRConfig()
   const ensureBatch = useEnsureBatch()
   const workspace = useWorkspaceBatch()
-  const { data: personalBatches } = useBatches(['open'], { mine: true })
-  const personalId =
-    workspace.mode === 'personal'
-      ? (mostRecentBatch(personalBatches)?.id ?? null)
-      : null
+  const draftId = useSharedDraftId()
+  const personalId = workspace.mode === 'personal' ? draftId : null
   const personal = useBatch(personalId, { reuse: true })
   const displayed =
     workspace.mode === 'selected' ? workspace.detail : personal.data
+  // Moves save against the draft revision on screen, so wait until the draft has loaded.
   const ready =
     workspace.mode === 'selected'
       ? workspace.status === 'ready'
-      : !!personalBatches &&
-        (!personalId || personal.data?.batch.id === personalId)
+      : !!personalId && personal.data?.batch.id === personalId
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
@@ -1115,12 +1099,10 @@ export function useReorderState() {
 
   /** Capture the visible SWR revision so a drag saves against its starting batch. */
   function capture(): MoveOrigin {
-    const cachedBatches = cache.get(batchesKey(['open'], { mine: true }))
-      ?.data as ReviewBatch[] | undefined
     const id =
       workspace.mode === 'selected'
         ? workspace.id
-        : (displayed?.batch.id ?? mostRecentBatch(cachedBatches)?.id)
+        : (displayed?.batch.id ?? draftId ?? undefined)
     const batch = id
       ? ((cache.get(batchApiPath(id))?.data as BatchDetail | undefined)
           ?.batch ?? displayed?.batch)

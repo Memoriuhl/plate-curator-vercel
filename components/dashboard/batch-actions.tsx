@@ -2,14 +2,12 @@
 
 import type { ReactNode } from 'react'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
-import { mostRecentBatch } from '@/lib/review/batch-selection'
 import {
   useWorkspaceBatch,
   useBatch,
-  useBatches,
   useMe,
+  useSharedDraftId,
 } from '@/lib/client/hooks'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { PublishButton } from './publish-button'
 import { RunMenu } from './run-menu'
 import { TagRunBanner } from './tag-run-banner'
@@ -31,14 +29,16 @@ export function BatchActions({
   children?: ReactNode
 }) {
   const workspace = useWorkspaceBatch()
-  const batches = useBatches(['open'], { mine: true })
-  const personalBatch = mostRecentBatch(batches.data)
-  const batch =
-    workspace.mode === 'selected' ? workspace.detail?.batch : personalBatch
+  // Without a linked Batch, the Dashboard edits the shared draft.
+  const draftId = useSharedDraftId()
   const personalDetail = useBatch(
-    workspace.mode === 'personal' ? (batch?.id ?? null) : null,
+    workspace.mode === 'personal' ? draftId : null,
     { reuse: true }
   )
+  const batch =
+    workspace.mode === 'selected'
+      ? workspace.detail?.batch
+      : personalDetail.data?.batch
   const detail =
     workspace.mode === 'selected'
       ? {
@@ -83,13 +83,6 @@ export function BatchActions({
       <div className="batch-actions" aria-label={`${stateCode} batch actions`}>
         {workspace.mode === 'personal' && batch ? (
           <span className="batch-summary min-w-0 flex-wrap">
-            <Avatar size="sm">
-              <AvatarFallback>
-                {(batch.createdByName || batch.createdBy)
-                  .slice(0, 1)
-                  .toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
             <strong>{batch.name}</strong>
             <BatchLastChanged batch={detail.data?.batch ?? batch} />
           </span>
@@ -117,19 +110,15 @@ export function BatchActions({
           }}
         />
         <PublishButton
-          batchId={workspace.mode === 'selected' ? workspace.id : batch?.id}
+          batchId={
+            workspace.mode === 'selected' ? workspace.id : (draftId ?? undefined)
+          }
           owner={me.data?.role === 'owner'}
         />
-        {workspace.mode === 'personal' && batches.isLoading && !batch ? (
-          <span role="status">Loading your Batch…</span>
+        {workspace.mode === 'personal' && !batch && !detail.error ? (
+          <span role="status">Loading the shared draft…</span>
         ) : null}
-        {workspace.mode === 'personal' &&
-        !batches.isLoading &&
-        !batches.error &&
-        !batch ? (
-          <span>No open Batch yet</span>
-        ) : null}
-        {(workspace.mode === 'personal' && batches.error) || detail.error ? (
+        {detail.error ? (
           <span role="alert">Could not load this Batch.</span>
         ) : null}
       </div>

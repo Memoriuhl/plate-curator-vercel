@@ -114,6 +114,7 @@ test('me returns the stored role and a removal ends access on the next request',
     uid: 'member',
     name: 'user',
     role: 'editor',
+    draftId: 'shared-draft-development',
   })
   await members.remove('user@example.com')
   expect((await me.GET(await request('member'))).status).toBe(403)

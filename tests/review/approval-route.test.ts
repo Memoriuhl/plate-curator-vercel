@@ -5,7 +5,6 @@ import {
 } from '../../app/api/batches/[id]/publish/route'
 import { GET } from '../../app/api/batches/[id]/run/route'
 import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
-import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { sharedDraftId } from '../../lib/review/draft-id'
 import { reviewEnv } from '../../lib/server/context'
@@ -739,7 +738,8 @@ test('a retried Publish click resumes the same release; another requester or rev
       .status
   ).toBe(202)
   const [[, [releaseId, , command]]] = mocks.start.mock.calls
-  const { ownerUid: _owner, ...accepted } = command
+  const accepted = { ...command }
+  delete accepted.ownerUid
   mocks.publishDeps().records.command = async () => ({
     command: accepted,
     runId: 'first-run',

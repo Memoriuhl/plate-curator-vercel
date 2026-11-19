@@ -32,11 +32,22 @@ export function draftPublishSummary(
     }
     return value
   }
+  // Edits saved before authors were named on the edit carry only a uid; the change log
+  // names everyone who committed, so resolve the uid through it.
+  const names = new Map(
+    changes.flatMap((change) =>
+      change.contributors.flatMap((author) =>
+        author.name ? [[author.uid, author.name] as const] : []
+      )
+    )
+  )
   for (const edit of draft.edits) {
     if (!Object.keys(edit.fields).length) continue
     const state = entry(edit.plateId.split('.')[0])
     state.plates.add(edit.plateId)
-    state.contributors.add(edit.authorName || edit.authorId)
+    state.contributors.add(
+      edit.authorName || names.get(edit.authorId) || edit.authorId
+    )
   }
   for (const [state, order] of Object.entries(draft.batch.stateOrders ?? {})) {
     const baseline = draft.batch.baselineOrders?.[state]

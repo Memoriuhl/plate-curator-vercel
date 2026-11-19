@@ -76,6 +76,8 @@ vi.mock('../lib/client/hooks', () => ({
   }),
   /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({ discardPlateChanges: state.discard }),
+  /** Name the shared draft Review lists without a linked Batch. */
+  useSharedDraftId: () => 'draft',
 }))
 afterEach(() => {
   cleanup()
@@ -199,7 +201,7 @@ test('state-sized Batch review loads more changed Plates and searches the whole 
   state.params = new URLSearchParams('batch=fresh')
 })
 
-test('default Review shows accumulated changes around a newer empty batch and keeps the list when inspecting a plate', async () => {
+test('default Review lists only the shared draft and keeps the list when inspecting a plate', async () => {
   state.params = new URLSearchParams()
   state.replace.mockClear()
   const proposal = (name: string, id: string) => {
@@ -211,25 +213,30 @@ test('default Review shows accumulated changes around a newer empty batch and ke
       revision: 'saved',
     }
   }
-  const empty = {
+  const legacy = {
     batch: {
       ...batch,
-      id: 'empty',
-      name: 'Newest pipeline',
+      id: 'legacy',
+      name: 'Legacy open batch',
       state: 'open' as const,
-      revision: 0,
     },
-    plates: [],
+    plates: [proposal('Legacy change', 'CA.legacy')],
   }
   const draft = {
-    batch: { ...batch, id: 'draft', state: 'open' as const },
+    batch: {
+      ...batch,
+      id: 'draft',
+      kind: 'shared-draft' as const,
+      name: 'Shared draft',
+      state: 'open' as const,
+    },
     plates: [proposal('Draft change', 'CA.draft')],
   }
   state.old = {
     batch: { ...batch, id: 'old', state: 'submitted' },
     plates: [proposal('Submitted change', 'CA.submitted')],
   }
-  state.extra = [empty, draft]
+  state.extra = [legacy, draft]
   const props = {
     states: [
       { code: 'CA', name: 'California', plates: [] },
@@ -240,18 +247,12 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   const draftLink = await screen.findByRole('link', {
     name: 'Draft change · CA',
   })
-  const batchSummary = screen.getByText('Batches')
-  expect(batchSummary.closest('details')?.open).toBe(false)
-  fireEvent.click(batchSummary)
-  expect(batchSummary.closest('details')?.open).toBe(true)
+  // Unfolded legacy Batches and submitted Batches are not part of the draft.
+  expect(screen.queryByRole('navigation', { name: 'Batches' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Legacy change · CA' })).toBeNull()
   expect(
-    within(screen.getByRole('navigation', { name: 'Batches' }))
-      .getByRole('link', { name: 'Newest pipeline' })
-      .getAttribute('href')
-  ).toBe('/review?batch=empty')
-  expect(
-    screen.getByRole('link', { name: 'Submitted change · CA' })
-  ).toBeTruthy()
+    screen.queryByRole('link', { name: 'Submitted change · CA' })
+  ).toBeNull()
   expect(state.replace).not.toHaveBeenCalled()
   const states = within(
     screen.getByRole('navigation', { name: 'Review states' })
@@ -265,9 +266,6 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   fireEvent.click(states.getByRole('radio', { name: 'Changed' }))
   expect(states.queryByRole('link', { name: /Alaska/ })).toBeNull()
   expect(states.getByRole('link', { name: /California/ })).toBeTruthy()
-  expect(
-    screen.getByRole('link', { name: 'Submitted change · CA' })
-  ).toBeTruthy()
   fireEvent.click(states.getByRole('radio', { name: 'All states' }))
   expect(states.getByRole('link', { name: /Alaska/ })).toBeTruthy()
   expect(draftLink.getAttribute('href')).toBe(
@@ -278,14 +276,12 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   )
   view.rerender(<ReviewWorkspace {...props} />)
   expect(screen.getByText(/proposed: Draft change/)).toBeTruthy()
-  expect(
-    screen.getByRole('link', { name: 'Submitted change · CA' })
-  ).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Draft change · CA' })).toBeTruthy()
   state.revisions.draft = draft.batch.revision + 1
   view.rerender(<ReviewWorkspace {...props} />)
   expect(state.mutate).toHaveBeenCalledOnce()
   state.extra = [
-    empty,
+    legacy,
     {
       ...draft,
       batch: { ...draft.batch, revision: state.revisions.draft },
@@ -298,7 +294,7 @@ test('default Review shows accumulated changes around a newer empty batch and ke
   ).toBeTruthy()
 })
 
-test('All review changes keeps one plate row with both batch comparisons and scoped removal', async () => {
+test('All review changes keeps one row per plate and scopes removal to the shared draft', async () => {
   state.params = new URLSearchParams()
   const baseline = {
     ...snapshot.plates[0],
@@ -306,32 +302,12 @@ test('All review changes keeps one plate row with both batch comparisons and sco
     displayName: 'Shared plate',
     tags: ['catalog'],
   }
-  state.old = {
-    batch: {
-      ...batch,
-      id: 'old',
-      name: 'Earlier batch',
-      state: 'submitted',
-      lastChangedAt: '2026-11-17T10:00:00Z',
-    },
-    plates: [
-      {
-        baseline,
-        proposed: {
-          ...baseline,
-          templateFamily: 'CA.group',
-          tags: ['earlier'],
-        },
-        edit: null,
-        revision: 'earlier',
-      },
-    ],
-  }
   const latest: BatchDetail = {
     batch: {
       ...batch,
-      id: 'latest',
-      name: 'Latest batch',
+      id: 'draft',
+      kind: 'shared-draft',
+      name: 'Shared draft',
       state: 'open',
       revision: 7,
       lastChangedAt: '2026-11-18T10:00:00Z',
@@ -339,7 +315,7 @@ test('All review changes keeps one plate row with both batch comparisons and sco
     plates: [
       {
         baseline,
-        proposed: { ...baseline, tags: ['latest'] },
+        proposed: { ...baseline, templateFamily: 'CA.group', tags: ['latest'] },
         edit: null,
         revision: 'latest',
         order: { before: 1, after: 0, total: 2 },
@@ -354,7 +330,7 @@ test('All review changes keeps one plate row with both batch comparisons and sco
   expect(list.getAllByRole('link', { name: 'Shared plate · CA' })).toHaveLength(
     1
   )
-  expect(row.getAttribute('href')).toBe('/review?plate=CA.one')
+  expect(row.getAttribute('href')).toBe('/review?plate=CA.one&focusBatch=draft')
   expect(
     within(row).getAllByRole('img', { name: 'Tags changed' })
   ).toHaveLength(1)
@@ -370,7 +346,7 @@ test('All review changes keeps one plate row with both batch comparisons and sco
 
   fireEvent.change(
     list.getByRole('searchbox', { name: 'Search changed plates' }),
-    { target: { value: 'earlier' } }
+    { target: { value: 'shared plate' } }
   )
   expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
   const detail = within(
@@ -379,15 +355,10 @@ test('All review changes keeps one plate row with both batch comparisons and sco
   expect(detail.getAllByRole('heading', { name: 'Shared plate' })).toHaveLength(
     1
   )
-  const newest = within(
-    detail.getByRole('region', { name: 'Changes in Latest batch' })
+  const changes = within(
+    detail.getByRole('region', { name: 'Changes in Shared draft' })
   )
-  expect(newest.getByText('Before: catalog; proposed: latest')).toBeTruthy()
-  expect(
-    within(
-      detail.getByRole('region', { name: 'Changes in Earlier batch' })
-    ).getByText('Before: catalog; proposed: earlier')
-  ).toBeTruthy()
+  expect(changes.getByText('Before: catalog; proposed: latest')).toBeTruthy()
 
   const updated = {
     ...latest,
@@ -400,11 +371,11 @@ test('All review changes keeps one plate row with both batch comparisons and sco
   state.extra = [updated]
   view.rerender(<ReviewWorkspace {...props} />)
   expect(
-    await newest.findByText('Before: catalog; proposed: updated')
+    await changes.findByText('Before: catalog; proposed: updated')
   ).toBeTruthy()
   expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
 
-  fireEvent.click(newest.getByRole('button', { name: 'Remove all changes' }))
+  fireEvent.click(changes.getByRole('button', { name: 'Remove all changes' }))
   const dialog = within(
     await screen.findByRole('alertdialog', {
       name: 'Remove all changes for Shared plate?',
@@ -413,21 +384,20 @@ test('All review changes keeps one plate row with both batch comparisons and sco
   fireEvent.click(dialog.getByRole('button', { name: 'Remove all changes' }))
   await waitFor(() =>
     expect(state.discard).toHaveBeenCalledExactlyOnceWith(
-      'latest',
+      'draft',
       'CA.one',
       8,
       'all'
     )
   )
 
-  state.params = new URLSearchParams('plate=CA.one&focusBatch=latest')
+  state.params = new URLSearchParams('plate=CA.one&focusBatch=draft')
   state.extra = [{ ...updated, plates: [] }]
   view.rerender(<ReviewWorkspace {...props} />)
   await waitFor(() =>
     expect(
-      detail.queryByRole('region', { name: 'Changes in Latest batch' })
+      detail.queryByRole('region', { name: 'Changes in Shared draft' })
     ).toBeNull()
   )
-  expect(list.getByRole('link', { name: 'Shared plate · CA' })).toBe(row)
-  expect(detail.getByText('Before: catalog; proposed: earlier')).toBeTruthy()
+  expect(list.queryByRole('link', { name: 'Shared plate · CA' })).toBeNull()
 })

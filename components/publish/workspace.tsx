@@ -19,13 +19,13 @@ import { useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useBatchRevisionSignal } from '@/lib/client/live-signal'
-import { canCopyForFreshReview } from '@/lib/review/access'
 import { batchHref } from '@/lib/review/href'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 import { IoArrowUpOutline, IoLayersOutline } from 'react-icons/io5'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { PublishControlView } from './control'
-import { CopyRecovery } from './copy-recovery'
+import { DraftPublish } from './draft-publish'
+import { isRelease, isSharedDraftId } from '@/lib/review/draft-id'
 import {
   useBatch,
   useBatches,
@@ -34,6 +34,7 @@ import {
   usePublishBaseline,
   usePublishControl,
   useReviewActions,
+  useSharedDraftId,
 } from '@/lib/client/hooks'
 import type { ReviewBatch } from '@/lib/review/types'
 import { Button } from '@/components/ui/button'
@@ -73,7 +74,11 @@ function BatchItem({
         )
       ) : (
         <span className="mb-2 inline-block rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] px-2 py-1 text-xs font-semibold">
-          {batch.state === 'approved' ? 'Approved · waiting' : 'Draft'}
+          {isRelease(batch)
+            ? 'Publishing'
+            : batch.state === 'approved'
+              ? 'Approved · waiting'
+              : 'Draft'}
         </span>
       )}
       <strong className="block">{batch.name}</strong>
@@ -134,7 +139,6 @@ function BatchSelection({
     [detail.data]
   )
   const reviewLink = batchHref('/review', id)
-  const dashboardLink = batchHref('/', id)
   const refresh = () =>
     Promise.allSettled([detail.mutate(), baseline.mutate(), run.mutate()])
   if (id === '' || detail.error)
@@ -186,6 +190,9 @@ function BatchSelection({
       plates.flatMap((plate) => (plate.edit ? [plate.edit.fields] : []))
     )
   const draft = draftCanBeConfirmed(batch)
+  // Open and submitted Batches from before the shared draft are history: the migration
+  // folds their changes into the draft, which is the only thing Publish confirms.
+  const legacy = draft && !isRelease(batch)
   const approved = batchApprovedFor(batch, {
     batchId: id,
     revision: batch.revision,
@@ -217,6 +224,7 @@ function BatchSelection({
   const canPublish =
     confirmationCurrent &&
     !published &&
+    !legacy &&
     !requested &&
     !busy &&
     !empty &&
@@ -239,7 +247,10 @@ function BatchSelection({
     confirmation.revision !== rejectedRevision
   let blocker: string | undefined
   if (!published && !canPublish) {
-    if (preflight?.enabledHere === false)
+    if (legacy)
+      blocker =
+        'This Batch is from before the shared draft. Its changes move into the shared draft, which is what Publish ships.'
+    else if (preflight?.enabledHere === false)
       blocker = 'Publishing is disabled in this environment.'
     else if (baseline.error)
       blocker =
@@ -263,13 +274,14 @@ function BatchSelection({
       blocker =
         'This Batch has no changes to publish. Choose another Batch or edit it on the Dashboard.'
     else if (!draft && !approved)
-      blocker = 'Reopen this Batch on the Dashboard before publishing.'
+      blocker =
+        'This release no longer matches its confirmation. Publish the shared draft again.'
     else if (preflight?.approvalProblems?.length)
       blocker = 'Resolve the Standard plate issues below before publishing.'
     else if (stale)
       blocker = receiptConflict
         ? 'A prepared Snapshot conflicts with this Batch. See recovery below.'
-        : 'This Batch is based on an older catalog. Copy it to the current version before publishing.'
+        : 'This release is based on an older catalog. Its changes are still in the shared draft; publish the draft again.'
     else if (!confirmationCurrent)
       blocker = 'Checking the current Batch for Publish…'
     else
@@ -408,8 +420,8 @@ function BatchSelection({
           Review Batch
         </Link>
         {!published && (
-          <Link className="underline" href={dashboardLink}>
-            Open Batch on Dashboard
+          <Link className="underline" href="/publish">
+            Open the shared draft
           </Link>
         )}
         {!published && (
@@ -520,13 +532,17 @@ function BatchSelection({
           stale &&
           !isPublishStop(preflight?.error) &&
           liveVersion !== undefined &&
-          canCopyForFreshReview(batch, liveVersion) && (
-            <CopyRecovery
-              key={liveVersion}
-              batch={batch}
-              liveVersion={liveVersion}
-              receiptConflict={receiptConflict}
-            />
+          !receiptConflict && (
+            <p role="status">
+              Reviewed Catalog v{batch.baselineVersion}; current Catalog v
+              {liveVersion}. Publish stopped because the baseline changed.
+              These changes are still in the shared draft, which moves onto the
+              current version; publish it from{' '}
+              <Link className="underline" href="/publish">
+                the shared draft
+              </Link>
+              .
+            </p>
           )}
         {message &&
           (!requested ||
@@ -623,21 +639,29 @@ function BatchSelection({
   )
 }
 
-/** Load owner release controls and select a batch from the URL or workspace list. */
+/**
+ * Load owner release controls. Publish opens on the shared draft; releases and Batches
+ * published before the shared draft are listed as history and open read-only.
+ */
 function OwnerWorkspace() {
   const requestedBatch = useSearchParams().get('batch')
   const control = usePublishControl()
-  const batches = useBatches(['approved', 'published', 'open', 'submitted'])
+  const draftId = useSharedDraftId()
+  const batches = useBatches(['approved', 'published'])
   const router = useRouter()
-  const [pinnedBatch, setPinnedBatch] = useState<string | null>(null)
   const sorted = [...(batches.data ?? [])].sort((a, b) =>
     (b.approval?.at ?? b.createdAt).localeCompare(a.approval?.at ?? a.createdAt)
   )
-  const approved = sorted.filter((batch) => batch.state === 'approved')
+  // An approved release is one being published; legacy approved Batches are folded
+  // into the draft by the migration and are not publishable.
+  const publishing = sorted.filter(
+    (batch) => batch.state === 'approved' && isRelease(batch)
+  )
   const published = sorted.filter((batch) => batch.state === 'published')
-  const drafts = sorted.filter(draftCanBeConfirmed)
-  const firstId = approved[0]?.id ?? drafts[0]?.id ?? published[0]?.id
-  const selected = requestedBatch ?? pinnedBatch ?? firstId
+  const onDraft =
+    requestedBatch === null ||
+    requestedBatch === draftId ||
+    isSharedDraftId(requestedBatch)
   return (
     <div className="grid gap-4 lg:h-[calc(100dvh-var(--header-h)-var(--space-6)*2)] lg:grid-cols-[minmax(220px,272px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <aside className="min-h-0 space-y-2 lg:overflow-y-auto lg:pr-2">
@@ -649,56 +673,54 @@ function OwnerWorkspace() {
           error={!!control.error}
           change={control.change}
         />
-        {batches.error && <p role="alert">Could not load the Batch list.</p>}
-        {batches.isLoading && <p role="status">Loading Batches…</p>}
-        {approved.length > 0 && <h2 className="font-bold">Approved Batches</h2>}
-        {approved.map((batch) => (
+        <Link
+          href="/publish"
+          aria-current={onDraft ? 'page' : undefined}
+          className={cn(
+            'block w-full rounded-2xl border p-4 text-left',
+            onDraft ? 'border-primary bg-muted' : 'border-transparent bg-card'
+          )}
+        >
+          <strong className="block">Shared draft</strong>
+          <span className="block text-sm text-muted-foreground">
+            Every curator&apos;s unpublished changes
+          </span>
+        </Link>
+        {batches.error && <p role="alert">Could not load Publish history.</p>}
+        {batches.isLoading && <p role="status">Loading Publish history…</p>}
+        {publishing.map((batch) => (
           <BatchItem
             key={batch.id}
             batch={batch}
-            selected={batch.id === selected}
+            selected={batch.id === requestedBatch}
           />
         ))}
-        {drafts.length > 0 && (
-          <>
-            <h2 className="pt-4 font-bold">Draft Batches</h2>
-            {drafts.map((batch) => (
-              <BatchItem
-                key={batch.id}
-                batch={batch}
-                selected={batch.id === selected}
-              />
-            ))}
-          </>
-        )}
         {published.length > 0 && (
-          <h2 className="pt-2 font-bold">Published Batches</h2>
-        )}
-        {!selected && (
-          <p className="caption">
-            No Batches to publish.{' '}
-            <Link href="/review" className="underline">
-              Review
-            </Link>
-          </p>
+          <h2 className="pt-2 font-bold">Published</h2>
         )}
         {published.map((batch) => (
           <BatchItem
             key={batch.id}
             batch={batch}
-            selected={batch.id === selected}
+            selected={batch.id === requestedBatch}
           />
         ))}
       </aside>
-      {selected !== undefined && (
+      {onDraft ? (
+        draftId ? (
+          <DraftPublish draftId={draftId} />
+        ) : (
+          <p role="status">Loading the shared draft…</p>
+        )
+      ) : (
         <BatchSelection
-          key={selected}
-          id={selected}
-          pinBatch={() => {
-            if (requestedBatch !== null) return
-            setPinnedBatch(selected)
-            router.replace(batchHref('/publish', selected), { scroll: false })
-          }}
+          key={requestedBatch}
+          id={requestedBatch}
+          pinBatch={() =>
+            router.replace(batchHref('/publish', requestedBatch), {
+              scroll: false,
+            })
+          }
         />
       )}
     </div>
