@@ -648,7 +648,10 @@ test('publishes a cleared family grouping without its keys or the derived templa
 })
 
 test.each([
-  ['an image the baseline kept', { imageUrl: 'https://cdn.example.org/one.webp' }],
+  [
+    'an image the baseline kept',
+    { imageUrl: 'https://cdn.example.org/one.webp' },
+  ],
   ['no image or source', {}],
 ] as const)(
   'publishes a cleared image and source pair without their keys when the baseline had %s',
