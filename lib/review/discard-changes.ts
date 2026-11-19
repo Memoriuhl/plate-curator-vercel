@@ -1,5 +1,7 @@
 import { canEdit, editableStates } from './access'
+import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
 import { validRegroup } from './batch'
+import { deletionPublishing, resolveConflicts } from './draft'
 import { familyRole } from '../catalog/families'
 import { orderDifferences, restorePlateOrder } from './order-diff'
 import { draftGroupingFields, editableKeys } from './fields'
@@ -19,21 +21,39 @@ import type {
   ReviewDeps,
 } from './types'
 
-export async function discardPlateChanges(
+type DiscardInput = {
+  batchId: string
+  plateId: string
+  batchRevision: number
+  target: DraftChangeTarget
+}
+
+export function discardPlateChanges(
   d: ReviewDeps,
   actor: Actor,
-  input: {
-    batchId: string
-    plateId: string
-    batchRevision: number
-    target: DraftChangeTarget
-  }
+  input: DiscardInput
 ): Promise<Outcome<ReviewBatch>> {
+  return retryDraftRace(() => discardPlateChangesOnce(d, actor, input))
+}
+
+async function discardPlateChangesOnce(
+  d: ReviewDeps,
+  actor: Actor,
+  input: DiscardInput
+): Promise<Outcome<ReviewBatch> | typeof retryDraft> {
   const snapshot = await d.store.readBatch(input.batchId)
   if (!snapshot) return { ok: false, error: 'not_found' }
   const { batch, edits } = snapshot
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      plateIds: [input.plateId],
+      orderStates:
+        input.target === 'order' || input.target === 'all'
+          ? [input.plateId.split('.')[0]]
+          : [],
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (!editableStates.includes(batch.state))
     return { ok: false, error: 'invalid_state' }
@@ -96,6 +116,11 @@ export async function discardPlateChanges(
   }
   if (!removed.length && !moved && !(dropAll && existing))
     return { ok: true, value: batch }
+  if (removed.includes('deleted')) {
+    const publishing = await deletionPublishing(d, batch, plateId)
+    if (publishing)
+      return { ok: false, error: 'invalid_state', reasons: [publishing] }
+  }
 
   const changedAt = d.now()
   const nextEdits: ProposedEdit[] = []
@@ -195,17 +220,21 @@ export async function discardPlateChanges(
     }
   }
 
-  const next: ReviewBatch = {
-    ...batch,
-    state: 'open',
-    approval: null,
-    revision: batch.revision + 1,
-    lastChangedAt: changedAt,
-    plateIds: dropAll
-      ? batch.plateIds.filter((id) => id !== plateId)
-      : batch.plateIds,
-  }
+  let next: ReviewBatch = resolveConflicts(
+    {
+      ...batch,
+      state: 'open',
+      approval: null,
+      revision: batch.revision + 1,
+      lastChangedAt: changedAt,
+      plateIds: dropAll
+        ? batch.plateIds.filter((id) => id !== plateId)
+        : batch.plateIds,
+    },
+    { plateId, fields: dropAll ? undefined : removed }
+  )
   if (order && order !== oldOrder) {
+    next = resolveConflicts(next, { state })
     next.stateOrders = { ...batch.stateOrders }
     next.stateOrderChangedAt = { ...batch.stateOrderChangedAt }
     if (
@@ -225,11 +254,7 @@ export async function discardPlateChanges(
     edits: nextEdits,
     deleteEditsFor: deletedEdits,
   })
-  if (result !== 'ok')
-    return {
-      ok: false,
-      error: result === 'pipeline_busy' ? result : 'superseded_revision',
-    }
-  if (batch.state !== 'open') await d.supersedeRun?.(batch)
+  if (result === 'revision_mismatch') return retryDraft
+  if (result !== 'ok') return { ok: false, error: result }
   return { ok: true, value: next }
 }

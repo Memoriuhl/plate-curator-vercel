@@ -1,3 +1,4 @@
+import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { mergeFamily } from '@/lib/review/family-merge'
 import { limits } from '@/lib/review/fields'
 import { currentActor, reviewDeps } from '@/lib/server/context'
@@ -51,7 +52,9 @@ export async function POST(
         catalogVersion < 0))
   )
     return badRequest()
-  const { id } = await ctx.params
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   return respond(
     await mergeFamily(reviewDeps(), auth.actor, {
       batchId: id,

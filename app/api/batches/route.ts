@@ -1,19 +1,11 @@
 import { connection } from 'next/server'
-import { parseBatchInput } from '../../../lib/review/fields'
-import {
-  createBatch,
-  dashboardDrafts,
-  listBatches,
-} from '../../../lib/review/queries'
+import { SHARED_DRAFT_ALIAS } from '../../../lib/review/draft-id'
+import { dashboardDrafts, listBatches } from '../../../lib/review/queries'
 import type { BatchState } from '../../../lib/review/types'
-import { catalogChanged } from '../../../lib/server/catalog-head'
-import { catalog, currentActor, reviewDeps } from '../../../lib/server/context'
-import {
-  badRequest,
-  json,
-  readJson,
-  respond,
-} from '../../../lib/server/respond'
+import { currentActor, reviewDeps } from '../../../lib/server/context'
+import { batchTarget } from '../../../lib/server/draft-target'
+import { badRequest, json } from '../../../lib/server/respond'
+import { batchStepRetired } from '../../../lib/server/retired'
 
 const states: BatchState[] = [
   'open',
@@ -21,11 +13,12 @@ const states: BatchState[] = [
   'approved',
   'published',
   'conflict',
+  'folded',
 ]
 
 /**
  * List batches visible to the signed-in actor using the requested state and creator
- * filters.
+ * filters, or read the shared draft's overlay for the Dashboard's jurisdictions.
  */
 export async function GET(request: Request) {
   await connection()
@@ -44,7 +37,7 @@ export async function GET(request: Request) {
     return json({
       drafts: await dashboardDrafts(
         reviewDeps(),
-        auth.actor,
+        await batchTarget(SHARED_DRAFT_ALIAS, auth.actor),
         new Set(jurisdictions)
       ),
     })
@@ -61,25 +54,7 @@ export async function GET(request: Request) {
   )
 }
 
-/** Validate requested plate IDs against the catalog before creating a new batch. */
-export async function POST(request: Request) {
-  const auth = await currentActor(request)
-  if (!auth.ok) return auth.response
-
-  const input = parseBatchInput(await readJson(request))
-  if (input === null) return badRequest()
-
-  const snapshot = await catalog().readSnapshot()
-  const known = new Set(snapshot.plates.map((plate) => plate.id))
-  if (!input.plateIds.every((id) => known.has(id)))
-    return json({ error: 'not_found' }, 404)
-
-  const outcome = await createBatch(reviewDeps(), auth.actor, {
-    id: crypto.randomUUID(),
-    name: input.name,
-    plateIds: input.plateIds,
-    baselineVersion: snapshot.version,
-  })
-  if (outcome.ok) catalogChanged()
-  return respond(outcome)
+/** New Batches are retired: every change goes into the shared draft. */
+export function POST() {
+  return batchStepRetired()
 }

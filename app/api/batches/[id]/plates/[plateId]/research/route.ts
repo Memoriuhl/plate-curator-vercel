@@ -1,3 +1,4 @@
+import { draftWriteTarget } from '../../../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
 import { currentActiveOwner } from '@/lib/server/context'
 import {
@@ -27,7 +28,11 @@ export async function POST(
     (body.replaceJobId !== undefined && typeof body.replaceJobId !== 'string')
   )
     return Response.json({ error: 'bad_request' }, { status: 400 })
-  const { id, plateId } = await ctx.params
+  const params = await ctx.params
+  const plateId = params.plateId
+  const target = await draftWriteTarget(params.id, auth.actor)
+  if (!target.ok) return target.response
+  const id = target.id
   const result = await startResearch(await researchDeps(), auth.actor, {
     batchId: id,
     plateId,

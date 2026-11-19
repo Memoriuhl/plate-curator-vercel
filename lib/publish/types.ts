@@ -43,6 +43,7 @@ export interface PublishControl {
 export type PublishError =
   | PublishStop
   | typeof PIPELINE_BUSY
+  | 'release_in_progress'
   | 'empty_batch'
   | 'not_waiting'
   | 'forbidden'
@@ -56,6 +57,8 @@ export type PublishError =
   | 'pointer_moved'
   | 'unavailable'
   | BaselineError
+/** The shared draft's accepted-release count a Publish request read. */
+export type ReleaseFence = { draftId: string; seq: number }
 export type PublishRecord = {
   abandonment?: Abandonment
   object?: SnapshotObject
@@ -114,6 +117,8 @@ export interface PublishSnapshots {
 }
 export interface PublishRecords {
   pipelineBusy?(): Promise<boolean>
+  /** How many pipeline runs (and unrun jobs) are queued or running. */
+  activePipelineRuns?(): Promise<number>
   nextVersion(token: string, now: string): Promise<number | null>
   abandon(
     record: PublishRecord,
@@ -138,9 +143,20 @@ export interface PublishRecords {
   command(
     commandId: string
   ): Promise<{ command: PublishCommand; runId?: string } | null>
+  /**
+   * How many Publish commands have been accepted for the shared draft's releases. A new
+   * command reads it before checking that no release holds the draft, and acceptance
+   * refuses when it moved, so two overlapping requests cannot both pass that check.
+   */
+  releaseFence?(draftId: string): Promise<number>
+  /**
+   * Accept a Publish command. A new command for a release of the shared draft must carry
+   * the fence its request read; a command already accepted replays without it.
+   */
   accept(
     command: PublishCommand,
-    now: string
+    now: string,
+    fence?: ReleaseFence
   ): Promise<
     | { ok: true; command: PublishCommand; runId?: string }
     | { ok: false; error: PublishError }

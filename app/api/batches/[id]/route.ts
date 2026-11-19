@@ -1,3 +1,4 @@
+import { batchTarget } from '../../../../lib/server/draft-target'
 import { batchDetail } from '../../../../lib/review/queries'
 import { currentActor, reviewDeps } from '../../../../lib/server/context'
 import { badRequest, respond } from '../../../../lib/server/respond'
@@ -16,7 +17,7 @@ export async function GET(
   const auth = await currentActor(request)
   if (!auth.ok) return auth.response
 
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const cursor = new URL(request.url).searchParams.get('page')
   const values = cursor === null ? null : /^(\d+)\.(\d+)$/.exec(cursor)
   if (

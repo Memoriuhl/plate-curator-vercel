@@ -10,10 +10,10 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 
 `plate-curator-vercel` is a new public repository holding a Next.js review dashboard deployed on Vercel. It connects to a separate staging Firebase project and to a tagging worker on the customer's own GPU server.
 
-- An Editor signs in, opens a Review batch, proposes changes to Plates (tags, grouping), and requests a tagging job. The local model on the GPU server returns tag Suggestions. The Editor accepts some, then submits the batch.
-- The Owner reviews a frozen Batch revision and approves exactly that revision. The approval is invalidated if anyone edits the batch afterwards. The Owner then Publishes.
+- An Editor signs in, proposes changes to Plates (tags, grouping, State order), and requests a tagging job. Every change lands in one shared working draft for the environment; nobody picks a Batch. The local model on the GPU server returns tag Suggestions, and applied results land in the same draft.
+- The Owner reviews the draft at a revision as a frozen diff, broken down by state, and Publishes exactly that revision. Edits saved after that revision stay in the draft for the next Publish.
 - Publishing writes a new immutable Snapshot to staging Storage and then advances the staging `config/catalog` pointer. A State Spotter build already running in the iOS simulator against the same staging project offers **Catalog update available → Reload now** and shows the change with no app update.
-- Vercel Workflow carries each tagging request and each approval durably. Closing the browser, redeploying, or the GPU server going offline doesn't lose the run. It resumes when the result or the decision arrives.
+- Vercel Workflow carries each tagging request and each Publish durably. Closing the browser, redeploying, or the GPU server going offline doesn't lose the run. It resumes when the result arrives.
 - Reviewers get a public URL, demo Editor and Owner accounts, and a labelled replay of a completed local-model run for use when the GPU server is offline.
 
 ## User Stories
@@ -21,27 +21,27 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 1. As an Owner, I want to invite contributors as Editors, so that review work no longer depends on me alone.
 2. As an Owner, I want Editors to be unable to Publish, so that nothing reaches players without my approval.
 3. As an Editor, I want to sign in with my Google account or sign up with my email, and be an Editor straight away, so that I never need a game checkout, a Firebase credential or an invitation to try the dashboard.
-4. As an Editor, I want to see a queue of open Review batches with clear status badges, so that I know what needs work.
+4. As an Editor, I want to see every unpublished change, by state, with clear status badges, so that I know what needs work.
 5. As an Editor, I want to open a Plate and see its current published values next to my proposed values, so that I understand exactly what I'm changing.
 6. As an Editor, I want to see each Plate's image, so that I can judge tags and grouping visually.
 7. As an Editor, I want to edit a Plate's tags, so that search and grouping in the game improve.
 8. As an Editor, I want to change a Plate's Template family or Template/Variant role, so that grouping errors get fixed.
 9. As an Editor, I want my edit saved against the Plate revision I started from, so that I can't silently overwrite someone else's change.
 10. As an Editor, I want a clear conflict view when someone else changed the same Plate first, showing their value and mine, so that I can choose what to keep.
-11. As an Editor, I want two Editors to be able to work on different Plates in the same batch at the same time, so that we don't block each other.
+11. As an Editor, I want two Editors to be able to work on different Plates in the shared draft at the same time, so that we don't block each other.
 12. As an Editor, I want to request a tagging job for a Plate, so that the local model suggests tags I might have missed.
 13. As an Editor, I want to see the job's state (queued, running, waiting on the GPU, done, expired), so that I know whether to wait or work by hand.
 14. As an Editor, I want to close my browser while a job runs and find the result when I come back, from any device, so that I'm not tied to one tab.
 15. As an Editor, I want to move through suggested tags with the keyboard, toggle each one, and see what will be added before saving, so that reviewing suggestions is fast and deliberate.
 16. As an Editor, I want suggestions that are already present or invalid for the taxonomy marked or excluded, so that I don't add duplicates or junk.
 17. As an Editor, I want to finish a Plate by hand when the GPU server is offline, so that the model is never a hard dependency.
-18. As an Editor, I want to submit a batch for review, so that the Owner knows it's ready.
-19. As an Editor, I want any edit after submission to reopen the batch as a new revision, so that it's obvious the earlier submission is stale.
-20. As an Owner, I want to see a submitted Batch revision as a frozen diff against the live catalog, so that I approve exactly what will ship.
-21. As an Owner, I want my approval to record the revision, me, the time, and the baseline Snapshot version, so that there's an audit trail.
-22. As an Owner, I want approval of a superseded revision to be rejected, so that I can't approve content that has since changed.
-23. As an Owner, I want to be warned when the live Snapshot changed after the batch's baseline and affected Plates differ, so that I don't publish over someone else's release.
-24. As an Owner, I want to Publish an approved revision with one confirmed action, so that releasing is deliberate.
+18. As an Editor, I want every change I save, and every pipeline result applied, to land in one shared working draft, so that I never pick a Batch and nobody's work waits behind someone else's.
+19. As an Editor, I want Review to list every unpublished change with who made it, so that I know what the next Publish will ship.
+20. As an Owner, I want to see the draft at its current revision as a frozen diff against the live catalog, broken down by state, so that I publish exactly what I reviewed.
+21. As an Owner, I want each Publish to record the draft revision, me, the time, and the baseline Snapshot version, so that there's an audit trail.
+22. As an Owner, I want Publish to ship the revision I reviewed even when curators saved more since, and keep those later changes in the draft, so that curators never stop working while I release.
+23. As an Owner, I want to be warned when the live Snapshot changed after the draft's baseline and affected Plates differ, so that I don't publish over someone else's release.
+24. As an Owner, I want to Publish the whole draft with one confirmed action, and be told why and how many runs remain when pipeline work blocks it, so that releasing is deliberate.
 25. As an Owner, I want Publish to write the Snapshot before advancing the pointer, so that players never point at a missing Snapshot.
 26. As an Owner, I want a retried or double-clicked Publish to never create two versions, so that the version line stays clean.
 27. As an Owner, I want a Publish that uploaded but failed to advance the pointer to be reconciled from its record, so that a partial failure is recoverable.
@@ -77,7 +77,7 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
   - The customer's GPU server and Ollama: existing capacity, no per-call fee.
   - The existing private Plate Curator and its Pi deployment: they remain the production release path in this phase.
   - The game: unchanged upstream.
-- The three Vercel primitives: Preview Deployments (staging review of changes that need the cloud, built locally and uploaded), Functions (authenticated API), Workflow (the AI-stack primitive, for durable model jobs and human approval).
+- The three Vercel primitives: Preview Deployments (staging review of changes that need the cloud, built locally and uploaded), Functions (authenticated API), Workflow (the AI-stack primitive, for durable model jobs and Publish).
 
 **Repositories and environments**
 - The new public repo `plate-curator-vercel` is the only place assessment code lives. Plate Curator stays private and untouched. Only the contract pieces needed are recreated in the new repo: Snapshot shape and validation, the tag taxonomy rules, and the local-model tagging prompt.
@@ -98,7 +98,7 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 
 **Identity and roles**
 - Dashboard sign-in uses the staging Firebase Auth project with two methods: Google, and self-service sign-up with any email and password. Anyone who signs up becomes an Editor automatically on their first authenticated request, so reviewers can click around with their own account.
-- Owner is an allowlist of user IDs held in server configuration, never something a user can claim. Editors can't approve or publish, so open sign-up can't reach players.
+- Owner is an allowlist of user IDs held in server configuration, never something a user can claim. Editors can't publish, so open sign-up can't reach players.
 - Google sign-in works on `localhost` and the Production domain only: Firebase's authorized domains don't accept wildcards, so Preview URLs offer email sign-up instead.
 - Open sign-up is protected by per-user rate limits on writes, the resettable demo batch, and the staging budget alert.
 - Session strategy for the port: the browser holds the Firebase ID token and calls Route Handlers with it, and the server verifies it on every request. This keeps the original app's client-side data loading for parity. Server Components render only the non-private frame. A server-readable session cookie is a later option, not part of this demo.
@@ -107,21 +107,38 @@ For the Vercel Solutions Architect assessment, this is the customer scenario. Th
 - Demo accounts: one Editor and one shared staging Owner, with credentials in the submission, for reviewers who'd rather not use their own account.
 
 **Domain terms introduced** (they extend the glossary and don't redefine existing terms):
-- **Review batch**: a named set of Proposed edits for a small group of Plates.
+- **Shared draft**: the one working set of Proposed edits and State orders per review environment. Every curator change and applied pipeline result lands in it.
+- **Review batch**: a named set of Proposed edits. Since #216 the only Batches are the shared draft, the frozen releases Publish ships, and per-person Batches from before the shared draft, kept as history.
 - **Proposed edit**: a change to one existing Plate's fields. It holds the base revision the Editor saw (a content hash of the Plate as currently proposed: the baseline Snapshot's Plate merged with any existing Proposed edit), so a save made over someone else's newer Proposed edit is refused. It also holds the proposed field values, the author and the update time. It is not an Inbox candidate.
-- **Batch revision**: an integer that increases on every change to a batch. Submit, approve and publish always name one.
+- **Batch revision**: an integer that increases on every change to a batch. Publish always names one.
 - **Curator state**: the curator-owned progress per state (`in_progress`, `needs_ordering`, `done`) and the saved State order. It is separate from the Snapshot, which carries catalog content only.
 - **Tagging job**: one request for local-model tag suggestions on one Plate, tied to that Plate's revision at request time (its input hash), so an edit to a different Plate in the batch doesn't invalidate it.
 - **Suggestion**: a validated tag proposed by a Tagging job, with the model identity that produced it.
 - **Claim**: a worker's time-limited lease on a Tagging job, identified by a claim ID.
-- **Publish record**: one record per approved Batch revision that is Published. It holds the from and to versions, the Snapshot checksum, and its state.
+- **Publish record**: one record per draft revision that is Published. It holds the from and to versions, the Snapshot checksum, and its state.
 
-**Batch lifecycle** (a state machine owned by the domain module):
-- `open` → `submitted` → `approved` → `published`.
-- Any Proposed edit to a `submitted` or `approved` batch returns it to `open` with a new Batch revision, and the approval is cleared.
-- Approval must name the batch's current revision and fails otherwise.
-- A batch whose baseline Snapshot version is behind the live pointer, where affected Plates differ, is flagged `conflict` until revalidated.
-- Approval and Publish are separate Owner commands. Approving records the decision on an exact revision; publishing is its own deliberate action on that approved revision.
+**Shared draft** (owned by the domain module; it replaced per-person Batches and the Submit and Approve steps in #216):
+- One draft per review environment. Dashboard moves and merges, Plate edits and applied pipeline results all write into it. Curators never pick a Batch.
+- Every change is one compare-and-swap write to the draft document, guarded by the draft revision. Saves to different Plates retry with jitter instead of conflicting. A save over someone's newer value for the same Plate is still refused, and a pipeline result never overwrites a field a curator changed after the run started.
+- Each change also records its before-images in a change log, so an earlier revision can be rebuilt.
+- Publish is Owner-only. It freezes the draft at the revision shown into an immutable release and ships the whole release. It records who, when, the revision and the baseline catalog version.
+- After a Publish, the draft rebases onto the new catalog version. Published edits drop out and edits made after the published revision stay. Change log entries up to the published revision are pruned.
+- A rebase works from the committed publish receipt that moved the pointer, not from whatever release looks published. While that publish is still finishing (the pointer moved, the receipt isn't settled), reads leave the draft where it is. The draft's baseline only moves forward, so a delayed post-publish step for an older release can't move it back.
+  - The rebase traces every version between the draft's baseline and the live pointer. Each committed publish in that span is replayed in order, including this draft's releases committed before an outside move, so changes made after a release survive the move. When the receipts cannot trace the span (the publishes don't chain because the pointer went back between them, or the span is longer than the 20 publishes a rebase traces), the draft is not moved: its baseline, edits and change log stay as they are. A catalog conflict names the span and lists every value and State order the draft put back after one of its accepted, unabandoned releases from that baseline, with the value the draft wants, because live may now hold what that release shipped. Publish is blocked, and an Editor's save doesn't clear it. When the Owner keeps the draft's values, the put-backs join the draft and it moves onto live in one write; a Plate live no longer has becomes a removed-Plate conflict.
+  - A committed publish is replayed from its own Snapshot's State order for the States it ordered, not from the curator order, which holds only the latest publish. An order a later publish restored is therefore not mistaken for a pending change.
+- A change made after the published revision that clears a field the release added is carried as an explicit clear on the new baseline, so the rebase never drops it. A cleared image and its source, a cleared family grouping, and the other optional keys are published without their keys, and a cleared Template role also drops the derived `isTemplate` flag, so the next Snapshot stays valid. Undoing a deletion is refused while a release that deletes the Plate is publishing or waits for Retry or Abandon; once that release is abandoned, or its run ended before preparing a Snapshot, the undo is accepted. One that slips past becomes a conflict.
+- The draft's last-publish record (who, when, which revision) comes from that committed receipt.
+- When the pointer moves outside this draft's releases and changes a value the draft also changed, the draft lists the conflicting fields. An outside change that removes a Plate the draft changed keeps those values as a removed-Plate conflict instead of dropping them. Publish is blocked until the Owner keeps the draft values; the Publish view lists each conflict, says what the Owner must review, and links to Review. For a removed Plate it shows the pending values and labels the keep as omitting them; for a catalog conflict it shows the put-backs and labels the keep as publishing them.
+- A Publish of a newer revision answers 409 `release_in_progress` while an earlier release of the draft is publishing or waits for Retry or Abandon. Acceptance is fenced per draft: the transaction that accepts a new command checks and advances a per-draft fence read before that check, so of two racing requests only one revision is accepted and started; the other answers 409 `release_in_progress`. Before an existing freeze is reused, through the draft's Publish or the release's own, the draft is settled and its latest conflicts and floor are checked (409 `draft_conflicts` or `superseded_revision`). A replay of the already accepted command still answers as before.
+- Publish waits while pipeline runs are queued or running. The Publish view says so and shows how many runs remain.
+- When the live pointer moves past the draft's baseline, the draft rebases onto it the next time it is read.
+- Per-person Batches from before the shared draft are folded into it once by `npm run migrate:shared-draft`, newest value per field and per State order. Published Batches stay readable as history.
+  - Before writing, the migration takes the Publish lock as a migration hold, in the same transaction that checks no pipeline run is queued or running. Publishes and new pipeline runs wait until the fold is written. The hold lapses after 10 minutes, so a rerun can take over from an interrupted one. The fold's own write transaction checks the hold's token, expiry and pointer version again, so a hold lost after the last confirmation is never written over.
+  - A folded Batch keeps its last save time (`lastChangedAt`) and records `foldedAt` separately. The dry run, an apply, and a rerun after an interrupted apply all pick the same State order.
+  - Conflict Batches are left out. They open read-only in Review, and their changes are redone in the shared draft.
+- Old Batches and releases are read-only history. A curator write, review checkpoint or pipeline run that names one answers 409 `history_read_only`; the shared draft is the only write target. Review records checkpoints only for the shared draft.
+- Old `?batch=` links on the Dashboard and Review open the shared draft with a notice when the Batch was folded, is still open, or no longer exists. The page's anchor (such as `#families`) is kept, including when the notice is dismissed. A published Batch, a release, or a conflict Batch opens read-only in Review.
+- A release and the migration's fold are each written in one Firestore request, capped at 10 MiB. Both refuse past a 9 MiB budget (`draft_too_large`, with a message saying what to do) instead of failing on every retry. The migration checks this on the dry run and before closing any Batch. Writing them in bounded chunks would lift the budget.
 - Grouping edits keep Template family invariants: exactly one Template per family, `isTemplate` always consistent with `templateRole`, and a regroup that changes a Template's family carries its Variants' consequences into the same batch, as the original curator's rules do.
 - At most one Standard plate per jurisdiction. Changing it updates the previous Standard plate in the same transaction.
 - Editable in this demo: tags and grouping fields (`templateFamily`, `templateRole`, `variantOfPlateId`, `isStandard`). Other ported controls are display-only and say so; none silently writes.
@@ -160,16 +177,13 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
   2. The hook waits for the worker's result, which the authenticated report route resumes after persisting it. It has a timeout. If resuming fails after the result was saved, delivery is retried from the saved result.
   3. A step writes the Suggestions to the job.
   4. On timeout, the job is marked expired and the run ends visibly.
-- *Approval run*:
-  1. It starts when a batch is submitted.
-  2. The run registers its decision hook first, then marks the batch as awaiting a decision; the dashboard only offers Approve while that mark exists. The hook waits for the Owner's decision on a specific Batch revision. The decision route persists the decision before resuming, so a failed resume is retried from the saved decision. A step records it.
-  3. A second hook, registered the same way before Publish is offered, waits for the Owner's separate Publish command on that approved revision; then a step Publishes.
-  4. A re-submit supersedes the waiting run.
+- *Publish run*: it starts when the Owner publishes a frozen release of the draft, and its steps Publish that release. The Approval run that waited for Submit and Approve was retired with the shared draft.
 - Every step with an external effect is safe to repeat: create-only uploads, conditional pointer advances, and writes keyed by job, claim or Publish record ID.
 
 **Publish**
-- Owner-only, and only for the batch's approved current revision.
+- Owner-only, and only for a frozen release of the shared draft.
 - One Publish at a time: a Publish lock document is claimed in a transaction (with a lease) before anything is uploaded, so two publishers never race for the same next version.
+- A release whose run is still live holds the draft's Publish button. A release that failed before preparing a Snapshot, or that the Owner abandoned, no longer does, so the corrected draft revision can publish. A release that stopped after preparing its Snapshot waits for recovery (retry or Abandon) and stays reachable from the Publish view.
 - If the create-only upload finds `catalog/v{N+1}.json` already exists, the Publish compares its checksum with the Publish record: a match means a retry of this Publish (continue to the pointer step); a mismatch means another release took that version (stop, release the lock, and re-read the pointer).
 - Validates the full resulting Snapshot against the game's Snapshot contract before uploading.
 - Uploads `catalog/v{N+1}.json` with a create-only precondition.
@@ -194,7 +208,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 **Dashboard UI**
 - Three layers with separate jobs: Geist as the reference for typography, colour and hierarchy; shadcn/ui for the components; UI SDK only for the suggested-tag picker's behaviour.
 - shadcn/ui throughout: queue, badges, detail panels, dialogs, the Publish confirmation.
-- Unsaved, saved, submitted, approved and published are visibly different states, so a curator can always answer "what happened to my change?".
+- Unsaved, saved in the draft and published are visibly different states, so a curator can always answer "what happened to my change?".
 - Vercel's UI SDK is used only inside the suggested-tag picker, for keyboard focus and selection.
 - The light visual redesign follows one standards document in the repo, distilled from Vercel's Web Interface Guidelines, Next.js 16, React best practices, shadcn/ui and UI SDK docs. Every dashboard change is generated and reviewed against that same document.
 
@@ -216,7 +230,7 @@ The existing `config/catalog` pointer and the `catalog/v{N}.json` Snapshots keep
 
 **What makes a good test here:** it exercises behaviour through a public interface and asserts outcomes a user or the game would observe. Examples:
 - a stale save is refused, with the current value returned
-- approval of an old revision fails
+- publishing revision N leaves edits made after N in the draft
 - a second Publish of the same revision produces no second version
 - a report on an expired claim is refused
 
@@ -232,7 +246,7 @@ Tests don't assert internal call order or private state. Unit tests never touch 
 **Durability, checked by running the system:**
 - Close the browser while a Tagging job is pending and resume from another session.
 - Stop the worker mid-claim, let the lease expire, and reclaim.
-- Redeploy while an Approval run waits.
+- Redeploy while a Publish run waits.
 
 The Workflow run view is the evidence for each.
 
@@ -255,7 +269,7 @@ The Workflow run view is the evidence for each.
 1. Edit a pictured Plate.
 2. Run a real local tagging job.
 3. Accept a Suggestion.
-4. Submit, approve that exact revision, and Publish.
+4. Publish the draft at the revision shown.
 5. Reload in the simulator.
 
 ## Out of Scope
@@ -285,7 +299,7 @@ The Workflow run view is the evidence for each.
   - concurrent edits
   - Owner-only Publish
   - recovery when the GPU server stops
-  - why approval names a revision
+  - why Publish names a revision
   - why staging can't reach production
   - catalog rollback (publish old content as a higher version) versus dashboard rollback (revert the Vercel deployment). They're independent; follow the [release-control rollback requirements](publish-recovery.md#deployment-compatibility-and-release-gate) before reverting to older code.
 - **Sources:**

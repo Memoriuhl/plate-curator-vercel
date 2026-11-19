@@ -1,7 +1,8 @@
 import { familyRole, groupFamilies } from '../catalog/families'
 import { canEdit, editableStates } from './access'
 import { validRegroup } from './batch'
-import { editableKeys, limits } from './fields'
+import { batchPlateLimit, editableKeys, limits } from './fields'
+import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
 import { planFamilyMerge, type FamilyMergeResult } from './family-merge-plan'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
@@ -18,16 +19,28 @@ export type FamilyMerge = {
  * Apply a family merge in one batch commit after checking scope, permissions and the
  * current plate revisions.
  */
-export async function mergeFamily(
+export function mergeFamily(
   d: ReviewDeps,
   actor: Actor,
   input: FamilyMerge & { batchId: string; batchRevision: number }
 ): Promise<Outcome<FamilyMergeResult>> {
+  return retryDraftRace(() => mergeFamilyOnce(d, actor, input))
+}
+
+async function mergeFamilyOnce(
+  d: ReviewDeps,
+  actor: Actor,
+  input: FamilyMerge & { batchId: string; batchRevision: number }
+): Promise<Outcome<FamilyMergeResult> | typeof retryDraft> {
   const detail = await d.store.readBatch(input.batchId)
   if (!detail) return { ok: false, error: 'not_found' }
   const { batch, edits } = detail
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      plateIds: [input.destination.id, ...input.members.map(({ id }) => id)],
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (!editableStates.includes(batch.state))
     return { ok: false, error: 'invalid_state' }
@@ -111,7 +124,7 @@ export async function mergeFamily(
     }
   }
   const plateIds = [...new Set([...batch.plateIds, ...changes.keys()])]
-  if (plateIds.length > limits.plates)
+  if (plateIds.length > batchPlateLimit(batch))
     return {
       ok: false,
       error: 'invalid_state',
@@ -153,18 +166,14 @@ export async function mergeFamily(
     approval: null,
     revision: batch.revision + 1,
   }
-  const saved = await d.store.commit(batch.id, input.batchRevision, {
+  const saved = await d.store.commit(batch.id, batch.revision, {
     batch: next,
     by: actor,
     edits: nextEdits,
     deleteEditsFor,
   })
-  if (saved !== 'ok')
-    return {
-      ok: false,
-      error: saved === 'pipeline_busy' ? saved : 'superseded_revision',
-    }
-  if (batch.state !== 'open') await d.supersedeRun?.(batch)
+  if (saved === 'revision_mismatch') return retryDraft
+  if (saved !== 'ok') return { ok: false, error: saved }
   const moving = new Set(result.moved)
   result.moved = baseline
     .filter((plate) => moving.has(plate.id))

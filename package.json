@@ -23,6 +23,7 @@
     "eval:run": "tsx worker/compare.ts",
     "eval:compare": "tsx worker/compare.ts --compare",
     "backfill:signals": "node --conditions=react-server --import tsx scripts/backfill-batch-signals.ts",
+    "migrate:shared-draft": "node --conditions=react-server --import tsx scripts/migrate-shared-draft.ts",
     "research:baseline": "node --env-file-if-exists=.env.local --import tsx worker/research-benchmark.ts --executor desktop",
     "research:benchmark": "node --env-file-if-exists=.env.local --import tsx worker/research-benchmark.ts",
     "research:report": "tsx worker/research-report.ts",

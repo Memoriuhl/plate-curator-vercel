@@ -1,11 +1,90 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
-import type { ReviewChanges } from './checkpoint'
+import type { DraftChange, ReviewChanges } from './checkpoint'
 import type { Plate, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
 export type BatchState =
-  'open' | 'submitted' | 'approved' | 'published' | 'conflict'
+  'open' | 'submitted' | 'approved' | 'published' | 'conflict' | 'folded'
+/** The single working draft, a frozen copy of it being published, or an old Batch. */
+export type BatchKind = 'shared-draft' | 'release'
+export type LastPublish = {
+  releaseId: string
+  revision: number
+  version: number
+  by: string
+  byName: string | null
+  at: string
+}
+/**
+ * The committed publish that moved the live catalog pointer to a version, read from its
+ * receipt.
+ */
+export type VersionOrigin = {
+  batchId: string
+  revision: number
+  fromVersion: number
+  toVersion: number
+  /** Who asked for the publish, from the accepted command. */
+  by: string
+  byName: string | null
+  /** When the pointer moved. */
+  at: string
+  /** The publish finished, including the curator state-order projection. */
+  settled: boolean
+}
+/**
+ * A pending draft value the live catalog changed underneath, found when the draft moved
+ * onto a version it did not publish itself. Publish waits until each one is changed or
+ * discarded, or the Owner confirms they checked them.
+ */
+export type DraftConflict =
+  | {
+      kind: 'field'
+      plateId: string
+      field: string
+      fromVersion: number
+      toVersion: number
+    }
+  | { kind: 'order'; state: string; fromVersion: number; toVersion: number }
+  | {
+      /** A Publish deleted the plate after a curator undid that deletion. */
+      kind: 'deleted'
+      plateId: string
+      fromVersion: number
+      toVersion: number
+    }
+  | {
+      /**
+       * A catalog change outside the draft removed a plate with pending values. The
+       * values are kept here so the Owner sees what cannot be published.
+       */
+      kind: 'removed'
+      plateId: string
+      fields: EditableFields
+      fromVersion: number
+      toVersion: number
+    }
+  | {
+      /**
+       * The live pointer moved in a way the publish receipts cannot explain (a rollback
+       * or repair between publishes, or more publishes than a rebase traces), so the
+       * draft could not tell which of its values were already published. The draft
+       * keeps its baseline, edits and history until the Owner reviews it.
+       */
+      kind: 'catalog'
+      fromVersion: number
+      toVersion: number
+      /**
+       * Values the draft put back after a release of it that may have published. Live
+       * may now hold the published value, so keeping the draft's values publishes these.
+       */
+      resets?: { plateId: string; fields: EditableFields }[]
+      /** State orders the draft put back after such a release, as it had them before. */
+      orderResets?: Record<string, string[]>
+    }
+/** What a release of the shared draft is doing; null when it no longer holds the draft. */
+export type ReleaseActivity = 'publishing' | 'interrupted' | null
 export type ReviewBatch = {
   id: string
   name: string
@@ -28,6 +107,16 @@ export type ReviewBatch = {
   approval: { revision: number; by: string; at: string } | null
   source?: { batchId: string; revision: number }
   pipelineApplications?: Record<string, { by: string; at: string }>
+  kind?: BatchKind
+  /** Lowest draft revision that can still be published or reconstructed. */
+  rebaseFloor?: number
+  lastPublish?: LastPublish
+  /** Pending values the live catalog changed since this draft's earlier baseline. */
+  conflicts?: DraftConflict[]
+  migratedBatchIds?: string[]
+  foldedInto?: string
+  /** When the migration closed this Batch to edits; lastChangedAt keeps its last save. */
+  foldedAt?: string
 }
 export type EditableFields = Partial<
   Pick<
@@ -70,6 +159,8 @@ export type ProposedEdit = {
   pipelineRunIds?: string[]
   updatedAt: string
   resultRevision: string
+  /** Draft revision of the last write to this plate. */
+  revision?: number
 }
 export type StandardChange = { from: string | null; to: string }
 export type ReviewError =
@@ -110,7 +201,12 @@ export interface ReviewStore {
     batch: ReviewBatch
     edits: ProposedEdit[]
   }): Promise<CopyCommitResult>
-  create(batch: ReviewBatch): Promise<'ok' | 'exists'>
+  /** Create a batch, and optionally its edits, in one atomic write. */
+  create(batch: ReviewBatch, edits?: ProposedEdit[]): Promise<'ok' | 'exists'>
+  /** Change-log entries after a revision, oldest first. */
+  listChanges?(batchId: string, after: number): Promise<DraftChange[]>
+  /** Delete change-log entries at or below a revision; returns how many were removed. */
+  pruneChanges?(batchId: string, through: number): Promise<number>
   list(filter: { states?: BatchState[] }): Promise<ReviewBatch[]>
   listEdits(batchId: string): Promise<ProposedEdit[]>
   readBatch(
@@ -136,9 +232,21 @@ export interface ReviewStore {
       deleteEditsFor?: string[]
       deleteEditFor?: string
       publishToken?: string
+      /**
+       * The migration's hold on the publish lock. The fold is written only if the hold is
+       * still this run's and unexpired, and the live version is still the one it saw,
+       * checked in the transaction that writes it; otherwise the commit answers
+       * `revision_mismatch` and the migration's next confirmation says why. Stores
+       * without the lock ignore it.
+       */
+      migrationHold?: MigrationHold
+      /** false skips the change-log entry (rebase commits that set a new floor). */
+      history?: false
     }
   ): Promise<'ok' | 'revision_mismatch' | 'pipeline_busy'>
 }
+/** The lock token and catalog version a migration took its hold with. */
+export type MigrationHold = { token: string; catalogVersion: number | null }
 export type PublishMetadata = Partial<
   Pick<
     ReviewBatch,
@@ -166,6 +274,22 @@ export type ReviewDeps = {
     state: string,
     order?: 'snapshot'
   ): Promise<Plate[]>
+  /**
+   * No longer provided: it woke the Submit/Approve workflow, which is retired. Kept
+   * optional so the research accept path compiles until it drops the call.
+   */
   supersedeRun?(batch: ReviewBatch): Promise<void>
+  /** Live catalog version, used to start and rebase the shared draft. */
+  liveVersion?(): Promise<number>
+  /**
+   * The committed publish that set the pointer to this version, or null when no publish
+   * receipt claims it (an outside change to the pointer).
+   */
+  versionOrigin?(version: number): Promise<VersionOrigin | null>
+  /**
+   * What a release of the draft is doing, classified as the Publish view does. Without
+   * it every unabandoned release is treated as publishing.
+   */
+  releaseActivity?(release: ReviewBatch): Promise<ReleaseActivity>
   now(): string
 }

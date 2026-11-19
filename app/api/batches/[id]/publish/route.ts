@@ -1,6 +1,7 @@
 import type {
   PublishCommand,
   PublishDeps,
+  ReleaseFence,
 } from '../../../../../lib/publish/types'
 import { validCommandId } from '../../../../../lib/publish/types'
 import { sameRequester } from '../../../../../lib/publish/authority'
@@ -15,7 +16,7 @@ import {
   publishCommandKey,
   publishControlStop,
 } from '../../../../../lib/publish/control'
-import { getHookByToken, resumeHook, start } from 'workflow/api'
+import { getHookByToken, start } from 'workflow/api'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import {
   currentActiveOwner,
@@ -23,10 +24,33 @@ import {
   publishAllowed,
   publishDeps,
   reviewDeps,
+  reviewEnv,
 } from '../../../../../lib/server/context'
 import { reviewApprovalProblems } from '../../../../../lib/review/batch'
 import { publishBaselineStatus } from '../../../../../lib/publish/baseline-status'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
+import { batchStepRetired } from '../../../../../lib/server/retired'
+import {
+  isRelease,
+  isSharedDraftId,
+  sharedDraftId,
+} from '../../../../../lib/review/draft-id'
+import {
+  ensureDraft,
+  freezeRelease,
+  releaseAcceptable,
+} from '../../../../../lib/review/draft'
+import { DRAFT_TOO_LARGE_MESSAGE } from '../../../../../lib/review/write-budget'
+import { draftPublishSummary } from '../../../../../lib/review/publish-view'
+import {
+  classifyRelease,
+  draftReleases,
+} from '../../../../../lib/publish/release-activity'
+import type {
+  Actor,
+  ReviewBatch,
+  ReviewDeps,
+} from '../../../../../lib/review/types'
 
 /**
  * Find or start the workflow for an accepted retry and attach its run ID to the same
@@ -105,6 +129,15 @@ export async function POST(
   const publishing = publishDeps()
   const requestedBy = requesterAuthority(auth.actor)
   try {
+    if (isSharedDraftId(id))
+      return await publishDraft(
+        deps,
+        publishing,
+        auth.actor,
+        requestedBy,
+        body.revision,
+        body.commandId
+      )
     if (body.commandId) {
       const accepted = await publishing.records.command(body.commandId)
       if (accepted) {
@@ -124,90 +157,223 @@ export async function POST(
       }
     }
     if (await publishing.records.pipelineBusy?.())
-      return json({ error: PIPELINE_BUSY }, 409)
+      return await pipelineBusyResponse(publishing)
     const batch = await deps.store.getBatch(id)
     if (!batch) return json({ error: 'not_found' }, 404)
-    const confirmDraft = draftCanBeConfirmed(batch)
-    if (
-      (!confirmDraft && batch.state !== 'approved') ||
-      batch.revision !== body.revision
-    ) {
-      const confirmation = await deps.store.changesSinceReview?.(
-        id,
-        auth.actor.uid,
-        batch.revision
-      )
-      return json({ error: 'superseded_revision', confirmation }, 409)
-    }
-    const control = await publishing.control.read()
-    const stop = publishControlStop(control)
-    if (stop) return json({ error: stop }, 409)
-    const baseline = await publishBaselineStatus(publishing, batch)
-    if (baseline.error) return json(baseline, 409)
-    if (confirmDraft) {
-      const reasons = await reviewApprovalProblems(deps, batch)
-      if (reasons.length)
-        return json({ error: 'standard_change_unconfirmed', reasons }, 409)
-    }
-    const command: PublishCommand = {
-      batchId: id,
-      revision: confirmDraft ? body.revision + 1 : body.revision,
-      ...(confirmDraft ? { confirmedDraftRevision: body.revision } : {}),
+    return await confirmBatch(
+      deps,
+      publishing,
+      auth.actor,
       requestedBy,
-      generation: control!.generation,
-      commandId: body.commandId ?? randomUUID(),
-    }
-    const eligibility = await publishing.records.eligibility(
-      command,
-      deps.now()
+      batch,
+      body.revision,
+      body.commandId
     )
-    if (eligibility.canRetry) {
-      const accepted = await publishing.records.accept(command, deps.now())
-      if (!accepted.ok) {
-        if (accepted.error !== 'superseded_revision')
-          return json({ error: accepted.error }, 409)
-        const latest = await deps.store.getBatch(id)
-        const confirmation = latest
-          ? await deps.store.changesSinceReview?.(
-              id,
-              auth.actor.uid,
-              latest.revision
-            )
-          : null
-        return json({ error: accepted.error, confirmation }, 409)
-      }
-      if (confirmDraft && batch.state === 'submitted')
-        await deps.supersedeRun?.(batch)
-      return await dispatchRetry(
-        publishing,
-        accepted,
-        auth.actor.uid,
-        deps.now()
-      )
-    }
-    if (confirmDraft || eligibility.reason !== PUBLISH_ERRORS.notWaiting)
-      return json(
-        {
-          error: eligibility.reason,
-          reviewedVersion: eligibility.reviewedVersion,
-          liveVersion: eligibility.liveVersion,
-        },
-        409
-      )
-    const { batchId, revision, ...authority } = command
-    try {
-      await resumeHook(`publish:${batchId}:${revision}`, {
-        ownerUid: auth.actor.uid,
-        ...authority,
-      })
-    } catch {
-      return json({ error: PUBLISH_ERRORS.notWaiting }, 409)
-    }
-    await deps.store.requestPublish(id, body.revision, deps.now(), requestedBy)
-    return json({ status: 'publishing' }, 202)
   } catch {
     return json({ error: PUBLISH_ERRORS.unavailable }, 503)
   }
+}
+
+/** Refuse a Publish while pipeline work is queued or running, and say how much remains. */
+async function pipelineBusyResponse(publishing: PublishDeps) {
+  const activeRuns = await publishing.records
+    .activePipelineRuns?.()
+    .catch(() => undefined)
+  return json(
+    { error: PIPELINE_BUSY, ...(activeRuns ? { activeRuns } : {}) },
+    409
+  )
+}
+
+/**
+ * Whether an earlier release of the draft is still publishing or waits for the Owner to
+ * retry or abandon it. A new Publish command waits for it, as the Publish view shows, so
+ * a stale tab cannot start a second release past a Snapshot awaiting recovery.
+ */
+async function releaseHoldsDraft(
+  deps: ReviewDeps,
+  publishing: PublishDeps,
+  draftId: string,
+  requestedBy: ReturnType<typeof requesterAuthority>
+) {
+  const [approved, control] = await Promise.all([
+    deps.store.list({ states: ['approved'] }),
+    publishing.control.read(),
+  ])
+  const releases = await draftReleases(approved, draftId, (release) =>
+    classifyRelease(
+      publishing.records,
+      release,
+      control?.generation,
+      deps.now(),
+      requestedBy
+    )
+  )
+  return releases.some(({ activity }) => activity !== null)
+}
+
+/**
+ * Publish the shared draft at the revision the Owner reviewed: freeze that revision into
+ * a release and confirm it through the Owner publish path. A retry with the same command
+ * resumes the same release.
+ */
+async function publishDraft(
+  deps: ReviewDeps,
+  publishing: PublishDeps,
+  actor: Actor,
+  requestedBy: ReturnType<typeof requesterAuthority>,
+  revision: number,
+  commandId?: string
+) {
+  const env = reviewEnv()
+  const draftId = sharedDraftId(env)
+  if (commandId) {
+    const accepted = await publishing.records.command(commandId)
+    if (accepted) {
+      const release = await deps.store.getBatch(accepted.command.batchId)
+      if (
+        !release ||
+        !isRelease(release) ||
+        release.source?.batchId !== draftId ||
+        release.source.revision !== revision ||
+        !sameRequester(accepted.command.requestedBy, requestedBy)
+      )
+        return json({ error: PUBLISH_ERRORS.superseded }, 409)
+      return await dispatchRetry(publishing, accepted, actor.uid, deps.now())
+    }
+  }
+  if (await publishing.records.pipelineBusy?.())
+    return await pipelineBusyResponse(publishing)
+  // Read the fence before the check, so a release accepted after it refuses this one.
+  const fence = await readReleaseFence(publishing, draftId)
+  if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
+    return json({ error: 'release_in_progress' }, 409)
+  const draft = await ensureDraft(deps, env, actor)
+  const frozen = await freezeRelease(deps, env, actor, revision)
+  if (!frozen.ok) {
+    if (frozen.error === 'draft_too_large')
+      return json(
+        { error: frozen.error, message: DRAFT_TOO_LARGE_MESSAGE },
+        409
+      )
+    if (frozen.error !== 'superseded_revision')
+      return json({ error: frozen.error }, 409)
+    const confirmation = await deps.store.changesSinceReview?.(
+      draftId,
+      actor.uid,
+      draft.revision
+    )
+    return json({ error: 'superseded_revision', confirmation }, 409)
+  }
+  return confirmBatch(
+    deps,
+    publishing,
+    actor,
+    requestedBy,
+    frozen.value,
+    frozen.value.revision,
+    commandId,
+    fence
+  )
+}
+
+/** The shared draft's accepted-release count, when the records keep one. */
+async function readReleaseFence(
+  publishing: PublishDeps,
+  draftId: string
+): Promise<ReleaseFence | undefined> {
+  return publishing.records.releaseFence
+    ? { draftId, seq: await publishing.records.releaseFence(draftId) }
+    : undefined
+}
+
+/**
+ * Accept the Owner's Publish command for a release (or retry an accepted one) and start
+ * the publish workflow.
+ */
+async function confirmBatch(
+  deps: ReviewDeps,
+  publishing: PublishDeps,
+  actor: Actor,
+  requestedBy: ReturnType<typeof requesterAuthority>,
+  batch: ReviewBatch,
+  revision: number,
+  commandId?: string,
+  checkedFence?: ReleaseFence
+) {
+  const id = batch.id
+  // Old Batches can still finish a publish they started, but only a release made from
+  // the shared draft can be confirmed.
+  const confirmDraft = draftCanBeConfirmed(batch)
+  if (confirmDraft && !isRelease(batch)) return batchStepRetired()
+  if (
+    (!confirmDraft && batch.state !== 'approved') ||
+    batch.revision !== revision
+  ) {
+    const confirmation = await deps.store.changesSinceReview?.(
+      id,
+      actor.uid,
+      batch.revision
+    )
+    return json({ error: 'superseded_revision', confirmation }, 409)
+  }
+  let fence = checkedFence
+  if (confirmDraft) {
+    // A new command for an unaccepted release waits for any release holding its draft
+    // and follows the draft's latest conflicts and floor, whether it came through the
+    // draft or the release's own page.
+    const draftId = batch.source?.batchId
+    if (!fence && draftId) {
+      fence = await readReleaseFence(publishing, draftId)
+      if (await releaseHoldsDraft(deps, publishing, draftId, requestedBy))
+        return json({ error: 'release_in_progress' }, 409)
+    }
+    const acceptable = await releaseAcceptable(deps, batch)
+    if (!acceptable.ok)
+      return json(
+        { error: acceptable.error },
+        acceptable.error === 'not_found' ? 404 : 409
+      )
+  }
+  const control = await publishing.control.read()
+  const stop = publishControlStop(control)
+  if (stop) return json({ error: stop }, 409)
+  const baseline = await publishBaselineStatus(publishing, batch)
+  if (baseline.error) return json(baseline, 409)
+  if (confirmDraft) {
+    const reasons = await reviewApprovalProblems(deps, batch)
+    if (reasons.length)
+      return json({ error: 'standard_change_unconfirmed', reasons }, 409)
+  }
+  const command: PublishCommand = {
+    batchId: id,
+    revision: confirmDraft ? revision + 1 : revision,
+    ...(confirmDraft ? { confirmedDraftRevision: revision } : {}),
+    requestedBy,
+    generation: control!.generation,
+    commandId: commandId ?? randomUUID(),
+  }
+  const eligibility = await publishing.records.eligibility(command, deps.now())
+  if (!eligibility.canRetry)
+    return json(
+      {
+        error: eligibility.reason,
+        reviewedVersion: eligibility.reviewedVersion,
+        liveVersion: eligibility.liveVersion,
+      },
+      409
+    )
+  const accepted = await publishing.records.accept(command, deps.now(), fence)
+  if (!accepted.ok) {
+    if (accepted.error !== 'superseded_revision')
+      return json({ error: accepted.error }, 409)
+    const latest = await deps.store.getBatch(id)
+    const confirmation = latest
+      ? await deps.store.changesSinceReview?.(id, actor.uid, latest.revision)
+      : null
+    return json({ error: accepted.error, confirmation }, 409)
+  }
+  return dispatchRetry(publishing, accepted, actor.uid, deps.now())
 }
 
 /**
@@ -222,12 +388,21 @@ export async function GET(
   if (!auth.ok) return auth.response
   const { id } = await ctx.params
   const deps = reviewDeps()
+  if (isSharedDraftId(id)) {
+    try {
+      return await draftPublishView(deps, publishDeps(), auth.actor)
+    } catch {
+      return json({ error: PUBLISH_ERRORS.unavailable }, 503)
+    }
+  }
   const batch = await deps.store.getBatch(id)
   if (!batch) return json({ error: 'not_found' }, 404)
   try {
     const publishing = publishDeps()
     const control = await publishing.control.read()
-    const confirmDraft = draftCanBeConfirmed(batch)
+    // Only a release frozen from the shared draft can be confirmed; older Batches can
+    // still be retried or abandoned.
+    const confirmDraft = draftCanBeConfirmed(batch) && isRelease(batch)
     const command = {
       batchId: id,
       revision: confirmDraft ? batch.revision + 1 : batch.revision,
@@ -301,4 +476,100 @@ export async function GET(
   } catch {
     return json({ error: PUBLISH_ERRORS.unavailable }, 503)
   }
+}
+
+/**
+ * The Owner's Publish view of the shared draft: the revision that Publish will ship, what
+ * each state changes, and why Publish is blocked when it is. A release that is already
+ * publishing is returned so the view can follow it.
+ */
+async function draftPublishView(
+  deps: ReviewDeps,
+  publishing: PublishDeps,
+  actor: Parameters<typeof requesterAuthority>[0]
+) {
+  const env = reviewEnv()
+  const draft = await ensureDraft(deps, env, actor)
+  const [snapshot, control, busy, activeRuns, active] = await Promise.all([
+    deps.store.readBatch(draft.id),
+    publishing.control.read(),
+    publishing.records.pipelineBusy?.(),
+    publishing.records.activePipelineRuns?.().catch(() => undefined),
+    deps.store.list({ states: ['approved'] }),
+  ])
+  if (!snapshot) return json({ error: 'not_found' }, 404)
+  const changes =
+    (await deps.store.listChanges?.(
+      draft.id,
+      draft.lastPublish?.revision ?? draft.rebaseFloor ?? 0
+    )) ?? []
+  const states = draftPublishSummary(snapshot, changes)
+  const stop = publishControlStop(control)
+  const baseline = stop
+    ? { error: stop }
+    : await publishBaselineStatus(publishing, snapshot.batch)
+  const enabledHere = publishAllowed()
+  const releases = await draftReleases(active, snapshot.batch.id, (release) =>
+    classifyRelease(
+      publishing.records,
+      release,
+      control?.generation,
+      deps.now(),
+      requesterAuthority(actor)
+    )
+  )
+  const activeRelease = releases.find(
+    ({ activity }) => activity === 'publishing'
+  )?.release
+  const interruptedRelease = releases.find(
+    ({ activity }) => activity === 'interrupted'
+  )?.release
+  const empty = states.length === 0
+  const approvalProblems =
+    enabledHere && !baseline.error && !busy && !empty
+      ? await reviewApprovalProblems(deps, snapshot.batch)
+      : []
+  return json({
+    ...baseline,
+    draftId: snapshot.batch.id,
+    draftRevision: snapshot.batch.revision,
+    baselineVersion: snapshot.batch.baselineVersion,
+    destination: process.env.GCP_PROJECT_ID ?? null,
+    enabledHere,
+    states,
+    pipeline: {
+      busy: !!busy,
+      ...(busy && activeRuns ? { activeRuns } : {}),
+    },
+    approvalProblems,
+    conflicts: snapshot.batch.conflicts ?? [],
+    ...(snapshot.batch.lastPublish
+      ? { lastPublish: snapshot.batch.lastPublish }
+      : {}),
+    ...(activeRelease
+      ? {
+          activeRelease: {
+            id: activeRelease.id,
+            revision: activeRelease.source?.revision,
+          },
+        }
+      : {}),
+    ...(interruptedRelease
+      ? {
+          interruptedRelease: {
+            id: interruptedRelease.id,
+            revision: interruptedRelease.source?.revision,
+          },
+        }
+      : {}),
+    canPublish:
+      enabledHere &&
+      !baseline.error &&
+      !busy &&
+      !empty &&
+      !activeRelease &&
+      !interruptedRelease &&
+      !snapshot.batch.conflicts?.length &&
+      approvalProblems.length === 0,
+  })
 }

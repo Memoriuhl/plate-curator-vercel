@@ -40,6 +40,25 @@ vi.mock('../lib/client/hooks', () => ({
   useBatches: () => ({ data: state.batches }),
   /** Provide controllable batch actions so the test can inspect user requests. */
   useReviewActions: () => ({}),
+  /** Name the shared draft Publish opens without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
+  /** Supply an empty shared draft so Publish shows its empty state. */
+  useDraftPublishView: (id: string) => {
+    state.selected.push(id)
+    return {
+      data: {
+        draftId: id,
+        draftRevision: 0,
+        baselineVersion: 3,
+        destination: 'license-plate-game-staging',
+        enabledHere: true,
+        states: [],
+        pipeline: { busy: false, activeRuns: 0 },
+        approvalProblems: [],
+        canPublish: false,
+      },
+    }
+  },
 }))
 vi.mock('../lib/client/live-signal', () => ({
   useBatchRevisionSignal: () => 'Live',
@@ -112,7 +131,7 @@ test.each([
       }}
     />
   )
-  if (phase === null) expect(html).toContain('Not submitted yet')
+  if (phase === null) expect(html).toContain('Not published yet')
   else {
     expect(html).toContain('aria-live="polite"')
     expect(html).toContain('Copy run id')
@@ -124,7 +143,7 @@ test.each([
       'Snapshot could not pass validation',
       'Missing Template',
       'Invalid State order',
-      'Fix the Batch and approve it again',
+      'Fix the changes in the shared draft and publish again',
     ])
       expect(html).toContain(message)
   if (phase === 'superseded')
@@ -142,9 +161,9 @@ test('Owner sees Publish tab and empty state; Editor sees neither action nor tab
       </TooltipProvider>
     )
   ).toContain('href="/publish"')
-  expect(renderToStaticMarkup(<PublishWorkspace />)).toContain(
-    'No Batches to publish.'
-  )
+  const owner = renderToStaticMarkup(<PublishWorkspace />)
+  expect(owner).toContain('No unpublished changes.')
+  expect(owner).toContain('The draft has no changes to publish.')
   state.role = 'editor'
   expect(
     renderToStaticMarkup(
@@ -181,7 +200,7 @@ test('an order field counts a selected move even when its numeric position stays
   expect(groupChanges([{ ...entry, order: undefined }]).Reordered).toEqual([])
 })
 
-test('pointer_moved directs the Owner to Copy instead of reapproving the old Batch', () => {
+test('pointer_moved sends the Owner back to the shared draft', () => {
   const html = renderToStaticMarkup(
     <RunStatusView
       run={{
@@ -193,9 +212,9 @@ test('pointer_moved directs the Owner to Copy instead of reapproving the old Bat
     />
   )
   expect(html).toContain(
-    'Open Publish and copy to a new Batch for fresh review.'
+    'The changes stay in the shared draft. Open Publish and publish the draft again.'
   )
-  expect(html).not.toContain('Fix the Batch and approve it again.')
+  expect(html).not.toContain('copy to a new Batch')
 })
 
 test.each(['superseded', 'publish_not_enabled'])(
@@ -212,8 +231,8 @@ test.each(['superseded', 'publish_not_enabled'])(
       />
     )
     expect(html).toContain('The Catalog did not advance.')
-    expect(html).toContain('The Batch remains approved.')
-    expect(html).not.toContain('Fix the Batch and approve it again.')
+    expect(html).toContain('The changes stay in the shared draft.')
+    expect(html).not.toContain('Fix the changes in the shared draft')
   }
 )
 
@@ -245,9 +264,10 @@ test.each([
   ['batch=older', 'older'],
   ['batch=missing', 'missing'],
   ['batch=published', 'published'],
-  ['', 'newest'],
+  ['batch=draft', 'shared-draft-test'],
+  ['', 'shared-draft-test'],
 ])(
-  'Publish preserves an explicit Batch ID and defaults only without one: %s',
+  'Publish preserves an explicit Batch ID and opens the shared draft without one: %s',
   (query, selected) => {
     state.query = query
     state.batches = [

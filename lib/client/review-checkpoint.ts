@@ -3,8 +3,12 @@
 import useSWR from 'swr'
 import { useEffect } from 'react'
 import { useSession } from './session'
+import { isSharedDraftId } from '../review/draft-id'
 
-/** Record the batch revision an owner has reviewed after the active view renders it. */
+/**
+ * Record the draft revision an owner has reviewed after the active view renders it. An
+ * old Batch or a release is read-only history, so no checkpoint is sent for it.
+ */
 export function useReviewCheckpoint(
   batchId: string | null | undefined,
   revision: number | undefined,
@@ -12,7 +16,14 @@ export function useReviewCheckpoint(
 ) {
   const { api, user } = useSession()
   useEffect(() => {
-    if (!user || !isOwner || !batchId || revision === undefined) return
+    if (
+      !user ||
+      !isOwner ||
+      !batchId ||
+      !isSharedDraftId(batchId) ||
+      revision === undefined
+    )
+      return
     void api
       .send(
         'POST',

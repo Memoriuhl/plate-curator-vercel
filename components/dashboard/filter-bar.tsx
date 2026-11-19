@@ -7,7 +7,11 @@ import {
   serializeShow,
   type FilterCounts,
 } from './family-data'
-import { useWorkspaceBatch, useBatches } from '@/lib/client/hooks'
+import {
+  useBatch,
+  useSharedDraftId,
+  useWorkspaceBatch,
+} from '@/lib/client/hooks'
 import { Toggle } from '@/components/ui/toggle'
 import {
   Tooltip,
@@ -32,9 +36,12 @@ export function FilterBar({
   onSelectGroup?(key: string, ids: string[]): void
 }) {
   const workspace = useWorkspaceBatch()
-  const batches = useBatches(['open'], { mine: true })
+  const draftId = useSharedDraftId()
+  const draft = useBatch(workspace.mode === 'personal' ? draftId : null, {
+    reuse: true,
+  })
   const batch =
-    workspace.mode === 'selected' ? workspace.detail?.batch : batches.data?.[0]
+    workspace.mode === 'selected' ? workspace.detail?.batch : draft.data?.batch
   const changedCount = new Set(
     batch?.plateIds.filter((id) => id.startsWith(code + '.')) ?? []
   ).size

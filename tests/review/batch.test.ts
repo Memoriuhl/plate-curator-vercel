@@ -2,7 +2,8 @@ import { createMemoryStore } from '../../lib/review/memory-store'
 import { reviewBatchScenarios } from './batch-scenarios'
 import { expect, test } from 'vitest'
 import { batch, command, fixture, owner, snapshot } from '../publish/fixture'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { plateRevision } from '../../lib/review/revision'
 
 reviewBatchScenarios((batch) => createMemoryStore([batch]))

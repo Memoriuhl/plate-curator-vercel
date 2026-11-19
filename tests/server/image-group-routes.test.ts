@@ -78,6 +78,7 @@ async function setup() {
   const store = createMemoryStore([
     {
       id: 'batch',
+      kind: 'shared-draft',
       name: 'Batch',
       createdBy: actor.uid,
       createdAt: '',

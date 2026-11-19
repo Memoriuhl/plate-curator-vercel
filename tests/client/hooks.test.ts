@@ -123,9 +123,19 @@ function detail(
     plates: [{ baseline, proposed, edit, revision: 'draft-revision' }],
   }
 }
-/** Create a private SWR cache and wrapper so hook tests can inspect isolated updates. */
-function harness(fallback: Record<string, unknown> = {}) {
+/** The member every hook test signs in as; its draftId names the shared draft fixture. */
+const member = { uid: 'jon', draftId: 'draft' }
+/**
+ * Create a private SWR cache and wrapper so hook tests can inspect isolated updates. The
+ * cache starts with the signed-in member, so hooks find the shared draft without an
+ * extra request; pass null to make membership load through the API mock.
+ */
+function harness(
+  fallback: Record<string, unknown> = {},
+  me: Record<string, unknown> | null = member
+) {
   const cache = new Map()
+  if (me) cache.set('/api/me', { data: me })
   return {
     cache,
     /** Mount the hook under the harness cache with automatic error retries disabled. */
@@ -151,7 +161,7 @@ beforeEach(() => {
   session.api.get
     .mockReset()
     .mockImplementation(async (key: string) =>
-      key === ownKey ? [batch] : detail()
+      key === '/api/me' ? member : key === ownKey ? [batch] : detail()
     )
   session.api.send.mockReset()
 })
@@ -445,8 +455,8 @@ test('a successful HTTP response still requires a saved template and order', asy
   })
 })
 
-test('personal Batch discovered after lift cannot inherit its newer revision', async () => {
-  const context = harness()
+test('a shared draft discovered after lift cannot inherit its newer revision', async () => {
+  const context = harness({}, null)
   const { result } = renderHook(() => useReorderState(), context)
   const origin = result.current.capture()
   expect(origin).toEqual({ batchId: null, revision: null })
@@ -687,10 +697,8 @@ test('draft overlay merges proposed fields and checks without changing card disp
   expect(card.tags).toEqual([])
 })
 
-test('editing reuses the most recent batch revision and revalidates details and every batch list', async () => {
-  const older = { ...batch, id: 'older', createdAt: '2026-11-15' }
+test('editing uses the shared draft revision and revalidates details and every batch list', async () => {
   session.api.get.mockImplementation(async (key: string) => {
-    if (key === ownKey) return [older, batch]
     if (key.startsWith('/api/batches?') || key === batchesKey()) return [batch]
     return detail()
   })
@@ -721,7 +729,6 @@ test('editing reuses the most recent batch revision and revalidates details and 
     { baseRevision: 'draft-revision', fields: { tags: proposed.tags } }
   )
   expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft')
-  expect(session.api.get).toHaveBeenCalledWith(ownKey)
   expect(session.api.get).toHaveBeenCalledWith(batchesKey())
   expect(session.api.get).toHaveBeenCalledWith(batchesKey(['submitted']))
   expect(session.api.get).not.toHaveBeenCalledWith('/api/batches/other')
@@ -733,7 +740,6 @@ test('editing a plate outside the batch uses the card revision and fetches uncac
   )
   session.api.send.mockResolvedValue({ batch, plate: proposed })
   const { result } = renderHook(() => useEditPlate(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   await act(async () => {
     await result.current.edit(card, { description: 'New description' })
   })
@@ -763,7 +769,6 @@ test.each([
     })
   )
   const { result } = renderHook(() => useEditPlate(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   const fields = { tags: ['mine'] }
   let response
   await act(async () => {
@@ -788,7 +793,6 @@ test('network failures throw and clear pending', async () => {
   const failure = new TypeError('Network unavailable')
   session.api.send.mockRejectedValue(failure)
   const { result } = renderHook(() => useEditPlate(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   await act(async () => {
     await expect(result.current.edit(card, { tags: ['mine'] })).rejects.toBe(
       failure
@@ -821,16 +825,10 @@ test('cached batch details supply the revision without another detail fetch', as
   )
 })
 
-test('overlay uses the most recently updated batch and marks unedited entries unchanged', async () => {
-  const updated = {
-    ...batch,
-    id: 'updated',
-    createdAt: '2026-11-01',
-    updatedAt: '2026-11-17',
-  }
+test('overlay uses the shared draft and marks unedited entries unchanged', async () => {
   session.api.get.mockImplementation(async (key: string) => {
-    if (key === ownKey) return [batch, updated]
-    if (key === '/api/batches/updated') return detail()
+    if (key === '/api/batches/draft') return detail()
+    if (key === '/api/batches?dashboard=AK') return { drafts: [] }
     throw new Error(`Unexpected key ${key}`)
   })
   const plates = [card, { ...card, id: 'AK.outside' }]
@@ -838,19 +836,23 @@ test('overlay uses the most recently updated batch and marks unedited entries un
   await waitFor(() => expect(result.current[0].revision).toBe('draft-revision'))
   expect(result.current[0].changedInBatch).toBe(false)
   expect(result.current[1]).toEqual({ ...plates[1], changedInBatch: false })
-  expect(session.api.get).not.toHaveBeenCalledWith('/api/batches/draft')
+  expect(session.api.get).not.toHaveBeenCalledWith(ownKey)
 })
 
-test('overlay passes cards through when there are no eligible drafts', async () => {
+test('overlay passes cards through when the shared draft is empty', async () => {
   session.api.get.mockImplementation(async (key: string) =>
-    key === ownKey ? [] : { drafts: [] }
+    key === '/api/batches/draft'
+      ? { batch: { ...batch, plateIds: [] }, plates: [] }
+      : { drafts: [] }
   )
   const { result } = renderHook(() => useDraftOverlay([card]), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
+  await waitFor(() =>
+    expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft')
+  )
   expect(result.current).toEqual([{ ...card, changedInBatch: false }])
-  expect(session.api.get.mock.calls).toEqual([
-    [ownKey],
-    ['/api/batches?dashboard=AK'],
+  expect(session.api.get.mock.calls.map(([key]) => key).sort()).toEqual([
+    '/api/batches/draft',
+    '/api/batches?dashboard=AK',
   ])
 })
 
@@ -881,7 +883,6 @@ test('fast edits are serialized, stay pending and use the revision returned afte
     })
     .mockResolvedValue({ batch, plate: proposed })
   const { result } = renderHook(() => useEditPlate(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
   let first!: ReturnType<typeof result.current.edit>
   let second!: ReturnType<typeof result.current.edit>
   act(() => {
@@ -971,103 +972,49 @@ test('plate detail preload does nothing when signed out', () => {
   }
 })
 
-test('ensure batch returns the most recently updated own open batch without creating another', async () => {
-  const latest = {
-    ...batch,
-    id: 'latest',
-    createdAt: '2026-11-01',
-    updatedAt: '2026-11-18',
-  }
-  session.api.get.mockResolvedValue([batch, latest])
+test('ensure batch returns the shared draft without creating a Batch', async () => {
   const { result } = renderHook(() => useEnsureBatch(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
-  let id
   await act(async () => {
-    id = await result.current(card)
+    expect(await result.current(card)).toBe('draft')
+    expect(await result.current({ id: 'AZ.two', state: 'AZ' })).toBe('draft')
   })
-  expect(id).toBe('latest')
   expect(session.api.send).not.toHaveBeenCalled()
+  expect(session.api.get).not.toHaveBeenCalled()
 })
 
-test('ensure batch creates a named batch for the plate and reuses it on the next call', async () => {
-  let created = false
-  session.api.get.mockImplementation(async () => (created ? [batch] : []))
-  session.api.send.mockImplementation(async () => {
-    created = true
-    return batch
-  })
-  const { result } = renderHook(() => useEnsureBatch(), harness())
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
-  let id
-  await act(async () => {
-    id = await result.current(card)
-  })
-  expect(id).toBe(batch.id)
-  await act(async () => {
-    expect(await result.current({ id: 'AZ.two', state: 'AZ' })).toBe(batch.id)
-  })
-  expect(session.api.send).toHaveBeenCalledExactlyOnceWith(
-    'POST',
-    '/api/batches',
-    { name: 'AK edits', plateIds: [card.id] }
-  )
-})
-
-test('ensure batch shares one creation across concurrent callers and hook instances', async () => {
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  session.api.get.mockResolvedValue([])
-  session.api.send.mockImplementation(async () => {
-    await gate
-    return batch
-  })
+test('ensure batch reads membership when the draft id is not cached yet', async () => {
   const { result } = renderHook(
     () => ({ first: useEnsureBatch(), second: useEnsureBatch() }),
-    harness()
+    harness({}, null)
   )
-  await waitFor(() => expect(session.api.get).toHaveBeenCalledWith(ownKey))
-  let first!: Promise<string>
-  let second!: Promise<string>
-  act(() => {
-    first = result.current.first(card)
-    second = result.current.second({ id: 'AZ.two', state: 'AZ' })
-  })
-  await waitFor(() => expect(session.api.send).toHaveBeenCalledTimes(1))
   await act(async () => {
-    release()
-    expect(await Promise.all([first, second])).toEqual([batch.id, batch.id])
+    expect(
+      await Promise.all([
+        result.current.first(card),
+        result.current.second({ id: 'AZ.two', state: 'AZ' }),
+      ])
+    ).toEqual(['draft', 'draft'])
   })
-  expect(session.api.send).toHaveBeenCalledExactlyOnceWith(
-    'POST',
-    '/api/batches',
-    { name: 'AK edits', plateIds: [card.id] }
+  expect(session.api.send).not.toHaveBeenCalled()
+  expect(session.api.get.mock.calls.every(([key]) => key === '/api/me')).toBe(
+    true
   )
 })
 
-test('two fast edits create one named batch and save both changes in order', async () => {
-  let created = false
+test('two fast edits save both changes into the shared draft in order', async () => {
   let saves = 0
-  session.api.get.mockImplementation(async (key: string) => {
-    if (key === ownKey) return created ? [batch] : []
-    return {
-      batch,
-      plates: [
-        {
-          baseline,
-          proposed,
-          edit: null,
-          revision: saves ? 'saved-revision' : 'batch-baseline',
-        },
-      ],
-    }
-  })
-  session.api.send.mockImplementation(async (method: string) => {
-    if (method === 'POST') {
-      created = true
-      return batch
-    }
+  session.api.get.mockImplementation(async () => ({
+    batch,
+    plates: [
+      {
+        baseline,
+        proposed,
+        edit: null,
+        revision: saves ? 'saved-revision' : 'batch-baseline',
+      },
+    ],
+  }))
+  session.api.send.mockImplementation(async () => {
     saves += 1
     return { batch, plate: proposed }
   })
@@ -1084,7 +1031,6 @@ test('two fast edits create one named batch and save both changes in order', asy
     { ok: true, proposed },
   ])
   expect(session.api.send.mock.calls).toEqual([
-    ['POST', '/api/batches', { name: 'AK edits', plateIds: [card.id] }],
     [
       'PATCH',
       '/api/batches/draft/plates/AK.one',
@@ -1102,21 +1048,11 @@ test('two fast edits create one named batch and save both changes in order', asy
   expect(result.current.pending).toBe(false)
 })
 
-test('failed batch creation releases serialization so a later edit can retry', async () => {
-  let created = false
-  session.api.get.mockImplementation(async (key: string) =>
-    key === ownKey ? (created ? [batch] : []) : detail()
-  )
+test('a failed save releases serialization so a later edit can retry', async () => {
   const failure = new TypeError('Network unavailable')
   session.api.send
     .mockRejectedValueOnce(failure)
-    .mockImplementation(async (method: string) => {
-      if (method === 'POST') {
-        created = true
-        return batch
-      }
-      return { batch, plate: proposed }
-    })
+    .mockResolvedValue({ batch, plate: proposed })
   const { result } = renderHook(() => useEditPlate(), harness())
   await act(async () => {
     await expect(result.current.edit(card, { tags: ['first'] })).rejects.toBe(
@@ -1130,29 +1066,21 @@ test('failed batch creation releases serialization so a later edit can retry', a
       proposed,
     })
   })
-  expect(session.api.send).toHaveBeenCalledTimes(3)
+  expect(session.api.send).toHaveBeenCalledTimes(2)
   expect(result.current.pending).toBe(false)
 })
 
-test('reorder creates a batch on the first change and serializes using the saved batch revision', async () => {
-  let created = false
+test('reorder saves into the shared draft and serializes using the saved draft revision', async () => {
   let revision = 1
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
-  session.api.get.mockImplementation(async (key: string) =>
-    key === ownKey
-      ? created
-        ? [batch]
-        : []
-      : { ...detail(), batch: { ...batch, revision } }
-  )
-  session.api.send.mockImplementation(async (method: string) => {
-    if (method === 'POST') {
-      created = true
-      return batch
-    }
+  session.api.get.mockImplementation(async () => ({
+    ...detail(),
+    batch: { ...batch, revision },
+  }))
+  session.api.send.mockImplementation(async () => {
     if (revision === 1) await gate
     revision += 1
     return { ...batch, revision, stateOrders: { AK: ['AK.other', card.id] } }
@@ -1164,7 +1092,7 @@ test('reorder creates a batch on the first change and serializes using the saved
     first = result.current.reorder('AK', ['AK.other', card.id])
     second = result.current.reorder('AK', [card.id, 'AK.other'])
   })
-  await waitFor(() => expect(session.api.send).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(session.api.send).toHaveBeenCalledTimes(1))
   expect(result.current.pending).toBe(true)
   await act(async () => {
     release()
@@ -1174,7 +1102,6 @@ test('reorder creates a batch on the first change and serializes using the saved
     ])
   })
   expect(session.api.send.mock.calls).toEqual([
-    ['POST', '/api/batches', { name: 'AK edits', plateIds: ['AK.other'] }],
     [
       'PUT',
       '/api/batches/draft/state-order/AK',
@@ -1571,13 +1498,16 @@ test('shared preview consumes the preloaded session API response and draft overl
 
 test.each([
   ['publish_disabled_here', 'Publishing is disabled in this environment.'],
-  ['superseded_revision', 'This Batch changed. Confirm the current revision.'],
+  [
+    'superseded_revision',
+    'The draft moved past this revision. Reload the Publish view and confirm the current revision.',
+  ],
   [
     'not_waiting',
     'This run is no longer waiting for Publish. Refresh to see its status.',
   ],
   ['forbidden', 'Only the Owner can Publish.'],
-  ['not_found', 'This Batch could not be found.'],
+  ['not_found', 'The draft could not be found.'],
 ])('Publish maps %s and posts the approved revision', async (code, message) => {
   session.api.send.mockRejectedValue(new ApiError(409, code, {}))
   const { result } = renderHook(() => useReviewActions(), harness())
@@ -1597,7 +1527,10 @@ test.each([
 
 test('Editor never requests run status', async () => {
   session.api.get.mockResolvedValue({ role: 'editor' })
-  const { result } = renderHook(() => useBatchRun('restricted'), harness())
+  const { result } = renderHook(
+    () => useBatchRun('restricted'),
+    harness({}, null)
+  )
   await waitFor(() => expect(session.api.get).toHaveBeenCalledWith('/api/me'))
   expect(result.current.data).toBeUndefined()
   expect(session.api.get).not.toHaveBeenCalledWith(
@@ -1619,7 +1552,7 @@ test.each(['published', 'failed', 'superseded'])(
     session.api.send.mockResolvedValue({ status: 'publishing' })
     const { result } = renderHook(
       () => ({ run: useBatchRun(id), actions: useReviewActions() }),
-      harness()
+      harness({}, null)
     )
     await waitFor(() =>
       expect(result.current.run.data?.phase).toBe('waiting-for-publish')
@@ -1676,7 +1609,7 @@ test('mounting an already-published batch does not refresh cached pages', async 
           updatedAt: null,
         }
   )
-  const { result } = renderHook(() => useBatchRun('done'), harness())
+  const { result } = renderHook(() => useBatchRun('done'), harness({}, null))
   await waitFor(() => expect(result.current.data?.phase).toBe('published'))
   expect(navigation.refresh).not.toHaveBeenCalled()
 })
@@ -1693,7 +1626,7 @@ test('switching from an active batch to an already-published batch does not refr
         }
   )
   const { result, rerender } = renderHook(({ id }) => useBatchRun(id), {
-    ...harness(),
+    ...harness({}, null),
     initialProps: { id: 'active' },
   })
   await waitFor(() => expect(result.current.data?.phase).toBe('publishing'))
@@ -1721,67 +1654,38 @@ test('Publish keeps the click identity after an ambiguous response and clears it
   expect(session.api.send.mock.calls[2][2].commandId).not.toBe(first.commandId)
 })
 
-test('Publish confirmation sends the displayed revision and retains its result when lists refresh', async () => {
-  let published = false
-  const approved = {
-    ...batch,
-    id: 'release',
-    name: 'Veterans release',
-    state: 'approved',
-    revision: 8,
-    approval: { by: 'owner', revision: 7, at: '2026-11-16T12:00:00Z' },
-  }
-  const other = {
-    ...approved,
-    id: 'other',
-    name: 'Other release',
-    approval: { ...approved.approval, at: '2026-11-15T12:00:00Z' },
-  }
+test('draft Publish confirms the revision on screen and keeps it when the draft moves on', async () => {
+  let revision = 8
+  /** Describe the shared draft at the current fixture revision. */
+  const view = () => ({
+    draftId: 'draft',
+    draftRevision: revision,
+    baselineVersion: 11,
+    liveVersion: 11,
+    reviewedVersion: 11,
+    destination: 'license-plate-game-staging',
+    enabledHere: true,
+    states: [
+      { state: 'AK', plates: 2, moved: 0, contributors: ['Editor'] },
+      { state: 'AL', plates: 0, moved: 3, contributors: ['Owner'] },
+    ],
+    pipeline: { busy: false, activeRuns: 0 },
+    approvalProblems: [],
+    error: null,
+    canPublish: true,
+  })
   session.api.get.mockImplementation(async (key: string) => {
-    if (key === '/api/me') return { role: 'owner' }
-    if (key.endsWith('/publish'))
-      return {
-        batchRevision: 8,
-        destination: 'license-plate-game-staging',
-        enabledHere: true,
-        approvalProblems: [],
-        error: null,
-        retryReason: 'not_waiting',
-        confirmation: {
-          revision: 8,
-          since: null,
-          plateCount: 0,
-          contributors: [],
-        },
-      }
-    if (key.endsWith('/run'))
-      return {
-        phase: published ? 'published' : 'waiting-for-publish',
-        runId: 'release-run',
-        outcome: published ? { version: 12 } : null,
-        updatedAt: null,
-      }
-    if (key.includes('?'))
-      return [
-        { ...approved, state: published ? 'published' : 'approved' },
-        other,
-      ]
-    return {
-      batch: { ...approved, state: published ? 'published' : 'approved' },
-      plates: detail({
-        plateId: baseline.id,
-        fields: { tags: proposed.tags },
-        baseRevision: 'old',
-        resultRevision: 'new',
-        authorId: 'editor',
-        updatedAt: approved.approval.at,
-      }).plates,
-    }
+    if (key === '/api/me')
+      return { uid: 'jon', role: 'owner', draftId: 'draft' }
+    if (key === '/api/batches/draft/publish') return view()
+    if (key === '/api/publish/control')
+      return { control: null, enabledHere: true }
+    if (key.includes('?')) return []
+    return detail()
   })
   session.api.send.mockImplementation(async (_method, path) => {
     if (path === '/api/live-access')
       throw new Error('No live subscription in this fixture')
-    published = true
     return { status: 'publishing' }
   })
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
@@ -1797,24 +1701,33 @@ test('Publish confirmation sends the displayed revision and retains its result w
     },
   })
   try {
-    render(createElement(PublishWorkspace), harness())
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Publish to Game' })
-      ).toBeDefined()
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Publish to Game' }))
+    render(createElement(PublishWorkspace), harness({}, null))
+    const table = await screen.findByRole('table')
+    expect(table.textContent).toContain('Publish ships every state together')
+    expect(within(table).getByRole('link', { name: 'AL' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Publish revision 8' }))
     const dialog = screen.getByRole('dialog')
-    expect(dialog.textContent).toContain('Publish Veterans release?')
+    expect(dialog.textContent).toContain('Publish revision 8?')
+    expect(dialog.textContent).toContain('2 plates across AK, AL.')
     expect(dialog.textContent).toContain(
       'This creates the next Snapshot for Staging Catalog (license-plate-game-staging).'
     )
-    expect(dialog.textContent).toContain('edited')
+    revision = 9
+    fireEvent.click(
+      within(
+        screen.getByRole('navigation', { name: 'Draft actions' })
+      ).getByRole('button', { name: 'Refresh' })
+    )
+    await waitFor(() =>
+      expect(dialog.textContent).toContain(
+        'The draft moved to revision 9 since you opened this. Publish ships revision 8; the later edits stay in the draft.'
+      )
+    )
     fireEvent.click(
       within(dialog).getByRole('button', { name: 'Publish revision 8' })
     )
-    await waitFor(() =>
-      expect(screen.getByText(/Published as Snapshot/)).toBeDefined()
+    await screen.findByText(
+      'Publish requested for revision 8. Waiting for the run…'
     )
     expect(
       session.api.send.mock.calls.filter(([, path]) =>
@@ -1823,24 +1736,10 @@ test('Publish confirmation sends the displayed revision and retains its result w
     ).toEqual([
       [
         'POST',
-        '/api/batches/release/publish',
+        '/api/batches/draft/publish',
         { revision: 8, commandId: expect.any(String) },
       ],
     ])
-    expect(navigation.replace).toHaveBeenCalledWith('/publish?batch=release', {
-      scroll: false,
-    })
-    expect(
-      within(screen.getByRole('region', { name: 'Approval run' })).getByText(
-        'v12'
-      )
-    ).toBeDefined()
-    expect(
-      screen.queryByRole('button', { name: 'Publish revision 8' })
-    ).toBeNull()
-    expect(
-      screen.getByRole('heading', { name: 'Veterans release' })
-    ).toBeDefined()
   } finally {
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')

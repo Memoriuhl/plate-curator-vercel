@@ -2,12 +2,11 @@ import { standardScenarios } from '../tests/review/standard-scenarios'
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, expect, test, vi } from 'vitest'
 import {
-  approveBatch,
   proposeEdit,
   reorderState,
   revertPipelineField,
-  submitBatch,
 } from '../lib/review/batch'
+import { approveBatch, submitBatch } from '../tests/helpers/legacy-approval'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
 import { seedDemo } from '../lib/review/demo-seed'
@@ -574,7 +573,7 @@ async function lifecycleSnapshot() {
   )
 }
 
-test('submit, approve and an edit after approval commit their lifecycle state with the signal', async () => {
+test('legacy submit, approve and an edit after approval commit their lifecycle state with the signal', async () => {
   await db
     .doc('curatorLive/preview-test/batchRevisions/batch')
     .set({ revision: 4 })
@@ -617,9 +616,8 @@ test('submit, approve and an edit after approval commit their lifecycle state wi
   expect((await store.readBatch('batch'))?.edits).toMatchObject([
     { plateId: 'one', fields: { tags: ['after approval'] } },
   ])
-  expect(supersedeRun).toHaveBeenCalledWith(
-    expect.objectContaining({ state: 'approved', revision: 6 })
-  )
+  // Approval workflows are retired, so a later edit no longer wakes one.
+  expect(supersedeRun).not.toHaveBeenCalled()
 })
 
 test.each(['stale-submit', 'stale-order', 'forbidden-approve'] as const)(

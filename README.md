@@ -4,7 +4,7 @@
 
 **Review and release catalog changes for State Spotter.**
 
-Plate Curator is a web workspace for the license-plate spotting game's catalog. Editors propose changes to tags, images, descriptions, plate families and order in a **Batch**. Owners inspect the before-and-after diff and approve the exact revision. Publishing is a separate action that creates a versioned catalog snapshot.
+Plate Curator is a web workspace for the license-plate spotting game's catalog. Editors propose changes to tags, images, descriptions, plate families and order in one **shared draft**, and pipeline results land there too. Owners inspect the before-and-after diff at a revision and publish exactly that revision, which creates a versioned catalog snapshot. Changes saved after it stay in the draft.
 
 [Open the app](https://plate-curator-vercel.vercel.app) · [Download the walkthrough](./Plate%20Curator%20-%20Vercel%20Take%20Home%20Walkthrough%20Artifact.html?raw=1) · [Review demo](docs/try-it.md) · [Local setup](#local-setup)
 
@@ -12,7 +12,7 @@ Plate Curator is a web workspace for the license-plate spotting game's catalog. 
 
 **Start with the walkthrough.** Download the HTML and open it in a browser for the Vercel take-home, including the product tour, architecture and demo. The walkthrough is self-contained.
 
-**Try the app.** Sign-in is invite-only. Demo reviewers receive Editor and Owner credentials privately. Follow the [reviewer guide](docs/try-it.md) to submit the Alaska Batch as an Editor, approve it as an Owner, and inspect Publish. The walkthrough stops at inspection.
+**Try the app.** Sign-in is invite-only. Demo reviewers receive Editor and Owner credentials privately. Follow the [reviewer guide](docs/try-it.md) to make Alaska changes as an Editor, see them in Review, and inspect Publish as an Owner. The walkthrough stops at inspection.
 
 ## What you can do
 
@@ -20,21 +20,21 @@ Plate Curator is a web workspace for the license-plate spotting game's catalog. 
 | --- | --- |
 | **Dashboard** | Browse plates by jurisdiction, group variants into families, edit catalog fields and arrange the state order. Editors can do this without a writable game checkout. |
 | **Plate Pipeline** | Run tagging, research, image and grouping tasks. Results enter the review flow as suggestions or draft changes. Configured stages can use a desktop worker or hosted execution. |
-| **Review** | Compare a Batch with its catalog baseline, submit a revision and see what the Owner approved. A subsequent edit invalidates the earlier approval. |
-| **Publish** | Inspect approved changes and their publication status. An authorized publish writes an immutable snapshot and advances the catalog pointer that the game reads. |
+| **Review** | See every unpublished change in the shared draft against its catalog baseline, with who made each change. |
+| **Publish** | Inspect the draft at its current revision, broken down by state, and its publication status. An Owner's publish ships that revision: it writes an immutable snapshot and advances the catalog pointer that the game reads. |
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Editor -->|Saves draft| Batch
-    Batch -->|Submits revision| Review
-    Owner -->|Approves revision| Review
-    Review -->|Authorized publish| Snapshot
+    Editor -->|Saves change| Draft[Shared draft]
+    Pipeline -->|Applies results| Draft
+    Owner -->|Publishes revision N| Draft
+    Draft -->|Release of revision N| Snapshot
     Snapshot -->|Versioned catalog| Game[State Spotter]
 ```
 
-**Next.js on Vercel** serves the workspace and API routes. **Vercel Workflows** keep approval and pipeline coordination durable across requests. **Firebase Auth and Firestore** handle membership, drafts and job state, and **Cloud Storage** holds the versioned snapshots. **Ollama** can use a desktop GPU for configured stages, while **Vercel AI Gateway and Eve** support hosted tagging and research.
+**Next.js on Vercel** serves the workspace and API routes. **Vercel Workflows** keep Publish and pipeline coordination durable across requests. **Firebase Auth and Firestore** handle membership, drafts and job state, and **Cloud Storage** holds the versioned snapshots. **Ollama** can use a desktop GPU for configured stages, while **Vercel AI Gateway and Eve** support hosted tagging and research.
 
 ## Local setup
 

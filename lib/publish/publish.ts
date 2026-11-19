@@ -13,6 +13,7 @@ import type {
   PublishOutcome,
   PublishRecord,
 } from './types'
+import { applyReleaseEdits } from './apply-edits'
 import { validateSnapshot } from './validation'
 import { orderedStatePlates } from '../catalog/order'
 
@@ -188,45 +189,15 @@ async function publishAttempt(
       const edits = (await d.store.listEdits(command.batchId)).filter(
         (edit) => Object.keys(edit.fields).length > 0
       )
-      const fields = new Map(edits.map((edit) => [edit.plateId, edit.fields]))
-      const orders = new Map(
-        Object.entries(batch.stateOrders).map(([state, order]) => [
-          state,
-          new Map(order.map((id, index) => [id, index])),
-        ])
-      )
       const toVersion =
         record?.toVersion ?? (await d.records.nextVersion(lease.token, d.now()))
       if (toVersion === null) return { ok: false, error: 'lock_lost' }
-      const deleted = new Set(
-        edits
-          .filter((edit) => edit.fields.deleted === true)
-          .map((edit) => edit.plateId)
+      const { deleted, plates } = applyReleaseEdits(
+        baseline.plates,
+        edits,
+        batch.stateOrders
       )
-      const next = {
-        version: toVersion,
-        plates: baseline.plates
-          .filter((plate) => !deleted.has(plate.id))
-          .map((plate) => {
-            const edited = { ...plate, ...fields.get(plate.id) }
-            delete edited.deleted
-            if (fields.get(plate.id)?.templateRole)
-              edited.isTemplate = edited.templateRole === 'template'
-            if (fields.get(plate.id)?.variantOfPlateId === null)
-              delete edited.variantOfPlateId
-            for (const key of [
-              'firstIssuedYear',
-              'wikiUrl',
-              'colorDetail',
-              'lineageColor',
-            ] as const) {
-              if (fields.get(plate.id)?.[key] === null) delete edited[key]
-            }
-            const order = orders.get(plate.state)
-            if (order) edited.sortOrder = order.get(plate.id)
-            return edited
-          }),
-      }
+      const next = { version: toVersion, plates }
       const reasons = validateSnapshot(
         baseline,
         next,

@@ -6,8 +6,7 @@ import { reviewQueryScenarios } from './query-scenarios'
 
 reviewQueryScenarios(() => createMemoryStore([]))
 
-test('dashboard reads saved orders and sparse edits from the signed-in curatorâ€™s pending Batches', async () => {
-  const actor = { uid: 'editor', name: null, role: 'editor' } as const
+test('dashboard reads saved orders and every curatorâ€™s edits from the shared draft', async () => {
   const plate = {
     id: 'AK.one',
     state: 'AK',
@@ -16,51 +15,68 @@ test('dashboard reads saved orders and sparse edits from the signed-in curatorâ€
     tags: [],
     image: '',
   }
-  const batch: ReviewBatch = {
-    id: 'first',
-    name: 'First',
-    createdBy: actor.uid,
+  const other = { ...plate, id: 'AK.two', slug: 'two', displayName: 'Two' }
+  const draft: ReviewBatch = {
+    id: 'shared-draft-local',
+    kind: 'shared-draft',
+    name: 'Shared draft',
+    createdBy: 'system',
     createdByName: null,
     createdAt: '2026-11-18',
-    state: 'approved',
+    state: 'open',
     revision: 1,
     baselineVersion: 1,
-    plateIds: [plate.id],
+    plateIds: [plate.id, other.id],
     stateOrders: { AK: ['AK.two', plate.id], AL: ['AL.one'] },
     approval: null,
   }
   const store = createMemoryStore([
-    batch,
-    { ...batch, id: 'published', state: 'published' },
-    { ...batch, id: 'other', createdBy: 'other' },
-    { ...batch, id: 'unrelated', plateIds: ['AL.one'], stateOrders: {} },
+    draft,
+    {
+      ...draft,
+      id: 'old-batch',
+      kind: undefined,
+      createdBy: 'editor',
+      plateIds: ['AK.one'],
+    },
   ])
   const baselineAtVersion = async (_version: number, id: string) =>
-    id === plate.id ? plate : null
+    [plate, other].find((entry) => entry.id === id) ?? null
   const deps: ReviewDeps = {
     store,
     baselineAtVersion,
     baseline: (id) => baselineAtVersion(1, id),
-    stateBaseline: async () => [plate],
+    stateBaseline: async () => [plate, other],
     now: () => '2026-11-18',
   }
-  await store.commit(batch.id, batch.revision, {
-    batch: { ...batch, revision: 2 },
+  await store.commit(draft.id, 1, {
+    batch: { ...draft, revision: 2 },
     edit: {
       plateId: plate.id,
       baseRevision: 'base',
       fields: { tags: ['saved'] },
-      authorId: actor.uid,
+      authorId: 'editor',
       updatedAt: deps.now(),
       resultRevision: 'saved',
     },
   })
+  await store.commit(draft.id, 2, {
+    batch: { ...draft, revision: 3 },
+    edit: {
+      plateId: other.id,
+      baseRevision: 'base',
+      fields: { tags: ['second'] },
+      authorId: 'second-editor',
+      updatedAt: deps.now(),
+      resultRevision: 'second',
+    },
+  })
 
-  expect(await dashboardDrafts(deps, actor, new Set(['AK']))).toEqual([
+  expect(await dashboardDrafts(deps, draft.id, new Set(['AK']))).toEqual([
     {
       batch: {
-        ...batch,
-        revision: 2,
+        ...draft,
+        revision: 3,
         stateOrders: { AK: ['AK.two', plate.id] },
       },
       plates: [
@@ -69,9 +85,15 @@ test('dashboard reads saved orders and sparse edits from the signed-in curatorâ€
           proposed: { ...plate, tags: ['saved'] },
           revision: 'saved',
         }),
+        expect.objectContaining({
+          baseline: other,
+          proposed: { ...other, tags: ['second'] },
+          revision: 'second',
+        }),
       ],
     },
   ])
+  expect(await dashboardDrafts(deps, draft.id, new Set(['CA']))).toEqual([])
 })
 
 test('legacy batches read back with a null creator name', async () => {

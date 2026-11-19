@@ -79,6 +79,7 @@ vi.mock('../../lib/client/hooks', () => ({
   useSelectedBatchId: () => null,
   useBatches: () => ({ data: [] }),
   useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }),
+  useSharedDraftId: () => 'shared-draft-test',
 }))
 
 vi.mock('next/navigation', async (importOriginal) => ({

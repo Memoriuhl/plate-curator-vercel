@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest'
-import { approveBatch, proposeEdit, submitBatch } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batch'
+import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'
 import { validateSnapshot } from '../../lib/publish/validation'
@@ -44,8 +45,6 @@ test('only an approved current revision publishes', async () => {
 
 test('an edit after approval supersedes Publish without advancing the catalog', async () => {
   const f = fixture()
-  const supersedeRun = vi.fn(async () => {})
-  f.deps.supersedeRun = supersedeRun
   expect(
     await proposeEdit(f.deps, owner, {
       batchId: 'batch',
@@ -57,7 +56,6 @@ test('an edit after approval supersedes Publish without advancing the catalog', 
     ok: true,
     value: { batch: { state: 'open', revision: 3, approval: null } },
   })
-  expect(supersedeRun).toHaveBeenCalledWith(batch)
   expect(await publishBatch(f.deps, owner, command)).toEqual({
     ok: false,
     error: 'superseded_revision',
@@ -613,6 +611,81 @@ test('publishes field edits, state order and an absent cleared variant link toge
   expect(written.plates[0]).not.toHaveProperty('variantOfPlateId')
   expect(f.stateOrder).toEqual({ NY: ['existing'], CA: ['two', 'one'] })
 })
+
+test('publishes a cleared family grouping without its keys or the derived template flag', async () => {
+  const f = fixture()
+  f.blobs.set(
+    1,
+    Buffer.from(
+      JSON.stringify({
+        ...snapshot,
+        plates: [
+          {
+            ...snapshot.plates[0],
+            templateFamily: 'family',
+            templateRole: 'template',
+            isTemplate: true,
+          },
+          snapshot.plates[1],
+        ],
+      })
+    )
+  )
+  f.deps.store.listEdits = async () => [
+    {
+      plateId: 'one',
+      baseRevision: 'base',
+      // The shared draft's rebase writes null for grouping the old baseline lacked.
+      fields: { templateFamily: null, templateRole: null } as never,
+      authorId: 'editor',
+      updatedAt: f.deps.now(),
+      resultRevision: 'result',
+    },
+  ]
+  expect(await publishBatch(f.deps, owner, command)).toMatchObject({ ok: true })
+  const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+  expect(written.plates[0]).toEqual(snapshot.plates[0])
+})
+
+test.each([
+  [
+    'an image the baseline kept',
+    { imageUrl: 'https://cdn.example.org/one.webp' },
+  ],
+  ['no image or source', {}],
+] as const)(
+  'publishes a cleared image and source pair without their keys when the baseline had %s',
+  async (_case, media) => {
+    const f = fixture()
+    const plate = { ...snapshot.plates[0], ...media }
+    f.blobs.set(
+      1,
+      Buffer.from(
+        JSON.stringify({ ...snapshot, plates: [plate, snapshot.plates[1]] })
+      )
+    )
+    f.deps.store.listEdits = async () => [
+      {
+        plateId: 'one',
+        baseRevision: 'base',
+        // A put-back of a discarded image and source proposal: the old image, or null
+        // where the baseline had none, and null for the source the baseline lacked.
+        fields: {
+          imageUrl: 'imageUrl' in media ? media.imageUrl : null,
+          sourceUrl: null,
+        },
+        authorId: 'editor',
+        updatedAt: f.deps.now(),
+        resultRevision: 'result',
+      },
+    ]
+    expect(await publishBatch(f.deps, owner, command)).toMatchObject({
+      ok: true,
+    })
+    const written = JSON.parse(Buffer.from(f.blobs.get(2)!).toString())
+    expect(written.plates[0]).toEqual(plate)
+  }
+)
 
 test.each([
   ['missing', ['one']],

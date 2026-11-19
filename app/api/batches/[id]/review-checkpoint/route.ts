@@ -1,7 +1,14 @@
+import {
+  batchTarget,
+  draftWriteTarget,
+} from '../../../../../lib/server/draft-target'
 import { currentActiveOwner, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'
 
-/** Record the revision the owner has viewed after validating that it is current. */
+/**
+ * Record the revision the owner has viewed after validating that it is current. Only the
+ * shared draft keeps checkpoints: an old Batch or a release is read-only history.
+ */
 export async function POST(
   request: Request,
   ctx: RouteContext<'/api/batches/[id]/review-checkpoint'>
@@ -15,10 +22,11 @@ export async function POST(
     body.revision < 0
   )
     return badRequest()
-  const { id } = await ctx.params
+  const target = await draftWriteTarget((await ctx.params).id, auth.actor)
+  if (!target.ok) return target.response
   const { store, now } = reviewDeps()
   const marked = await store.markViewed?.(
-    id,
+    target.id,
     auth.actor.uid,
     body.revision,
     now()
@@ -41,7 +49,7 @@ export async function GET(
   const raw = new URL(request.url).searchParams.get('since')
   if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))
     return badRequest()
-  const { id } = await ctx.params
+  const id = await batchTarget((await ctx.params).id, auth.actor)
   const plateIds = await reviewDeps().store.recentPlateIds?.(id, Number(raw))
   return plateIds ? json({ plateIds }) : json({ error: 'not_found' }, 404)
 }

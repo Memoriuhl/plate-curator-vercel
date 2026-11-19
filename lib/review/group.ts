@@ -5,7 +5,8 @@ import { parseGroupSuggestion } from '../jobs/specialized-suggestions'
 import { completeGroupScope, validGroupContext } from './group-context'
 export { completeGroupScope, validGroupContext } from './group-context'
 import { canEdit } from './access'
-import { editableKeys, limits } from './fields'
+import { unchangedSince } from './preconditions'
+import { batchPlateLimit, editableKeys } from './fields'
 import { hasPipelineHistory, retainedPipelineChanges } from './pipeline-changes'
 import { plateRevision } from './revision'
 import { sameEditableValue } from './story'
@@ -36,7 +37,11 @@ export async function prepareGroupScope(
   const { batch, edits } = snapshot
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.state !== 'open') return { ok: false, error: 'invalid_state' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      plateIds: input.plateIds,
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (input.plateIds.some((id) => !batch.plateIds.includes(id)))
     return { ok: false, error: 'invalid_state' }
@@ -123,7 +128,11 @@ export async function acceptGroup(
   const { batch, edits } = snapshot
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (batch.state !== 'open') return { ok: false, error: 'invalid_state' }
-  if (batch.revision !== input.batchRevision)
+  if (
+    !(await unchangedSince(d, batch, input.batchRevision, {
+      plateIds: suggestion.scope.map((member) => member.plateId),
+    }))
+  )
     return { ok: false, error: 'superseded_revision' }
   if (
     suggestion.scope.some((member) => !batch.plateIds.includes(member.plateId))
@@ -161,7 +170,7 @@ export async function acceptGroup(
     return { ok: false, error: 'invalid_state' }
   const ids = new Set(selected.map((plate) => plate.id))
   const plateIds = [...new Set([...batch.plateIds, ...ids])]
-  if (plateIds.length > limits.plates)
+  if (plateIds.length > batchPlateLimit(batch))
     return { ok: false, error: 'invalid_state' }
   const nextEdits: ProposedEdit[] = []
   const deleteEditsFor: string[] = []

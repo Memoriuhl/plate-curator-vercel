@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { POST as submit } from '../../app/api/batches/[id]/submit/route'
-import { POST as approve } from '../../app/api/batches/[id]/approve/route'
 import {
   GET as preflight,
   POST as publish,
 } from '../../app/api/batches/[id]/publish/route'
 import { GET } from '../../app/api/batches/[id]/run/route'
 import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
-import { PUT } from '../../app/api/batches/[id]/state-order/[state]/route'
+import { POST as keepDraftValues } from '../../app/api/batches/[id]/conflicts/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
+import { sharedDraftId } from '../../lib/review/draft-id'
+import { newSharedDraft } from '../../lib/review/draft'
+import { reviewEnv } from '../../lib/server/context'
 import { plateRevision } from '../../lib/review/revision'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
@@ -64,6 +65,15 @@ const batch: ReviewBatch = {
   stateOrders: {},
   approval: null,
 }
+/** Where a release fixture was frozen: revision 1 of the shared draft. */
+const frozenFrom = () => ({
+  source: { batchId: sharedDraftId(reviewEnv()), revision: 1 },
+})
+/** The shared draft a release fixture came from, still on v7 at revision 1. */
+const sourceDraft = (): ReviewBatch => ({
+  ...newSharedDraft(reviewEnv(), 7, { uid: 'owner', name: null }, ''),
+  revision: 1,
+})
 /** Build the POST request the route fixture passes to its handler. */
 function request(body: unknown) {
   return new Request('http://localhost/api/batches/batch', {
@@ -109,45 +119,11 @@ beforeEach(() => {
     baseline: async () => baseline,
     stateBaseline: async () => [baseline],
     now: () => '2026-11-16T12:00:00.000Z',
-    supersedeRun: vi.fn(async () => {}),
+    liveVersion: async () => 7,
   } satisfies ReviewDeps)
 })
 
-test('submit stores the run, approve resumes approval, and Publish only resumes the command', async () => {
-  expect((await submit(request({ revision: 0 }), ctx)).status).toBe(200)
-  expect(mocks.start).toHaveBeenCalledWith(expect.any(Function), ['batch', 1], {
-    experimental_hook: { token: 'approval:batch:1' },
-  })
-  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({
-    approvalRun: { runId: 'run', revision: 1 },
-  })
-  expect((await approve(request({ revision: 1 }), ctx)).status).toBe(200)
-  expect(mocks.resumeHook).toHaveBeenCalledWith('approval:batch:1', {
-    by: 'owner',
-  })
-  expect((await publish(request({ revision: 2 }), ctx)).status).toBe(202)
-  expect(mocks.resumeHook).toHaveBeenCalledWith('publish:batch:2', {
-    ownerUid: 'owner',
-    requestedBy: {
-      uid: 'owner',
-      email: 'owner@example.com',
-      authorityEpoch: 5,
-    },
-    generation: 1,
-    commandId: expect.any(String),
-  })
-  expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({
-    publishRequestedAt: '2026-11-16T12:00:00.000Z',
-    publishRequestedBy: {
-      uid: 'owner',
-      email: 'owner@example.com',
-      authorityEpoch: 5,
-    },
-  })
-  expect(mocks.publishBatch).not.toHaveBeenCalled()
-})
-
-test('a rejected Publish command is not recorded as publishing', async () => {
+test('a refused Publish command is not recorded as publishing', async () => {
   mocks.reviewDeps().store = createMemoryStore([
     {
       ...batch,
@@ -155,14 +131,13 @@ test('a rejected Publish command is not recorded as publishing', async () => {
       approval: { revision: 0, by: 'owner', at: '' },
     },
   ])
-  mocks.resumeHook.mockRejectedValueOnce(new Error('not waiting'))
   expect((await publish(request({ revision: 0 }), ctx)).status).toBe(409)
   expect(
     (await mocks.reviewDeps().store.getBatch('batch')).publishRequestedAt
   ).toBeUndefined()
 })
 
-test('a stopped approval run starts a new command run instead of resuming its ended hook', async () => {
+test('a stopped Publish run starts a new command run', async () => {
   mocks.publishDeps().records.eligibility = async () => ({
     canRetry: true,
     reason: null,
@@ -293,40 +268,6 @@ test('unauthenticated fresh clicks are refused before command lookup', async () 
   ).toBe(401)
   expect(mocks.publishDeps).not.toHaveBeenCalled()
 })
-
-test.each(['submitted', 'approved'] as const)(
-  'plate and order edits supersede a %s run',
-  async (state) => {
-    for (const kind of ['plate', 'order']) {
-      const previous = {
-        ...batch,
-        state,
-        approvalRun: { runId: 'run', revision: 0 },
-      }
-      mocks.reviewDeps().store = createMemoryStore([previous])
-      const response =
-        kind === 'plate'
-          ? await PATCH(
-              request({
-                baseRevision: plateRevision(baseline),
-                fields: { description: 'Updated' },
-              }),
-              { params: Promise.resolve({ id: 'batch', plateId: 'one' }) }
-            )
-          : await PUT(request({ batchRevision: 0, order: ['one'] }), {
-              params: Promise.resolve({ id: 'batch', state: 'AK' }),
-            })
-      expect(response.status).toBe(200)
-      expect(mocks.reviewDeps().supersedeRun).toHaveBeenCalledWith(previous)
-      expect(await mocks.reviewDeps().store.getBatch('batch')).toMatchObject({
-        state: 'open',
-        revision: 1,
-        approvalRun: previous.approvalRun,
-        lastChangedAt: mocks.reviewDeps().now(),
-      })
-    }
-  }
-)
 
 test('run read requires the Owner and returns missing batches', async () => {
   mocks.currentActor.mockResolvedValueOnce({
@@ -516,76 +457,83 @@ test('invalid Publish bodies and missing Batches are rejected before the paused 
 
 afterEach(() => vi.unstubAllEnvs())
 
-test.each(['open', 'submitted'] as const)(
-  'preflight and explicit confirmation target the exact %s revision',
-  async (state) => {
-    vi.stubEnv('GCP_PROJECT_ID', 'license-plate-game-staging')
-    const requested = { ...batch, id: 'chosen-batch', state, revision: 2 }
-    const unrelated = {
-      ...batch,
-      id: 'other-batch',
-      state: 'approved' as const,
-      revision: 3,
-    }
-    mocks.reviewDeps().store = createMemoryStore([requested, unrelated])
-    const records = mocks.publishDeps().records
-    records.eligibility = vi.fn(async () => ({ canRetry: true, reason: null }))
-    const chosen = { params: Promise.resolve({ id: requested.id }) }
-    const details = await preflight(request(null), chosen)
-    expect(details.status).toBe(200)
-    expect(await details.json()).toMatchObject({
-      batchRevision: 2,
-      confirmation: { revision: 2 },
-      destination: 'license-plate-game-staging',
-      enabledHere: true,
-      canConfirmDraft: true,
-    })
-    expect(records.eligibility).toHaveBeenCalledWith(
-      expect.objectContaining({
-        batchId: requested.id,
-        revision: 3,
-        confirmedDraftRevision: 2,
-      }),
-      expect.any(String)
-    )
-    expect(mocks.start).not.toHaveBeenCalled()
-
-    await mocks.reviewDeps().store.commit(requested.id, 2, {
-      batch: { ...requested, state: 'open', revision: 3 },
-      edit: {
-        plateId: 'one',
-        fields: { tags: ['changed by Editor'] },
-        authorId: 'editor',
-        updatedAt: mocks.reviewDeps().now(),
-        baseRevision: 'before',
-        resultRevision: 'after',
-      },
-    })
-    const stale = await publish(request({ revision: 2 }), chosen)
-    expect(stale.status).toBe(409)
-    expect(await stale.json()).toMatchObject({
-      error: 'superseded_revision',
-      confirmation: { revision: 3 },
-    })
-    expect(mocks.start).not.toHaveBeenCalled()
-    expect(
-      (
-        await publish(
-          request({ revision: 3, commandId: 'confirmed-new' }),
-          chosen
-        )
-      ).status
-    ).toBe(202)
-    expect(mocks.start).toHaveBeenCalledWith(
-      expect.any(Function),
-      [requested.id, 4, expect.objectContaining({ confirmedDraftRevision: 3 })],
-      expect.any(Object)
-    )
-    expect(await mocks.reviewDeps().store.getBatch(unrelated.id)).toEqual(
-      unrelated
-    )
+test('preflight and explicit confirmation target the exact release revision', async () => {
+  vi.stubEnv('GCP_PROJECT_ID', 'license-plate-game-staging')
+  const requested = {
+    ...batch,
+    ...frozenFrom(),
+    id: 'chosen-batch',
+    kind: 'release' as const,
+    revision: 2,
   }
-)
+  const unrelated = {
+    ...batch,
+    id: 'other-batch',
+    state: 'approved' as const,
+    revision: 3,
+  }
+  mocks.reviewDeps().store = createMemoryStore([
+    requested,
+    unrelated,
+    sourceDraft(),
+  ])
+  const records = mocks.publishDeps().records
+  records.eligibility = vi.fn(async () => ({ canRetry: true, reason: null }))
+  const chosen = { params: Promise.resolve({ id: requested.id }) }
+  const details = await preflight(request(null), chosen)
+  expect(details.status).toBe(200)
+  expect(await details.json()).toMatchObject({
+    batchRevision: 2,
+    confirmation: { revision: 2 },
+    destination: 'license-plate-game-staging',
+    enabledHere: true,
+    canConfirmDraft: true,
+  })
+  expect(records.eligibility).toHaveBeenCalledWith(
+    expect.objectContaining({
+      batchId: requested.id,
+      revision: 3,
+      confirmedDraftRevision: 2,
+    }),
+    expect.any(String)
+  )
+  expect(mocks.start).not.toHaveBeenCalled()
+
+  await mocks.reviewDeps().store.commit(requested.id, 2, {
+    batch: { ...requested, state: 'open', revision: 3 },
+    edit: {
+      plateId: 'one',
+      fields: { tags: ['changed by Editor'] },
+      authorId: 'editor',
+      updatedAt: mocks.reviewDeps().now(),
+      baseRevision: 'before',
+      resultRevision: 'after',
+    },
+  })
+  const stale = await publish(request({ revision: 2 }), chosen)
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({
+    error: 'superseded_revision',
+    confirmation: { revision: 3 },
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
+  expect(
+    (
+      await publish(
+        request({ revision: 3, commandId: 'confirmed-new' }),
+        chosen
+      )
+    ).status
+  ).toBe(202)
+  expect(mocks.start).toHaveBeenCalledWith(
+    expect.any(Function),
+    [requested.id, 4, expect.objectContaining({ confirmedDraftRevision: 3 })],
+    expect.any(Object)
+  )
+  expect(await mocks.reviewDeps().store.getBatch(unrelated.id)).toEqual(
+    unrelated
+  )
+})
 
 test('Publish preflight rejects Editors and missing exact IDs', async () => {
   mocks.currentActiveOwner.mockResolvedValueOnce({
@@ -604,6 +552,7 @@ test('Publish preflight rejects Editors and missing exact IDs', async () => {
 })
 
 test('Publish preflight reports disabled releases, pending Pipeline, and stale Catalog versions', async () => {
+  mocks.reviewDeps().store = createMemoryStore([{ ...batch, kind: 'release' }])
   const records = mocks.publishDeps().records
   records.eligibility = async () => ({ canRetry: true, reason: null })
   mocks.publishAllowed.mockReturnValueOnce(false)
@@ -634,7 +583,13 @@ test('Publish preflight exposes the same Standard repair that blocks draft confi
     isStandard: false,
   }
   const store = createMemoryStore([
-    { ...batch, stateOrders: { AK: [other.id, baseline.id] } },
+    {
+      ...batch,
+      ...frozenFrom(),
+      kind: 'release',
+      stateOrders: { AK: [other.id, baseline.id] },
+    },
+    sourceDraft(),
   ])
   mocks.reviewDeps().store = store
   mocks.reviewDeps().stateBaseline = async () => [baseline, other]
@@ -655,12 +610,289 @@ test('Publish preflight exposes the same Standard repair that blocks draft confi
   expect(mocks.start).not.toHaveBeenCalled()
 })
 
-test('draft confirmation never resumes the existing approval workflow Publish hook', async () => {
-  mocks.reviewDeps().store = createMemoryStore([
-    { ...batch, state: 'submitted', revision: 1 },
-  ])
-  const response = await publish(request({ revision: 1 }), ctx)
-  expect(response.status).toBe(409)
-  expect(await response.json()).toMatchObject({ error: 'not_waiting' })
-  expect(mocks.resumeHook).not.toHaveBeenCalled()
+test.each(['open', 'submitted'] as const)(
+  'confirming an older %s Batch is retired; only a release from the shared draft publishes',
+  async (state) => {
+    mocks.reviewDeps().store = createMemoryStore([
+      { ...batch, state, revision: 1 },
+    ])
+    mocks.publishDeps().records.eligibility = async () => ({
+      canRetry: true,
+      reason: null,
+    })
+    const response = await publish(request({ revision: 1 }), ctx)
+    expect(response.status).toBe(410)
+    expect(await response.json()).toMatchObject({ error: 'batches_retired' })
+    expect(await (await preflight(request(null), ctx)).json()).toMatchObject({
+      canConfirmDraft: false,
+    })
+    expect(mocks.start).not.toHaveBeenCalled()
+    expect(mocks.resumeHook).not.toHaveBeenCalled()
+  }
+)
+
+const draftCtx = { params: Promise.resolve({ id: 'draft' }) }
+const akOne = {
+  id: 'AK.one',
+  state: 'AK',
+  slug: 'one',
+  displayName: 'One',
+  image: '',
+  tags: [],
+}
+const akTwo = { ...akOne, id: 'AK.two', slug: 'two', displayName: 'Two' }
+const alOne = { ...akOne, id: 'AL.one', state: 'AL' }
+
+/** Point the review fixture at a fresh catalog with two states and no Batches. */
+function useDraftFixture() {
+  const plates = [akOne, akTwo, alOne]
+  const find = async (_version: number, id: string) =>
+    plates.find((plate) => plate.id === id) ?? null
+  mocks.reviewDeps.mockReturnValue({
+    store: createMemoryStore([]),
+    baselineAtVersion: find,
+    baseline: (id: string) => find(7, id),
+    stateBaseline: async (_version: number, state: string) =>
+      plates.filter((plate) => plate.state === state),
+    now: () => '2026-11-16T12:00:00.000Z',
+    liveVersion: async () => 7,
+  } satisfies ReviewDeps)
+  mocks.publishDeps().records.eligibility = vi.fn(async () => ({
+    canRetry: true,
+    reason: null,
+  }))
+}
+
+/** Save one plate's tags in the shared draft through the plate route. */
+async function editDraft(plate: typeof akOne, tags: string[], uid = 'owner') {
+  mocks.currentActor.mockResolvedValueOnce({
+    ok: true,
+    actor: { uid, name: uid, role: uid === 'owner' ? 'owner' : 'editor' },
+  })
+  const response = await PATCH(
+    request({ baseRevision: plateRevision(plate), fields: { tags } }),
+    { params: Promise.resolve({ id: 'draft', plateId: plate.id }) }
+  )
+  expect(response.status).toBe(200)
+}
+
+test('the Publish view shows the draft revision and what each state changes, with who contributed', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['first'], 'editor')
+  await editDraft(alOne, ['second'], 'other-editor')
+  const view = await preflight(request(null), draftCtx)
+  expect(view.status).toBe(200)
+  expect(await view.json()).toMatchObject({
+    draftId: sharedDraftId(reviewEnv()),
+    draftRevision: 2,
+    baselineVersion: 7,
+    states: [
+      { state: 'AK', plates: 1, moved: 0, contributors: ['editor'] },
+      { state: 'AL', plates: 1, moved: 0, contributors: ['other-editor'] },
+    ],
+    pipeline: { busy: false },
+    canPublish: true,
+  })
+})
+
+test('Publish is blocked while pipeline runs remain, and the view and refusal say how many', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['first'])
+  const records = mocks.publishDeps().records
+  records.pipelineBusy = async () => true
+  records.activePipelineRuns = async () => 3
+  expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
+    {
+      pipeline: { busy: true, activeRuns: 3 },
+      canPublish: false,
+    }
+  )
+  const refused = await publish(request({ revision: 1 }), draftCtx)
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toEqual({
+    error: 'pipeline_busy',
+    activeRuns: 3,
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
+})
+
+test('publishing revision N ships N and leaves later edits in the draft', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  await editDraft(alOne, ['after review'])
+  const response = await publish(
+    request({ revision: 1, commandId: 'publish-one' }),
+    draftCtx
+  )
+  expect(response.status).toBe(202)
+  const [[, [releaseId, revision, command]]] = mocks.start.mock.calls
+  expect(revision).toBe(1)
+  expect(command).toMatchObject({
+    batchId: releaseId,
+    confirmedDraftRevision: 0,
+    commandId: 'publish-one',
+  })
+  const store = mocks.reviewDeps().store
+  const release = await store.readBatch(releaseId)
+  expect(release.batch).toMatchObject({
+    kind: 'release',
+    source: { batchId: sharedDraftId(reviewEnv()), revision: 1 },
+  })
+  expect(
+    release.edits.map((edit: { plateId: string }) => edit.plateId)
+  ).toEqual(['AK.one'])
+  const draft = await store.readBatch(sharedDraftId(reviewEnv()))
+  expect(draft.batch.revision).toBe(2)
+  expect(
+    draft.edits.map((edit: { plateId: string }) => edit.plateId).sort()
+  ).toEqual(['AK.one', 'AL.one'])
+})
+
+test('conflicts from an outside catalog change block Publish until the Owner keeps the draft values', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  const store = mocks.reviewDeps().store
+  const id = sharedDraftId(reviewEnv())
+  const head = (await store.getBatch(id))!
+  const conflicts = [
+    {
+      kind: 'field' as const,
+      plateId: 'AK.one',
+      field: 'tags',
+      fromVersion: 6,
+      toVersion: 7,
+    },
+  ]
+  expect(
+    await store.commit(id, head.revision, {
+      batch: { ...head, revision: head.revision + 1, conflicts },
+      history: false,
+    })
+  ).toBe('ok')
+  expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
+    { draftRevision: 2, conflicts, canPublish: false }
+  )
+  const refused = await publish(
+    request({ revision: 2, commandId: 'over-conflicts' }),
+    draftCtx
+  )
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toMatchObject({ error: 'draft_conflicts' })
+  expect(mocks.start).not.toHaveBeenCalled()
+
+  mocks.currentActiveOwner.mockResolvedValueOnce({
+    ok: false,
+    response: Response.json({ error: 'forbidden' }, { status: 403 }),
+  })
+  expect(
+    (await keepDraftValues(request({ revision: 2 }), draftCtx)).status
+  ).toBe(403)
+  // The Owner keeps the values only for the revision they were shown.
+  expect(
+    (await keepDraftValues(request({ revision: 1 }), draftCtx)).status
+  ).toBe(409)
+  expect(
+    (await keepDraftValues(request({ revision: 2 }), draftCtx)).status
+  ).toBe(200)
+  expect(await (await preflight(request(null), draftCtx)).json()).toMatchObject(
+    { draftRevision: 3, conflicts: [], canPublish: true }
+  )
+})
+
+test('a retried Publish click resumes the same release; another requester or revision cannot take it', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  expect(
+    (await publish(request({ revision: 1, commandId: 'click' }), draftCtx))
+      .status
+  ).toBe(202)
+  const [[, [releaseId, , command]]] = mocks.start.mock.calls
+  const accepted = { ...command }
+  delete accepted.ownerUid
+  mocks.publishDeps().records.command = async () => ({
+    command: accepted,
+    runId: 'first-run',
+  })
+  const retried = await publish(
+    request({ revision: 1, commandId: 'click' }),
+    draftCtx
+  )
+  expect(await retried.json()).toEqual({
+    status: 'publishing',
+    runId: 'first-run',
+  })
+  expect(
+    (await publish(request({ revision: 2, commandId: 'click' }), draftCtx))
+      .status
+  ).toBe(409)
+  mocks.publishDeps().records.command = async () => ({
+    command: {
+      ...accepted,
+      requestedBy: { uid: 'other', email: 'o@example.com', authorityEpoch: 0 },
+    },
+    runId: 'first-run',
+  })
+  expect(
+    (await publish(request({ revision: 1, commandId: 'click' }), draftCtx))
+      .status
+  ).toBe(409)
+  expect(mocks.start).toHaveBeenCalledTimes(1)
+  expect(accepted.batchId).toBe(releaseId)
+})
+
+test('an empty draft or a revision the draft has not reached cannot be published', async () => {
+  useDraftFixture()
+  const empty = await publish(request({ revision: 0 }), draftCtx)
+  expect(empty.status).toBe(409)
+  expect(await empty.json()).toEqual({ error: 'empty_draft' })
+  await editDraft(akOne, ['reviewed'])
+  const ahead = await publish(request({ revision: 5 }), draftCtx)
+  expect(ahead.status).toBe(409)
+  expect(await ahead.json()).toMatchObject({
+    error: 'superseded_revision',
+    confirmation: expect.anything(),
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
+})
+
+test('Publish of a draft too large for one write answers 409 with a clear message and starts nothing', async () => {
+  useDraftFixture()
+  await editDraft(akOne, ['reviewed'])
+  const store = mocks.reviewDeps().store
+  const draftId = sharedDraftId(reviewEnv())
+  const draft = (await store.getBatch(draftId))!
+  // Seeded past the field limits: 40 plates of 256 KiB descriptions is 10 MiB.
+  const description = 'x'.repeat(256 * 1024)
+  const plates = Array.from({ length: 40 }, (_, i) => ({
+    ...akOne,
+    id: `AK.big${i}`,
+  }))
+  expect(
+    await store.commit(draftId, draft.revision, {
+      batch: {
+        ...draft,
+        plateIds: [...draft.plateIds, ...plates.map((p) => p.id)],
+        revision: draft.revision + 1,
+      },
+      edits: plates.map((p) => ({
+        plateId: p.id,
+        fields: { description },
+        authorId: 'owner',
+        updatedAt: '2026-11-16T12:00:00.000Z',
+        baseRevision: plateRevision(p),
+        resultRevision: plateRevision({ ...p, description }),
+      })),
+      history: false,
+    })
+  ).toBe('ok')
+  const refused = await publish(
+    request({ revision: draft.revision + 1 }),
+    draftCtx
+  )
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toEqual({
+    error: 'draft_too_large',
+    message: expect.stringContaining('too large to publish in one write'),
+  })
+  expect(mocks.start).not.toHaveBeenCalled()
 })

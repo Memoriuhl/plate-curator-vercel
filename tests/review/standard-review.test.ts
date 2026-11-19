@@ -1,6 +1,7 @@
 import { respond } from '../../lib/server/respond'
 import { expect, test, vi } from 'vitest'
-import { proposeEdit, reorderState, submitBatch } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { submitBatch } from '../helpers/legacy-approval'
 import { editableKeys } from '../../lib/review/fields'
 import { copyBatch } from '../../lib/review/copy'
 import { createMemoryStore } from '../../lib/review/memory-store'

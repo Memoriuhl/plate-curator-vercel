@@ -138,6 +138,8 @@ const gridPlates = cards.map(projectFamilyPlate)
 function batch(id = 'shared', actor = editor): ReviewBatch {
   return {
     id,
+    // 'shared' stands in for the environment's shared draft.
+    ...(id === 'shared' ? { kind: 'shared-draft' as const } : {}),
     name: id + ' Batch',
     createdBy: actor.uid,
     createdByName: actor.name,
@@ -199,7 +201,7 @@ function session(actor: Actor, id: string | null = 'shared') {
        */
       get: async (path: string) => {
         reads.set(actor.uid + path, (reads.get(actor.uid + path) ?? 0) + 1)
-        if (path === '/api/me') return actor
+        if (path === '/api/me') return { ...actor, draftId: 'shared' }
         if (path === '/api/jobs/tag-job')
           return {
             state: 'completed',

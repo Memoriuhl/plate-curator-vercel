@@ -13,9 +13,11 @@ import type { BatchRun } from '@/lib/client/hooks'
 import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
 import { cn } from '@/components/utils'
 
+// Releases enter at "Waiting for Publish"; the first two steps are kept so runs from
+// Batches made before the shared draft still render.
 const steps = [
-  'Submitted',
-  'Waiting for approval',
+  'Saved in draft',
+  'Confirmed by Owner',
   'Waiting for Publish',
   'Publishing',
   'Published',
@@ -35,7 +37,7 @@ const failures: Record<string, string> = {
     'The interrupted Publish used an unreviewed baseline. Its receipt needs triage.',
   pointer_moved: 'The Catalog moved during Publish.',
   invalid_snapshot: 'The Snapshot could not pass validation.',
-  superseded_revision: 'The Batch changed since approval.',
+  superseded_revision: 'The draft changed past the confirmed revision.',
   version_taken: 'The Snapshot version is already taken.',
   lock_lost: 'The Publish lock was lost.',
 }
@@ -52,7 +54,7 @@ export function RunStatusView({ run }: { run: BatchRun }) {
     return () => clearInterval(timer)
   }, [])
   if (!run.phase)
-    return <p className="text-sm text-muted-foreground">Not submitted yet.</p>
+    return <p className="text-sm text-muted-foreground">Not published yet.</p>
   const terminal = ['failed', 'superseded', 'timed-out'].includes(run.phase)
   const current = terminal
     ? run.phase === 'failed'
@@ -127,11 +129,11 @@ export function RunStatusView({ run }: { run: BatchRun }) {
               {run.outcome?.error === PIPELINE_BUSY
                 ? 'Confirm Publish again when the pipeline clears.'
                 : isPublishStop(run.outcome?.error)
-                  ? 'The Batch remains approved. Resume does not restart this command; a fresh Publish by an active Owner is required.'
+                  ? 'The changes stay in the shared draft. Resume does not restart this command; a fresh Publish by an active Owner is required.'
                   : isBaselineError(run.outcome?.error) ||
                       run.outcome?.error === 'pointer_moved'
-                    ? 'Open Publish and copy to a new Batch for fresh review.'
-                    : 'Fix the Batch and approve it again.'}
+                    ? 'The changes stay in the shared draft. Open Publish and publish the draft again.'
+                    : 'Fix the changes in the shared draft and publish again.'}
             </p>
           </div>
         )}
