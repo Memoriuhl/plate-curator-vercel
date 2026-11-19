@@ -22,20 +22,36 @@ import type {
   ReviewDeps,
 } from './types'
 
-/** Why the migration will not write right now. */
-export type MigrationBlock = 'publish_locked' | 'pipeline_busy'
+/** Why the migration will not start writing right now. */
+export type MigrationBlock =
+  'publish_locked' | 'pipeline_busy' | 'migration_running'
+/** Why a started migration stopped before writing the draft. */
+export type MigrationLost = 'reservation_lost' | 'catalog_moved'
+/**
+ * Holds a review environment for the migration's writes. While it is held no Publish can
+ * start and no pipeline work can be queued there, and the live catalog version is the
+ * one it saw when it took the hold.
+ */
+export interface MigrationFence {
+  /** Take the hold, or name what is using the environment now. */
+  acquire(): Promise<MigrationBlock | null>
+  /** Check the hold is still this run's and the live version has not moved; extends it. */
+  confirm(): Promise<MigrationLost | null>
+  /** Give the hold back. A run that stops without releasing loses it when it expires. */
+  release(): Promise<void>
+}
 export type MigrationOptions = {
   /** Write the result; without it the migration only reports what it would do. */
   apply: boolean
   actor: Pick<Actor, 'uid' | 'name'>
-  /** Name a reason writing is unsafe now (a Publish or pipeline run), or null. */
-  blocked?: () => Promise<MigrationBlock | null>
+  /** Hold the environment from the first write through the draft commit. */
+  fence?: MigrationFence
 }
 export type MigrationReport = {
   env: string
   draftId: string
   applied: boolean
-  refused?: MigrationBlock | 'superseded_revision'
+  refused?: MigrationBlock | MigrationLost | 'superseded_revision'
   /** Draft revision the fold was written at. */
   draftRevision: number | null
   /** Batches folded into the draft (or that would be, on a dry run), oldest first. */
@@ -419,10 +435,24 @@ export async function migrateToSharedDraft(
     kept: [],
     warnings: [],
   }
-  if (options.apply) {
-    const blocked = await options.blocked?.()
-    if (blocked) return { ...report, refused: blocked }
+  if (!options.apply) return fold(d, env, options, report)
+  const blocked = await options.fence?.acquire()
+  if (blocked) return { ...report, refused: blocked }
+  try {
+    return await fold(d, env, options, report)
+  } finally {
+    await options.fence?.release()
   }
+}
+
+/** Plan the fold and, when applying under the fence, write it. */
+async function fold(
+  d: ReviewDeps,
+  env: string,
+  options: MigrationOptions,
+  report: MigrationReport
+): Promise<MigrationReport> {
+  const { draftId } = report
   if (!d.liveVersion) throw new Error('Live catalog version unavailable')
   const version = await d.liveVersion()
   report.skipped = (await d.store.list({ states: ['conflict'] }))
@@ -488,6 +518,10 @@ export async function migrateToSharedDraft(
       draftRevision: stored?.batch.revision ?? null,
     }
     if (!options.apply || !sources.length) return result
+    // Batches closed under a lost hold, or a fold planned on a version that has moved,
+    // stay folded; the next run plans them again.
+    const lost = await options.fence?.confirm()
+    if (lost) return { ...result, applied: false, refused: lost }
     const outcome = await d.store.commit(draftId, head.batch.revision, {
       batch: plan.batch,
       edits: plan.edits,

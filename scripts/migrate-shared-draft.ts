@@ -54,7 +54,7 @@ async function main() {
   const { firestoreReviewStore } = await import('../lib/review/firestore-store')
   const { migrateToSharedDraft } = await import('../lib/review/migrate')
   const { snapshotReviewDeps } = await import('../lib/review/migration-deps')
-  const { firestoreMigrationBlock } =
+  const { firestoreMigrationFence } =
     await import('../lib/review/migration-gate')
   const db = emulator
     ? new Firestore({ projectId: 'demo-plate-curator' })
@@ -73,7 +73,7 @@ async function main() {
     {
       apply: args.apply,
       actor: { uid: 'shared-draft-migration', name: 'Shared draft migration' },
-      blocked: () => firestoreMigrationBlock(db, args.env),
+      fence: firestoreMigrationFence(db, args.env),
     }
   )
   console.log(JSON.stringify(report, null, 2))

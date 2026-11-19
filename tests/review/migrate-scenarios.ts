@@ -590,11 +590,17 @@ export function migrationScenarios(
     timeout
   )
 
-  test.each(['pipeline_busy', 'publish_locked'] as const)(
+  test.each(['pipeline_busy', 'publish_locked', 'migration_running'] as const)(
     'the migration refuses to write while %s',
     async (reason) => {
       const { store, id, draftId, migrate } = await conflicting()
-      const report = await migrate({ blocked: async () => reason })
+      const report = await migrate({
+        fence: {
+          acquire: async () => reason,
+          confirm: async () => null,
+          release: async () => {},
+        },
+      })
       expect(report).toMatchObject({ applied: false, refused: reason })
       expect(await store.getBatch(draftId)).toMatchObject({ revision: 5 })
       expect(await store.getBatch(id('ana'))).toMatchObject({ state: 'open' })
