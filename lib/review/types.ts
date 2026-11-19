@@ -1,7 +1,7 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
 import type { DraftChange, ReviewChanges } from './checkpoint'
 import type { FamilyMergeResult } from './family-merge-plan'
-import type { Plate, StoryFields } from '../catalog/types'
+import type { Plate, Snapshot, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'
 export type Actor = { uid: string; name: string | null; role: Role }
@@ -318,6 +318,8 @@ export type ReviewDeps = {
   store: ReviewStore
   baseline(plateId: string): Promise<Plate | null>
   baselineAtVersion(version: number, plateId: string): Promise<Plate | null>
+  /** Immutable baseline used to validate family labels and Variant parents across states. */
+  snapshotAtVersion?(version: number): Promise<Snapshot>
   stateBaseline(
     version: number,
     state: string,

@@ -28,6 +28,8 @@ import { proposeEdit, revertPipelineField } from '../lib/review/batch'
 import { plateEditVersion } from '../lib/review/edit-history'
 import { plateRevision } from '../lib/review/revision'
 import { applyQueueBundle } from '../lib/jobs/queue-bundle'
+import { revertQueueRun } from '../lib/jobs/revert-run'
+import { sharedDraftId } from '../lib/review/draft-id'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
 import { installModelCatalogFixture } from '../tests/models/fixture'
@@ -780,6 +782,63 @@ test('workflow durably saves each eligible result and preserves it after a later
     value: [{ status: 'failed' }],
   })
   expect(await review.store.readBatch('batch')).toEqual(afterFirstStage)
+}, 20_000)
+
+test('a shared-draft run can be reverted by another curator once it stops writing', async () => {
+  const batchId = sharedDraftId('development')
+  const seed = (await review.store.getBatch('batch'))!
+  await review.store.create({ ...seed, id: batchId, kind: 'shared-draft' })
+  const result = await enqueueSelection(jobs, actor, {
+    requestId: 'revert-run',
+    batchId,
+    plateIds: [plates[0].id],
+    stages: ['describe'],
+  })
+  if (!result.ok) throw Error(result.error)
+  const [run] = result.value
+  const curator = { ...actor, uid: 'other-curator' }
+  expect(
+    await revertQueueRun(jobs, review, curator, batchId, run.id)
+  ).toMatchObject({ ok: false, error: 'pipeline_busy' })
+  await dispatchQueueStage(jobs, run.id, 1, 0, 'revert-hook')
+  const claim = (await claimNext(jobs, 'worker'))!
+  expect(
+    await reportResult(jobs, 'worker', claim.job.id, claim.claimId, {
+      backend: 'fixture',
+      model: 'test',
+      promptVersion: 'v1',
+      durationMs: 10,
+      fieldSuggestion: {
+        kind: 'fields',
+        stage: 'describe',
+        fields: { description: 'Pipeline value' },
+        sources: ['https://example.org/source'],
+      },
+    })
+  ).toMatchObject({ ok: true })
+  await observeQueueStage(jobs, run.id, 1, 0)
+  expect(await revertQueueRun(jobs, review, curator, 'batch', run.id)).toEqual({
+    ok: false,
+    error: 'not_found',
+  })
+  expect(await revertQueueRun(jobs, review, curator, batchId, run.id)).toEqual({
+    ok: true,
+    value: { batchId, revision: 2, reverted: 1, skipped: [] },
+  })
+  expect(await review.store.getEdit(batchId, plates[0].id)).toMatchObject({
+    fields: {},
+    authorId: curator.uid,
+  })
+  expect(await review.store.listChanges!(batchId, 1)).toMatchObject([
+    {
+      revision: 2,
+      before: {
+        edits: {
+          [plates[0].id]: { fields: { description: 'Pipeline value' } },
+        },
+      },
+    },
+  ])
 }, 20_000)
 
 test('a worker result conflicts with a concurrent same-field edit and the newer draft remains intact', async () => {

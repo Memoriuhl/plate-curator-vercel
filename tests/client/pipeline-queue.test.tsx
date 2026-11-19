@@ -56,6 +56,7 @@ import { RESEARCH_MODELS } from '../../lib/research/models'
 
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), send: vi.fn() },
+  revertRun: vi.fn(),
   ensure: vi.fn(),
   pathname: '/states/AK',
   modelId: 'desktop-gemma4-12b',
@@ -80,6 +81,7 @@ vi.mock('../../lib/client/hooks', () => ({
   useBatches: () => ({ data: [] }),
   useMe: () => ({ data: { uid: 'editor', name: 'Editor' } }),
   useSharedDraftId: () => 'shared-draft-test',
+  useReviewActions: () => ({ revertPipelineRun: mocks.revertRun }),
 }))
 
 vi.mock('next/navigation', async (importOriginal) => ({
@@ -1479,6 +1481,32 @@ test('saved-source research is visible in the diagram and reaches the queued opt
       'Alaska pipeline'
     )
   )
+})
+
+test('stage results can revert the whole run and list the fields kept', async () => {
+  mocks.revertRun.mockReset().mockResolvedValue({
+    reverted: 2,
+    skipped: [{ plateId: 'AK.one', field: 'description' }],
+  })
+  const run = saved({
+    status: 'completed',
+    batchId: 'shared-draft-test',
+    previewOnly: false,
+    incrementalDrafts: true,
+    draftPlateIds: ['AK.one'],
+  })
+  render(<PipelineRunResults run={run} actions={resultActions} stage="tag" />)
+  fireEvent.click(screen.getByRole('button', { name: 'Revert pipeline run' }))
+  fireEvent.click(
+    within(screen.getByRole('alertdialog')).getByRole('button', {
+      name: 'Revert run',
+    })
+  )
+  expect(mocks.revertRun).toHaveBeenCalledWith(run.id)
+  expect(
+    await screen.findByText('1 field kept because it changed later')
+  ).toBeTruthy()
+  expect(screen.getByText('AK.one · Description')).toBeTruthy()
 })
 
 test('Preview hides every run Apply control and explains that a normal rerun is required', () => {

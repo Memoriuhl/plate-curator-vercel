@@ -93,6 +93,46 @@ test('comparison buttons switch the selected pane without losing either revision
   expect(screen.getByRole('heading', { name: 'After · rev 4' })).toBeTruthy()
 })
 
+test('each changed grouping field and the source link can be removed independently', () => {
+  const before: Plate = {
+    id: 'AK.one',
+    state: 'AK',
+    slug: 'one',
+    image: '',
+    displayName: 'One',
+    tags: [],
+    templateFamily: 'old',
+    templateRole: 'template',
+  }
+  const after: Plate = {
+    ...before,
+    templateFamily: 'new',
+    templateRole: 'variant',
+    variantOfPlateId: 'AK.two',
+    imageUrl: 'https://example.com/image.jpg',
+    sourceUrl: 'https://example.com/source',
+  }
+  const discard = vi.fn()
+  render(
+    <DiffTable
+      before={before}
+      after={after}
+      version={1}
+      revision={2}
+      order={[]}
+      onDiscard={discard}
+    />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'After' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove family role change' })
+  )
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove source link change' })
+  )
+  expect(discard.mock.calls).toEqual([['templateRole'], ['sourceUrl']])
+})
+
 test('draft comparison allows reverting the one eligible pipeline field', () => {
   const before: Plate = {
     id: 'AK.one',

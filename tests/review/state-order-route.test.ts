@@ -396,7 +396,7 @@ test('discard restores one moved plate and preserves the relative order of the o
   })
 })
 
-test('clearing a replacement Standard restores the linked Standard and its order', async () => {
+test('removing all changes on a replacement Standard keeps the linked plate intact', async () => {
   const deps: ReviewDeps = context.reviewDeps()
   const baseline = await deps.stateBaseline(7, 'AK')
   deps.baselineAtVersion = async (_, id) =>
@@ -409,14 +409,14 @@ test('clearing a replacement Standard restores the linked Standard and its order
       })
     ).status
   ).toBe(200)
+  const before = await deps.store.readBatch('batch')
   const response = await patchPlate('two', { batchRevision: 5, discard: 'all' })
-  expect(response.status).toBe(200)
+  expect(response.status).toBe(422)
   expect(await response.json()).toMatchObject({
-    revision: 6,
-    plateIds: ['one'],
-    stateOrders: {},
+    error: 'invalid_state',
+    reasons: [expect.stringContaining('Standard')],
   })
-  expect(await deps.store.listEdits('batch')).toEqual([])
+  expect(await deps.store.readBatch('batch')).toEqual(before)
 })
 test('signed-in creator receives the saved placement receipt', async () => {
   const response = await put({

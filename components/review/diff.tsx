@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
 import { PlateImageHover } from '@/components/plate/plate-image-preview'
 import { sameEditableValue } from '@/lib/review/story'
-import { draftGroupingFields } from '@/lib/review/fields'
+import { FieldAttribution } from './field-attribution'
 import type {
   DraftChangeTarget,
   EditableFields,
@@ -142,7 +142,7 @@ const fieldsByRow: Record<string, (keyof EditableFields)[]> = {
   'Read more': ['readMore'],
   'Background color': ['colorDetail'],
   'Broad color': ['lineageColor'],
-  Links: ['wikiUrl'],
+  Links: ['sourceUrl', 'wikiUrl'],
 }
 
 /**
@@ -256,31 +256,18 @@ export function DiffTable({
     before.image !== after.image || before.imageUrl !== after.imageUrl
   const changedField = (field: keyof EditableFields) =>
     !sameEditableValue(field, before[field], after[field])
-  const firstGrouping = draftGroupingFields.find(changedField)
-  const updatedImage = changedField('imageUrl')
   function discardTargets(
     label: string
   ): { target: DraftChangeTarget; label: string }[] {
     if (label === 'Order' && positions)
       return [{ target: 'order', label: 'order change' }]
-    if (label === 'Image' && updatedImage)
-      return [{ target: 'imageUrl', label: 'image change' }]
-    const fields =
-      label === 'Links' && !updatedImage
-        ? (['sourceUrl', 'wikiUrl'] as const)
-        : (fieldsByRow[label] ?? [])
-    return fields.flatMap((field) => {
+    return (fieldsByRow[label] ?? []).flatMap((field) => {
       if (
         !changedField(field) ||
-        field === 'imageUrl' ||
-        (field === 'deleted' &&
-          Boolean(before.deleted) === Boolean(after.deleted))
+        (['deleted', 'isStandard'].includes(field) &&
+          Boolean(before[field]) === Boolean(after[field]))
       )
         return []
-      if (draftGroupingFields.some((key) => key === field))
-        return firstGrouping === field
-          ? [{ target: field, label: 'grouping change' }]
-          : []
       return [
         {
           target: field,
@@ -516,29 +503,27 @@ export function DiffTable({
                           className="mt-2 flex flex-wrap items-center gap-2"
                           key={field}
                         >
-                          {change.byName && (
-                            <span className="caption">
-                              Pipeline · {change.byName}
-                            </span>
-                          )}
-                          {onRevert && (!imagePair || canRevertImage) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={reverting}
-                              title={
-                                Object.hasOwn(change, 'previous')
-                                  ? 'Restore the earlier draft value'
-                                  : 'Restore the published value'
-                              }
-                              onClick={() => onRevert(field, change.jobId)}
-                            >
-                              Revert{' '}
-                              {imagePair
-                                ? 'image and source'
-                                : pipelineFieldLabel(field).toLowerCase()}
-                            </Button>
-                          )}
+                          <FieldAttribution change={change} />
+                          {onRevert &&
+                            field !== 'sourceUrl' &&
+                            (!imagePair || canRevertImage) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={reverting}
+                                title={
+                                  Object.hasOwn(change, 'previous')
+                                    ? 'Restore the earlier draft value'
+                                    : 'Restore the published value'
+                                }
+                                onClick={() => onRevert(field, change.jobId)}
+                              >
+                                Revert{' '}
+                                {imagePair
+                                  ? 'image and source'
+                                  : pipelineFieldLabel(field).toLowerCase()}
+                              </Button>
+                            )}
                           {onRevert && imagePair && !canRevertImage && (
                             <span className="caption">
                               The image and its source must be reverted

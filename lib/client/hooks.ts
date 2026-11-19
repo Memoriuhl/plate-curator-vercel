@@ -598,6 +598,13 @@ export function useReviewActions() {
         await refresh(batchId).catch(() => undefined)
       }
     },
+    async revertPipelineRun(runId: string) {
+      const result = await api.send<
+        import('../review/revert-run').RunRevertResult
+      >('POST', `/api/local-pipeline/runs/${encodeURIComponent(runId)}/revert`)
+      await refresh(result.batchId).catch(() => undefined)
+      return result
+    },
     async discardPlateChanges(
       batchId: string,
       plateId: string,

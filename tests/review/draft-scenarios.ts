@@ -6,6 +6,7 @@ import { applyReleaseEdits } from '../../lib/publish/apply-edits'
 import { validateSnapshot } from '../../lib/publish/validation'
 import { proposeEdit, reorderState } from '../../lib/review/batch'
 import { discardPlateChanges } from '../../lib/review/discard-changes'
+import { revertPipelineRun } from '../../lib/review/revert-run'
 import {
   afterPublish,
   draftAtRevision,
@@ -54,10 +55,10 @@ export function sharedDraftScenarios(
   timeout?: number
 ) {
   /** A fresh environment whose catalog can move to new versions. */
-  async function setup() {
+  async function setup(plates = v1) {
     const env = `draft-${randomUUID().slice(0, 8)}`
     const store = await makeStore(env)
-    const versions = new Map<number, Plate[]>([[1, v1]])
+    const versions = new Map<number, Plate[]>([[1, plates]])
     // Committed publish receipts by the version they moved the pointer to.
     const origins = new Map<number, VersionOrigin>()
     // The curator order Publish projects after each commit. Like production, it is not
@@ -70,6 +71,10 @@ export function sharedDraftScenarios(
         versions.get(live)!.find((entry) => entry.id === id) ?? null,
       baselineAtVersion: async (version, id) =>
         versions.get(version)?.find((entry) => entry.id === id) ?? null,
+      snapshotAtVersion: async (version) => ({
+        version,
+        plates: versions.get(version)!,
+      }),
       stateBaseline: async (version, state, order) =>
         orderedStatePlates(
           { version, plates: versions.get(version) ?? [] },
@@ -445,6 +450,244 @@ export function sharedDraftScenarios(
   )
 
   test(
+    'reverting the source link keeps the draft image, other fields and other plates',
+    async () => {
+      const { d, env, draftId, store, save } = await setup()
+      const draft = await ensureDraft(d, env, owner)
+      const tags = ['Hand checked']
+      await save(owner, 'AK.two', { tags })
+      const edit = (await store.getEdit(draftId, 'AK.two'))!
+      const imageUrl = 'https://example.com/image.jpg'
+      expect(
+        await store.commit(draftId, 1, {
+          batch: { ...draft, revision: 2, plateIds: ['AK.two'] },
+          edit: {
+            ...edit,
+            fields: { tags, imageUrl, sourceUrl: 'https://example.com/source' },
+          },
+        })
+      ).toBe('ok')
+      await save(owner, 'AK.three', { tags })
+      const other = await store.getEdit(draftId, 'AK.three')
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.two',
+          batchRevision: 2,
+          target: 'sourceUrl',
+        })
+      ).toMatchObject({ ok: true })
+      expect((await store.getEdit(draftId, 'AK.two'))?.fields).toEqual({
+        tags,
+        imageUrl,
+      })
+      expect(await store.getEdit(draftId, 'AK.three')).toEqual(other)
+    },
+    timeout
+  )
+
+  test(
+    'reverting a position moves only that plate in the current state order',
+    async () => {
+      const plates = v1.map((p) =>
+        p.id === 'AK.one'
+          ? { ...p, isStandard: true, templateRole: 'template' as const }
+          : p
+      )
+      const { d, draftId, env, store, save } = await setup(plates)
+      await ensureDraft(d, env, owner)
+      const baseline = plates.filter((p) => p.state === 'AK').map((p) => p.id)
+      const order = [
+        'AK.one',
+        'AK.three',
+        'AK.five',
+        'AK.two',
+        'AK.four',
+        'AK.six',
+      ]
+      await save(owner, 'AK.two', { tags: ['Keep'] })
+      const draft = (await store.getBatch(draftId))!
+      expect(
+        await store.commit(draftId, 1, {
+          batch: {
+            ...draft,
+            revision: 2,
+            stateOrders: { AK: order },
+            baselineOrders: { AK: baseline },
+          },
+        })
+      ).toBe('ok')
+      const edit = await store.getEdit(draftId, 'AK.two')
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.two',
+          batchRevision: 2,
+          target: 'order',
+        })
+      ).toMatchObject({
+        ok: true,
+        value: {
+          stateOrders: {
+            AK: [
+              'AK.one',
+              'AK.two',
+              'AK.three',
+              'AK.five',
+              'AK.four',
+              'AK.six',
+            ],
+          },
+          stateOrderChangedAt: { AK: expect.any(String) },
+        },
+      })
+      expect(await store.getEdit(draftId, 'AK.two')).toEqual(edit)
+      expect((await store.listChanges!(draftId, 2))[0]).toMatchObject({
+        orderStates: ['AK'],
+        before: { stateOrders: { AK: order }, edits: {} },
+      })
+    },
+    timeout
+  )
+
+  test(
+    'reverting a Standard field refuses to clear its companion plate or move its position',
+    async () => {
+      const plates = v1.map((p) => ({
+        ...p,
+        templateRole: 'template' as const,
+        isStandard: p.id === 'AK.one',
+      }))
+      const { d, draftId, env, store, save } = await setup(plates)
+      await ensureDraft(d, env, owner)
+      expect(await save(owner, 'AK.two', { isStandard: true })).toMatchObject({
+        ok: false,
+      })
+      const head = (await store.getBatch(draftId))!
+      const base = plates.find((p) => p.id === 'AK.two')!
+      expect(
+        await proposeEdit(d, owner, {
+          batchId: draftId,
+          plateId: base.id,
+          baseRevision: plateRevision(base),
+          fields: { isStandard: true },
+          standard: { from: 'AK.one', to: base.id },
+        })
+      ).toMatchObject({ ok: true })
+      const before = await store.readBatch(draftId)
+      expect(
+        await discardPlateChanges(d, editor('ana'), {
+          batchId: draftId,
+          plateId: 'AK.two',
+          batchRevision: head.revision + 1,
+          target: 'isStandard',
+        })
+      ).toMatchObject({
+        ok: false,
+        error: 'invalid_state',
+        reasons: [expect.stringContaining('Standard')],
+      })
+      expect(await store.readBatch(draftId)).toEqual(before)
+    },
+    timeout
+  )
+
+  test(
+    'a run revert restores prior values in one revision and lists a field overwritten by another curator',
+    async () => {
+      const { d, draftId, env, store, save } = await setup()
+      await ensureDraft(d, env, owner)
+      await save(owner, 'AK.two', { tags: ['Before'] })
+      const draft = (await store.getBatch(draftId))!
+      const runId = 'run-example'
+      const at = d.now()
+      const edits = await Promise.all(
+        ['AK.two', 'AK.three'].map(async (plateId) => {
+          const base = (await d.baselineAtVersion(1, plateId))!
+          const pipeline = {
+            runId,
+            jobId: `job-${plateId}`,
+            by: owner.uid,
+            byName: owner.name,
+            at,
+          }
+          const fields = {
+            tags: ['Pipeline'],
+            description: 'Pipeline description',
+          }
+          return {
+            plateId,
+            fields,
+            baseRevision: plateRevision(base),
+            resultRevision: plateRevision({ ...base, ...fields }),
+            authorId: owner.uid,
+            authorName: owner.name,
+            updatedAt: at,
+            pipelineRunIds: [runId],
+            pipelineChanges: {
+              tags: {
+                ...pipeline,
+                previous: plateId === 'AK.two' ? ['Before'] : [],
+                value: fields.tags,
+              },
+              description: { ...pipeline, value: fields.description },
+            },
+          }
+        })
+      )
+      expect(
+        await store.commit(draftId, 1, {
+          batch: {
+            ...draft,
+            revision: 2,
+            plateIds: edits.map((edit) => edit.plateId),
+          },
+          edits,
+        })
+      ).toBe('ok')
+      await save(editor('ana'), 'AK.three', {
+        description: 'Human description',
+      })
+      // A precondition check must also preserve another edit that lands after planning.
+      const commit = store.commit
+      let racing = true
+      const concurrent = {
+        ...d,
+        store: {
+          ...store,
+          async commit(...args: Parameters<ReviewStore['commit']>) {
+            if (racing) {
+              racing = false
+              expect(
+                await save(editor('ana'), 'AK.two', { colorDetail: 'blue' })
+              ).toMatchObject({ ok: true })
+            }
+            return commit(...args)
+          },
+        },
+      }
+      expect(
+        await revertPipelineRun(concurrent, editor('ben'), {
+          batchId: draftId,
+          runId,
+        })
+      ).toMatchObject({
+        ok: true,
+        value: {
+          revision: 5,
+          reverted: 3,
+          skipped: [{ plateId: 'AK.three', field: 'description' }],
+        },
+      })
+      expect(fieldsOf((await store.readBatch(draftId))!.edits)).toEqual({
+        'AK.two': { tags: ['Before'], colorDetail: 'blue' },
+        'AK.three': { description: 'Human description' },
+      })
+    },
+    timeout
+  )
+
+  test(
     'a field the published revision added and a later revision discarded is cleared on the next Publish',
     async () => {
       const { store, d, draftId, env, save, publish } = await setup()
@@ -809,6 +1052,18 @@ export function sharedDraftScenarios(
       ).toBe('ok')
       expect(
         await save(editor('ben'), 'AK.six', { deleted: false })
+      ).toMatchObject({
+        ok: false,
+        error: 'invalid_state',
+        reasons: [expect.stringContaining('Revision 2')],
+      })
+      expect(
+        await discardPlateChanges(d, editor('ben'), {
+          batchId: draftId,
+          plateId: 'AK.six',
+          batchRevision: 3,
+          target: 'deleted',
+        })
       ).toMatchObject({
         ok: false,
         error: 'invalid_state',

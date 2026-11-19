@@ -23,6 +23,8 @@ import { EnhancedImageResult } from './enhanced-image-result'
 import { SpecializedSuggestion } from './specialized-suggestion'
 import { usePipelineQueue } from './use-pipeline-queue'
 import { PipelineResultsSkeleton } from './pipeline-results-skeleton'
+import { RunRevertButton } from '@/components/review/run-revert-button'
+import { isSharedDraftId } from '@/lib/review/draft-id'
 import styles from './pipeline-results.module.css'
 
 type ResultActions = Pick<
@@ -441,6 +443,17 @@ export function PipelineRunResults({
               ? ` · ${saved} saved to ${run.batchName ?? 'your Batch'}`
               : ''}
         </p>
+        {run.editable &&
+          isSharedDraftId(run.batchId) &&
+          (saved > 0 || run.applied) &&
+          !run.previewOnly &&
+          run.status !== 'queued' &&
+          run.status !== 'running' && (
+            <RunRevertButton
+              key={`${run.id}:${attempt.number}`}
+              runId={run.id}
+            />
+          )}
         {!stage && run.incrementalDrafts && !enhancementOnly && (
           <Button asChild size="sm" variant="publish">
             <Link

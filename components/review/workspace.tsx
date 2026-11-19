@@ -60,6 +60,7 @@ import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { hasPipelineHistory } from '@/lib/review/pipeline-changes'
 import { batchHref, reviewHref } from '@/lib/review/href'
 import { BatchLastChanged } from './batch-last-changed'
+import { RunRevertButton } from './run-revert-button'
 import { useBatchRun } from '@/lib/client/hooks'
 
 type State = {
@@ -472,7 +473,9 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const mobile =
     !batchId && params.get('view') === 'states' && !code && !plateId
       ? 'states'
-      : plateId || (!listed.length && !term) || (batchId && recent.isLoading)
+      : plateId ||
+          (!filters.run && !listed.length && !term) ||
+          (batchId && recent.isLoading)
         ? 'detail'
         : 'plates'
   const images = new Map(
@@ -486,6 +489,7 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
   const plateImage = (id: string) => images.get(id)
   const canDiscard = (entry: Entry) =>
     !!me.data &&
+    entry.batch.kind === 'shared-draft' &&
     canEdit(entry.batch, me.data) &&
     editableStates.includes(entry.batch.state)
   async function discard(entry: Entry, target: DraftChangeTarget) {
@@ -695,6 +699,14 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                   Show all Batch changes
                 </Link>
               </div>
+            )}
+            {filters.run &&
+              me.data &&
+              selected.data?.batch.kind === 'shared-draft' && (
+                <RunRevertButton key={filters.run} runId={filters.run} />
+              )}
+            {filters.run && !loading && !byPlate.size && (
+              <p className="caption">This run has no saved draft changes.</p>
             )}
             <div className="grid gap-2 md:hidden">
               <StateVisibilityControl
@@ -963,6 +975,11 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
             </header>
             {comparisons.map((item) => {
               const editable = canDiscard(item)
+              const runIds = new Set(
+                Object.values(item.edit?.pipelineChanges ?? {}).map(
+                  (change) => change.runId
+                )
+              )
               return (
                 <section
                   key={`${item.baseline.id}-${item.batch.id}`}
@@ -1014,6 +1031,25 @@ export function ReviewWorkspace({ states }: { states: State[] }) {
                         </AlertDialog>
                       )}
                   </div>
+                  {editable && !filters.run && runIds.size > 0 && (
+                    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      {[...runIds].map((runId) => (
+                        <li key={runId}>
+                          <Link
+                            className="underline"
+                            href={reviewHref(
+                              undefined,
+                              undefined,
+                              item.batch.id,
+                              { run: runId }
+                            )}
+                          >
+                            Review pipeline run {runId.slice(-8)}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <DiffTable
                     compact
                     before={item.baseline}
