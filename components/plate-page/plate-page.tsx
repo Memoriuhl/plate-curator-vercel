@@ -40,6 +40,7 @@ import { cn } from '@/components/utils'
 import { localPipelineReason } from '@/lib/local-pipeline'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import { StoryEditor } from './story-editor'
+import { PlateDraftReverts } from './draft-reverts'
 import { useDraftOverlay, useEditPlate } from '@/lib/client/hooks'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { Conflict, type Issue } from '@/components/plate/edit-conflict'
@@ -570,6 +571,16 @@ export function PlatePage(props: PlatePageProps) {
           )}
         </div>
       </header>
+      <PlateDraftReverts
+        plateId={current.id}
+        disabled={blocked}
+        onReverted={(field) =>
+          setDraftReset((previous) => ({
+            ...previous,
+            [field]: (previous[field] ?? 0) + 1,
+          }))
+        }
+      />
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.48fr)_minmax(0,.9fr)]">
         <div className="grid min-w-0 gap-4">
           <Card>

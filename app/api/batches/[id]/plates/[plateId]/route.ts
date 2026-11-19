@@ -1,9 +1,6 @@
 import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
 import { parseStandardChange } from '../../../../../../lib/review/standard-change'
-import {
-  proposeEdit,
-  revertPipelineField,
-} from '../../../../../../lib/review/batch'
+import { proposeEdit } from '../../../../../../lib/review/batch'
 import { discardPlateChanges } from '../../../../../../lib/review/discard-changes'
 import {
   editableKeys,
@@ -53,20 +50,6 @@ export async function PATCH(
     if (outcome.ok) catalogChanged()
     return respond(outcome)
   }
-  if (body?.revert !== undefined) {
-    const field = editableKeys.find((key) => key === body.revert)
-    if (!field || typeof body.jobId !== 'string' || !body.jobId)
-      return badRequest()
-    const outcome = await revertPipelineField(reviewDeps(), auth.actor, {
-      batchId: id,
-      plateId,
-      field,
-      jobId: body.jobId,
-    })
-    if (outcome.ok) catalogChanged()
-    return respond(outcome)
-  }
-
   const standard = parseStandardChange(body?.standard)
   if (standard === null) return badRequest()
   const fields = parseEditableFields(body?.fields)

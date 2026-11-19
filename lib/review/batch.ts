@@ -22,6 +22,7 @@ import {
   hasPipelineHistory,
   pipelineImageFields,
   retainedPipelineChanges,
+  restoredPipelineChange,
 } from './pipeline-changes'
 import { plateRevision } from './revision'
 import { plateEditVersion } from './edit-history'
@@ -257,7 +258,9 @@ async function updatePlate(
           familyRole(plate) !== 'template'))
     )
       return { ok: false, error: 'standard_required' }
+    let deletionPublishFence: number | undefined
     if (existing?.fields.deleted && !plate.deleted) {
+      deletionPublishFence = await d.store.deletionPublishFence?.(batch.id)
       const publishing = await deletionPublishing(d, batch, i.plateId)
       if (publishing)
         return { ok: false, error: 'invalid_state', reasons: [publishing] }
@@ -330,14 +333,10 @@ async function updatePlate(
     const attribution = retainedPipelineChanges(existing, plate)
     for (const field of revertedFields) {
       const change = existing?.pipelineChanges?.[field]
-      const prior = change?.prior?.at(-1)
-      if (prior && sameEditableValue(field, prior.value, plate[field])) {
-        const remainder = change?.prior?.slice(0, -1)
+      const prior = restoredPipelineChange(field, change, plate[field])
+      if (prior) {
         attribution.pipelineChanges ??= {}
-        attribution.pipelineChanges[field] = {
-          ...prior,
-          ...(remainder?.length ? { prior: remainder } : {}),
-        }
+        attribution.pipelineChanges[field] = prior
       } else if (attribution.pipelineChanges) {
         delete attribution.pipelineChanges[field]
       }
@@ -432,6 +431,7 @@ async function updatePlate(
     const result = await d.store.commit(i.batchId, batch.revision, {
       batch: nextBatch,
       by: a,
+      deletionPublishFence,
       ...(combined?.ok
         ? combined.value
         : Object.keys(fields).length || hasPipelineHistory(edit)

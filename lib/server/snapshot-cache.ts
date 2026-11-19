@@ -9,7 +9,7 @@ import type { Snapshot } from '../catalog/types'
 import { loadSnapshot } from '../gcp/storage'
 
 /** Memoize the versioned source snapshot per server render so projections share the same load. */
-const snapshotForVersion = cache(
+export const snapshotForVersion = cache(
   async (version: number, kind: CatalogSourceKind): Promise<Snapshot> => {
     if (kind === 'fixture') {
       const snapshot = await fixtureSource().readSnapshot()

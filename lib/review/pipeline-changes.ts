@@ -1,6 +1,6 @@
 import type { Plate } from '../catalog/types'
 import { sameEditableValue } from './story'
-import type { ProposedEdit } from './types'
+import type { EditableFields, PipelineFieldChange, ProposedEdit } from './types'
 
 /** Retain pipeline history for fields that still appear in the edit after a change. */
 export function retainedPipelineChanges(
@@ -32,6 +32,28 @@ export function hasPipelineHistory(
     edit.pipelineRunIds?.length ||
     Object.keys(edit.pipelineChanges ?? {}).length
   )
+}
+
+/** Recover the original attribution for a value restored by a curator. */
+export function restoredPipelineChange(
+  field: keyof EditableFields,
+  change: PipelineFieldChange | undefined,
+  value: unknown,
+  excludingRun?: string
+): PipelineFieldChange | undefined {
+  const history = change?.prior ?? []
+  const prior = history.at(-1)
+  if (
+    !prior ||
+    prior.runId === excludingRun ||
+    !sameEditableValue(field, prior.value, value)
+  )
+    return
+  return {
+    ...prior,
+    restored: true,
+    ...(history.length > 1 ? { prior: history.slice(0, -1) } : {}),
+  }
 }
 
 export const pipelineImageFields = ['imageUrl', 'sourceUrl'] as const

@@ -23,6 +23,10 @@ import {
 import { receiptId } from '../publish/command'
 import { nextPlateEditVersions, recordEditAuthors } from './edit-history'
 
+/** Locate the shared transaction state for deletion undo and Publish acceptance. */
+export const deletionPublishFenceRef = (db: Firestore, batchId: string) =>
+  db.doc(`reviewBatches/${batchId}/coordination/deletionPublish`)
+
 /** Stage a metadata-only update that preserves the batch's editorial revision. */
 export function writePublishMetadata(
   transaction: Transaction,
@@ -460,6 +464,13 @@ export function firestoreReviewStore(
         return true
       })
     },
+    async deletionPublishFence(batchId) {
+      const ref = deletionPublishFenceRef(db, batchId)
+      const record = await (scopedTransaction
+        ? scopedTransaction.get(ref)
+        : ref.get())
+      return record.get('generation') ?? 0
+    },
     /**
      * Commit a batch revision within the existing transaction or start a standalone
      * transaction.
@@ -478,6 +489,13 @@ export function firestoreReviewStore(
           batch.get('revision') !== expectedRevision
         ) {
           return 'revision_mismatch'
+        }
+        if (next.deletionPublishFence !== undefined) {
+          const fence = await transaction.get(
+            deletionPublishFenceRef(db, batchId)
+          )
+          if ((fence.get('generation') ?? 0) !== next.deletionPublishFence)
+            return 'revision_mismatch'
         }
         if (next.migrationHold) {
           const [hold, pointer] = await transaction.getAll(

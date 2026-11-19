@@ -37,6 +37,16 @@ export function sameEditableValue(
   )
 }
 
+export function changedDraftField(
+  field: string,
+  before: unknown,
+  after: unknown
+) {
+  return field === 'isStandard' || field === 'deleted'
+    ? Boolean(before) !== Boolean(after)
+    : !sameEditableValue(field, before, after)
+}
+
 /** Extract just the story fields whose editable values changed. */
 export function changedStoryFields(
   before: StoryFields,

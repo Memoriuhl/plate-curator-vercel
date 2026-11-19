@@ -94,6 +94,7 @@ export type QueueRunSummary = Omit<PipelineRun, 'attempts' | 'fingerprint'> & {
     completedCount?: number
     steps?: RunStep[]
     completedJobIds?: string[]
+    jobIds?: string[]
   })[]
   queueWait?: QueueWait
   jobs: TaggingJob[]
