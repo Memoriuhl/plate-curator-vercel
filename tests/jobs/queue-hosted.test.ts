@@ -335,18 +335,21 @@ test('a 23-plate Gateway Tag run issues at most six model calls concurrently and
     expect(
       await dispatchQueueStage(s.jobs, run.id, 1, start + 6, 'beyond-window')
     ).toBeNull()
-    expect(
-      await executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
-    ).toBe('waiting')
-    const parallel = jobs.map((jobId) =>
+    // The same curator's later run takes a Gateway slot as soon as one is free.
+    const joins = jobs.length < 6
+    if (!joins)
+      expect(
+        await executeHostedQueueStage(s.jobs, laterJob, async () => s.hosted)
+      ).toBe('waiting')
+    const parallel = [...jobs, ...(joins ? [laterJob] : [])].map((jobId) =>
       executeHostedQueueStage(s.jobs, jobId, async () => s.hosted)
     )
     try {
-      await vi.waitFor(() => expect(inFlight).toBe(jobs.length))
+      await vi.waitFor(() => expect(inFlight).toBe(parallel.length))
     } finally {
       release()
     }
-    expect(await Promise.all(parallel)).toEqual(jobs.map(() => 'settled'))
+    expect(await Promise.all(parallel)).toEqual(parallel.map(() => 'settled'))
     for (const [offset, jobId] of jobs.entries()) {
       expect(await getJob(s.jobs, jobId)).toMatchObject({ state: 'completed' })
       expect(
@@ -355,7 +358,7 @@ test('a 23-plate Gateway Tag run issues at most six model calls concurrently and
     }
   }
   expect(peak).toBe(6)
-  expect(s.suggest).toHaveBeenCalledTimes(23)
+  expect(s.suggest).toHaveBeenCalledTimes(24)
   expect(await s.review.listEdits('batch')).toHaveLength(23)
   expect(await listRuns(s.jobs, actor)).toMatchObject({
     value: expect.arrayContaining([

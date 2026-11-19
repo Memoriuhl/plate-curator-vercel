@@ -25,6 +25,7 @@ import {
 import {
   bindQueueWorkflow,
   confirmStoppedWorker,
+  dispatchGatewayTagWave,
   dispatchQueueStage,
   observeQueueStage,
   recordQueueWorkflowFailure,
@@ -192,120 +193,113 @@ test('Colors and Tag compete for the same GPU slot while IO permits two workers'
   expect(await claimNext(s.deps, 'io-three')).toBeNull()
 })
 
-test.each(['desktop-gemma4-12b', 'eve-gemini-2-5-flash-lite'])(
-  'Research runs keep their full place in line on %s',
-  async (researchModelId) => {
-    vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true')
-    const s = setup(
-      Array.from({ length: 10 }, (_, index) => `plate-${index + 1}`)
-    )
-    const claim = (id: string) =>
-      researchModelId.startsWith('eve')
-        ? claimHostedQueueJob(s.deps, id)
-        : claimNext(s.deps, 'worker')
-    async function enqueue(requestId: string, from: number, to: number) {
-      const created = await enqueueRun(s.deps, owner, {
-        batchId: 'batch',
-        requestId,
-        stages: ['research'],
-        researchModelId,
-        plateIds: s.plates.slice(from, to).map((plate) => plate.id),
-      })
-      if (!created.ok) throw Error(created.error)
-      const { id } = created.value
-      await bindQueueWorkflow(s.deps, id, 1, requestId)
-      await dispatchQueueStage(s.deps, id, 1, 0, requestId)
-      return id
-    }
-
-    const first = await enqueue('seven', 0, 7)
-    s.advance(-1)
-    const next = await enqueue('three', 7, 10)
-    const nextJob = `${next}-1-0`
-    const status = async () => {
-      const result = await listRuns(
-        s.deps,
-        owner,
-        await readLocalWorkerCapabilities(s.deps)
-      )
-      if (!result.ok) throw Error(result.error)
-      return result.value
-    }
-    const available = { available: true }
-    await reportLocalWorkerCapabilities(s.deps, 'worker', {
-      group: available,
-      embeddings: available,
-      mask: available,
-      vision: available,
-      pollIntervalMs: 5000,
+test('Desktop research runs keep their full place in line on the GPU', async () => {
+  const researchModelId = 'desktop-gemma4-12b'
+  vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true')
+  const s = setup(
+    Array.from({ length: 10 }, (_, index) => `plate-${index + 1}`)
+  )
+  // A desktop worker always takes the first job in line.
+  const claim = () => claimNext(s.deps, 'worker')
+  async function enqueue(requestId: string, from: number, to: number) {
+    const created = await enqueueRun(s.deps, owner, {
+      batchId: 'batch',
+      requestId,
+      stages: ['research'],
+      researchModelId,
+      plateIds: s.plates.slice(from, to).map((plate) => plate.id),
     })
-    expect(await status()).toContainEqual(
-      expect.objectContaining({ id: first, status: 'queued' })
+    if (!created.ok) throw Error(created.error)
+    const { id } = created.value
+    await bindQueueWorkflow(s.deps, id, 1, requestId)
+    await dispatchQueueStage(s.deps, id, 1, 0, requestId)
+    return id
+  }
+
+  const first = await enqueue('seven', 0, 7)
+  s.advance(-1)
+  const next = await enqueue('three', 7, 10)
+  const status = async () => {
+    const result = await listRuns(
+      s.deps,
+      owner,
+      await readLocalWorkerCapabilities(s.deps)
     )
-    for (let index = 0; index < 7; index++) {
-      if (index > 0) {
-        expect(await claim(nextJob)).toBeNull()
-        await dispatchQueueStage(s.deps, first, 1, index, `seven-${index}`)
-        expect(await status()).toContainEqual(
-          expect.objectContaining({
-            id: first,
-            status: 'running',
-            queueWait: researchModelId.startsWith('eve')
-              ? 'hosted'
-              : 'worker_claim',
-          })
-        )
-      }
-      const current = await claim(`${first}-1-${index}`)
-      expect(current?.job).toMatchObject({
-        queueRunId: first,
-        plateId: s.plates[index].id,
-      })
-      expect(await claim(nextJob)).toBeNull()
-      expect(
-        await reportResult(
-          s.deps,
-          current!.job.workerId!,
-          current!.job.id,
-          current!.claimId,
-          {
-            ...base,
-            model: current!.job.researchModel!.model,
-            fieldSuggestion: {
-              kind: 'fields',
-              stage: 'research',
-              fields: { description: 'Researched' },
-              sources: ['https://example.org/wiki'],
-            },
-          }
-        )
-      ).toMatchObject({ ok: true })
-      expect(await observeQueueStage(s.deps, first, 1, index)).toEqual({
-        phase: index === 6 ? 'done' : 'next',
-      })
-      if (index < 6) {
-        expect(await claim(nextJob)).toBeNull()
-        expect(await status()).toContainEqual(
-          expect.objectContaining({
-            id: next,
-            status: 'queued',
-            queueWait: 'prior_run',
-          })
-        )
-      }
+    if (!result.ok) throw Error(result.error)
+    return result.value
+  }
+  const available = { available: true }
+  await reportLocalWorkerCapabilities(s.deps, 'worker', {
+    group: available,
+    embeddings: available,
+    mask: available,
+    vision: available,
+    pollIntervalMs: 5000,
+  })
+  expect(await status()).toContainEqual(
+    expect.objectContaining({ id: first, status: 'queued' })
+  )
+  for (let index = 0; index < 7; index++) {
+    if (index > 0) {
+      expect(await claim()).toBeNull()
+      await dispatchQueueStage(s.deps, first, 1, index, `seven-${index}`)
       expect(await status()).toContainEqual(
         expect.objectContaining({
           id: first,
-          status: index === 6 ? 'completed' : 'running',
+          status: 'running',
+          queueWait: 'worker_claim',
         })
       )
     }
-    expect((await claim(nextJob))?.job).toMatchObject({
-      queueRunId: next,
-      plateId: s.plates[7].id,
+    const current = await claim()
+    expect(current?.job).toMatchObject({
+      queueRunId: first,
+      plateId: s.plates[index].id,
     })
+    expect(await claim()).toBeNull()
+    expect(
+      await reportResult(
+        s.deps,
+        current!.job.workerId!,
+        current!.job.id,
+        current!.claimId,
+        {
+          ...base,
+          model: current!.job.researchModel!.model,
+          fieldSuggestion: {
+            kind: 'fields',
+            stage: 'research',
+            fields: { description: 'Researched' },
+            sources: ['https://example.org/wiki'],
+          },
+        }
+      )
+    ).toMatchObject({ ok: true })
+    expect(await observeQueueStage(s.deps, first, 1, index)).toEqual({
+      phase: index === 6 ? 'done' : 'next',
+    })
+    if (index < 6) {
+      expect(await claim()).toBeNull()
+      expect(await status()).toContainEqual(
+        expect.objectContaining({
+          id: next,
+          status: 'queued',
+          queueWait: 'prior_run',
+        })
+      )
+    }
+    expect(await status()).toContainEqual(
+      expect.objectContaining({
+        id: first,
+        status: index === 6 ? 'completed' : 'running',
+      })
+    )
   }
-)
+  expect((await claim())?.job).toMatchObject({
+    queueRunId: next,
+    plateId: s.plates[7].id,
+  })
+})
 
 test('an unavailable worker capability fails the stage rather than counting it as a no-result or running dependants', async () => {
   const s = setup()
@@ -330,18 +324,202 @@ test('an unavailable worker capability fails the stage rather than counting it a
   ).toMatchObject({ ok: true })
 })
 
-test('round robin gives another requester a stage boundary while preserving same-user FIFO', async () => {
+test('GPU steps from two requesters run strictly in submission order, across stage boundaries', async () => {
   const s = setup()
-  const first = await s.run('editor-first')
-  s.advance(1)
-  const second = await s.run('editor-second')
+  const first = await s.run('editor-first', ['describe', 'story'])
   s.advance(1)
   const theirs = await s.run('other-first', ['tag'], other, 'other-batch')
-  const a = await s.complete('worker')
-  expect(a.job.queueRunId).toBe(first.id)
-  const b = await s.complete('worker')
-  expect(b.job.queueRunId).toBe(theirs.id)
+  s.advance(1)
+  const second = await s.run('editor-second')
+  const described = await s.complete('worker', {
+    ...base,
+    fieldSuggestion: {
+      kind: 'fields',
+      stage: 'describe',
+      fields: { description: 'Sourced' },
+      sources: ['https://example.org/wiki'],
+    },
+  })
+  expect(described.job.queueRunId).toBe(first.id)
+  expect(described.observation).toEqual({ phase: 'next' })
+  // The earlier run's next GPU step is not dispatched yet but keeps its place.
+  expect(await claimNext(s.deps, 'worker')).toBeNull()
+  expect(await listRuns(s.deps, owner)).toMatchObject({
+    value: expect.arrayContaining([
+      expect.objectContaining({ id: theirs.id, queueWait: 'prior_run' }),
+      expect.objectContaining({ id: second.id, queueWait: 'prior_run' }),
+    ]),
+  })
+  await dispatchQueueStage(s.deps, first.id, 1, 1, 'editor-first-story')
+  const story = await claimNext(s.deps, 'worker')
+  expect(story?.job).toMatchObject({ queueRunId: first.id, queueStep: 1 })
+  expect(await claimNext(s.deps, 'other-worker')).toBeNull()
+  expect(
+    await reportResult(s.deps, 'worker', story!.job.id, story!.claimId, {
+      ...base,
+      stageError: 'unavailable',
+    })
+  ).toMatchObject({ ok: true })
+  expect(await observeQueueStage(s.deps, first.id, 1, 1)).toEqual({
+    phase: 'done',
+  })
+  expect((await s.complete('worker')).job.queueRunId).toBe(theirs.id)
   expect((await s.complete('worker')).job.queueRunId).toBe(second.id)
+})
+
+test('cancelling an earlier GPU run between steps releases its place in line', async () => {
+  const s = setup()
+  const first = await s.run('editor-first', ['describe', 'story'])
+  s.advance(1)
+  const theirs = await s.run('other-first', ['tag'], other, 'other-batch')
+  await s.complete('worker', {
+    ...base,
+    fieldSuggestion: {
+      kind: 'fields',
+      stage: 'describe',
+      fields: { description: 'Sourced' },
+      sources: ['https://example.org/wiki'],
+    },
+  })
+  expect(await claimNext(s.deps, 'worker')).toBeNull()
+  expect(await cancelRun(s.deps, actor, first.id)).toMatchObject({
+    value: { status: 'cancelled' },
+  })
+  expect((await claimNext(s.deps, 'worker'))?.job.queueRunId).toBe(theirs.id)
+})
+
+test('Gateway Tag runs from the same requester progress concurrently up to the hosted limit', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup(Array.from({ length: 8 }, (_, index) => `plate-${index + 1}`))
+  const runs: { id: string; jobs: string[] }[] = []
+  for (let index = 0; index < 4; index++) {
+    const created = await enqueueRun(s.deps, actor, {
+      requestId: `gateway-${index}`,
+      batchId: 'batch',
+      plateIds: s.plates
+        .slice(index * 2, index * 2 + 2)
+        .map((plate) => plate.id),
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    })
+    if (!created.ok) throw Error(created.error)
+    const { id } = created.value
+    await bindQueueWorkflow(s.deps, id, 1, `workflow-gateway-${index}`)
+    const wave = await dispatchGatewayTagWave(s.deps, id, 1, 0)
+    expect(wave).toHaveLength(2)
+    runs.push({ id, jobs: wave.map((job) => job.id) })
+    s.advance(1)
+  }
+  const [first, second, third, fourth] = runs
+  // A curator's later runs no longer wait for their earlier run to finish.
+  for (const run of [first, second, third])
+    for (const id of run.jobs)
+      expect((await claimHostedQueueJob(s.deps, id))?.job.state).toBe('claimed')
+  // Six Gateway Tag calls is still the hosted ceiling.
+  for (const id of fourth.jobs)
+    expect(await claimHostedQueueJob(s.deps, id)).toBeNull()
+  const listed = await listRuns(s.deps, actor)
+  expect(listed).toMatchObject({
+    value: expect.arrayContaining([
+      ...[first, second, third].map(({ id }) =>
+        expect.objectContaining({ id, status: 'running' })
+      ),
+      expect.objectContaining({
+        id: fourth.id,
+        status: 'queued',
+        queueWait: 'prior_run',
+      }),
+    ]),
+  })
+  const done = (await claimHostedQueueJob(s.deps, second.jobs[0]))!
+  expect(
+    await reportResult(s.deps, 'hosted', done.job.id, done.claimId, {
+      ...base,
+      suggestions: ['blue'],
+    })
+  ).toMatchObject({ ok: true })
+  await observeQueueStage(s.deps, second.id, 1, 0)
+  // The freed slot goes to the next job in line, then the ceiling holds again.
+  expect((await claimHostedQueueJob(s.deps, fourth.jobs[0]))?.job.state).toBe(
+    'claimed'
+  )
+  expect(await claimHostedQueueJob(s.deps, fourth.jobs[1])).toBeNull()
+})
+
+test('Eve research runs from the same requester progress concurrently up to the shared I/O limit', async () => {
+  vi.stubEnv('RESEARCH_ENABLE_MODEL_CALLS', 'true')
+  const s = setup(['one', 'two', 'three'])
+  const ids: string[] = []
+  for (const [index, plate] of s.plates.entries()) {
+    const created = await enqueueRun(s.deps, owner, {
+      batchId: 'batch',
+      requestId: `eve-${index}`,
+      stages: ['research'],
+      researchModelId: 'eve-gemini-2-5-flash-lite',
+      plateIds: [plate.id],
+    })
+    if (!created.ok) throw Error(created.error)
+    const { id } = created.value
+    await bindQueueWorkflow(s.deps, id, 1, `eve-${index}`)
+    await dispatchQueueStage(s.deps, id, 1, 0, `eve-${index}`)
+    ids.push(id)
+    s.advance(1)
+  }
+  const claims = await Promise.all(
+    ids.map((id) => claimHostedQueueJob({ ...s.deps }, `${id}-1-0`))
+  )
+  expect(claims.map((claim) => claim?.job.queueRunId ?? null)).toEqual([
+    ids[0],
+    ids[1],
+    null,
+  ])
+})
+
+test('drafts from concurrent runs in the same Batch both land', async () => {
+  vi.stubEnv('TAGGING_MODELS', 'gateway-gemma4-26b')
+  const s = setup()
+  const runs: string[] = []
+  for (const plate of s.plates) {
+    const created = await enqueueSelection(s.deps, actor, {
+      requestId: `draft-${plate.slug}`,
+      batchId: 'batch',
+      plateIds: [plate.id],
+      stages: ['tag'],
+      tagModelId: 'gateway-gemma4-26b',
+    })
+    if (!created.ok) throw Error(created.error)
+    const [run] = created.value
+    await bindQueueWorkflow(s.deps, run.id, 1, `workflow-${plate.slug}`)
+    await dispatchQueueStage(s.deps, run.id, 1, 0, `hook-${plate.slug}`)
+    runs.push(run.id)
+    s.advance(1)
+  }
+  const claims = await Promise.all(
+    runs.map((id) => claimHostedQueueJob(s.deps, `${id}-1-0`))
+  )
+  for (const [index, claim] of claims.entries())
+    expect(
+      await reportResult(s.deps, 'hosted', claim!.job.id, claim!.claimId, {
+        ...base,
+        suggestions: [index ? 'red' : 'blue'],
+      })
+    ).toMatchObject({ ok: true })
+  expect(
+    await Promise.all(
+      runs.map((id) => observeQueueStage({ ...s.deps }, id, 1, 0))
+    )
+  ).toEqual([{ phase: 'done' }, { phase: 'done' }])
+  const saved = await s.review.readBatch('batch')
+  expect(saved?.batch.revision).toBe(2)
+  expect(
+    saved?.edits.map((edit) => [edit.plateId, edit.fields.tags]).sort()
+  ).toEqual([
+    ['AK.one', ['blue']],
+    ['AK.two', ['red']],
+  ])
+  expect(await listRuns(s.deps, actor)).toMatchObject({
+    value: [{ status: 'completed' }, { status: 'completed' }],
+  })
 })
 
 test('sequential projected Wiki/Describe/Story survives server reconstruction and missed callback, never writes Batch', async () => {

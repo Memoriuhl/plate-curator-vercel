@@ -32,9 +32,9 @@ import { resolveResearchModel } from '../research/models'
 import { pipelineChunkSize, pipelineSelectionLimit } from './pipeline-selection'
 import { parallelGatewayTagPlan, parallelTagIndices } from './queue-parallel'
 import {
-  nextRunByRequester,
+  queueSchedule,
   queuedStageWait,
-  queueResourceClaims,
+  workerFeatures,
   type QueueWorker,
 } from './queue-claim'
 
@@ -595,12 +595,16 @@ export async function listRuns(
     const scoped = (await tx.runs()).filter(
       (run) => run.localScope === d.localScope
     )
-    const next = nextRunByRequester(scoped, d.localScope)
     const runs = scoped
       .filter((run) => run.requestedBy === actor.uid || actor.role === 'owner')
       .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     const jobs = await tx.list()
-    const claims = worker ? queueResourceClaims(jobs, d.localScope) : []
+    const schedule = queueSchedule(
+      d.localScope,
+      jobs,
+      scoped,
+      worker ? workerFeatures(worker) : {}
+    )
     const now = d.now()
     const visible: QueueRunView[] = []
     // Reuse each batch read within this transaction when multiple runs share a batch.
@@ -620,12 +624,10 @@ export async function listRuns(
           job.queueAttempt === attempt.number &&
           job.queueStep === attempt.cursor
       )
-      const behindEarlierRun =
-        run.status === 'queued' && next.get(run.requestedBy)?.id !== run.id
-      const queueWait = behindEarlierRun
-        ? 'prior_run'
-        : worker
-          ? queuedStageWait(run, current, claims, worker, now)
+      const queueWait = worker
+        ? queuedStageWait(run, current, schedule, worker, now)
+        : current && schedule.behind(current)
+          ? 'prior_run'
           : undefined
       visible.push({
         ...runView(run, batch, runJobs),
