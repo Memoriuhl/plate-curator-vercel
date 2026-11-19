@@ -1,3 +1,5 @@
+import { moveState } from '../lib/review/move-state'
+import type { StateMove } from '../lib/review/state-move'
 import { createContext, Profiler, useContext } from 'react'
 import {
   act,
@@ -246,13 +248,11 @@ function session(actor: Actor, id: string | null = 'shared') {
           return { jobId: 'tag-job', runId: 'tag-workflow' }
         }
         if (method === 'PUT') {
-          const result = await reorderState(deps, actor, {
+          const result = await moveState(deps, actor, {
             batchId: path.split('/')[3],
             state: 'AK',
             ...(body as {
-              batchRevision: number
-              order: string[]
-              promotion?: { plateId: string; templateFamily: string }
+              moves: StateMove[]
             }),
           })
           if (!result.ok) {
@@ -263,7 +263,7 @@ function session(actor: Actor, id: string | null = 'shared') {
               await response.json()
             )
           }
-          return result.value
+          return result.value.batch
         }
         if (method === 'POST' && path.endsWith('/family-merge')) {
           const response = await familyDrop(
@@ -494,103 +494,78 @@ async function ready(view: ReturnType<typeof render>) {
   await waitFor(() => expect(view.container.textContent).toContain('Live'))
 }
 
-test.each(['pointer', 'keyboard'] as const)(
-  'two sessions reject a stale %s promotion after an order save on its state, and land it after a Tag save on another plate',
-  async (mode) => {
-    for (const change of ['order', 'tag'] as const) {
-      const first = render(<Workspace actor={editor} />)
-      const second = render(<Workspace actor={owner} />)
-      await ready(first)
-      await ready(second)
-      targetRects(first.container)
-      const handle = first.container.querySelector<HTMLElement>(
-        '[data-plate-row="AK.v"]'
-      )!
-      if (mode === 'pointer') {
-        pointer(handle, 'pointerdown', 100)
-        hoverDrop(handle, 540, 100)
-      } else {
-        fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
-        fireEvent.keyDown(window, { key: 'ArrowRight' })
-      }
-      const order = ['AK.b', 'AK.a', 'AK.v']
-      const revision = (await deps.store.getBatch('shared'))!.revision
-      await act(async () => {
-        if (change === 'order')
-          expect(
-            (
-              await reorderState(deps, owner, {
-                batchId: 'shared',
-                state: 'AK',
-                batchRevision: revision,
-                order,
-                standard: { from: 'AK.a', to: order[0] },
-              })
-            ).ok
-          ).toBe(true)
-        else await remote({ tags: ['remote tag'] }, 'AK.b')
-      })
-      expect(
-        Array.from(
-          first.container.querySelectorAll<HTMLElement>('[data-drag-family]')
-        ).map((el) => el.dataset.dragFamily)
-      ).not.toEqual(['AK.b', 'AK.a'])
-      if (mode === 'pointer') pointer(handle, 'pointerup', 540, 100)
-      else fireEvent.keyDown(window, { key: ' ' })
-      if (change === 'tag') {
-        // The shared draft only rejects a stale revision when a later commit touched the
-        // same plates or state order; a Tag save on another plate is not a conflict.
-        await waitFor(() =>
-          expect(first.container.textContent).toContain('Dropped')
-        )
-        expect((await saved()).proposed.templateRole).toBe('template')
-        expect((await saved('AK.b')).proposed.tags).toEqual(['remote tag'])
-        expect((await deps.store.getBatch('shared'))!.revision).toBe(
-          revision + 2
-        )
+test.each([
+  ['pointer', 'order'],
+  ['pointer', 'tag'],
+  ['keyboard', 'order'],
+  ['keyboard', 'tag'],
+] as const)(
+  'a stale %s promotion composes with a %s save when the Standard stays put',
+  async (mode, change) => {
+    const first = render(<Workspace actor={editor} />)
+    const second = render(<Workspace actor={owner} />)
+    await ready(first)
+    await ready(second)
+    targetRects(first.container)
+    const handle = first.container.querySelector<HTMLElement>(
+      '[data-plate-row="AK.v"]'
+    )!
+    if (mode === 'pointer') {
+      pointer(handle, 'pointerdown', 100)
+      hoverDrop(handle, 540, 100)
+    } else {
+      fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
+      fireEvent.keyDown(window, { key: 'ArrowRight' })
+    }
+    const order = ['AK.b', 'AK.a', 'AK.v']
+    const revision = (await deps.store.getBatch('shared'))!.revision
+    await act(async () => {
+      if (change === 'order')
         expect(
-          requests.filter((r) => r.method === 'PUT').at(-1)?.body
-        ).toMatchObject({
-          batchRevision: revision,
-          promotion: { plateId: 'AK.v' },
-        })
-        cleanup()
-        continue
-      }
+          (
+            await reorderState(deps, owner, {
+              batchId: 'shared',
+              state: 'AK',
+              batchRevision: revision,
+              order,
+              standard: { from: 'AK.a', to: order[0] },
+            })
+          ).ok
+        ).toBe(true)
+      else await remote({ tags: ['remote tag'] }, 'AK.b')
+    })
+    expect(
+      Array.from(
+        first.container.querySelectorAll<HTMLElement>('[data-drag-family]')
+      ).map((el) => el.dataset.dragFamily)
+    ).not.toEqual(['AK.b', 'AK.a'])
+    if (mode === 'pointer') pointer(handle, 'pointerup', 540, 100)
+    else fireEvent.keyDown(window, { key: ' ' })
+    if (mode === 'keyboard' && change === 'order') {
       await waitFor(() =>
         expect(first.container.textContent).toContain(
-          'This Batch changed. Drag again'
+          'The Standard changed. Reload and confirm the new Standard again.'
         )
       )
       expect((await saved()).proposed.templateRole).toBe('variant')
       expect((await deps.store.getBatch('shared'))!.revision).toBe(revision + 1)
-      expect(first.container.textContent).not.toContain('Lifted Variant')
-      expect(
-        requests.filter((r) => r.method === 'PUT').at(-1)?.body
-      ).toMatchObject({
-        batchRevision: revision,
-        promotion: { plateId: 'AK.v' },
-      })
-      if (change === 'order')
-        expect((await deps.store.getBatch('shared'))!.stateOrders.AK).toEqual(
-          order
-        )
-      if (change === 'order')
-        expect(
-          Array.from(
-            first.container.querySelectorAll<HTMLElement>('[data-drag-family]')
-          ).map((el) => el.dataset.dragFamily)
-        ).toEqual(['AK.b', 'AK.a'])
-      if (mode === 'keyboard')
-        await waitFor(() =>
-          expect(document.activeElement).toBe(
-            first.container.querySelector<HTMLElement>(
-              '[data-plate-row="AK.v"]'
-            )!
-          )
-        )
-      cleanup()
+      return
     }
+    await waitFor(() =>
+      expect(first.container.textContent).toContain('Dropped')
+    )
+    expect((await saved()).proposed.templateRole).toBe('template')
+    expect((await deps.store.getBatch('shared'))!.revision).toBe(revision + 2)
+    expect(
+      requests.filter((r) => r.method === 'PUT').at(-1)?.body
+    ).toMatchObject({
+      moves: [{ plateIds: ['AK.v'], promote: true }],
+    })
+    if (change === 'order')
+      expect((await deps.store.getBatch('shared'))!.stateOrders.AK[0]).toBe(
+        'AK.b'
+      )
+    else expect((await saved('AK.b')).proposed.tags).toEqual(['remote tag'])
   }
 )
 
@@ -721,10 +696,13 @@ async function conflictPair() {
       'My story'
     )
   )
+  expect(within(second.container).getByRole('alert').textContent).toContain(
+    'Owner saved this field'
+  )
   return { first, second }
 }
 
-test('a family drop rejects a remote edit during the gesture and refreshes the saved family', async () => {
+test('a stale family drop recognizes a plate already moved into the destination', async () => {
   const first = render(<Workspace actor={editor} />)
   const second = render(<Workspace actor={owner} page index={2} />)
   await ready(first)
@@ -752,7 +730,7 @@ test('a family drop rejects a remote edit during the gesture and refreshes the s
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(first.container.textContent).toContain(
-      'The Batch changed. Drag again'
+      'No plates moved. 1 already in this family'
     )
   )
   expect(
@@ -767,8 +745,8 @@ test('a family drop rejects a remote edit during the gesture and refreshes the s
   ).toEqual([
     expect.objectContaining({
       body: expect.objectContaining({
-        batchRevision: 0,
-        members: [{ id: 'AK.v', revision: plateRevision(plates[1]) }],
+        destinationId: 'AK.b',
+        plateIds: ['AK.v'],
       }),
     }),
   ])
@@ -1009,9 +987,10 @@ test.each(['background', 'background gap', 'Backspace'] as const)(
         ).not.toBeNull()
       )
       await waitFor(async () =>
-        expect((await deps.store.getBatch('shared'))?.stateOrders.AK).toEqual(
-          expected
-        )
+        expect(
+          (await deps.store.getBatch('shared'))?.stateOrders.AK ??
+            plates.map(({ id }) => id)
+        ).toEqual(expected)
       )
       await waitFor(() =>
         expect(view.container.textContent).toContain(

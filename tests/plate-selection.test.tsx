@@ -226,9 +226,15 @@ it('Backspace promotes only variants through the edit path and ignores editable 
   expect(edit).not.toHaveBeenCalled()
   expect(move).toHaveBeenCalledExactlyOnceWith(
     variant.state,
-    [template.id, variant.id],
-    { plateId: variant.id, templateFamily: 'ak_variant' },
-    { batchId: 'batch', revision: 1 }
+    [
+      {
+        plateIds: [variant.id],
+        placement: { kind: 'after', anchorId: template.id },
+        promote: true,
+      },
+    ],
+    { batchId: 'batch', revision: 1 },
+    undefined
   )
   expect(screen.getByText('1 plate is now a Template')).toBeTruthy()
 })

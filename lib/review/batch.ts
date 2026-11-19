@@ -9,7 +9,12 @@ import {
   editableKeys,
   limits,
 } from './fields'
-import { retryDraft, retryDraftRace, unchangedSince } from './preconditions'
+import {
+  plateFieldConflicts,
+  retryDraft,
+  retryDraftRace,
+  unchangedSince,
+} from './preconditions'
 import { draftCommitAttempts, draftRetryPause } from './retry'
 import { sameEditableValue } from './story'
 import { deletionPublishing, resolveConflicts } from './draft'
@@ -194,8 +199,22 @@ async function updatePlate(
       }
       requested = Object.fromEntries(previous)
     } else {
-      if (plateRevision(current) !== i.baseRevision)
-        return { ok: false, error: 'stale_plate', current }
+      if (plateRevision(current) !== i.baseRevision) {
+        const conflicts = await plateFieldConflicts(
+          d,
+          batch,
+          baseline,
+          existing,
+          i.baseRevision,
+          i.fields
+        )
+        return {
+          ok: false,
+          error: 'stale_plate',
+          current,
+          ...(conflicts && { conflicts }),
+        }
+      }
       requested = i.fields
     }
     const changes = Object.fromEntries(

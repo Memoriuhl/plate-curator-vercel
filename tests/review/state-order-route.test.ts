@@ -68,6 +68,9 @@ function put(body: unknown) {
     { params: Promise.resolve({ id: 'batch', state: 'AK' }) }
   )
 }
+function before(id: string, anchorId: string) {
+  return { plateIds: [id], placement: { kind: 'before', anchorId } }
+}
 function patchPlate(plateId: string, body: unknown) {
   return PATCH(
     new Request(`https://example.com/api/batches/batch/plates/${plateId}`, {
@@ -98,8 +101,7 @@ test('discard restores one moved plate and preserves the relative order of the o
   expect(
     (
       await put({
-        batchRevision: 4,
-        order: ['one', 'three', 'two', 'five', 'four'],
+        moves: [before('three', 'two'), before('five', 'four')],
       })
     ).status
   ).toBe(200)
@@ -125,8 +127,7 @@ test('clearing a replacement Standard restores the linked Standard and its order
   expect(
     (
       await put({
-        batchRevision: 4,
-        order: ['two', 'one'],
+        moves: [before('two', 'one')],
         standard: { from: 'one', to: 'two' },
       })
     ).status
@@ -142,8 +143,7 @@ test('clearing a replacement Standard restores the linked Standard and its order
 })
 test('signed-in creator receives the updated batch', async () => {
   const response = await put({
-    batchRevision: 4,
-    order: ['two', 'one'],
+    moves: [before('two', 'one')],
     standard: { from: 'one', to: 'two' },
   })
   expect(response.status).toBe(200)
@@ -158,7 +158,7 @@ test('signed-in creator receives the updated batch', async () => {
   })
 })
 
-test('combined order request promotes the Variant with one revision and rejects stale retries', async () => {
+test('combined move promotes the Variant with one revision and skips a repeated placement', async () => {
   const deps = context.reviewDeps()
   const variant = {
     id: 'one',
@@ -182,36 +182,38 @@ test('combined order request promotes the Variant with one revision and rejects 
     },
   ]
   const body = {
-    batchRevision: 4,
     standard: { from: null, to: 'two' },
-    order: ['two', 'one'],
-    promotion: { plateId: 'one', templateFamily: 'new' },
+    moves: [
+      {
+        plateIds: ['one'],
+        placement: { kind: 'after', anchorId: 'two' },
+        promote: true,
+      },
+    ],
   }
   expect((await put(body)).status).toBe(200)
   expect(await deps.store.getBatch('batch')).toMatchObject({
     revision: 5,
-    stateOrders: { AK: body.order },
+    stateOrders: { AK: ['two', 'one'] },
   })
   expect(await deps.store.getEdit('batch', 'one')).toMatchObject({
     fields: {
       templateRole: 'template',
       variantOfPlateId: null,
-      templateFamily: 'new',
+      templateFamily: 'ak_one',
     },
   })
-  expect((await put(body)).status).toBe(409)
+  expect((await put({ moves: body.moves })).status).toBe(200)
   expect(deps.store.signalRevision('batch')).toBe(5)
 })
 
 test.each([
   null,
   {},
-  { plateId: 1, templateFamily: 'new' },
-  { plateId: 'one', templateFamily: '' },
-])('rejects malformed promotion %j', async (promotion) => {
-  expect(
-    (await put({ batchRevision: 4, order: ['two', 'one'], promotion })).status
-  ).toBe(400)
+  { plateIds: [1], placement: { kind: 'start' } },
+  { plateIds: ['one'], placement: { kind: 'after', anchorId: '' } },
+])('rejects malformed placement %j', async (move) => {
+  expect((await put({ moves: [move] })).status).toBe(400)
 })
 test('requires sign-in before parsing input', async () => {
   context.currentActor.mockResolvedValue({
@@ -231,27 +233,23 @@ test.each([
 ])('rejects malformed input %j', async (body) => {
   expect((await put(body)).status).toBe(400)
 })
-test('returns conflict for stale revisions and unprocessable for non-permutations', async () => {
-  // A revision below the draft's rebase floor can no longer be replayed.
-  context.reviewDeps().store = createMemoryStore([{ ...batch, rebaseFloor: 4 }])
-  const stale = await put({ batchRevision: 3, order: ['two', 'one'] })
+test('rejects unavailable anchors and duplicate moved IDs', async () => {
+  const stale = await put({ moves: [before('two', 'missing')] })
   expect(stale.status).toBe(409)
-  expect(await stale.json()).toEqual({ error: 'superseded_revision' })
-  expect((await put({ batchRevision: 4, order: ['one', 'one'] })).status).toBe(
-    422
-  )
+  expect(await stale.json()).toMatchObject({ error: 'superseded_revision' })
+  expect(
+    (await put({ moves: [before('one', 'two'), before('one', 'two')] })).status
+  ).toBe(400)
 })
 test('an old Batch answers 409 as read-only history and a missing one 404', async () => {
   const legacy: ReviewBatch = { ...batch }
   delete legacy.kind
   context.reviewDeps().store = createMemoryStore([legacy])
-  const old = await put({ batchRevision: 4, order: ['one', 'two'] })
+  const old = await put({ moves: [before('one', 'two')] })
   expect(old.status).toBe(409)
   expect(await old.json()).toMatchObject({ error: 'history_read_only' })
   context.reviewDeps().store = createMemoryStore([])
-  expect((await put({ batchRevision: 4, order: ['one', 'two'] })).status).toBe(
-    404
-  )
+  expect((await put({ moves: [before('one', 'two')] })).status).toBe(404)
 })
 
 test('a plate PATCH from a tab still on an old Batch answers 409 and saves nothing', async () => {
@@ -471,4 +469,171 @@ test('the Batch endpoint pages a large response and binds continuations to one r
     })
   ).toBe('ok')
   expect((await get(firstPage.nextPage)).status).toBe(409)
+})
+
+test('applies stale-screen moves to the current state order across a rebase floor', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  deps.stateBaseline = async () =>
+    ['one', 'two', 'three', 'four', 'five'].map((id) => ({
+      id,
+      state: 'AK',
+      slug: id,
+      displayName: id,
+      image: '',
+      tags: [],
+      templateRole: 'template',
+      isStandard: id === 'one',
+    }))
+  const initial = {
+    ...batch,
+    revision: 8,
+    rebaseFloor: 8,
+    stateOrders: { AL: ['AL.two', 'AL.one'] },
+  }
+  deps.store = createMemoryStore([initial])
+  const listChanges = vi.spyOn(deps.store, 'listChanges')
+  const move = (id: string, anchorId: string) =>
+    put({
+      moves: [{ plateIds: [id], placement: { kind: 'before', anchorId } }],
+    })
+  expect((await move('five', 'three')).status).toBe(200)
+  expect((await move('two', 'four')).status).toBe(200)
+  const competing = await move('five', 'four')
+  expect(competing.status).toBe(200)
+  expect(await competing.json()).toMatchObject({
+    revision: 11,
+    stateOrders: {
+      AK: ['one', 'three', 'two', 'five', 'four'],
+      AL: initial.stateOrders.AL,
+    },
+  })
+  expect(listChanges).not.toHaveBeenCalled()
+})
+
+test('reports the editor who saved the conflicting field even after a different field was edited', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const [plate, other] = await deps.stateBaseline(7, 'AK')
+  deps.baselineAtVersion = async (_, id) =>
+    [plate, other].find((member) => member.id === id) ?? null
+  const editAs = (uid: string, name: string, at: string) => {
+    context.currentActor.mockResolvedValue({
+      ok: true,
+      actor: { uid, name, role: 'editor' },
+    })
+    deps.now = () => at
+  }
+  const at = '2026-11-18T22:10:00Z'
+  editAs('first', 'First Curator', at)
+  const first = await patchPlate(plate.id, {
+    baseRevision: plateRevision(plate),
+    fields: { tags: ['saved'] },
+  })
+  expect(first.status).toBe(200)
+  editAs('second', 'Second Curator', '2026-11-18T22:11:00Z')
+  expect(
+    (
+      await patchPlate(plate.id, {
+        baseRevision: plateRevision((await first.json()).plate),
+        fields: { description: 'different field' },
+      })
+    ).status
+  ).toBe(200)
+  expect(
+    (
+      await patchPlate(other.id, {
+        baseRevision: plateRevision(other),
+        fields: { tags: ['separate plate'] },
+      })
+    ).status
+  ).toBe(200)
+  const stale = await patchPlate(plate.id, {
+    baseRevision: plateRevision(plate),
+    fields: { tags: ['stale'] },
+  })
+  expect(stale.status).toBe(409)
+  expect(await stale.json()).toMatchObject({
+    error: 'stale_plate',
+    current: { tags: ['saved'] },
+    conflicts: {
+      tags: { by: 'first', byName: 'First Curator', at, value: ['saved'] },
+    },
+  })
+})
+
+test('joins the current family as a block and only changes the Standard with confirmation', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const baseline: Plate[] = [
+    {
+      id: 'one',
+      templateRole: 'template',
+      templateFamily: 'first',
+      isStandard: true,
+    },
+    {
+      id: 'variant',
+      templateRole: 'variant',
+      templateFamily: 'first',
+      variantOfPlateId: 'one',
+    },
+    { id: 'two', templateRole: 'template', templateFamily: 'second' },
+    { id: 'three', templateRole: 'template', templateFamily: 'third' },
+  ].map((plate) => ({
+    state: 'AK',
+    slug: plate.id,
+    displayName: plate.id,
+    image: '',
+    tags: [],
+    ...plate,
+  })) as Plate[]
+  deps.stateBaseline = async () => baseline
+  const moves = [
+    { plateIds: ['one'], placement: { kind: 'join', anchorId: 'three' } },
+  ]
+  expect((await put({ moves })).status).toBe(409)
+  expect(await deps.store.listEdits('batch')).toEqual([])
+  expect(
+    (await put({ moves, standard: { from: 'one', to: 'two' } })).status
+  ).toBe(200)
+  expect(await deps.store.getBatch('batch')).toMatchObject({
+    revision: 5,
+    stateOrders: { AK: ['two', 'three', 'one', 'variant'] },
+  })
+  expect(await deps.store.getEdit('batch', 'two')).toMatchObject({
+    fields: { isStandard: true },
+  })
+  expect(await deps.store.getEdit('batch', 'one')).toMatchObject({
+    fields: {
+      templateRole: 'variant',
+      variantOfPlateId: 'three',
+      isStandard: false,
+    },
+  })
+  expect(await deps.store.getEdit('batch', 'variant')).toMatchObject({
+    fields: { templateFamily: 'third', variantOfPlateId: 'three' },
+  })
+  expect(
+    (
+      await put({
+        moves: [
+          {
+            plateIds: ['AL.outside'],
+            placement: { kind: 'join', anchorId: 'three' },
+          },
+        ],
+      })
+    ).status
+  ).toBe(422)
+  expect(
+    (
+      await put({
+        moves: [
+          {
+            plateIds: ['variant'],
+            placement: { kind: 'before-plate', anchorId: 'two' },
+          },
+        ],
+      })
+    ).status
+  ).toBe(409)
+  expect(await deps.store.getBatch('batch')).toMatchObject({ revision: 5 })
 })

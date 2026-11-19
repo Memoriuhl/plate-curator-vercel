@@ -18,6 +18,7 @@ import type {
   useEditPlate,
   useReorderState,
 } from '@/lib/client/hooks'
+import { placementsForOrder } from '@/lib/client/state-moves'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import {
   planFamilyMerge,
@@ -445,14 +446,15 @@ export function usePlateDrag(options: Options) {
             ? placement.origin
             : ordering.capture()
         const standard = acknowledgements.get(state)
-        const promotions = members.map((plate) => ({
-          plateId: plate.id,
-          templateFamily: planned.get(plate.id)!.templateFamily!,
-        }))
-        const proposal = promotions.length === 1 ? promotions[0] : promotions
-        const result = standard
-          ? await ordering.move(state, order, proposal, origin, standard)
-          : await ordering.move(state, order, proposal, origin)
+        const moves = placementsForOrder(
+          order,
+          members.map(({ id }) => id),
+          {
+            familyHeads: initialFamilies.map(({ template }) => template.id),
+            promote: true,
+          }
+        )
+        const result = await ordering.move(state, moves, origin, standard)
         if (!result.ok) {
           failure =
             ('message' in result && result.message) || errors[result.error]
@@ -484,9 +486,13 @@ export function usePlateDrag(options: Options) {
             const from = orders.get(state)![0]
             const standard =
               from !== order[0] ? { from, to: order[0] } : undefined
-            const result = standard
-              ? await ordering.reorder(state, order, standard)
-              : await ordering.reorder(state, order)
+            const moves = placementsForOrder(
+              order,
+              succeeded
+                .filter(({ plate }) => plate.state === state)
+                .map(({ plate }) => plate.id)
+            )
+            const result = await ordering.reorder(state, order, standard, moves)
             if (!result.ok) orderRestored = false
             else Object.assign(restoredRevisions, result.revisions)
           } catch {
@@ -786,30 +792,34 @@ export function usePlateDrag(options: Options) {
         setOptimisticEdit({ plateId: item.plate.id, fields })
         if (!ordering.move || !drag.origin)
           throw new Error('Reload before moving a Variant')
-        result = standard
-          ? await ordering.move(
-              item.plate.state,
-              order,
-              {
-                plateId: item.plate.id,
-                templateFamily: fields.templateFamily!,
-              },
-              drag.origin,
-              standard
-            )
-          : await ordering.move(
-              item.plate.state,
-              order,
-              {
-                plateId: item.plate.id,
-                templateFamily: fields.templateFamily!,
-              },
-              drag.origin
-            )
+        result = await ordering.move(
+          item.plate.state,
+          placementsForOrder(order, [item.plate.id], {
+            familyHeads: families.map(({ template }) => template.id),
+            promote: true,
+          }),
+          drag.origin,
+          standard
+        )
       } else
-        result = standard
-          ? await ordering.reorder(item.plate.state, order, standard)
-          : await ordering.reorder(item.plate.state, order)
+        result = await ordering.reorder(
+          item.plate.state,
+          order,
+          standard,
+          placementsForOrder(
+            item.kind === 'variant'
+              ? order.filter(
+                  (id) =>
+                    id === source.template.id ||
+                    source.variants.some((variant) => variant.id === id)
+                )
+              : order,
+            [item.plate.id],
+            item.kind === 'family'
+              ? { familyHeads: families.map(({ template }) => template.id) }
+              : undefined
+          )
+        )
       if (!result.ok) {
         announce(
           ('message' in result && result.message) || errors[result.error]

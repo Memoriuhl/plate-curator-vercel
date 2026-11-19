@@ -113,6 +113,7 @@ const plate: Plate = {
   displayName: 'One',
   image: '',
   tags: [],
+  templateRole: 'template',
 }
 const openBatch = {
   id: 'batch',
@@ -233,8 +234,12 @@ test('a curator state reorder makes the next catalog read fresh', async () => {
     new Request('https://example.com/api/batches/batch/state-order/AK', {
       method: 'PUT',
       body: JSON.stringify({
-        batchRevision: 4,
-        order: ['AK.two', 'AK.one'],
+        moves: [
+          {
+            plateIds: ['AK.two'],
+            placement: { kind: 'before', anchorId: 'AK.one' },
+          },
+        ],
         standard: { from: null, to: 'AK.two' },
       }),
     }),
@@ -251,7 +256,14 @@ test('a rejected curator write keeps the cached head', async () => {
   const response = await PUT(
     new Request('https://example.com/api/batches/batch/state-order/AK', {
       method: 'PUT',
-      body: JSON.stringify({ batchRevision: 3, order: ['AK.two', 'AK.one'] }),
+      body: JSON.stringify({
+        moves: [
+          {
+            plateIds: ['AK.two'],
+            placement: { kind: 'before', anchorId: 'AK.missing' },
+          },
+        ],
+      }),
     }),
     { params: Promise.resolve({ id: 'batch', state: 'AK' }) }
   )

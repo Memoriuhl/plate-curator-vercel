@@ -1,3 +1,4 @@
+import type { StateMove } from '../../lib/review/state-move'
 import { createElement, type ReactNode } from 'react'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { SWRConfig } from 'swr'
@@ -273,6 +274,20 @@ test('Review and Publish default batch-detail reads revalidate cached state-page
   expect(session.api.get).toHaveBeenCalledExactlyOnceWith('/api/batches/draft')
 })
 
+const beforeOther: StateMove = {
+  plateIds: ['AK.other'],
+  placement: { kind: 'before', anchorId: card.id },
+}
+const afterOther: StateMove = {
+  plateIds: ['AK.other'],
+  placement: { kind: 'after', anchorId: card.id },
+}
+const promoteAtStart: StateMove = {
+  plateIds: [card.id],
+  placement: { kind: 'start' },
+  promote: true,
+}
+
 test('revisiting cached server cards retains a saved draft family order', async () => {
   const context = harness()
   let order: string[] | undefined
@@ -298,7 +313,12 @@ test('revisiting cached server cards retains a saved draft family order', async 
   )
   await act(async () => {
     expect(
-      await first.result.current.ordering.reorder('AK', ['AK.other', card.id])
+      await first.result.current.ordering.reorder(
+        'AK',
+        ['AK.other', card.id],
+        undefined,
+        [beforeOther]
+      )
     ).toMatchObject({ ok: true })
   })
   first.unmount()
@@ -307,7 +327,7 @@ test('revisiting cached server cards retains a saved draft family order', async 
   expect(revisit.result.current[1].sortOrder).toBe(0)
 })
 
-test('combined move retains lift revision even after a newer Batch enters the cache', async () => {
+test('combined move sends its placement even after a newer Batch enters the cache', async () => {
   const context = harness()
   const { result } = renderHook(() => useReorderState(), context)
   await waitFor(() =>
@@ -325,22 +345,16 @@ test('combined move retains lift revision even after a newer Batch enters the ca
     batch: { ...batch, revision: 2, stateOrders: { AK: ['remote'] } },
   })
   await act(async () =>
-    expect(
-      await result.current.move(
-        'AK',
-        ['AK.one'],
-        { plateId: 'AK.one', templateFamily: 'new' },
-        origin
-      )
-    ).toEqual({ ok: false, error: 'superseded_revision' })
+    expect(await result.current.move('AK', [promoteAtStart], origin)).toEqual({
+      ok: false,
+      error: 'superseded_revision',
+    })
   )
   expect(session.api.send).toHaveBeenCalledExactlyOnceWith(
     'PUT',
     '/api/batches/draft/state-order/AK',
     {
-      batchRevision: 1,
-      order: ['AK.one'],
-      promotion: { plateId: 'AK.one', templateFamily: 'new' },
+      moves: [promoteAtStart],
     }
   )
   expect(
@@ -349,7 +363,7 @@ test('combined move retains lift revision even after a newer Batch enters the ca
 })
 
 test.each([true, false])(
-  'lost move response reconciles saved Batch before reporting success (landed: %s)',
+  'lost move response refreshes the Batch and preserves the ambiguous outcome (landed: %s)',
   async (landed) => {
     const context = harness()
     const { result } = renderHook(() => useReorderState(), context)
@@ -375,19 +389,8 @@ test.each([true, false])(
       : detail()
     session.api.get.mockResolvedValue(saved)
     await act(async () => {
-      const move = result.current.move(
-        'AK',
-        ['AK.one'],
-        { plateId: 'AK.one', templateFamily: 'new' },
-        origin
-      )
-      if (landed)
-        expect(await move).toMatchObject({
-          ok: true,
-          batchId: 'draft',
-          revision: 'draft-revision',
-        })
-      else await expect(move).rejects.toThrow('response lost')
+      const move = result.current.move('AK', [promoteAtStart], origin)
+      await expect(move).rejects.toThrow('response lost')
     })
     expect(context.cache.get('/api/batches/draft').data).toEqual(saved)
     expect(session.api.send).toHaveBeenCalledOnce()
@@ -423,12 +426,7 @@ test('a template move waits for the committed revision and keeps the promotion i
     .mockImplementation(async (key) => (key === ownKey ? [savedBatch] : saved))
   await act(async () => {
     expect(
-      await result.current.ordering.move(
-        'AK',
-        [card.id],
-        { plateId: card.id, templateFamily: 'new' },
-        origin
-      )
+      await result.current.ordering.move('AK', [promoteAtStart], origin)
     ).toMatchObject({ ok: true })
   })
   expect(result.current.overlay[0]).toMatchObject({
@@ -439,7 +437,7 @@ test('a template move waits for the committed revision and keeps the promotion i
   })
 })
 
-test('a successful HTTP response still requires a saved template and order', async () => {
+test('a successful HTTP response still requires the refreshed promotion', async () => {
   const { result } = renderHook(() => useReorderState(), harness())
   await waitFor(() => expect(result.current.ready).toBe(true))
   session.api.send.mockResolvedValue({ ...batch, revision: 2 })
@@ -447,15 +445,14 @@ test('a successful HTTP response still requires a saved template and order', asy
     expect(
       await result.current.move(
         'AK',
-        [card.id],
-        { plateId: card.id, templateFamily: 'new' },
+        [promoteAtStart],
         result.current.capture()
       )
     ).toMatchObject({ ok: false, error: 'superseded_revision' })
   })
 })
 
-test('a shared draft discovered after lift cannot inherit its newer revision', async () => {
+test('a placement can target a draft discovered after lift without a revision', async () => {
   const context = harness({}, null)
   const { result } = renderHook(() => useReorderState(), context)
   const origin = result.current.capture()
@@ -465,20 +462,16 @@ test('a shared draft discovered after lift cannot inherit its newer revision', a
     new ApiError(409, 'superseded_revision', {})
   )
   await act(async () =>
-    expect(
-      await result.current.move(
-        'AK',
-        ['AK.one'],
-        { plateId: 'AK.one', templateFamily: 'new' },
-        origin
-      )
-    ).toEqual({ ok: false, error: 'superseded_revision' })
+    expect(await result.current.move('AK', [promoteAtStart], origin)).toEqual({
+      ok: false,
+      error: 'superseded_revision',
+    })
   )
-  expect(session.api.send.mock.calls[0][2].batchRevision).toBe(0)
+  expect(session.api.send.mock.calls[0][2]).toEqual({ moves: [promoteAtStart] })
 })
 
 test.each(['merge', 'promote'] as const)(
-  '%s drop outside the batch sends the server revision',
+  '%s drop outside the edited plates sends a placement',
   async (action) => {
     const plate = expandFamilyPlate(
       projectFamilyPlate({
@@ -529,7 +522,13 @@ test.each(['merge', 'promote'] as const)(
             }
       )
       return merged
-        ? { moved: [plate.id], alreadyInFamily: 0, standard: 0, deleted: 0 }
+        ? {
+            moved: [plate.id],
+            alreadyInFamily: 0,
+            standard: 0,
+            deleted: 0,
+            revision: 2,
+          }
         : savedBatch
     })
     const { result } = renderHook(() => {
@@ -610,9 +609,8 @@ test.each(['merge', 'promote'] as const)(
           'POST',
           '/api/batches/draft/family-merge',
           {
-            batchRevision: 1,
-            members: [{ id: plate.id, revision: 'server-revision' }],
-            destination: { id: parent.id, revision: parent.revision },
+            plateIds: [plate.id],
+            destinationId: parent.id,
           }
         )
       else
@@ -620,9 +618,13 @@ test.each(['merge', 'promote'] as const)(
           'PUT',
           '/api/batches/draft/state-order/AK',
           {
-            batchRevision: 1,
-            order: [parent.id, plate.id],
-            promotion: { plateId: plate.id, templateFamily: 'ak_outside' },
+            moves: [
+              {
+                plateIds: [plate.id],
+                placement: { kind: 'after', anchorId: parent.id },
+                promote: true,
+              },
+            ],
           }
         )
     } finally {
@@ -644,10 +646,7 @@ test.each(['card', 'batch'])(
     const { result } = renderHook(() => useEditPlate(), harness())
     await act(async () => {
       await expect(
-        result.current.edit(
-          { ...card, revision: source === 'card' ? '' : card.revision },
-          { tags: [] }
-        )
+        result.current.edit({ ...card, revision: '' }, { tags: [] })
       ).rejects.toThrow('Cannot save a plate without a revision')
     })
     expect(session.api.send).not.toHaveBeenCalled()
@@ -697,7 +696,7 @@ test('draft overlay merges proposed fields and checks without changing card disp
   expect(card.tags).toEqual([])
 })
 
-test('editing uses the shared draft revision and revalidates details and every batch list', async () => {
+test('editing uses the viewed plate revision and revalidates details and every batch list', async () => {
   session.api.get.mockImplementation(async (key: string) => {
     if (key.startsWith('/api/batches?') || key === batchesKey()) return [batch]
     return detail()
@@ -726,7 +725,7 @@ test('editing uses the shared draft revision and revalidates details and every b
   expect(session.api.send).toHaveBeenCalledExactlyOnceWith(
     'PATCH',
     '/api/batches/draft/plates/AK.one',
-    { baseRevision: 'draft-revision', fields: { tags: proposed.tags } }
+    { baseRevision: card.revision, fields: { tags: proposed.tags } }
   )
   expect(session.api.get).toHaveBeenCalledWith('/api/batches/draft')
   expect(session.api.get).toHaveBeenCalledWith(batchesKey())
@@ -801,7 +800,7 @@ test('network failures throw and clear pending', async () => {
   expect(result.current.pending).toBe(false)
 })
 
-test('cached batch details supply the revision without another detail fetch', async () => {
+test('a newer cached detail does not replace a viewed plate revision', async () => {
   const { result } = renderHook(
     () => ({ edit: useEditPlate(), detail: useBatch(batch.id) }),
     harness()
@@ -819,7 +818,7 @@ test('cached batch details supply the revision without another detail fetch', as
     'PATCH',
     '/api/batches/draft/plates/AK.one',
     {
-      baseRevision: 'draft-revision',
+      baseRevision: card.revision,
       fields: { tags: ['one'] },
     }
   )
@@ -1034,7 +1033,7 @@ test('two fast edits save both changes into the shared draft in order', async ()
     [
       'PATCH',
       '/api/batches/draft/plates/AK.one',
-      { baseRevision: 'batch-baseline', fields: { tags: ['first'] } },
+      { baseRevision: card.revision, fields: { tags: ['first'] } },
     ],
     [
       'PATCH',
@@ -1070,7 +1069,7 @@ test('a failed save releases serialization so a later edit can retry', async () 
   expect(result.current.pending).toBe(false)
 })
 
-test('reorder saves into the shared draft and serializes using the saved draft revision', async () => {
+test('reorder serializes placements into the shared draft', async () => {
   let revision = 1
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -1089,8 +1088,12 @@ test('reorder saves into the shared draft and serializes using the saved draft r
   let first!: Promise<unknown>
   let second!: Promise<unknown>
   act(() => {
-    first = result.current.reorder('AK', ['AK.other', card.id])
-    second = result.current.reorder('AK', [card.id, 'AK.other'])
+    first = result.current.reorder('AK', ['AK.other', card.id], undefined, [
+      beforeOther,
+    ])
+    second = result.current.reorder('AK', [card.id, 'AK.other'], undefined, [
+      afterOther,
+    ])
   })
   await waitFor(() => expect(session.api.send).toHaveBeenCalledTimes(1))
   expect(result.current.pending).toBe(true)
@@ -1102,16 +1105,8 @@ test('reorder saves into the shared draft and serializes using the saved draft r
     ])
   })
   expect(session.api.send.mock.calls).toEqual([
-    [
-      'PUT',
-      '/api/batches/draft/state-order/AK',
-      { batchRevision: 1, order: ['AK.other', card.id] },
-    ],
-    [
-      'PUT',
-      '/api/batches/draft/state-order/AK',
-      { batchRevision: 2, order: [card.id, 'AK.other'] },
-    ],
+    ['PUT', '/api/batches/draft/state-order/AK', { moves: [beforeOther] }],
+    ['PUT', '/api/batches/draft/state-order/AK', { moves: [afterOther] }],
   ])
   expect(result.current.pending).toBe(false)
 })
@@ -1279,7 +1274,11 @@ test('a lagging Batch read cannot undo a confirmed reorder', async () => {
   await waitFor(() => expect(result.current.ordering.ready).toBe(true))
 
   await act(async () => {
-    expect(await result.current.ordering.reorder('AK', order)).toMatchObject({
+    expect(
+      await result.current.ordering.reorder('AK', order, undefined, [
+        beforeOther,
+      ])
+    ).toMatchObject({
       ok: true,
     })
   })
@@ -1328,7 +1327,9 @@ test.each([
     const { result } = renderHook(() => useReorderState(), harness())
     let response
     await act(async () => {
-      response = await result.current.reorder('AK', [card.id])
+      response = await result.current.reorder('AK', [card.id], undefined, [
+        { plateIds: [card.id], placement: { kind: 'start' } },
+      ])
     })
     expect(response).toEqual({ ok: false, error })
     expect(result.current.pending).toBe(false)
@@ -1354,7 +1355,12 @@ test('reorder overlays immediately while saving and rolls back on failure so ano
   )
   let saved!: Promise<unknown>
   act(() => {
-    saved = result.current.reorder.reorder('AK', ['AK.other', card.id])
+    saved = result.current.reorder.reorder(
+      'AK',
+      ['AK.other', card.id],
+      undefined,
+      [beforeOther]
+    )
   })
   await waitFor(() => expect(result.current.overlay[0].sortOrder).toBe(1))
   expect(result.current.reorder.pending).toBe(true)
@@ -1366,7 +1372,12 @@ test('reorder overlays immediately while saving and rolls back on failure so ano
   expect(result.current.reorder.pending).toBe(false)
   await act(async () => {
     expect(
-      await result.current.reorder.reorder('AK', ['AK.other', card.id])
+      await result.current.reorder.reorder(
+        'AK',
+        ['AK.other', card.id],
+        undefined,
+        [beforeOther]
+      )
     ).toMatchObject({ ok: true })
   })
 })
@@ -1422,7 +1433,7 @@ test('detaching a variant sends null and overlays its own template without the o
   expect(session.api.send).toHaveBeenCalledWith(
     'PATCH',
     '/api/batches/draft/plates/AK.one',
-    { baseRevision: 'variant-revision', fields }
+    { baseRevision: card.revision, fields }
   )
   expect(result.current.overlay[0]).toMatchObject({
     templateRole: 'template',
@@ -1788,7 +1799,7 @@ test('Set as Standard forwards its explicit acknowledgement', async () => {
   expect(session.api.send).toHaveBeenCalledWith(
     'PATCH',
     '/api/batches/draft/plates/AK.one',
-    { baseRevision: 'draft-revision', fields: { isStandard: true }, standard }
+    { baseRevision: card.revision, fields: { isStandard: true }, standard }
   )
 })
 

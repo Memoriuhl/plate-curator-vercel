@@ -24,7 +24,8 @@ export function planFamilyMerge(
   families: Family[],
   destination: Family,
   selectedIds: readonly string[],
-  firstId?: string
+  firstId?: string,
+  protectStandard = true
 ) {
   const byId = new Map(
     families
@@ -40,7 +41,7 @@ export function planFamilyMerge(
   ])
   /** Protect a state's standard and first plate from being moved into another family. */
   const protectedPlate = (plate: Member) =>
-    plate.isStandard === true || plate.id === firstId
+    protectStandard && (plate.isStandard === true || plate.id === firstId)
   const moving = new Set<string>()
   const result: FamilyMergeResult = {
     moved: [],

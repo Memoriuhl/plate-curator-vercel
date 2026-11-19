@@ -162,6 +162,17 @@ export type ProposedEdit = {
   /** Draft revision of the last write to this plate. */
   revision?: number
 }
+export type PlateFieldConflicts = Partial<
+  Record<
+    keyof EditableFields,
+    {
+      by: string
+      byName: string | null
+      at: string
+      value: EditableFields[keyof EditableFields] | null
+    }
+  >
+>
 export type StandardChange = { from: string | null; to: string }
 export type ReviewError =
   | 'pipeline_busy'
@@ -175,7 +186,13 @@ export type ReviewError =
   | 'invalid_state'
 export type Outcome<T> =
   | { ok: true; value: T }
-  | { ok: false; error: ReviewError; current?: Plate; reasons?: string[] }
+  | {
+      ok: false
+      error: ReviewError
+      current?: Plate
+      reasons?: string[]
+      conflicts?: PlateFieldConflicts
+    }
 export interface ReviewStore {
   markViewed?(
     batchId: string,

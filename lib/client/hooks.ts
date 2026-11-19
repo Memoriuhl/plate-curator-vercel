@@ -29,6 +29,8 @@ import type {
   ReviewBatch,
   StandardChange,
 } from '../review/types'
+import type { StateMove } from '../review/state-move'
+import type { PlateFieldConflicts } from '../review/types'
 import type { FamilyMerge } from '../review/family-merge'
 import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
@@ -806,6 +808,7 @@ export type EditResult<T = Plate | void> =
       currentRevision: string
       batchId: string
       draft: EditableFields
+      conflicts?: PlateFieldConflicts
     }
   | {
       ok: false
@@ -856,6 +859,9 @@ export function useEditPlate({
   const workspace = useWorkspaceBatch()
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const localRevisions = useRef(
+    new Map<string, { seen: string; saved: string }>()
+  )
 
   /**
    * Save once against the expected revision and inspect refreshed detail when the server
@@ -895,12 +901,18 @@ export function useEditPlate({
       const detail =
         (cache.get(key)?.data as BatchDetail | undefined) ??
         (await fetchBatchDetail(api, key))
+      const plateKey = key + '/plates/' + plate.id
+      const lastLocal = localRevisions.current.get(plateKey)
+      const cachedRevision = detail.plates.find(
+        (entry) => entry.proposed.id === plate.id
+      )?.revision
       const baseRevision =
         reviewed?.baseRevision ??
-        (workspace.mode === 'selected'
-          ? plate.revision
-          : (detail.plates.find((entry) => entry.proposed.id === plate.id)
-              ?.revision ?? plate.revision))
+        (lastLocal &&
+        lastLocal.seen === plate.revision &&
+        lastLocal.saved === cachedRevision
+          ? lastLocal.saved
+          : plate.revision)
       if (!baseRevision)
         throw new Error(
           'Cannot save a plate without a revision. Reload and try again.'
@@ -935,6 +947,15 @@ export function useEditPlate({
             JSON.stringify(entry.proposed[key]) ===
             JSON.stringify(result.plate[key])
         )
+      if (
+        entry &&
+        !reviewed &&
+        sameEditableValue('plate', entry.proposed, result.plate)
+      )
+        localRevisions.current.set(plateKey, {
+          seen: plate.revision,
+          saved: entry.revision,
+        })
       return {
         ok: true,
         proposed: result.plate,
@@ -965,6 +986,9 @@ export function useEditPlate({
             currentRevision: error.body.currentRevision as string,
             batchId: batchId!,
             draft: fields,
+            ...(error.body.conflicts
+              ? { conflicts: error.body.conflicts as PlateFieldConflicts }
+              : {}),
           }
         }
         if (error.status === 409 && error.code === 'superseded_revision')
@@ -1018,7 +1042,7 @@ export function useReorderState() {
   const personal = useBatch(personalId, { reuse: true })
   const displayed =
     workspace.mode === 'selected' ? workspace.detail : personal.data
-  // Moves save against the draft revision on screen, so wait until the draft has loaded.
+  // Let the dashboard finish loading its draft before enabling drag.
   const ready =
     workspace.mode === 'selected'
       ? workspace.status === 'ready'
@@ -1038,107 +1062,126 @@ export function useReorderState() {
     return cached ?? saved
   }
 
-  /** Save a state order at its reviewed revision and reload on conflicts. */
+  /** Apply an anchored move and refresh the saved order after the request. */
   async function save(
     state: string,
-    order: string[],
-    standard?: StandardChange
-  ): Promise<EditResult> {
-    if (!order.length) return { ok: false, error: 'invalid_state' }
+    moves: StateMove[],
+    standard?: StandardChange,
+    preview?: string[],
+    origin?: MoveOrigin
+  ): Promise<
+    { ok: true; detail: BatchDetail } | Extract<EditResult, { ok: false }>
+  > {
+    if (!moves.length) return { ok: false, error: 'invalid_state' }
+    let key: string | undefined
     try {
       if (workspace.mode === 'selected' && workspace.status !== 'ready')
         return {
           ok: false,
           error: workspace.status === 'unavailable' ? 'not_found' : 'forbidden',
         }
+      if (
+        workspace.mode === 'selected' &&
+        origin &&
+        origin.batchId !== workspace.id
+      )
+        return { ok: false, error: 'not_found' }
       const id =
-        workspace.mode === 'selected'
-          ? workspace.id
-          : await ensureBatch({ id: order[0], state })
-      const key = batchApiPath(id)
-      // Reuse the visible revision for the order write when detail is already cached.
+        origin?.batchId ??
+        (workspace.mode === 'selected' ? workspace.id : await ensureBatch())
+      key = batchApiPath(id)
       const detail =
         (cache.get(key)?.data as BatchDetail | undefined) ??
         (await fetchBatchDetail(api, key))
-      // Show the proposed order in SWR immediately and restore the entry if the save fails.
-      const confirmed = await mutate<BatchDetail>(
+      const requestKey = key
+      const saved = await mutate<BatchDetail>(
         key,
         async () => {
           const batch = await api.send<ReviewBatch>(
             'PUT',
-            `${key}/state-order/${encodeURIComponent(state)}`,
-            {
-              batchRevision: detail.batch.revision,
-              order,
-              ...(standard ? { standard } : {}),
-            }
+            `${requestKey}/state-order/${encodeURIComponent(state)}`,
+            { moves, ...(standard && { standard }) }
           )
           return { ...detail, batch }
         },
         {
-          optimisticData: {
-            ...detail,
-            batch: {
-              ...detail.batch,
-              stateOrders: { ...detail.batch.stateOrders, [state]: order },
+          ...(preview && {
+            optimisticData: {
+              ...detail,
+              batch: {
+                ...detail.batch,
+                stateOrders: { ...detail.batch.stateOrders, [state]: preview },
+              },
             },
-          },
+          }),
           rollbackOnError: true,
           revalidate: false,
         }
       )
-      const saved = await refreshMovedBatch(key, confirmed?.batch.revision)
+      const confirmed = await refreshMovedBatch(key, saved?.batch.revision)
       await mutate(
         (key) =>
           typeof key === 'string' &&
           (key === batchesKey() || key.startsWith(`${batchesKey()}?`))
       )
-      return {
-        ok: true,
-        revisions: Object.fromEntries(
-          saved.plates.map((entry) => [entry.proposed.id, entry.revision])
-        ),
-      }
+      return { ok: true, detail: confirmed }
     } catch (error) {
       if (error instanceof ApiError) {
         if (
-          [
-            'standard_change_unconfirmed',
-            'standard_required',
-            'standard_invalid_template',
-          ].includes(error.code)
+          error.code === 'standard_change_unconfirmed' ||
+          error.code === 'standard_required' ||
+          error.code === 'standard_invalid_template'
         )
+          return { ok: false, error: error.code }
+        const message = apiErrorReasons(error)[0]
+        if (error.status === 409) {
+          if (key) await refreshMovedBatch(key).catch(() => undefined)
           return {
             ok: false,
-            error: error.code as
-              | 'standard_change_unconfirmed'
-              | 'standard_required'
-              | 'standard_invalid_template',
+            error: 'superseded_revision',
+            ...(message && { message }),
           }
-        if (error.status === 409 && error.code === 'superseded_revision')
-          return { ok: false, error: 'superseded_revision' }
+        }
         if (error.status === 403) return { ok: false, error: 'forbidden' }
         if (error.status === 404) return { ok: false, error: 'not_found' }
-        if (error.status === 422) return { ok: false, error: 'invalid_state' }
+        if (error.status === 422)
+          return {
+            ok: false,
+            error: 'invalid_state',
+            ...(message && { message }),
+          }
       }
+      if (key) await refreshMovedBatch(key).catch(() => undefined)
       throw error
     }
   }
 
-  /** Serialize reorder requests so overlapping drag actions reach the server in order. */
+  /** Serialize placement requests from this dashboard. */
   function reorder(
     state: string,
     order: string[],
-    standard?: StandardChange
+    standard: StandardChange | undefined,
+    moves: StateMove[]
   ): Promise<EditResult> {
     setPendingCount((count) => count + 1)
-    const proposed = [...order]
-    const result = queue.current.then(() => save(state, proposed, standard))
+    const result = queue.current.then(async (): Promise<EditResult> => {
+      const saved = await save(state, moves, standard, order)
+      if (!saved.ok) return saved
+      return {
+        ok: true,
+        revisions: Object.fromEntries(
+          saved.detail.plates.map((entry) => [
+            entry.proposed.id,
+            entry.revision,
+          ])
+        ),
+      }
+    })
     queue.current = result.catch(() => undefined)
     return result.finally(() => setPendingCount((count) => count - 1))
   }
 
-  /** Capture the visible SWR revision so a drag saves against its starting batch. */
+  /** Remember which draft was open when the drag started. */
   function capture(): MoveOrigin {
     const id =
       workspace.mode === 'selected'
@@ -1151,144 +1194,59 @@ export function useReorderState() {
     return { batchId: id ?? null, revision: batch?.revision ?? null }
   }
 
-  /**
-   * Move a plate in the current state order and reconcile any required standard-plate
-   * change.
-   */
+  /** Promote and place Variants in one save. */
   async function move(
     state: string,
-    order: string[],
-    promotion:
-      | { plateId: string; templateFamily: string }
-      | { plateId: string; templateFamily: string }[],
+    moves: StateMove[],
     origin: MoveOrigin,
     standard?: StandardChange
   ): Promise<EditResult> {
     setPendingCount((count) => count + 1)
-    let key: string | undefined
-    const promotions = Array.isArray(promotion) ? promotion : [promotion]
-    const firstPromotion = promotions[0]
-    if (!firstPromotion) {
-      setPendingCount((count) => count - 1)
-      return { ok: false, error: 'invalid_state' }
-    }
-    function confirmed(saved: BatchDetail): EditResult | undefined {
-      const savedOrder = saved.batch.stateOrders[state]
-      if (
-        savedOrder?.length !== order.length ||
-        savedOrder.some((id, index) => id !== order[index])
-      )
-        return
+    try {
+      const saved = await save(state, moves, standard, undefined, origin)
+      if (!saved.ok) return saved
+      const ids = moves.flatMap(({ plateIds }) => plateIds)
       const entries = new Map(
-        saved.plates.map((entry) => [entry.proposed.id, entry])
+        saved.detail.plates.map((entry) => [entry.proposed.id, entry])
       )
+      const plate = entries.get(ids[0])
       if (
-        !promotions.every(({ plateId, templateFamily }) => {
-          const plate = entries.get(plateId)?.proposed
+        !plate ||
+        ids.some((id) => {
+          const proposed = entries.get(id)?.proposed
           return (
-            plate?.templateRole === 'template' &&
-            plate.variantOfPlateId == null &&
-            plate.templateFamily === templateFamily
+            proposed?.templateRole !== 'template' ||
+            proposed.variantOfPlateId != null
           )
         })
       )
-        return
-      const entry = entries.get(firstPromotion.plateId)!
-      return {
-        ok: true,
-        proposed: entry.proposed,
-        revision: entry.revision,
-        revisions: Object.fromEntries(
-          saved.plates.map((entry) => [entry.proposed.id, entry.revision])
-        ),
-        batchId: saved.batch.id,
-      }
-    }
-    try {
-      if (
-        workspace.mode === 'selected' &&
-        (workspace.status !== 'ready' || origin.batchId !== workspace.id)
-      )
-        return { ok: false, error: 'not_found' }
-      if (origin.batchId && origin.revision === null)
-        return { ok: false, error: 'superseded_revision' }
-      const id =
-        origin.batchId ??
-        (await ensureBatch({ id: firstPromotion.plateId, state }))
-      key = batchApiPath(id)
-      const savedBatch = await api.send<ReviewBatch>(
-        'PUT',
-        key + '/state-order/' + encodeURIComponent(state),
-        {
-          batchRevision: origin.revision ?? 0,
-          order,
-          ...(Array.isArray(promotion) ? { promotions } : { promotion }),
-          ...(standard ? { standard } : {}),
-        }
-      )
-      const current = await refreshMovedBatch(key, savedBatch.revision)
-      await mutate(
-        (key) =>
-          typeof key === 'string' &&
-          (key === batchesKey() || key.startsWith(batchesKey() + '?'))
-      )
-      return (
-        confirmed(current) ?? {
+        return {
           ok: false,
           error: 'superseded_revision',
-          message:
-            'The saved Batch did not contain this template move. Try again from the current order.',
+          message: 'Reload the draft to see the current templates.',
         }
-      )
-    } catch (error) {
-      if (key) {
-        const saved = await refreshMovedBatch(key)
-        if (!(error instanceof ApiError)) {
-          const result = confirmed(saved)
-          if (result) return result
-        }
+      return {
+        ok: true,
+        proposed: plate.proposed,
+        revision: plate.revision,
+        revisions: Object.fromEntries(
+          saved.detail.plates.map((entry) => [
+            entry.proposed.id,
+            entry.revision,
+          ])
+        ),
+        batchId: saved.detail.batch.id,
       }
-      if (error instanceof ApiError) {
-        const message = apiErrorReasons(error)[0]
-        if (
-          [
-            'standard_change_unconfirmed',
-            'standard_required',
-            'standard_invalid_template',
-          ].includes(error.code)
-        )
-          return {
-            ok: false,
-            error: error.code as
-              | 'standard_change_unconfirmed'
-              | 'standard_required'
-              | 'standard_invalid_template',
-          }
-        if (error.status === 409)
-          return {
-            ok: false,
-            error: 'superseded_revision',
-            ...(message && { message }),
-          }
-        if (error.status === 403) return { ok: false, error: 'forbidden' }
-        if (error.status === 404) return { ok: false, error: 'not_found' }
-        if (error.status === 422)
-          return {
-            ok: false,
-            error: 'invalid_state',
-            ...(message && { message }),
-          }
-      }
-      throw error
     } finally {
       setPendingCount((count) => count - 1)
     }
   }
 
-  /** Commit a family merge and refresh the affected state and batch after the request. */
+  /** Join selected plates to the current destination family. */
   async function merge(
     input: FamilyMerge,
-    origin: MoveOrigin
+    origin: MoveOrigin,
+    standard?: StandardChange
   ): Promise<
     { ok: true; value: FamilyMergeResult } | { ok: false; message: string }
   > {
@@ -1303,43 +1261,15 @@ export function useReorderState() {
           message: 'The selected Batch is unavailable for editing.',
         }
       }
-      if (origin.batchId && origin.revision === null)
-        return {
-          ok: false,
-          message: 'Wait for the Batch to load, then drag again.',
-        }
-      const id =
-        origin.batchId ??
-        (await ensureBatch({
-          id: input.members[0].id,
-          state: input.destination.id.split('.')[0],
-        }))
-      const key = batchApiPath(id)
-      const value = await api.send<FamilyMergeResult>(
-        'POST',
-        `${key}/family-merge`,
-        { ...input, batchRevision: origin.revision ?? 0 }
-      )
-      if (value.moved.length) {
-        const saved = await refreshMovedBatch(key, (origin.revision ?? 0) + 1)
-        const parents = new Map(
-          saved.plates.map((entry) => [
-            entry.proposed.id,
-            entry.proposed.variantOfPlateId,
-          ])
-        )
-        if (
-          value.moved.some(
-            (plateId) => parents.get(plateId) !== input.destination.id
-          )
-        ) {
-          return {
-            ok: false,
-            message:
-              'The saved Batch did not contain this family move. Drag again from the current families.',
-          }
-        }
-      }
+      const key = batchApiPath(origin.batchId ?? (await ensureBatch()))
+      const { revision, ...value } = await api.send<
+        FamilyMergeResult & { revision: number }
+      >('POST', `${key}/family-merge`, {
+        destinationId: input.destination.id,
+        plateIds: input.members.map(({ id }) => id),
+        ...(standard && { standard }),
+      })
+      if (value.moved.length) await refreshMovedBatch(key, revision)
       return { ok: true, value }
     } catch (error) {
       if (!(error instanceof ApiError)) throw error
@@ -1347,11 +1277,11 @@ export function useReorderState() {
       const message =
         reason ??
         (error.code === 'superseded_revision'
-          ? 'The Batch changed. Drag again using the latest selection.'
-          : error.code === 'pipeline_busy'
-            ? PIPELINE_BUSY_MESSAGE
-            : error.status === 403
-              ? 'Only the Batch creator or an Owner can move plates.'
+          ? 'Drag again using the latest families.'
+          : error.code === 'standard_change_unconfirmed'
+            ? 'The move would change the Standard. Review the new Standard before saving.'
+            : error.code === 'pipeline_busy'
+              ? PIPELINE_BUSY_MESSAGE
               : 'This family move could not be saved.')
       return { ok: false, message }
     } finally {
