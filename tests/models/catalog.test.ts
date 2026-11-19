@@ -62,11 +62,28 @@ test('uses capability, language type, live prices and the inclusive cap for sear
 test('curated models keep order and measured data and omit unavailable and over-cap entries', async () => {
   const { curated } = await import('../../lib/models/catalog')
   expect(await curated('tag', 0.005)).toMatchObject([
-    { id: 'google/gemma-4-26b-a4b-it', measured: { f1: 0.676 } },
+    { id: 'google/gemma-4-26b-a4b-it', measured: { f1: 0.647059 } },
   ])
   expect((await curated('research')).map(({ id }) => id)).toEqual([
     'google/gemini-2.5-flash-lite',
     'google/gemma-4-26b-a4b-it',
+  ])
+})
+
+test('includes the scored Tag benchmark metrics for an available curated model', async () => {
+  const id = 'google/gemini-3.5-flash-lite'
+  fetchCatalog.mockResolvedValueOnce(Response.json({ data: [sample(id)] }))
+  const { curated } = await import('../../lib/models/catalog')
+  expect(await curated('tag')).toMatchObject([
+    {
+      id,
+      measured: {
+        f1: 0.687285,
+        p50Seconds: 1.485,
+        costPerPlate: 0.0011247,
+        plates: 15,
+      },
+    },
   ])
 })
 

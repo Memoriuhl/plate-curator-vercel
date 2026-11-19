@@ -8,6 +8,7 @@ import {
 import {
   CURATED_TAG_MODELS,
   DEFAULT_GATEWAY_TAG_PRICE,
+  hostedTagMeasurement,
   TAGGING_MODELS,
 } from '../tagging/models'
 import { DEFAULT_MODEL_CAP, fitsModelCap } from './selection'
@@ -115,7 +116,9 @@ export function pinnedHostedModel(step: HostedStep) {
     provider: 'google',
     price,
     estimatedUsd: estimateUsd(price, PROFILES[step]),
-    ...('measured' in pinned ? { measured: pinned.measured } : {}),
+    ...('measured' in pinned
+      ? { measured: hostedTagMeasurement(pinned.model) ?? pinned.measured }
+      : {}),
   }
 }
 
@@ -128,10 +131,7 @@ export async function curated(step: HostedStep, capUsd = DEFAULT_MODEL_CAP) {
   return curatedIds.flatMap((id) => {
     const model = models.get(id)
     if (!model) return []
-    const measured =
-      step === 'tag'
-        ? TAGGING_MODELS.find((m) => m.model === id)?.measured
-        : undefined
+    const measured = step === 'tag' ? hostedTagMeasurement(id) : undefined
     return [{ ...model, ...(measured ? { measured } : {}) }]
   })
 }
