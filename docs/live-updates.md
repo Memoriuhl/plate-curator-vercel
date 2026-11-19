@@ -257,9 +257,13 @@ includes that path (License-Plate-Game, #227).
   the listener recovers.
 - The queue list and an open run's results share one request per round: the run's
   results ride on the list request that selects the run, or turn the list's
-  unselected request into one. Rounds can overlap, so each request takes a response
-  only from a round newer than the last one it took, and a slow response never rolls
-  a view back.
+  unselected request into one. A queue action (image choice, cancel, retry and the
+  rest) and Refresh run a round for every mounted queue view, so the list and the open
+  run both show the result. Reads can overlap, so every read of a queue request (a
+  round, or SWR's own fetch on an action, Refresh or focus) takes the next number from
+  one counter when it starts. A request takes a round's response only if that round
+  started after every read it has already started or taken, and a slow response never
+  rolls a view back.
 - Some views keep a slow safety refresh while visible, for state that changes without
   a Firestore write:
 
