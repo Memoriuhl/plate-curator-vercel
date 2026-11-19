@@ -1,5 +1,9 @@
 import { limits } from './fields'
 
+export function isStateMoveId(id: unknown): id is string {
+  return typeof id === 'string' && /^[a-zA-Z0-9_-]{16,128}$/.test(id)
+}
+
 export type StatePlacement =
   | { kind: 'start' | 'end' }
   | {

@@ -354,6 +354,7 @@ test('combined move sends its placement even after a newer Batch enters the cach
     'PUT',
     '/api/batches/draft/state-order/AK',
     {
+      operationId: expect.any(String),
       moves: [promoteAtStart],
     }
   )
@@ -393,7 +394,10 @@ test.each([true, false])(
       await expect(move).rejects.toThrow('response lost')
     })
     expect(context.cache.get('/api/batches/draft').data).toEqual(saved)
-    expect(session.api.send).toHaveBeenCalledOnce()
+    expect(session.api.send).toHaveBeenCalledTimes(2)
+    expect(session.api.send.mock.calls[1]).toEqual(
+      session.api.send.mock.calls[0]
+    )
   }
 )
 
@@ -441,6 +445,10 @@ test('a successful HTTP response still requires the refreshed promotion', async 
   const { result } = renderHook(() => useReorderState(), harness())
   await waitFor(() => expect(result.current.ready).toBe(true))
   session.api.send.mockResolvedValue({ ...batch, revision: 2 })
+  session.api.get.mockResolvedValue({
+    ...detail(),
+    batch: { ...batch, revision: 2 },
+  })
   await act(async () => {
     expect(
       await result.current.move(
@@ -467,7 +475,10 @@ test('a placement can target a draft discovered after lift without a revision', 
       error: 'superseded_revision',
     })
   )
-  expect(session.api.send.mock.calls[0][2]).toEqual({ moves: [promoteAtStart] })
+  expect(session.api.send.mock.calls[0][2]).toEqual({
+    operationId: expect.any(String),
+    moves: [promoteAtStart],
+  })
 })
 
 test.each(['merge', 'promote'] as const)(
@@ -609,6 +620,7 @@ test.each(['merge', 'promote'] as const)(
           'POST',
           '/api/batches/draft/family-merge',
           {
+            operationId: expect.any(String),
             plateIds: [plate.id],
             destinationId: parent.id,
           }
@@ -618,6 +630,7 @@ test.each(['merge', 'promote'] as const)(
           'PUT',
           '/api/batches/draft/state-order/AK',
           {
+            operationId: expect.any(String),
             moves: [
               {
                 plateIds: [plate.id],
@@ -1105,8 +1118,16 @@ test('reorder serializes placements into the shared draft', async () => {
     ])
   })
   expect(session.api.send.mock.calls).toEqual([
-    ['PUT', '/api/batches/draft/state-order/AK', { moves: [beforeOther] }],
-    ['PUT', '/api/batches/draft/state-order/AK', { moves: [afterOther] }],
+    [
+      'PUT',
+      '/api/batches/draft/state-order/AK',
+      { operationId: expect.any(String), moves: [beforeOther] },
+    ],
+    [
+      'PUT',
+      '/api/batches/draft/state-order/AK',
+      { operationId: expect.any(String), moves: [afterOther] },
+    ],
   ])
   expect(result.current.pending).toBe(false)
 })
@@ -1259,32 +1280,60 @@ test.each([undefined, { AK: '2026-11-16' }])(
   }
 )
 
-test('a lagging Batch read cannot undo a confirmed reorder', async () => {
+test('reconciles Standard moves with coherent detail and refreshes a stale confirmation', async () => {
   const order = ['AK.other', card.id]
+  const standard = { from: card.id, to: 'AK.other' }
   session.api.send.mockResolvedValue({
     ...batch,
     revision: 2,
     stateOrders: { AK: order },
   })
-  const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
+  const plates = [
+    { ...card, isStandard: true },
+    { ...card, id: 'AK.other', sortOrder: 4 },
+  ]
+  const context = harness()
   const { result } = renderHook(
     () => ({ ordering: useReorderState(), overlay: useDraftOverlay(plates) }),
-    harness()
+    context
   )
   await waitFor(() => expect(result.current.ordering.ready).toBe(true))
 
   await act(async () => {
+    await result.current.ordering
+      .reorder('AK', order, standard, [beforeOther])
+      .catch(() => undefined)
+  })
+  expect.soft(context.cache.get('/api/batches/draft').data).toEqual(detail())
+
+  const fresh = {
+    ...detail(),
+    batch: { ...batch, revision: 3, stateOrders: { AK: order } },
+    plates: [
+      { ...detail().plates[0], proposed: { ...proposed, isStandard: false } },
+      {
+        ...detail().plates[0],
+        baseline: { ...baseline, id: 'AK.other' },
+        proposed: { ...baseline, id: 'AK.other', isStandard: true },
+      },
+    ],
+  }
+  session.api.get.mockResolvedValue(fresh)
+  session.api.send.mockRejectedValue(
+    new ApiError(409, 'standard_change_unconfirmed', {})
+  )
+  await act(async () => {
     expect(
-      await result.current.ordering.reorder('AK', order, undefined, [
+      await result.current.ordering.reorder('AK', order, standard, [
         beforeOther,
       ])
-    ).toMatchObject({
-      ok: true,
-    })
+    ).toMatchObject({ ok: false, error: 'standard_change_unconfirmed' })
   })
-
-  expect(result.current.ordering.batch?.revision).toBe(2)
-  expect(result.current.overlay.map((plate) => plate.sortOrder)).toEqual([1, 0])
+  expect(context.cache.get('/api/batches/draft').data).toEqual(fresh)
+  expect(result.current.overlay.map(({ isStandard }) => isStandard)).toEqual([
+    false,
+    true,
+  ])
 })
 
 test('Batch revalidation accepts newer revisions and retains the current order on older reads', async () => {
@@ -1344,6 +1393,7 @@ test('reorder overlays immediately while saving and rolls back on failure so ano
   const failure = new TypeError('Network unavailable')
   session.api.send
     .mockReturnValueOnce(gate)
+    .mockRejectedValueOnce(failure)
     .mockResolvedValueOnce({ ...batch, revision: 2 })
   const plates = [card, { ...card, id: 'AK.other', sortOrder: 4 }]
   const { result } = renderHook(
@@ -1370,6 +1420,14 @@ test('reorder overlays immediately while saving and rolls back on failure so ano
   })
   expect(result.current.overlay[0].sortOrder).toBe(3)
   expect(result.current.reorder.pending).toBe(false)
+  session.api.get.mockResolvedValue({
+    ...detail(),
+    batch: {
+      ...batch,
+      revision: 2,
+      stateOrders: { AK: ['AK.other', card.id] },
+    },
+  })
   await act(async () => {
     expect(
       await result.current.reorder.reorder(

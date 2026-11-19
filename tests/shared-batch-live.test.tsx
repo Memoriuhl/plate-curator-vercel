@@ -98,6 +98,7 @@ const plates: Plate[] = [
     tags: [],
     templateRole: 'template',
     templateFamily: 'army',
+    isStandard: true,
   },
   {
     id: 'AK.v',
@@ -126,7 +127,7 @@ const cards = plates.map((plate, index) => ({
   ...plate,
   imageUrl: null,
   variantOfPlateId: plate.variantOfPlateId ?? null,
-  isStandard: false,
+  isStandard: plate.isStandard ?? false,
   sortOrder: index,
   revision: plateRevision(plate),
 }))
@@ -240,12 +241,14 @@ function session(actor: Actor, id: string | null = 'shared') {
         }
         if (method === 'POST' && path.endsWith('/family-merge')) {
           await hold
-          const { destinationId, plateIds } = body as {
+          const { destinationId, plateIds, operationId } = body as {
             destinationId: string
             plateIds: string[]
+            operationId: string
           }
           const result = await moveState(deps, actor, {
             batchId: path.split('/')[3],
+            operationId,
             state: 'AK',
             moves: [
               {
@@ -262,7 +265,7 @@ function session(actor: Actor, id: string | null = 'shared') {
             )
           return {
             ...result.value.merge,
-            revision: result.value.batch.revision,
+            revision: result.value.revision,
           }
         }
         if (method !== 'PATCH') throw new Error('Unexpected write ' + path)
@@ -937,7 +940,7 @@ test('second selected Plate save sends the draft revision and succeeds', async (
     requests.filter((r) => r.method === 'PATCH').map((r) => r.body)
   ).toEqual([
     { baseRevision: cards[1].revision, fields: { tags: ['first'] } },
-    { baseRevision: revision, fields: { tags: ['second'] } },
+    { baseRevision: revision, editVersion: 1, fields: { tags: ['second'] } },
   ])
 })
 

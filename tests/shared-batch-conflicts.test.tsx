@@ -252,6 +252,7 @@ function session(actor: Actor, id: string | null = 'shared') {
             batchId: path.split('/')[3],
             state: 'AK',
             ...(body as {
+              operationId: string
               moves: StateMove[]
             }),
           })
@@ -263,7 +264,7 @@ function session(actor: Actor, id: string | null = 'shared') {
               await response.json()
             )
           }
-          return result.value.batch
+          return result.value
         }
         if (method === 'POST' && path.endsWith('/family-merge')) {
           const response = await familyDrop(

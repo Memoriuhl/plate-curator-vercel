@@ -234,6 +234,7 @@ test('a curator state reorder makes the next catalog read fresh', async () => {
     new Request('https://example.com/api/batches/batch/state-order/AK', {
       method: 'PUT',
       body: JSON.stringify({
+        operationId: 'reorder-catalog-head',
         moves: [
           {
             plateIds: ['AK.two'],
@@ -257,6 +258,7 @@ test('a rejected curator write keeps the cached head', async () => {
     new Request('https://example.com/api/batches/batch/state-order/AK', {
       method: 'PUT',
       body: JSON.stringify({
+        operationId: 'rejected-catalog-write',
         moves: [
           {
             plateIds: ['AK.two'],

@@ -1,53 +1,99 @@
+import { createHash } from 'node:crypto'
 import { familyRole, groupFamilies } from '../catalog/families'
+import { JURISDICTIONS } from '../catalog/jurisdictions'
+import { hasValidStandard } from '../publish/validation'
 import { canEdit, editableStates } from './access'
 import { validRegroup } from './batch'
 import { orderOnto, resolveConflicts, sameList } from './draft'
 import { planFamilyMerge, type FamilyMergeResult } from './family-merge-plan'
-import { retryDraft, retryDraftRace } from './preconditions'
 import { standardEdits } from './standard'
 import type { StateMove } from './state-move'
 import type {
   Actor,
   EditableFields,
-  Outcome,
   ReviewBatch,
   ReviewDeps,
+  ReviewStore,
   StandardChange,
 } from './types'
 
 type Input = {
   batchId: string
+  operationId: string
   state: string
   moves: StateMove[]
   standard?: StandardChange
 }
 
-type Result = { batch: ReviewBatch; merge?: FamilyMergeResult }
+type Plan = Parameters<ReviewStore['transactStateMove']>[3]
+const stateQueues = new Map<string, Promise<unknown>>()
 
-export function moveState(
+function loadMoveCatalog(
   d: ReviewDeps,
-  actor: Actor,
-  input: Input
-): Promise<Outcome<Result>> {
-  return retryDraftRace(() => moveStateOnce(d, actor, input))
+  version: number,
+  { state, moves }: Input
+) {
+  const statePlates = d.stateBaseline(version, state)
+  const catalog = moves.some(
+    ({ promote, placement }) => promote || placement.kind === 'join'
+  )
+    ? d.catalogFamilies
+      ? d.catalogFamilies(version)
+      : Promise.all(
+          Object.keys(JURISDICTIONS)
+            .filter((code) => code !== state)
+            .map((code) => d.stateBaseline(version, code, 'snapshot'))
+        ).then((states) => states.flat())
+    : Promise.resolve([])
+  return Promise.all([statePlates, catalog])
 }
 
-async function moveStateOnce(
+/** Sequence moves accepted by this process before reading the draft. */
+export function moveState(d: ReviewDeps, actor: Actor, input: Input) {
+  const { batchId, operationId, state, moves, standard } = input
+  const key = JSON.stringify([batchId, state])
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify([actor.uid, state, moves, standard]))
+    .digest('hex')
+  const prepared = new Map<number, ReturnType<typeof loadMoveCatalog>>()
+  const load = (version: number) => {
+    let catalog = prepared.get(version)
+    if (!catalog) {
+      catalog = loadMoveCatalog(d, version, input)
+      prepared.set(version, catalog)
+    }
+    return catalog
+  }
+  const pending = (stateQueues.get(key) ?? Promise.resolve()).then(() =>
+    d.store.transactStateMove(
+      batchId,
+      operationId,
+      fingerprint,
+      (detail) => planStateMove(d, actor, input, detail, load),
+      load
+    )
+  )
+  const tail = pending.catch(() => undefined)
+  stateQueues.set(key, tail)
+  return pending.finally(() => {
+    if (stateQueues.get(key) === tail) stateQueues.delete(key)
+  })
+}
+
+async function planStateMove(
   d: ReviewDeps,
   actor: Actor,
-  input: Input
-): Promise<Outcome<Result> | typeof retryDraft> {
-  const { batchId, state, moves, standard } = input
-  const detail = await d.store.readBatch(batchId)
-  if (!detail) return { ok: false, error: 'not_found' }
+  { state, moves, standard }: Input,
+  detail: Parameters<Plan>[0],
+  load: (version: number) => ReturnType<typeof loadMoveCatalog>
+): ReturnType<Plan> {
   const { batch, edits } = detail
   if (!canEdit(batch, actor)) return { ok: false, error: 'forbidden' }
   if (!editableStates.includes(batch.state))
     return { ok: false, error: 'invalid_state' }
 
-  const baseline = (await d.stateBaseline(batch.baselineVersion, state)).filter(
-    (plate) => plate.state === state
-  )
+  const [statePlates, catalog] = await load(batch.baselineVersion)
+  const baseline = statePlates.filter((plate) => plate.state === state)
   const baselineOrder = baseline.map(({ id }) => id)
   const previousOrder = orderOnto(
     batch.stateOrders[state] ?? baselineOrder,
@@ -62,6 +108,25 @@ async function moveStateOnce(
   )
   const changes = new Map<string, EditableFields>()
   const affectedFamilies = new Set<string | undefined>()
+  const otherLabels = new Set<string>()
+  for (const plate of catalog) {
+    if (plate.state === state) continue
+    const member = { ...plate, ...editsById.get(plate.id) }
+    if (!member.deleted && member.templateFamily)
+      otherLabels.add(member.templateFamily)
+  }
+  const allocateLabel = (base: string) => {
+    const used = new Set(
+      [...effective.values()].flatMap((plate) =>
+        !plate.deleted && plate.templateFamily ? [plate.templateFamily] : []
+      )
+    )
+    let label = base
+    let suffix = 2
+    while (used.has(label) || otherLabels.has(label))
+      label = `${base}_${suffix++}`
+    return label
+  }
   const changePlate = (id: string, fields: EditableFields) => {
     const current = effective.get(id)!
     affectedFamilies.add(current.templateFamily)
@@ -101,12 +166,15 @@ async function moveStateOnce(
       (placement.kind === 'before' ||
         placement.kind === 'after' ||
         placement.kind === 'join') &&
-      (!family || family.template.templateRole !== 'template')
+      (!family ||
+        family.template.templateRole === 'variant' ||
+        (placement.kind === 'join' &&
+          family.template.templateRole !== 'template'))
     )
       return {
         ok: false,
         error: 'superseded_revision',
-        reasons: ['The target is no longer an active Template.'],
+        reasons: ['The target no longer supports this placement.'],
       }
 
     const moving = new Set<string>()
@@ -116,15 +184,13 @@ async function moveStateOnce(
         family!,
         plateIds,
         undefined,
-        false
+        false,
+        family!.template.templateFamily || allocateLabel(family!.template.id)
       )
       for (const [id, fields] of plan.changes) changePlate(id, fields)
       merge = plan.result
       for (const id of merge.moved) moving.add(id)
     } else {
-      const used = new Set(
-        [...effective.values()].map((plate) => plate.templateFamily)
-      )
       for (const id of plateIds) {
         const plate = effective.get(id)!
         if (plate.deleted)
@@ -133,19 +199,15 @@ async function moveStateOnce(
             error: 'superseded_revision',
             reasons: ['A moved plate was deleted.'],
           }
-        if (familyRole(plate) === 'template') {
+        if (familyRole(plate) !== 'variant') {
           for (const variant of familyByHead.get(id)?.variants ?? [])
             moving.add(variant.id)
         } else if (promote && familyRole(plate) === 'variant') {
           const base = `${state.toLowerCase()}_${id.slice(id.indexOf('.') + 1)}`
-          let slug = base
-          let suffix = 2
-          while (used.has(slug)) slug = `${base}_${suffix++}`
-          used.add(slug)
           changePlate(id, {
             templateRole: 'template',
             variantOfPlateId: null,
-            templateFamily: slug,
+            templateFamily: allocateLabel(base),
           })
         } else if (
           placement.kind !== 'before-plate' &&
@@ -207,7 +269,16 @@ async function moveStateOnce(
     if (merge) merge.moved = block
   }
 
-  if (!validRegroup(effective, affectedFamilies, new Set(changes.keys())))
+  if (
+    !validRegroup(effective, affectedFamilies, new Set(changes.keys())) ||
+    [...effective.values()].some(
+      (plate) =>
+        !plate.deleted &&
+        plate.templateFamily &&
+        affectedFamilies.has(plate.templateFamily) &&
+        otherLabels.has(plate.templateFamily)
+    )
+  )
     return {
       ok: false,
       error: 'invalid_state',
@@ -217,16 +288,6 @@ async function moveStateOnce(
   if (!first || first.deleted || familyRole(first) !== 'template')
     return { ok: false, error: 'standard_invalid_template' }
   const orderChanged = !sameList(previousOrder, order)
-  if (!orderChanged && !changes.size && !standard)
-    return { ok: true, value: { batch, ...(merge && { merge }) } }
-  const changesStandard =
-    order[0] !== previousOrder[0] ||
-    !!standard ||
-    baseline.some(
-      (plate) =>
-        (editsById.get(plate.id)?.isStandard ?? plate.isStandard) &&
-        changes.get(plate.id)?.templateRole === 'variant'
-    )
   const combined = await standardEdits(
     d,
     actor,
@@ -237,16 +298,35 @@ async function moveStateOnce(
     standard,
     {
       existingEdits: edits,
-      preserveStandard: !changesStandard,
+      preserveStandard: false,
     }
   )
   if (!combined.ok) return combined
+  const changedFields = new Map(
+    combined.value.edits.map((edit) => [edit.plateId, edit.fields])
+  )
+  const removed = new Set(combined.value.deleteEditsFor)
+  if (
+    !hasValidStandard(
+      baseline.map((plate) => ({
+        ...plate,
+        ...(removed.has(plate.id)
+          ? undefined
+          : (changedFields.get(plate.id) ?? editsById.get(plate.id))),
+      })),
+      order[0]
+    )
+  )
+    return { ok: false, error: 'standard_invalid_template' }
   if (
     !orderChanged &&
     !combined.value.edits.length &&
     !combined.value.deleteEditsFor.length
   )
-    return { ok: true, value: { batch, ...(merge && { merge }) } }
+    return {
+      ok: true,
+      value: { revision: batch.revision, order, ...(merge && { merge }) },
+    }
   const changedAt = d.now()
   let next: ReviewBatch = {
     ...batch,
@@ -267,13 +347,9 @@ async function moveStateOnce(
   if (orderChanged) next = resolveConflicts(next, { state })
   for (const [plateId, fields] of changes)
     next = resolveConflicts(next, { plateId, fields: Object.keys(fields) })
-  const saved = await d.store.commit(batchId, batch.revision, {
-    batch: next,
-    by: actor,
-    ...combined.value,
-  })
-  if (saved === 'revision_mismatch') return retryDraft
-  return saved === 'ok'
-    ? { ok: true, value: { batch: next, ...(merge && { merge }) } }
-    : { ok: false, error: saved }
+  return {
+    ok: true,
+    value: { revision: next.revision, order, ...(merge && { merge }) },
+    mutation: { batch: next, by: actor, ...combined.value },
+  }
 }

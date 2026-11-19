@@ -1,6 +1,6 @@
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { moveState } from '@/lib/review/move-state'
-import { parseStateMoves } from '@/lib/review/state-move'
+import { isStateMoveId, parseStateMoves } from '@/lib/review/state-move'
 import { parseStandardChange } from '@/lib/review/standard-change'
 import { currentActor, reviewDeps } from '@/lib/server/context'
 import { badRequest, readJson, respond } from '@/lib/server/respond'
@@ -15,7 +15,11 @@ export async function POST(
   const body = await readJson(request)
   const standard = parseStandardChange(body?.standard)
   const destinationId = body?.destinationId
-  if (typeof destinationId !== 'string' || standard === null)
+  if (
+    typeof destinationId !== 'string' ||
+    !isStateMoveId(body?.operationId) ||
+    standard === null
+  )
     return badRequest()
   const moves = parseStateMoves([
     {
@@ -28,6 +32,7 @@ export async function POST(
   if (!target.ok) return target.response
   const outcome = await moveState(reviewDeps(), auth.actor, {
     batchId: target.id,
+    operationId: body.operationId,
     state: destinationId.split('.')[0],
     moves,
     standard,
@@ -35,6 +40,6 @@ export async function POST(
   if (!outcome.ok) return respond(outcome)
   return respond({
     ok: true,
-    value: { ...outcome.value.merge!, revision: outcome.value.batch.revision },
+    value: { ...outcome.value.merge!, revision: outcome.value.revision },
   })
 }

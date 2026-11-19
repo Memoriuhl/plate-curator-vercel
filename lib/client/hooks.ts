@@ -27,6 +27,7 @@ import type {
   EditableFields,
   ProposedEdit,
   ReviewBatch,
+  StateMoveResult,
   StandardChange,
 } from '../review/types'
 import type { StateMove } from '../review/state-move'
@@ -34,6 +35,7 @@ import type { PlateFieldConflicts } from '../review/types'
 import type { FamilyMerge } from '../review/family-merge'
 import type { FamilyMergeResult } from '../review/family-merge-plan'
 import { sameEditableValue } from '../review/story'
+import { plateEditVersion } from '../review/edit-history'
 import { canEdit, editableStates } from '../review/access'
 import { isSharedDraft } from '../review/draft-id'
 import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
@@ -565,12 +567,13 @@ export function useReviewActions() {
       batchId: string,
       plateId: string,
       baseRevision: string,
-      fields: EditableFields
+      fields: EditableFields,
+      editVersion = 0
     ) {
       const result = await api.send<{ batch: ReviewBatch; plate: Plate }>(
         'PATCH',
         `${batchApiPath(batchId)}/plates/${plateId}`,
-        { baseRevision, fields }
+        { baseRevision, fields, ...(editVersion > 0 && { editVersion }) }
       )
       await refresh(batchId)
       return result
@@ -733,7 +736,15 @@ export function useDraftOverlay(plates: PlateCardData[]): OverlaidPlate[] {
       const sortOrder = positions
         ? (positions.get(card.id) ?? positions.size + card.sortOrder)
         : card.sortOrder
-      const ordered = { ...card, sortOrder }
+      const editVersion = plateEditVersion(
+        detail?.batch ?? drafts.values().next().value?.batch,
+        card.id
+      )
+      const ordered = {
+        ...card,
+        sortOrder,
+        ...(editVersion > 0 && { editVersion }),
+      }
       const reordered =
         activePositions.has(card.id) &&
         activePositions.get(card.id) !== card.sortOrder
@@ -798,14 +809,17 @@ export type EditResult<T = Plate | void> =
   | ({
       ok: true
       revision?: string
+      editVersion?: number
       batchId?: string
       revisions?: Record<string, string>
+      editVersions?: Record<string, number>
     } & (T extends void ? object : { proposed: T }))
   | {
       ok: false
       error: 'stale_plate'
       current: Plate
       currentRevision: string
+      currentEditVersion?: number
       batchId: string
       draft: EditableFields
       conflicts?: PlateFieldConflicts
@@ -860,7 +874,10 @@ export function useEditPlate({
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const localRevisions = useRef(
-    new Map<string, { seen: string; saved: string }>()
+    new Map<
+      string,
+      { seen: string; seenVersion: number; saved: string; savedVersion: number }
+    >()
   )
 
   /**
@@ -873,6 +890,7 @@ export function useEditPlate({
     reviewed?: {
       batchId: string
       baseRevision: string
+      editVersion?: number
       standard?: StandardChange
     },
     standard?: StandardChange
@@ -903,31 +921,39 @@ export function useEditPlate({
         (await fetchBatchDetail(api, key))
       const plateKey = key + '/plates/' + plate.id
       const lastLocal = localRevisions.current.get(plateKey)
-      const cachedRevision = detail.plates.find(
+      const cachedEntry = detail.plates.find(
         (entry) => entry.proposed.id === plate.id
-      )?.revision
-      const baseRevision =
-        reviewed?.baseRevision ??
-        (lastLocal &&
+      )
+      const cachedVersion = plateEditVersion(detail.batch, plate.id)
+      const useLocal =
+        lastLocal &&
         lastLocal.seen === plate.revision &&
-        lastLocal.saved === cachedRevision
-          ? lastLocal.saved
-          : plate.revision)
+        lastLocal.seenVersion === (plate.editVersion ?? 0) &&
+        lastLocal.saved === (cachedEntry?.revision ?? plate.revision) &&
+        lastLocal.savedVersion === cachedVersion
+      const baseRevision =
+        reviewed?.baseRevision ?? (useLocal ? lastLocal.saved : plate.revision)
+      const editVersion = reviewed
+        ? (reviewed.editVersion ?? 0)
+        : useLocal
+          ? lastLocal.savedVersion
+          : (plate.editVersion ?? 0)
       if (!baseRevision)
         throw new Error(
           'Cannot save a plate without a revision. Reload and try again.'
         )
-      const result = await api.send<{ batch: ReviewBatch; plate: Plate }>(
-        'PATCH',
-        `${key}/plates/${plate.id}`,
-        {
-          baseRevision,
-          fields,
-          ...((standard ?? reviewed?.standard)
-            ? { standard: standard ?? reviewed?.standard }
-            : {}),
-        }
-      )
+      const result = await api.send<{
+        batch: ReviewBatch
+        plate: Plate
+        editVersion?: number
+      }>('PATCH', `${key}/plates/${plate.id}`, {
+        baseRevision,
+        ...(editVersion > 0 && { editVersion }),
+        fields,
+        ...((standard ?? reviewed?.standard)
+          ? { standard: standard ?? reviewed?.standard }
+          : {}),
+      })
       // Store the fresh assembled draft so other editors see the new field revisions.
       const saved = await mutate<BatchDetail>(key, fetchBatchDetail(api, key), {
         revalidate: false,
@@ -940,6 +966,7 @@ export function useEditPlate({
       const entry = saved?.plates.find(
         (entry) => entry.proposed.id === plate.id
       )
+      const savedVersion = plateEditVersion(saved?.batch, plate.id)
       const unchanged =
         entry &&
         Object.keys(fields).every(
@@ -950,17 +977,24 @@ export function useEditPlate({
       if (
         entry &&
         !reviewed &&
+        (result.editVersion === undefined ||
+          savedVersion === result.editVersion) &&
         sameEditableValue('plate', entry.proposed, result.plate)
       )
         localRevisions.current.set(plateKey, {
           seen: plate.revision,
+          seenVersion: plate.editVersion ?? 0,
           saved: entry.revision,
+          savedVersion,
         })
       return {
         ok: true,
         proposed: result.plate,
         batchId: id,
         revision: unchanged ? entry.revision : undefined,
+        ...(result.editVersion !== undefined && {
+          editVersion: result.editVersion,
+        }),
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -984,6 +1018,9 @@ export function useEditPlate({
             error: 'stale_plate',
             current: error.body.current as Plate,
             currentRevision: error.body.currentRevision as string,
+            ...(typeof error.body.currentEditVersion === 'number' && {
+              currentEditVersion: error.body.currentEditVersion,
+            }),
             batchId: batchId!,
             draft: fields,
             ...(error.body.conflicts
@@ -1011,6 +1048,7 @@ export function useEditPlate({
     reviewed?: {
       batchId: string
       baseRevision: string
+      editVersion?: number
       standard?: StandardChange
     },
     standard?: StandardChange
@@ -1027,6 +1065,28 @@ export function useEditPlate({
 }
 
 export type MoveOrigin = { batchId: string | null; revision: number | null }
+
+/** Retry an interrupted response with the same operation ID. */
+async function sendMove<T>(
+  api: ApiClient,
+  method: 'PUT' | 'POST',
+  key: string,
+  command: object
+) {
+  const body = { ...command, operationId: globalThis.crypto.randomUUID() }
+  try {
+    return await api.send<T>(method, key, body)
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status < 500 &&
+      error.status !== 408 &&
+      error.status !== 429
+    )
+      throw error
+    return api.send<T>(method, key, body)
+  }
+}
 
 /**
  * Expose ordering and family edits together with revision capture and shared pending
@@ -1050,10 +1110,22 @@ export function useReorderState() {
   const [pendingCount, setPendingCount] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
+  async function loadMovedBatch(key: string, revision?: number) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const saved = preferCurrentBatch(
+        cache.get(key)?.data as BatchDetail | undefined,
+        await fetchBatchDetail(api, key)
+      )
+      if (revision === undefined || saved.batch.revision >= revision)
+        return saved
+    }
+    throw new ApiError(409, 'superseded_revision', {
+      reasons: ['The move was saved. Reload to see the updated draft.'],
+    })
+  }
+
   async function refreshMovedBatch(key: string, revision?: number) {
-    let saved = await fetchBatchDetail(api, key)
-    if (revision !== undefined && saved.batch.revision < revision)
-      saved = await fetchBatchDetail(api, key)
+    const saved = await loadMovedBatch(key, revision)
     const cached = await mutate<BatchDetail>(
       key,
       (detail) => preferCurrentBatch(detail, saved),
@@ -1097,42 +1169,49 @@ export function useReorderState() {
       const saved = await mutate<BatchDetail>(
         key,
         async () => {
-          const batch = await api.send<ReviewBatch>(
+          const receipt = await sendMove<StateMoveResult>(
+            api,
             'PUT',
             `${requestKey}/state-order/${encodeURIComponent(state)}`,
             { moves, ...(standard && { standard }) }
           )
-          return { ...detail, batch }
+          return loadMovedBatch(requestKey, receipt.revision)
         },
         {
-          ...(preview && {
-            optimisticData: {
-              ...detail,
-              batch: {
-                ...detail.batch,
-                stateOrders: { ...detail.batch.stateOrders, [state]: preview },
+          ...(preview &&
+            !standard && {
+              optimisticData: {
+                ...detail,
+                batch: {
+                  ...detail.batch,
+                  stateOrders: {
+                    ...detail.batch.stateOrders,
+                    [state]: preview,
+                  },
+                },
               },
-            },
-          }),
+            }),
           rollbackOnError: true,
           revalidate: false,
         }
       )
-      const confirmed = await refreshMovedBatch(key, saved?.batch.revision)
+      if (!saved) throw new Error('Could not confirm the updated draft.')
       await mutate(
         (key) =>
           typeof key === 'string' &&
           (key === batchesKey() || key.startsWith(`${batchesKey()}?`))
       )
-      return { ok: true, detail: confirmed }
+      return { ok: true, detail: saved }
     } catch (error) {
       if (error instanceof ApiError) {
         if (
           error.code === 'standard_change_unconfirmed' ||
           error.code === 'standard_required' ||
           error.code === 'standard_invalid_template'
-        )
+        ) {
+          if (key) await refreshMovedBatch(key).catch(() => undefined)
           return { ok: false, error: error.code }
+        }
         const message = apiErrorReasons(error)[0]
         if (error.status === 409) {
           if (key) await refreshMovedBatch(key).catch(() => undefined)
@@ -1173,6 +1252,12 @@ export function useReorderState() {
           saved.detail.plates.map((entry) => [
             entry.proposed.id,
             entry.revision,
+          ])
+        ),
+        editVersions: Object.fromEntries(
+          saved.detail.plates.map(({ proposed }) => [
+            proposed.id,
+            plateEditVersion(saved.detail.batch, proposed.id),
           ])
         ),
       }
@@ -1229,10 +1314,17 @@ export function useReorderState() {
         ok: true,
         proposed: plate.proposed,
         revision: plate.revision,
+        editVersion: plateEditVersion(saved.detail.batch, plate.proposed.id),
         revisions: Object.fromEntries(
           saved.detail.plates.map((entry) => [
             entry.proposed.id,
             entry.revision,
+          ])
+        ),
+        editVersions: Object.fromEntries(
+          saved.detail.plates.map(({ proposed }) => [
+            proposed.id,
+            plateEditVersion(saved.detail.batch, proposed.id),
           ])
         ),
         batchId: saved.detail.batch.id,
@@ -1251,6 +1343,7 @@ export function useReorderState() {
     { ok: true; value: FamilyMergeResult } | { ok: false; message: string }
   > {
     setPendingCount((count) => count + 1)
+    let key: string | undefined
     try {
       if (
         workspace.mode === 'selected' &&
@@ -1261,10 +1354,10 @@ export function useReorderState() {
           message: 'The selected Batch is unavailable for editing.',
         }
       }
-      const key = batchApiPath(origin.batchId ?? (await ensureBatch()))
-      const { revision, ...value } = await api.send<
+      key = batchApiPath(origin.batchId ?? (await ensureBatch()))
+      const { revision, ...value } = await sendMove<
         FamilyMergeResult & { revision: number }
-      >('POST', `${key}/family-merge`, {
+      >(api, 'POST', `${key}/family-merge`, {
         destinationId: input.destination.id,
         plateIds: input.members.map(({ id }) => id),
         ...(standard && { standard }),
@@ -1272,6 +1365,7 @@ export function useReorderState() {
       if (value.moved.length) await refreshMovedBatch(key, revision)
       return { ok: true, value }
     } catch (error) {
+      if (key) await refreshMovedBatch(key).catch(() => undefined)
       if (!(error instanceof ApiError)) throw error
       const [reason] = apiErrorReasons(error)
       const message =

@@ -281,7 +281,7 @@ function session(actor: Actor, id: string | null = 'shared') {
             ? await moveState(deps, actor, {
                 batchId: path.split('/')[3],
                 state: 'AK',
-                ...(body as { moves: StateMove[] }),
+                ...(body as { operationId: string; moves: StateMove[] }),
               })
             : await submitBatch(
                 deps,

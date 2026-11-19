@@ -25,7 +25,8 @@ export function planFamilyMerge(
   destination: Family,
   selectedIds: readonly string[],
   firstId?: string,
-  protectStandard = true
+  protectStandard = true,
+  newFamilyLabel = destination.template.id
 ) {
   const byId = new Map(
     families
@@ -66,7 +67,7 @@ export function planFamilyMerge(
   const changes = new Map<string, EditableFields>()
   if (moving.size) {
     const parent = destination.template
-    const templateFamily = parent.templateFamily || parent.id
+    const templateFamily = parent.templateFamily || newFamilyLabel
     const fields: EditableFields = {
       templateRole: 'variant',
       variantOfPlateId: parent.id,

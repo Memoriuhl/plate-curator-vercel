@@ -80,11 +80,30 @@ export async function plateFieldConflicts(
 ): Promise<PlateFieldConflicts | undefined> {
   const relevant = editableKeys.filter((field) => Object.hasOwn(fields, field))
   const current = { ...baseline, ...existing?.fields }
+  if (plateRevision(current) === seen) return undefined
+  const baselineRevision = plateRevision(baseline)
+  const floor = batch.rebaseFloor ?? 0
+  const pendingAttribution = (
+    edit: ProposedEdit | null,
+    field: keyof EditableFields,
+    value: unknown
+  ) => {
+    const pipeline = edit?.pipelineChanges?.[field]
+    return pipeline && sameEditableValue(field, pipeline.value, value)
+      ? pipeline
+      : edit?.fieldAuthors?.[field]
+  }
+  const needsLegacyHistory = relevant.some(
+    (field) =>
+      !sameEditableValue(field, baseline[field], current[field]) &&
+      !pendingAttribution(existing, field, current[field])
+  )
   const changes =
     batch.kind === 'shared-draft' && d.store.listChanges
-      ? await d.store.listChanges(batch.id, batch.rebaseFloor ?? 0)
+      ? await d.store.listChanges(batch.id, needsLegacyHistory ? 0 : floor)
       : []
   const conflicts: PlateFieldConflicts = {}
+  const changedFields = new Set<keyof EditableFields>()
   let after = existing
   for (const change of changes.toReversed()) {
     if (
@@ -94,54 +113,64 @@ export async function plateFieldConflicts(
     )
       continue
     const before = change.before.edits[baseline.id]
+    // Older changes can prove authorship only when this plate's baseline stayed
+    // the same through the rebase.
+    if (
+      change.revision <= floor &&
+      (after?.baseRevision !== baselineRevision ||
+        (before && before.baseRevision !== baselineRevision))
+    )
+      break
     const old = { ...baseline, ...before?.fields }
     const updated = { ...baseline, ...after?.fields }
     for (const field of relevant) {
       if (
-        conflicts[field] ||
+        changedFields.has(field) ||
         sameEditableValue(field, old[field], updated[field])
       )
         continue
-      const pipeline = after?.pipelineChanges?.[field]
-      const author = change.contributors[0]
+      changedFields.add(field)
+      const author =
+        change.contributors.length === 1 ? change.contributors[0] : undefined
       const attribution =
-        pipeline && sameEditableValue(field, pipeline.value, updated[field])
-          ? pipeline
-          : after
-            ? {
-                by: after.authorId,
-                byName: after.authorName ?? null,
-                at: after.updatedAt,
-              }
-            : author &&
-              change.at && {
-                by: author.uid,
-                byName: author.name,
-                at: change.at,
-              }
+        pendingAttribution(after, field, updated[field]) ??
+        (after?.revision === change.revision
+          ? {
+              by: after.authorId,
+              byName: after.authorName ?? null,
+              at: after.updatedAt,
+            }
+          : author &&
+            change.at && {
+              by: author.uid,
+              byName: author.name,
+              at: change.at,
+            })
       if (attribution) {
         const { by, byName, at } = attribution
         conflicts[field] = { by, byName, at, value: current[field] ?? null }
       }
     }
-    if (plateRevision(old) === seen)
+    if (plateRevision(old) === seen) {
+      for (const field of relevant)
+        if (sameEditableValue(field, old[field], current[field]))
+          delete conflicts[field]
       return Object.keys(conflicts).length ? conflicts : undefined
+    }
     after = before
   }
 
   // Before-images are pruned after Publish and were absent in legacy Batches.
   // If the screen showed the current baseline, remaining draft fields still differ.
-  if (plateRevision(baseline) !== seen) return undefined
+  if (baselineRevision !== seen) return undefined
   for (const field of relevant) {
     if (sameEditableValue(field, baseline[field], current[field]))
       delete conflicts[field]
     else if (!conflicts[field] && existing) {
-      const pipeline = existing.pipelineChanges?.[field]
-      conflicts[field] = {
-        by: pipeline?.by ?? existing.authorId,
-        byName: pipeline ? pipeline.byName : (existing.authorName ?? null),
-        at: pipeline?.at ?? existing.updatedAt,
-        value: current[field] ?? null,
+      const attribution = pendingAttribution(existing, field, current[field])
+      if (attribution) {
+        const { by, byName, at } = attribution
+        conflicts[field] = { by, byName, at, value: current[field] ?? null }
       }
     }
   }

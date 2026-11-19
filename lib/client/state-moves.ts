@@ -1,5 +1,31 @@
 import type { StateMove } from '../review/state-move'
 
+/** Active standalone plates can anchor a family position. */
+export function placementHeads(
+  families: readonly {
+    template: { id: string; deleted?: boolean; templateRole: string | null }
+  }[]
+) {
+  return families.flatMap(({ template }) =>
+    !template.deleted && template.templateRole !== 'variant'
+      ? [template.id]
+      : []
+  )
+}
+
+/** A drop in the first position must end with an active Template. */
+export function allowsFirstPlacement(
+  plate: { deleted?: boolean; templateRole: string | null } | undefined,
+  promoted: boolean
+) {
+  return (
+    !!plate &&
+    !plate.deleted &&
+    (plate.templateRole === 'template' ||
+      (promoted && plate.templateRole === 'variant'))
+  )
+}
+
 /** Translate the dragged plates' preview positions into anchored placements. */
 export function placementsForOrder(
   order: readonly string[],

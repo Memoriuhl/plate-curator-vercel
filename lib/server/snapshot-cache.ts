@@ -21,6 +21,22 @@ const snapshotForVersion = cache(
   }
 )
 
+/** Read only the fields needed to reserve family labels across the catalog. */
+export async function cachedCatalogFamilies(
+  version: number,
+  kind: CatalogSourceKind
+) {
+  'use cache: remote'
+  cacheLife('max')
+  const { plates } = await snapshotForVersion(version, kind)
+  return plates.map(({ id, state, templateFamily, deleted }) => ({
+    id,
+    state,
+    templateFamily,
+    deleted,
+  }))
+}
+
 /**
  * Cache one immutable state slice per version remotely. This keeps entries small
  * and skips a full catalog scan on repeat reads.

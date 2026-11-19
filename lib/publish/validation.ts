@@ -1,5 +1,5 @@
 import { validTarget } from './allocation'
-import type { Snapshot } from '../catalog/types'
+import type { Plate, Snapshot } from '../catalog/types'
 import { familyRole } from '../catalog/families'
 import {
   colorFieldKeys,
@@ -14,6 +14,21 @@ const groupingFields = [
   'templateRole',
   'variantOfPlateId',
 ] as const
+
+/** Check the Standard of the active plates in a state. */
+export function hasValidStandard(
+  plates: readonly Plate[],
+  firstId: string | undefined
+) {
+  const standards = plates.filter(
+    (plate) => !plate.deleted && plate.isStandard === true
+  )
+  return (
+    standards.length === 1 &&
+    standards[0].id === firstId &&
+    familyRole(standards[0]) === 'template'
+  )
+}
 
 /**
  * Validate a candidate snapshot against baseline membership, ordering and plate
@@ -164,13 +179,7 @@ export function validateSnapshot(
     const plates = candidate.plates.filter(
       (plate) => plate && typeof plate === 'object' && plate.state === state
     )
-    const first = plates.find((plate) => plate.id === order[0])
-    if (
-      !first ||
-      familyRole(first) !== 'template' ||
-      first.isStandard !== true ||
-      plates.filter((plate) => plate.isStandard === true).length !== 1
-    )
+    if (!hasValidStandard(plates, order[0]))
       reasons.push('Standard must be the first Template in state: ' + state)
   }
   return reasons

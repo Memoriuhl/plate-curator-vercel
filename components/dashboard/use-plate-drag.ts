@@ -18,7 +18,11 @@ import type {
   useEditPlate,
   useReorderState,
 } from '@/lib/client/hooks'
-import { placementsForOrder } from '@/lib/client/state-moves'
+import {
+  allowsFirstPlacement,
+  placementHeads,
+  placementsForOrder,
+} from '@/lib/client/state-moves'
 import type { EditableFields, StandardChange } from '@/lib/review/types'
 import {
   planFamilyMerge,
@@ -450,7 +454,7 @@ export function usePlateDrag(options: Options) {
           order,
           members.map(({ id }) => id),
           {
-            familyHeads: initialFamilies.map(({ template }) => template.id),
+            familyHeads: placementHeads(initialFamilies),
             promote: true,
           }
         )
@@ -468,6 +472,9 @@ export function usePlateDrag(options: Options) {
               revision:
                 result.revisions?.[plate.id] ??
                 (members.length === 1 ? result.revision : undefined),
+              editVersion:
+                result.editVersions?.[plate.id] ??
+                (members.length === 1 ? result.editVersion : undefined),
             },
           }))
         )
@@ -480,6 +487,7 @@ export function usePlateDrag(options: Options) {
         let reverted = 0
         let orderRestored = true
         const restoredRevisions: Record<string, string> = {}
+        const restoredEditVersions: Record<string, number> = {}
         for (const [state, order] of previousOrders) {
           if (!succeeded.some((entry) => entry.plate.state === state)) continue
           try {
@@ -494,7 +502,10 @@ export function usePlateDrag(options: Options) {
             )
             const result = await ordering.reorder(state, order, standard, moves)
             if (!result.ok) orderRestored = false
-            else Object.assign(restoredRevisions, result.revisions)
+            else {
+              Object.assign(restoredRevisions, result.revisions)
+              Object.assign(restoredEditVersions, result.editVersions)
+            }
           } catch {
             orderRestored = false
           }
@@ -519,7 +530,12 @@ export function usePlateDrag(options: Options) {
               const restored = await edits.edit(
                 { ...plate, revision },
                 fields,
-                { batchId: result.batchId, baseRevision: revision }
+                {
+                  batchId: result.batchId,
+                  baseRevision: revision,
+                  editVersion:
+                    restoredEditVersions[plate.id] ?? result.editVersion,
+                }
               )
               if (restored.ok) {
                 reverted++
@@ -767,6 +783,18 @@ export function usePlateDrag(options: Options) {
       family.template,
       ...family.variants,
     ])
+    const currentFirst = latest.current.orderBaseline?.(item.plate.state)?.first
+    if (
+      (!currentFirst || order.includes(currentFirst)) &&
+      !allowsFirstPlacement(
+        statePlates.find(({ id }) => id === order[0]),
+        promote && order[0] === item.plate.id
+      )
+    ) {
+      latest.current.holdOverlay?.(false)
+      announce('The first plate must be an active Template.')
+      return
+    }
     const confirmation = confirmOrder(
       item.plate.state,
       familyOrder(families)[0],
@@ -795,7 +823,7 @@ export function usePlateDrag(options: Options) {
         result = await ordering.move(
           item.plate.state,
           placementsForOrder(order, [item.plate.id], {
-            familyHeads: families.map(({ template }) => template.id),
+            familyHeads: placementHeads(families),
             promote: true,
           }),
           drag.origin,
@@ -810,13 +838,15 @@ export function usePlateDrag(options: Options) {
             item.kind === 'variant'
               ? order.filter(
                   (id) =>
-                    id === source.template.id ||
-                    source.variants.some((variant) => variant.id === id)
+                    (id === source.template.id && !source.template.deleted) ||
+                    source.variants.some(
+                      (variant) => variant.id === id && !variant.deleted
+                    )
                 )
               : order,
             [item.plate.id],
             item.kind === 'family'
-              ? { familyHeads: families.map(({ template }) => template.id) }
+              ? { familyHeads: placementHeads(families) }
               : undefined
           )
         )

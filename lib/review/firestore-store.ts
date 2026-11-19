@@ -10,6 +10,7 @@ import type {
   PublishMetadata,
   ReviewBatch,
   ReviewStore,
+  StateMoveResult,
 } from './types'
 import {
   changeBefore,
@@ -20,6 +21,7 @@ import {
   type ReviewCheckpoint,
 } from './checkpoint'
 import { receiptId } from '../publish/command'
+import { nextPlateEditVersions, recordEditAuthors } from './edit-history'
 
 /** Stage a metadata-only update that preserves the batch's editorial revision. */
 export function writePublishMetadata(
@@ -83,6 +85,63 @@ export function firestoreReviewStore(
   }
 
   return {
+    async transactStateMove(batchId, operationId, fingerprint, plan, prepare) {
+      const batchRef = batches.doc(batchId)
+      const receiptRef = batchRef
+        .collection('stateMoveReceipts')
+        .doc(operationId)
+      const replay = (receipt: DocumentSnapshot) =>
+        receipt.get('fingerprint') === fingerprint
+          ? {
+              ok: true as const,
+              value: receipt.get('result') as StateMoveResult,
+            }
+          : { ok: false as const, error: 'superseded_revision' as const }
+      // Load immutable catalog data before locking the draft. The transaction
+      // still reads the current revision and handles a rebase during loading.
+      const [head, previous] = await db.getAll(batchRef, receiptRef)
+      if (head.get('env') !== env) return { ok: false, error: 'not_found' }
+      if (previous.exists) return replay(previous)
+      await prepare(head.get('baselineVersion'))
+      try {
+        return await db.runTransaction(
+          async (transaction) => {
+            const scoped = firestoreReviewStore(db, env, transaction)
+            const detail = await scoped.readBatch(batchId)
+            if (!detail) return { ok: false, error: 'not_found' }
+            const receipt = await transaction.get(receiptRef)
+            if (receipt.exists) return replay(receipt)
+            const proposed = await plan(detail)
+            if (!proposed.ok) return proposed
+            if (proposed.mutation) {
+              const saved = await scoped.commit(
+                batchId,
+                detail.batch.revision,
+                proposed.mutation
+              )
+              if (saved !== 'ok')
+                return {
+                  ok: false,
+                  error:
+                    saved === 'revision_mismatch'
+                      ? 'superseded_revision'
+                      : saved,
+                }
+            }
+            transaction.create(receiptRef, {
+              fingerprint,
+              result: proposed.value,
+            })
+            return { ok: true, value: proposed.value }
+          },
+          { maxAttempts: 5 }
+        )
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 10)
+          return { ok: false, error: 'superseded_revision' }
+        throw error
+      }
+    },
     /** List the distinct plate IDs still changed since a particular batch revision. */
     async recentPlateIds(batchId, since) {
       return db.runTransaction(
@@ -273,26 +332,26 @@ export function firestoreReviewStore(
     },
     /** Read a batch and all its plate edits in a consistent transaction. */
     async readBatch(batchId) {
-      return db.runTransaction(
-        async (transaction) => {
-          const ref = batches.doc(batchId)
-          const snapshot = await transaction.get(ref)
-          if (!snapshot.exists || snapshot.get('env') !== env) return null
-          const edits = await transaction.get(ref.collection('edits'))
-          const batch = snapshot.data()!
-          delete batch.env
-          delete batch.publishReservation
-          return {
-            batch: {
-              ...batch,
-              createdByName: batch.createdByName ?? null,
-              stateOrders: batch.stateOrders ?? {},
-            } as ReviewBatch,
-            edits: edits.docs.map((doc) => doc.data() as ProposedEdit),
-          }
-        },
-        { readOnly: true }
-      )
+      const run = async (transaction: Transaction) => {
+        const ref = batches.doc(batchId)
+        const snapshot = await transaction.get(ref)
+        if (!snapshot.exists || snapshot.get('env') !== env) return null
+        const edits = await transaction.get(ref.collection('edits'))
+        const batch = snapshot.data()!
+        delete batch.env
+        delete batch.publishReservation
+        return {
+          batch: {
+            ...batch,
+            createdByName: batch.createdByName ?? null,
+            stateOrders: batch.stateOrders ?? {},
+          } as ReviewBatch,
+          edits: edits.docs.map((doc) => doc.data() as ProposedEdit),
+        }
+      }
+      return scopedTransaction
+        ? run(scopedTransaction)
+        : db.runTransaction(run, { readOnly: true })
     },
     /** List change-log entries after a revision, oldest first. */
     async listChanges(batchId, after) {
@@ -470,12 +529,7 @@ export function firestoreReviewStore(
             return 'revision_mismatch'
         } else if (next.publishToken !== undefined) return 'revision_mismatch'
         const draft = next.batch.kind === 'shared-draft'
-        const updates = [
-          ...(next.edits ?? []),
-          ...(next.edit ? [next.edit] : []),
-        ].map((edit) =>
-          draft ? { ...edit, revision: next.batch.revision } : edit
-        )
+        let updates = [...(next.edits ?? []), ...(next.edit ? [next.edit] : [])]
         const deletes = [
           ...(next.deleteEditsFor ?? []),
           ...(next.deleteEditFor ? [next.deleteEditFor] : []),
@@ -492,6 +546,26 @@ export function firestoreReviewStore(
               )
             : []
         const previous = batch.data() as ReviewBatch
+        const beforeEdits = new Map(
+          previousEdits.map((snapshot) => [
+            snapshot.id,
+            snapshot.exists ? (snapshot.data() as ProposedEdit) : null,
+          ])
+        )
+        const plateEditVersions = draft
+          ? nextPlateEditVersions(
+              previous,
+              next.batch.revision,
+              next.history === false ? [] : touched
+            )
+          : undefined
+        if (draft)
+          updates = updates.map((edit) => ({
+            ...(next.history === false
+              ? edit
+              : recordEditAuthors(edit, beforeEdits.get(edit.plateId))),
+            revision: next.batch.revision,
+          }))
         const change =
           next.history === false
             ? null
@@ -502,18 +576,7 @@ export function firestoreReviewStore(
                 deletes,
                 next.by,
                 draft
-                  ? changeBefore(
-                      previous,
-                      next.batch,
-                      new Map(
-                        previousEdits.map((snapshot) => [
-                          snapshot.id,
-                          snapshot.exists
-                            ? (snapshot.data() as ProposedEdit)
-                            : null,
-                        ])
-                      )
-                    )
+                  ? changeBefore(previous, next.batch, beforeEdits)
                   : undefined
               )
         if (change)
@@ -525,6 +588,7 @@ export function firestoreReviewStore(
           )
         transaction.set(batchRef, {
           ...next.batch,
+          ...(plateEditVersions && { plateEditVersions }),
           ...(batch.get('publishAbandonment')
             ? { publishAbandonment: batch.get('publishAbandonment') }
             : {}),

@@ -796,8 +796,20 @@ async function moveOnto(
         Object.hasOwn(fields, key)
       )
     )
+    const fieldAuthors = Object.fromEntries(
+      Object.entries(edit?.fieldAuthors ?? {}).filter(
+        ([key]) =>
+          Object.hasOwn(fields, key) && Object.hasOwn(edit?.fields ?? {}, key)
+      )
+    )
     const base = edit
-      ? omit(edit, 'pipelineChanges', 'pipelineRunIds', 'revision')
+      ? omit(
+          edit,
+          'pipelineChanges',
+          'pipelineRunIds',
+          'fieldAuthors',
+          'revision'
+        )
       : {
           plateId,
           authorId: release!.batch.createdBy,
@@ -809,6 +821,7 @@ async function moveOnto(
       fields,
       baseRevision: plateRevision(live),
       resultRevision: plateRevision(plate),
+      ...(Object.keys(fieldAuthors).length && { fieldAuthors }),
       ...(Object.keys(pipelineChanges).length
         ? {
             pipelineChanges,

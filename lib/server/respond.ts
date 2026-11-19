@@ -29,6 +29,9 @@ export function respond<T>(outcome: Outcome<T>): Response {
       error: outcome.error,
       ...(outcome.conflicts ? { conflicts: outcome.conflicts } : {}),
       ...(outcome.reasons ? { reasons: outcome.reasons } : {}),
+      ...(outcome.currentEditVersion !== undefined
+        ? { currentEditVersion: outcome.currentEditVersion }
+        : {}),
       ...(outcome.current
         ? {
             current: outcome.current,
