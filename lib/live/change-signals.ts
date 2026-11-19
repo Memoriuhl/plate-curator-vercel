@@ -75,12 +75,19 @@ export function signalChange(
   topic: ChangeTopic
 ): void {
   const path = signalPath(liveEnvKey(reviewEnv), topicSignalId(topic))
-  const dispatch = coalesce(path, () =>
-    withDeadline(
-      db.doc(path).set({ revision: FieldValue.increment(1) }, { merge: true }),
-      signalDeadlineMs
-    )
-  )
+  const dispatch = coalesce(path, () => {
+    // Even a database that throws before writing must not reach the caller.
+    try {
+      return withDeadline(
+        db
+          .doc(path)
+          .set({ revision: FieldValue.increment(1) }, { merge: true }),
+        signalDeadlineMs
+      )
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  })
     .catch((error: unknown) => {
       console.warn(
         `[live] ${topic} change signal failed: ${error instanceof Error ? error.message : String(error)}`

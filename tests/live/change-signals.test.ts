@@ -74,6 +74,21 @@ test('a rejected topic write is logged and never reaches the caller', async () =
   )
 })
 
+test('a database that throws at once is logged like any other failed write', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  const db = {
+    doc: () => {
+      throw new Error('no database')
+    },
+  } as unknown as Firestore
+
+  expect(() => signalChange(db, 'preview:x', 'research')).not.toThrow()
+  await settleSignals()
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining('research change signal failed')
+  )
+})
+
 test('a write that never settles is abandoned at the deadline, so later changes still go out', async () => {
   vi.useFakeTimers()
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
