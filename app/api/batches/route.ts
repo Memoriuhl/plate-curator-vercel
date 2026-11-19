@@ -1,6 +1,9 @@
 import { connection } from 'next/server'
 import { loadPublishedStateCards } from '@/lib/catalog/dashboard'
-import { SHARED_DRAFT_ALIAS, sharedDraftId } from '../../../lib/review/draft-id'
+import {
+  SHARED_DRAFT_ALIAS,
+  sharedDraftId,
+} from '../../../lib/review/draft/draft-id'
 import {
   dashboardDraft,
   dashboardDrafts,

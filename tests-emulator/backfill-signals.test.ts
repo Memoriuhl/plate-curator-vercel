@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from 'vitest'
-import { firestoreBatchSignalsBackfillStore } from '../lib/review/firestore-backfill-signals'
+import { firestoreBatchSignalsBackfillStore } from '../lib/review/signals/firestore-backfill-signals'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { db } from './setup'
 

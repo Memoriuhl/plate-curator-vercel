@@ -1,7 +1,7 @@
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { moveState } from '@/lib/review/move-state'
 import { isStateMoveId, parseStateMoves } from '@/lib/review/state-move'
-import { parseStandardChange } from '@/lib/review/standard-change'
+import { parseStandardChange } from '@/lib/review/standards/standard-change'
 import { currentActor, reviewDeps } from '@/lib/server/context'
 import { badRequest, readJson, respond } from '@/lib/server/respond'
 

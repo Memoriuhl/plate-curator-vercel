@@ -7,7 +7,7 @@ export default defineHook({
     async 'session.started'(_event, ctx) {
       const { researchState } = await import('../../lib/research/storage')
       const { firestoreResearchStore } =
-        await import('../../lib/research/firestore-store')
+        await import('../../lib/research/stores/firestore-store')
       const { researchDatabase, researchEnvironment } =
         await import('../../lib/research/storage')
       const principal = ctx.session.auth.initiator ?? ctx.session.auth.current
@@ -61,7 +61,7 @@ export default defineHook({
         binding?.jobId ??
         `${ctx.session.id}/${event.data.turnId}`
       const { researchBudgetError, researchModelCosts } =
-        await import('../../lib/research/model-attempt')
+        await import('../../lib/research/models/model-attempt')
       const costs = await researchModelCosts(state, runId)
       await state.update(`eve-outcome/${runId}`, () => ({
         value: {

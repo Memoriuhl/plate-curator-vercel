@@ -2,7 +2,7 @@ import 'server-only'
 import { reviewDeps } from './context'
 import { activeResearchMember } from '../research/auth'
 import { researchDatabase, researchEnvironment } from '../research/storage'
-import { firestoreResearchStore } from '../research/firestore-store'
+import { firestoreResearchStore } from '../research/stores/firestore-store'
 import type { ResearchDeps } from '../research/jobs'
 import type { TaggingJob } from '../jobs/types'
 

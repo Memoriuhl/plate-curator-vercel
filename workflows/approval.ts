@@ -5,7 +5,7 @@ import { publishBatch } from '../lib/publish/publish'
 import { catalogChanged } from '../lib/server/catalog-head'
 import { publishDeps, reviewDeps } from '../lib/server/context'
 import { catalogPush } from './catalog-push'
-import { afterPublish } from '../lib/review/draft'
+import { afterPublish } from '../lib/review/draft/draft'
 
 /** Run a confirmed publish command and send catalog notifications if it commits. */
 export async function publishRun(

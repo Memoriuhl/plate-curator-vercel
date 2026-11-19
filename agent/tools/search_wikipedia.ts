@@ -8,7 +8,8 @@ export default defineTool({
   /** Search Wikipedia for sources within the current research turn's request budget. */
   async execute({ query }, ctx) {
     const { researchTurn } = await import('../../lib/research/runtime')
-    const { searchWikipedia } = await import('../../lib/research/wikipedia')
+    const { searchWikipedia } =
+      await import('../../lib/research/sources/wikipedia')
     const run = await researchTurn(ctx)
     return searchWikipedia(query, {
       store: run.store,

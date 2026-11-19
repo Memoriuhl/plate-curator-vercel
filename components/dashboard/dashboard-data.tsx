@@ -6,8 +6,8 @@ import { RegionPill } from '@/components/app/region-pill'
 import { summarizeRegions } from '@/components/app/regions'
 import { JurisdictionNav } from './jurisdiction-nav'
 import { StateHeader } from './state-header'
-import { FamilyGrid } from './family-grid'
-import { projectFamilyPlate } from './family-data'
+import { FamilyGrid } from './family-grid/family-grid'
+import { projectFamilyPlate } from './family-grid/family-data'
 
 /** Load and group jurisdiction summaries for the shared dashboard navigation. */
 export async function JurisdictionStrip() {

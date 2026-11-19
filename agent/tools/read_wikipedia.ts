@@ -8,7 +8,8 @@ export default defineTool({
   /** Read a Wikipedia article and save it as evidence the current draft can cite. */
   async execute({ title }, ctx) {
     const { researchTurn } = await import('../../lib/research/runtime')
-    const { readWikipedia } = await import('../../lib/research/wikipedia')
+    const { readWikipedia } =
+      await import('../../lib/research/sources/wikipedia')
     const run = await researchTurn(ctx)
     const source = await readWikipedia(title, {
       store: run.store,

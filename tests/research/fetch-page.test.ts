@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
-import { fetchResearchPage } from '../../lib/research/fetch-page'
-import { researchUserAgent } from '../../lib/research/wikimedia'
+import { fetchResearchPage } from '../../lib/research/sources/fetch-page'
+import { researchUserAgent } from '../../lib/research/sources/wikimedia'
 
 /** Resolve the source to a public fixture IP without performing real DNS. */
 const publicResolve = async () => ['93.184.216.34']

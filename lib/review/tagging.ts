@@ -1,4 +1,4 @@
-import { canEdit } from './batch'
+import { canEdit } from './batches/batch'
 import type { Actor, Outcome, ReviewDeps } from './types'
 
 /** Check that the actor can edit an open batch before it accepts tagging work. */

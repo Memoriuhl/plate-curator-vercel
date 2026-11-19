@@ -4,7 +4,7 @@ import { expect, test, vi } from 'vitest'
 import {
   alignResearchArtifacts,
   loadResearchArtifacts,
-} from '../../worker/research-artifact'
+} from '../../worker/research/research-artifact'
 import { executeResearchBenchmark } from '../../worker/research-benchmark'
 import { researchFixture } from './fixture'
 

@@ -1,0 +1,632 @@
+import {
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  within,
+} from '@testing-library/react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { SWRConfig } from 'swr'
+import { FamilyCard } from '../../components/plate/family-card'
+import { useGridEntrance } from '../../components/dashboard/family-grid/use-grid-entrance'
+import { plateCards } from '../../fixtures/plate-cards'
+
+const prefetch = vi.hoisted(() => vi.fn())
+vi.mock('next/navigation', () => ({ useRouter: () => ({ prefetch }) }))
+vi.mock('next/link', () => ({
+  default: ({ prefetch: ignored, ...props }: Record<string, unknown>) => {
+    void ignored
+    return <a {...props} />
+  },
+}))
+const animate = vi.fn()
+let reduced = false
+beforeEach(() => {
+  prefetch.mockReset()
+  animate.mockReset().mockImplementation(() => ({ cancel: vi.fn() }))
+  vi.stubGlobal('matchMedia', () => ({
+    matches: reduced,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }))
+  HTMLElement.prototype.animate = animate
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  reduced = false
+})
+
+test('plate pointer intent and focus prefetch each plate once', () => {
+  const view = render(
+    <FamilyCard template={plateCards[0]} variants={[plateCards[1]]} />
+  )
+  const links = view.getAllByRole('link')
+  fireEvent.pointerEnter(links[0])
+  fireEvent.pointerEnter(links[0])
+  fireEvent.focus(links[0])
+  fireEvent.focus(links[1])
+  expect(prefetch.mock.calls).toEqual([
+    ['/plates/' + plateCards[0].id],
+    ['/plates/' + plateCards[1].id],
+  ])
+})
+
+test('image pointer hover anchors preview and focus leaves it closed', () => {
+  const preview = vi.fn()
+  const close = vi.fn()
+  const view = render(
+    <FamilyCard
+      template={plateCards[0]}
+      variants={[]}
+      onPreview={preview}
+      onClosePreview={close}
+    />
+  )
+  const button = view.container.querySelector('[data-plate-image]')!
+  fireEvent.pointerEnter(button)
+  expect(preview).toHaveBeenLastCalledWith(plateCards[0], button, false)
+  fireEvent.pointerLeave(button)
+  expect(close).toHaveBeenCalledOnce()
+  fireEvent.focus(view.getAllByRole('link')[0])
+  expect(preview).toHaveBeenCalledOnce()
+})
+
+/** Build a measurable test grid from supplied HTML and attach it to the document. */
+function grid() {
+  const container = document.createElement('div')
+  container.innerHTML =
+    '<div data-index="0"><article><div data-plate-image></div></article></div>'
+  container.firstElementChild!.getBoundingClientRect = () =>
+    ({ top: 100, bottom: 300 }) as DOMRect
+  container.querySelector('[data-plate-image]')!.getBoundingClientRect = () =>
+    ({ top: 100, bottom: 142, left: 20 }) as DOMRect
+  document.body.append(container)
+  return { current: container }
+}
+
+test('only first visible rows animate, later mounts and remounts never replay', () => {
+  const container = grid()
+  const view = renderHook(
+    ({ identity }) => useGridEntrance(container, true, identity),
+    { initialProps: { identity: '/states/MD' } }
+  )
+  expect(animate).toHaveBeenCalledTimes(2)
+  container.current.innerHTML =
+    '<div data-index="1"><article><div data-plate-image></div></article></div>'
+  view.rerender({ identity: '/states/MD' })
+  container.current.innerHTML =
+    '<div data-index="0"><article><div data-plate-image></div></article></div>'
+  view.rerender({ identity: '/states/MD' })
+  expect(animate).toHaveBeenCalledTimes(2)
+  container.current.firstElementChild!.getBoundingClientRect = () =>
+    ({ top: 100, bottom: 300 }) as DOMRect
+  container.current.querySelector('[data-plate-image]')!.getBoundingClientRect =
+    () => ({ top: 100, bottom: 142, left: 20 }) as DOMRect
+  view.rerender({ identity: '/states/AK' })
+  expect(animate).toHaveBeenCalledTimes(4)
+  container.current.remove()
+})
+
+test('reduced motion leaves all cards immediately visible without animation', () => {
+  reduced = true
+  const container = grid()
+  renderHook(() => useGridEntrance(container, true, '/states/MD'))
+  expect(animate).not.toHaveBeenCalled()
+  expect(
+    container.current.querySelector('article')?.getAttribute('style')
+  ).toBeNull()
+  container.current.remove()
+})
+
+test('only visible images animate in visual lines while containers stay still', () => {
+  const container = grid()
+  container.current.innerHTML =
+    '<div><article><div data-plate-image></div><div data-plate-image></div></article><article><div data-plate-image></div><div data-plate-image></div><div data-plate-image></div></article></div>'
+  const images = Array.from(
+    container.current.querySelectorAll('[data-plate-image]')
+  )
+  const positions = [
+    { top: 100, left: 20 },
+    { top: 200, left: 20 },
+    { top: 108, left: 220 },
+    { top: 109, left: 420 },
+    { top: 1200, left: 220 },
+  ]
+  images.forEach((image, index) => {
+    image.getBoundingClientRect = () =>
+      ({ ...positions[index], bottom: positions[index].top + 42 }) as DOMRect
+  })
+  renderHook(() => useGridEntrance(container, true, '/states/AK'))
+  expect(animate.mock.contexts).toEqual([
+    images[0],
+    images[0],
+    images[2],
+    images[2],
+    images[3],
+    images[3],
+    images[1],
+    images[1],
+  ])
+  expect(animate.mock.calls.map((call) => call[1].delay)).toEqual([
+    0, 0, 30, 30, 55, 55, 110, 110,
+  ])
+  container.current.remove()
+})
+test('preview stays closed while its plate image is dropping', () => {
+  const preview = vi.fn()
+  const view = render(
+    <FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />
+  )
+  const image = view.container.querySelector('[data-plate-image]')!
+  image.getAnimations = () =>
+    [{ playState: 'running', pending: false }] as Animation[]
+  fireEvent.pointerEnter(image)
+  fireEvent.focus(view.getAllByRole('link')[0])
+  expect(preview).not.toHaveBeenCalled()
+})
+
+test('shared intent registry prevents repeated prefetch after virtualized remount', () => {
+  const ids = new Set<string>()
+  const view = render(
+    <FamilyCard template={plateCards[0]} variants={[]} prefetchedIds={ids} />
+  )
+  fireEvent.pointerEnter(view.getAllByRole('link')[0])
+  view.unmount()
+  const remounted = render(
+    <FamilyCard template={plateCards[0]} variants={[]} prefetchedIds={ids} />
+  )
+  fireEvent.pointerEnter(remounted.getAllByRole('link')[0])
+  expect(prefetch).toHaveBeenCalledOnce()
+})
+
+const previewDetail = vi.hoisted(() => ({
+  data: undefined as undefined | { plate: (typeof plateCards)[number] },
+}))
+vi.mock('../../lib/client/hooks', () => ({
+  /** Leave the batch unselected while exercising the standalone plate preview. */
+  useSelectedBatchId: () => null,
+  /** Supply the current fixture actor for role and account-dependent behavior. */
+  useMe: () => ({ data: { role: 'editor' } }),
+  /** Provide the current fixture plate detail for preview readiness transitions. */
+  usePlateDetail: () => previewDetail,
+  /** Provide the plate overlay used to render this catalog scenario. */
+  useDraftOverlay: (plates: unknown[]) => plates,
+}))
+import {
+  ReadyPlatePreview,
+  CheckValue,
+} from '../../components/plate/ready-plate-preview'
+import { act } from '@testing-library/react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+/** Render a pending preview with a concrete browser anchor and return its controls. */
+function pendingPreview(
+  checkKey?: import('../../lib/catalog/dashboard-types').PlateCheckKey,
+  immediate = false
+) {
+  const anchor = document.createElement('span')
+  document.body.append(anchor)
+  const props = { plate: plateCards[0], anchor, checkKey, immediate }
+  return { ...render(<ReadyPlatePreview {...props} />), props, anchor }
+}
+
+beforeEach(() => {
+  previewDetail.data = undefined
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  )
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+test('breakdown requires both intent and cached detail', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview()
+  act(() => vi.advanceTimersByTime(150))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  expect(document.querySelector('[aria-busy]')).toBeNull()
+  view.anchor.remove()
+})
+
+test('warm breakdown waits 150 ms; focus has no intent delay', () => {
+  vi.useFakeTimers()
+  previewDetail.data = { plate: plateCards[0] }
+  const view = pendingPreview()
+  act(() => vi.advanceTimersByTime(149))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1))
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  view.unmount()
+  const focused = pendingPreview(undefined, true)
+  expect(document.querySelector('[role=tooltip]')).not.toBeNull()
+  focused.anchor.remove()
+  view.anchor.remove()
+})
+
+test('focus waits for detail and slow breakdown replaces its skeleton in one step', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview(undefined, true)
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1499))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  act(() => vi.advanceTimersByTime(1))
+  expect(document.querySelector('[aria-busy=true]')).not.toBeNull()
+  expect(document.body.textContent).not.toContain(plateCards[0].displayName)
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelector('[aria-busy]')).toBeNull()
+  expect(document.body.textContent).toContain(plateCards[0].displayName)
+  view.anchor.remove()
+})
+
+test('leaving early cancels pending preview and its timers', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview()
+  view.unmount()
+  previewDetail.data = { plate: plateCards[0] }
+  act(() => vi.advanceTimersByTime(2000))
+  expect(document.querySelector('[role=tooltip]')).toBeNull()
+  view.anchor.remove()
+})
+
+test('detail tooltip waits for cached data and keeps just one tooltip', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview('description')
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelector('[data-check-tooltip]')).toBeNull()
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.querySelectorAll('[data-check-tooltip]')).toHaveLength(1)
+  expect(document.body.textContent).toContain(
+    plateCards[0].checks.description.value
+  )
+  view.rerender(<ReadyPlatePreview {...view.props} checkKey="tags" />)
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelectorAll('[data-check-tooltip]')).toHaveLength(1)
+  view.anchor.remove()
+})
+
+test('slow tooltip freezes Loading until the pointer leaves', () => {
+  vi.useFakeTimers()
+  const view = pendingPreview('description')
+  act(() => vi.advanceTimersByTime(1500))
+  expect(document.body.textContent).toContain('Loading…')
+  previewDetail.data = { plate: plateCards[0] }
+  view.rerender(<ReadyPlatePreview {...view.props} />)
+  expect(document.body.textContent).toContain('Loading…')
+  view.anchor.remove()
+})
+
+test('the image check displays the four enhancement frames together', async () => {
+  vi.stubEnv('NEXT_PUBLIC_LOCAL_PIPELINE', '1')
+  const hash = 'a'.repeat(64)
+  const frame = { width: 160, height: 80, sha256: hash }
+  const frames = ['original', 'crop', 'upscale', 'roundCorners'].map(
+    (step) => ({ ...frame, step })
+  )
+  avatarSession.api.get.mockImplementation(async (path: string) =>
+    path.endsWith('/enhancement')
+      ? {
+          result: {
+            jobId: 'status-preview',
+            suggestion: {
+              ...frame,
+              kind: 'enhanced-image',
+              stage: 'enhance-image',
+              originalWidth: 160,
+              originalHeight: 80,
+              frames,
+            },
+          },
+        }
+      : { image: 'AQIDBA==' }
+  )
+  const anchor = document.createElement('span')
+  document.body.append(anchor)
+  render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <ReadyPlatePreview
+        plate={plateCards[0]}
+        anchor={anchor}
+        checkKey="image"
+        immediate
+      />
+    </SWRConfig>
+  )
+  try {
+    const panel = await screen.findByRole('dialog', {
+      name: `${plateCards[0].displayName} image enhancement`,
+    })
+    const images = await within(panel).findAllByRole('img')
+    expect(images.map((image) => image.getAttribute('alt'))).toEqual(
+      ['Original', 'Crop margins', 'Upscale', 'Round corners'].map(
+        (label) => `${label} of ${plateCards[0].displayName}`
+      )
+    )
+    const framePath = '/api/local-pipeline/jobs/status-preview/enhanced-image'
+    expect(avatarSession.api.get.mock.calls.map(([path]) => path)).toEqual(
+      expect.arrayContaining([
+        `${framePath}?step=original`,
+        `${framePath}?step=crop`,
+        `${framePath}?step=upscale`,
+        framePath,
+      ])
+    )
+  } finally {
+    anchor.remove()
+  }
+})
+
+test.each([
+  'description',
+  'funFacts',
+  'link',
+  'tags',
+  'family',
+  'image',
+  'rarity',
+] as const)('formats %s and missing values', (checkKey) => {
+  const base = {
+    ...plateCards[0],
+    tags: ['Military'],
+    templateFamily: 'Army',
+    templateRole: 'variant' as const,
+    imageUrl: '/plate.png',
+    checks: {
+      ...plateCards[0].checks,
+      [checkKey]: {
+        status: 'good' as const,
+        value:
+          checkKey === 'funFacts' ? 'First fact\nSecond fact' : 'Full value',
+      },
+    },
+  }
+  const html = renderToStaticMarkup(
+    <CheckValue plate={base} checkKey={checkKey} parent="Army" />
+  )
+  expect(html).toContain(
+    checkKey === 'tags'
+      ? 'Military'
+      : checkKey === 'family'
+        ? 'Army · variant of Army'
+        : checkKey === 'image'
+          ? 'plate.png'
+          : checkKey === 'funFacts'
+            ? '2'
+            : 'Full value'
+  )
+  const empty = {
+    ...base,
+    tags: [],
+    templateFamily: null,
+    imageUrl: null,
+    checks: {
+      ...base.checks,
+      [checkKey]: { status: 'missing' as const, value: null },
+    },
+  }
+  expect(
+    renderToStaticMarkup(<CheckValue plate={empty} checkKey={checkKey} />)
+  ).toContain(checkKey === 'tags' ? 'None' : 'Missing')
+})
+
+test('check strip suppresses breakdown while delegating unfocusable icon hover', () => {
+  const preview = vi.fn()
+  const check = vi.fn()
+  const dismiss = vi.fn()
+  const view = render(
+    <FamilyCard
+      template={plateCards[0]}
+      variants={[]}
+      onPreview={preview}
+      onCheck={check}
+      onDismissPreview={dismiss}
+    />
+  )
+  const icon = view.container.querySelector<HTMLElement>('[data-check]')!
+  fireEvent.pointerOver(icon)
+  fireEvent.mouseOver(icon)
+  expect(preview).not.toHaveBeenCalled()
+  expect(check).toHaveBeenCalledWith(plateCards[0], 'description', icon)
+  expect(dismiss).toHaveBeenCalledOnce()
+  expect(icon.tabIndex).toBe(-1)
+})
+
+test('only image pointer hover opens breakdown; links, focus and container do not', () => {
+  const preview = vi.fn()
+  const view = render(
+    <FamilyCard template={plateCards[0]} variants={[]} onPreview={preview} />
+  )
+  for (const element of [
+    view.getByRole('article'),
+    view.getAllByRole('link')[0],
+    view.getByRole('heading'),
+  ]) {
+    fireEvent.mouseOver(element)
+    fireEvent.pointerEnter(element)
+  }
+  expect(preview).not.toHaveBeenCalled()
+  const image = view.container.querySelector<HTMLElement>('[data-plate-image]')!
+  fireEvent.pointerEnter(image)
+  expect(preview).toHaveBeenLastCalledWith(plateCards[0], image, false)
+  fireEvent.focus(view.getAllByRole('link')[0])
+  expect(preview).toHaveBeenCalledOnce()
+  expect(
+    view.queryByRole('button', { name: 'Preview ' + plateCards[0].displayName })
+  ).toBeNull()
+})
+
+import { UserAvatar } from '../../components/app/user-avatar'
+import { HeaderActions } from '../../components/app/header-actions'
+import { TooltipProvider } from '../../components/ui/tooltip'
+const avatarSession = vi.hoisted(() => ({
+  ready: true,
+  user: {
+    displayName: 'Priya',
+    email: 'curator',
+    photoURL: null as string | null,
+  },
+  signOut: vi.fn(),
+  api: { get: vi.fn() },
+}))
+vi.mock('../../lib/client/session', () => ({ useSession: () => avatarSession }))
+
+beforeEach(() => {
+  avatarSession.user.displayName = 'Priya'
+  avatarSession.user.photoURL = null
+})
+
+test('header and plate marker share the avatar and fallback letter', () => {
+  const view = render(
+    <TooltipProvider>
+      <HeaderActions />
+      <FamilyCard
+        template={plateCards[0]}
+        variants={[]}
+        badge={() => (
+          <UserAvatar user={avatarSession.user} size="sm" activity="changed" />
+        )}
+      />
+    </TooltipProvider>
+  )
+  const avatars = view.container.querySelectorAll('[data-user-avatar]')
+  expect(avatars).toHaveLength(2)
+  expect(
+    Array.from(avatars).map(
+      (avatar) =>
+        avatar.querySelector('[data-slot=avatar-fallback]')?.textContent
+    )
+  ).toEqual(['P', 'P'])
+  expect(avatars[1].getAttribute('data-activity')).toBe('changed')
+})
+
+test('header and marker show profile photos with the same fallback when unavailable', () => {
+  vi.stubGlobal(
+    'Image',
+    class extends EventTarget {
+      complete = true
+      naturalWidth = 1
+      src = ''
+    }
+  )
+  avatarSession.user.photoURL =
+    'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+  const view = render(
+    <TooltipProvider>
+      <HeaderActions />
+      <UserAvatar user={avatarSession.user} size="sm" />
+    </TooltipProvider>
+  )
+  const images = view.container.querySelectorAll('[data-slot=avatar-image]')
+  expect(images).toHaveLength(2)
+  expect(Array.from(images).map((image) => image.getAttribute('src'))).toEqual([
+    avatarSession.user.photoURL,
+    avatarSession.user.photoURL,
+  ])
+  avatarSession.user.photoURL = null
+  avatarSession.user.displayName = ''
+  view.rerender(
+    <TooltipProvider>
+      <HeaderActions />
+      <UserAvatar user={avatarSession.user} size="sm" />
+    </TooltipProvider>
+  )
+  expect(
+    view.container.querySelectorAll('[data-slot=avatar-image]')
+  ).toHaveLength(0)
+  expect(
+    Array.from(
+      view.container.querySelectorAll('[data-slot=avatar-fallback]')
+    ).map((avatar) => avatar.textContent)
+  ).toEqual(['C', 'C'])
+})
+
+test('marker name uses the shared tooltip, without a detail fetch or breakdown', () => {
+  vi.useFakeTimers()
+  const marker = vi.fn()
+  const view = render(
+    <FamilyCard
+      template={plateCards[0]}
+      variants={[]}
+      badge={() => <UserAvatar user={avatarSession.user} size="sm" />}
+      onMarker={marker}
+    />
+  )
+  const anchor = view.container.querySelector<HTMLElement>(
+    '[data-batch-marker]'
+  )!
+  fireEvent.pointerOver(anchor)
+  expect(marker).toHaveBeenCalledWith(plateCards[0], anchor)
+  const tooltip = render(
+    <ReadyPlatePreview
+      plate={plateCards[0]}
+      anchor={anchor}
+      immediate={false}
+      markerName="Priya"
+    />
+  )
+  act(() => vi.advanceTimersByTime(300))
+  expect(document.querySelectorAll('[role=tooltip]')).toHaveLength(1)
+  expect(document.querySelector('[data-check-tooltip]')?.textContent).toBe(
+    'Priya, edited in your batch'
+  )
+  expect(document.querySelector('#plate-breakdown-preview')).toBeNull()
+  tooltip.unmount()
+})
+
+test('image tooltip shows the file name, strips URL suffixes and shortens long names', () => {
+  const imageUrl = '/plates/AK/standard.webp?version=2#preview'
+  expect(
+    renderToStaticMarkup(
+      <CheckValue plate={{ ...plateCards[0], imageUrl }} checkKey="image" />
+    )
+  ).toBe('standard.webp')
+  const filename = 'a'.repeat(70) + 'plate.webp'
+  const html = renderToStaticMarkup(
+    <CheckValue
+      plate={{ ...plateCards[0], imageUrl: '/plates/' + filename }}
+      checkKey="image"
+    />
+  )
+  expect(html).toContain(filename.slice(0, 36) + '\u2026' + filename.slice(-24))
+  expect(html).not.toContain('320 px')
+  expect(
+    renderToStaticMarkup(
+      <CheckValue
+        plate={{ ...plateCards[0], imageUrl: null }}
+        checkKey="image"
+      />
+    )
+  ).toBe('Missing')
+})
+
+test('a pipeline-changed Plate exposes the blue Review link beside its title and can receive keyboard focus', () => {
+  const plate = { ...plateCards[0], pipelineBatchId: 'pipeline-batch' }
+  const view = render(
+    <FamilyCard template={plate} variants={[plateCards[1]]} />
+  )
+  const link = view.getByRole('link', { name: 'Review ' + plate.displayName })
+  expect(link.parentElement?.querySelector('h3')?.textContent).toBe(
+    plate.displayName
+  )
+  expect(link.getAttribute('data-variant')).toBe('publish')
+  link.focus()
+  expect(document.activeElement).toBe(link)
+  expect(link.getAttribute('href')).toBe(
+    `/review?state=${plate.state}&plate=${plate.id}&batch=pipeline-batch`
+  )
+  expect(
+    view.queryByRole('link', { name: 'Review ' + plateCards[1].displayName })
+  ).toBeNull()
+})

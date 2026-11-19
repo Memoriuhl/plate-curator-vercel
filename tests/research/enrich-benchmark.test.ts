@@ -8,7 +8,7 @@ import {
   selectEnrichPlates,
   type EnrichManifest,
 } from '../../lib/research/enrich-benchmark'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 
 const fact = { text: 'Saved fact.', sourceUrl: 'https://example.com/fact' }
 

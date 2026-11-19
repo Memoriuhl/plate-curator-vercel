@@ -1,5 +1,5 @@
 import { familyRole } from './families'
-import { plateRevision } from '../review/revision'
+import { plateRevision } from '../review/draft/revision'
 import { PLATE_IMAGE_SIZE } from './dashboard-types'
 import type {
   DashboardData,

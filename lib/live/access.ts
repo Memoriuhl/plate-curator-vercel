@@ -1,4 +1,4 @@
-import { liveEnvKey } from '../review/live-signal'
+import { liveEnvKey } from '../review/signals/live-signal'
 
 export type LiveAccessDeps = {
   env: string

@@ -28,7 +28,7 @@ vi.mock('../../lib/server/context', () => ({
 vi.mock('../../lib/publish/publish', () => ({
   publishBatch: mocks.publishBatch,
 }))
-vi.mock('../../lib/review/draft', () => ({
+vi.mock('../../lib/review/draft/draft', () => ({
   afterPublish: mocks.afterPublish,
 }))
 

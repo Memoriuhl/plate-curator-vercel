@@ -1,9 +1,9 @@
 import { isPublishStop, PIPELINE_BUSY, PUBLISH_ERRORS } from './stop'
 import { claimSupersedes, isSuperseded, receiptId } from './command'
-import { publishBaselineError } from './baseline'
+import { publishBaselineError } from './baseline/baseline'
 import { randomUUID } from 'node:crypto'
 import type { Actor } from '../review/types'
-import { sha256, snapshotBytes } from './bytes'
+import { sha256, snapshotBytes } from './snapshots/bytes'
 import type {
   CommittedStateOrders,
   PublishCommand,

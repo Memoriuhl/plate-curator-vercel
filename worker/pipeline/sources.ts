@@ -2,7 +2,7 @@ import { JURISDICTIONS } from '../../lib/catalog/jurisdictions'
 import {
   localPipelineUserAgent,
   withRateLimitRetry,
-} from '../../lib/research/wikimedia'
+} from '../../lib/research/sources/wikimedia'
 import type { WorkerPlate } from '../run'
 
 export type Source = {

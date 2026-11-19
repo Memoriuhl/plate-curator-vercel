@@ -4,13 +4,13 @@ import {
   dispatchGatewayTagWave,
   dispatchQueueStage,
   observeQueueStage,
-} from '../lib/jobs/queue-engine'
+} from '../lib/jobs/queue/queue-engine'
 import { hostedTaggingDeps, jobsDeps } from '../lib/server/context'
 import { expireJob } from '../lib/jobs/jobs'
 import {
   executeHostedQueueAttempt,
   executeHostedQueueStage,
-} from '../lib/jobs/queue-hosted'
+} from '../lib/jobs/queue/queue-hosted'
 
 /** How long a waiting stage goes without a wake before it re-checks its own state. */
 const backstopWait = '90s'

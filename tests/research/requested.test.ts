@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import { claimResearch, reportResearch } from '../../lib/research/jobs'
 import { acceptResearch } from '../../lib/research/accept'
 import {
@@ -14,10 +14,10 @@ import {
   type EvidenceSource,
   type ResearchDraft,
 } from '../../lib/research/types'
-import { missingResearchInput } from '../../lib/jobs/queue-engine'
-import type { RunAttempt } from '../../lib/jobs/queue-types'
-import type { ProjectedPlate } from '../../lib/jobs/queue-projection'
-import type { RunStep } from '../../lib/jobs/pipeline-plan'
+import { missingResearchInput } from '../../lib/jobs/queue/queue-engine'
+import type { RunAttempt } from '../../lib/jobs/queue/queue-types'
+import type { ProjectedPlate } from '../../lib/jobs/queue/queue-projection'
+import type { RunStep } from '../../lib/jobs/pipeline/pipeline-plan'
 import { validateStory } from '../../worker/pipeline/validate'
 import { researchFixture } from './fixture'
 

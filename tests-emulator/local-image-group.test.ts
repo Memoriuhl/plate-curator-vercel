@@ -9,7 +9,7 @@ import {
 } from '../lib/jobs/capabilities'
 import { acceptGroup } from '../lib/review/group'
 import { groupProposal } from '../worker/image-group'
-import { plateRevision } from '../lib/review/revision'
+import { plateRevision } from '../lib/review/draft/revision'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
 import './setup'

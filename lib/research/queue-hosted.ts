@@ -1,7 +1,7 @@
 import { reportJobPhase } from '../jobs/job-phase'
 import type { JobsDeps, TaggingJob } from '../jobs/types'
 import { expireJob, getJob, reportResult } from '../jobs/jobs'
-import { failLocalJob } from '../jobs/queue-failure'
+import { failLocalJob } from '../jobs/queue/queue-failure'
 import type { ResearchStateStore } from './state'
 import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
 import { enrichmentTargets } from './enrichment'
@@ -18,7 +18,7 @@ import {
   type captureSavedEnrichment,
   type PreparedEnrichment,
 } from '../../worker/pipeline/research'
-import { researchModelCosts } from './model-attempt'
+import { researchModelCosts } from './models/model-attempt'
 import { STRICT_MODEL_FAILURE } from '../models/routing'
 
 export type QueueResearchDeps = {

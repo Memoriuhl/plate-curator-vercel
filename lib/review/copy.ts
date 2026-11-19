@@ -1,9 +1,9 @@
 import { canCopyForFreshReview } from './access'
-import { standardOrderProblems } from './standard'
+import { standardOrderProblems } from './standards/standard'
 import { createHash } from 'node:crypto'
 import type { Snapshot } from '../catalog/types'
 import { orderedStatePlates } from '../catalog/order'
-import { plateRevision } from './revision'
+import { plateRevision } from './draft/revision'
 import type {
   Actor,
   CopyCommitResult,

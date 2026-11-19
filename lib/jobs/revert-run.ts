@@ -1,8 +1,11 @@
-import { revertPipelineRun, type RunRevertResult } from '../review/revert-run'
+import {
+  revertPipelineRun,
+  type RunRevertResult,
+} from '../review/draft/revert-run'
 import type { Actor, Outcome, ReviewDeps } from '../review/types'
 import type { JobsDeps } from './types'
-import { localQueueEnabled } from './queue'
-import type { PipelineRun } from './queue-types'
+import { localQueueEnabled } from './queue/queue'
+import type { PipelineRun } from './queue/queue-types'
 import { runRevertTarget, type RunRevertTarget } from './revert-target'
 
 function settled(run: PipelineRun) {

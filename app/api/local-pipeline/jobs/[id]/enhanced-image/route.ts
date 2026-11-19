@@ -1,5 +1,5 @@
 import { canEdit } from '@/lib/review/access'
-import { localQueueEnabled } from '@/lib/jobs/queue'
+import { localQueueEnabled } from '@/lib/jobs/queue/queue'
 import { currentActor, jobsDeps } from '@/lib/server/context'
 import { json } from '@/lib/server/respond'
 

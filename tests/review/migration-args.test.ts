@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import {
   migrationUsage,
   parseMigrationArgs,
-} from '../../lib/review/migration-args'
+} from '../../lib/review/migration/migration-args'
 
 test('standard environments parse whatever this checkout deploys as', () => {
   for (const env of ['development', 'production', 'preview:feat/x']) {

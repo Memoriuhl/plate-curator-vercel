@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { sharedDraftId } from '../../lib/review/draft-id'
+import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import {
   migrateToSharedDraft,
   type MigrationOptions,
-} from '../../lib/review/migrate'
-import { plateRevision } from '../../lib/review/revision'
+} from '../../lib/review/migration/migrate'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type {
   BatchState,
   ProposedEdit,

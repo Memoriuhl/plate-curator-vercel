@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import {
   backfillBatchSignals,
   type BatchSignalsBackfillStore,
-} from '../../lib/review/backfill-signals'
+} from '../../lib/review/signals/backfill-signals'
 
 test('backfill guards staging before using its store', async () => {
   /** Fail if an invalid staging target reaches the backfill store. */

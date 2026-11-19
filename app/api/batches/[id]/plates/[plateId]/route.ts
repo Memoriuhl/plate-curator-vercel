@@ -1,6 +1,6 @@
 import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
-import { parseStandardChange } from '../../../../../../lib/review/standard-change'
-import { proposeEdit } from '../../../../../../lib/review/batch'
+import { parseStandardChange } from '../../../../../../lib/review/standards/standard-change'
+import { proposeEdit } from '../../../../../../lib/review/batches/batch'
 import { discardPlateChanges } from '../../../../../../lib/review/discard-changes'
 import {
   editableKeys,

@@ -12,7 +12,7 @@ Research supports desktop/Ollama and Vercel/Eve execution.
 | `agent/channels/eve.ts` | Terminal/HTTP channel authentication |
 | `agent/tools/` | Wikipedia, existing web search, page reading, and draft submission |
 | `lib/research/` | Evidence, validation, budgets, persistent state, and research jobs |
-| `worker/research-legacy.ts` | Calls the existing desktop story implementation |
+| `worker/research/research-legacy.ts` | Calls the existing desktop story implementation |
 | `worker/research-benchmark.ts` | Freezes inputs and runs desktop, Eve, and identical-evidence comparisons |
 | `worker/research-report.ts` | Summaries, CSV, and a local blind review page |
 | `components/research/` | Host choice, durable progress, citations, and field acceptance |

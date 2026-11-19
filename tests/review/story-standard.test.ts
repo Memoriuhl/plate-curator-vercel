@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { Plate } from '../../lib/catalog/types'
 import type { ReviewDeps } from '../../lib/review/types'
 

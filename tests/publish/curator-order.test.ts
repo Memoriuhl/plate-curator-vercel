@@ -1,6 +1,6 @@
 import { curatorOrderScenarios } from './curator-order-scenarios'
 import { fixture, snapshot } from './fixture'
-import { sha256, snapshotBytes } from '../../lib/publish/bytes'
+import { sha256, snapshotBytes } from '../../lib/publish/snapshots/bytes'
 
 curatorOrderScenarios(async () => {
   const f = fixture()

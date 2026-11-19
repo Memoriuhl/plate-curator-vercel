@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Firestore } from '@google-cloud/firestore'
 import type { ResearchStateStore } from './state'
-import { fileResearchState } from './file-state'
+import { fileResearchState } from './stores/file-state'
 
 let database: Firestore | undefined
 /** Choose the research storage namespace for the current deployment or local session. */

@@ -2,7 +2,7 @@ import { canEdit, editableStates } from './access'
 import { editableKeys } from './fields'
 import { orderDifferences, restorePlateOrder } from './order-diff'
 import { retryDraftRace, unchangedSince } from './preconditions'
-import { commitDraftRevert } from './revert-commit'
+import { commitDraftRevert } from './draft/revert-commit'
 import type {
   Actor,
   DraftChangeTarget,

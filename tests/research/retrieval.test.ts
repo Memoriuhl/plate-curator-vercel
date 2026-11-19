@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { createResearchMemoryState } from '../../lib/research/state'
-import { searchWeb } from '../../lib/research/search'
+import { searchWeb } from '../../lib/research/sources/search'
 
 test('an unavailable Serper key falls through to Brave and repeat queries use attributed cache', async () => {
   const store = createResearchMemoryState()

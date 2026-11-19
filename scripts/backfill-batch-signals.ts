@@ -1,7 +1,7 @@
 import { loadEnvConfig } from '@next/env'
-import { backfillBatchSignals } from '../lib/review/backfill-signals'
+import { backfillBatchSignals } from '../lib/review/signals/backfill-signals'
 import { assertStagingProject } from '../lib/review/demo-seed'
-import { firestoreBatchSignalsBackfillStore } from '../lib/review/firestore-backfill-signals'
+import { firestoreBatchSignalsBackfillStore } from '../lib/review/signals/firestore-backfill-signals'
 
 /**
  * Load staging configuration and run the missing revision signal backfill for the

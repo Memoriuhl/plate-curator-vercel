@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { alignResearchArtifacts } from '../../worker/research-artifact'
+import { alignResearchArtifacts } from '../../worker/research/research-artifact'
 import {
   summarizeResearch,
   researchArtifactRow,

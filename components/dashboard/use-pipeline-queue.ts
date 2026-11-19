@@ -1,6 +1,6 @@
 'use client'
 
-import { isSharedDraftId } from '@/lib/review/draft-id'
+import { isSharedDraftId } from '@/lib/review/draft/draft-id'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
@@ -16,12 +16,12 @@ import type {
   QueueRunSummary,
   QueueRunView,
   RunStatus,
-} from '@/lib/jobs/queue-types'
+} from '@/lib/jobs/queue/queue-types'
 import {
   snapshotPipelineOptions,
   type PipelineOptions,
-} from '@/lib/jobs/pipeline-options'
-import type { RunPlate } from './use-tag-run'
+} from '@/lib/jobs/pipeline/pipeline-options'
+import type { RunPlate } from './tagging/use-tag-run'
 import type { RunModelOptions } from '@/lib/models/selection'
 import type { TaggingJob } from '@/lib/jobs/types'
 import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'

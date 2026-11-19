@@ -6,7 +6,7 @@ import {
   reviewChanges,
   type DraftChange,
   type ReviewCheckpoint,
-} from './checkpoint'
+} from './draft/checkpoint'
 import { retryDraft, retryDraftRace } from './preconditions'
 import { nextPlateEditVersions, recordEditAuthors } from './edit-history'
 import type {

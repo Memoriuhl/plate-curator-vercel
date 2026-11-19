@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { gatewayParallelSearch } from '../../lib/research/gateway-search'
+import { gatewayParallelSearch } from '../../lib/research/sources/gateway-search'
 
 test('search budget refusal sends neither a Gateway model call nor a search', async () => {
   let calls = 0

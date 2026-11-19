@@ -2,11 +2,11 @@ import { draftCommitAttempts } from '../../lib/review/retry'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { limits } from '../../lib/review/fields'
 import { validateTagging } from '../../lib/review/tagging'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type {
   ReviewBatch,
   ReviewDeps,

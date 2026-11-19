@@ -4,7 +4,7 @@ import {
   reserveResearchSpend,
   settleResearchModelSpend,
 } from '../../lib/research/budget'
-import { createResearchModelAttempt } from '../../lib/research/model-attempt'
+import { createResearchModelAttempt } from '../../lib/research/models/model-attempt'
 import { researchTurn } from '../../lib/research/runtime'
 import { bindHostedModel } from '../../lib/jobs/model-binding'
 import { installModelCatalogFixture } from '../models/fixture'

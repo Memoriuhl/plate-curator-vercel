@@ -5,7 +5,7 @@ import {
   stageStatus,
 } from '../../lib/jobs/run-progress'
 import { workflowVisibilityUrl } from '../../lib/jobs/workflow-visibility'
-import type { QueueRunView } from '../../lib/jobs/queue-types'
+import type { QueueRunView } from '../../lib/jobs/queue/queue-types'
 
 /** Build a queue attempt with stage records for progress aggregation assertions. */
 function run(): QueueRunView {

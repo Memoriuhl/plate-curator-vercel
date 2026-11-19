@@ -1,11 +1,11 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { acceptGroup, completeGroupScope } from '../../lib/review/group'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { Plate } from '../../lib/catalog/types'
 import type { ReviewDeps } from '../../lib/review/types'
 import type { GroupSuggestion } from '../../lib/jobs/specialized-suggestions'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 

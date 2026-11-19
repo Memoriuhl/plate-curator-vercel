@@ -7,7 +7,7 @@ import {
   DEFAULT_HOSTED_RESEARCH_MODEL,
   researchModel,
   type ResearchModel,
-} from '@/lib/research/models'
+} from '@/lib/research/models/models'
 import type { HostedModelCatalog } from '@/lib/models/selection'
 import {
   eligiblePickerModel,

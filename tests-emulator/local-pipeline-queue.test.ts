@@ -13,7 +13,7 @@ import {
   listRuns,
   readPipelineRun,
   retryRun,
-} from '../lib/jobs/queue'
+} from '../lib/jobs/queue/queue'
 import {
   bindQueueWorkflow,
   chooseQueueImage,
@@ -22,14 +22,14 @@ import {
   dispatchQueueStage,
   observeQueueStage,
   recordQueueWorkflowFailure,
-} from '../lib/jobs/queue-engine'
+} from '../lib/jobs/queue/queue-engine'
 import { claimHostedQueueJob, claimNext, reportResult } from '../lib/jobs/jobs'
-import { proposeEdit, revertPipelineField } from '../lib/review/batch'
+import { proposeEdit, revertPipelineField } from '../lib/review/batches/batch'
 import { plateEditVersion } from '../lib/review/edit-history'
-import { plateRevision } from '../lib/review/revision'
-import { applyQueueBundle } from '../lib/jobs/queue-bundle'
+import { plateRevision } from '../lib/review/draft/revision'
+import { applyQueueBundle } from '../lib/jobs/queue/queue-bundle'
 import { revertQueueRun } from '../lib/jobs/revert-run'
-import { sharedDraftId } from '../lib/review/draft-id'
+import { sharedDraftId } from '../lib/review/draft/draft-id'
 import type { JobsDeps } from '../lib/jobs/types'
 import type { ReviewDeps } from '../lib/review/types'
 import { installModelCatalogFixture } from '../tests/models/fixture'

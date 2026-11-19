@@ -2,10 +2,10 @@ import {
   enqueueSelection,
   localQueueEnabled,
   parseEnqueue,
-} from '../../../../../lib/jobs/queue'
-import { pipelineSelectionLimit } from '../../../../../lib/jobs/pipeline-selection'
+} from '../../../../../lib/jobs/queue/queue'
+import { pipelineSelectionLimit } from '../../../../../lib/jobs/pipeline/pipeline-selection'
 import { currentActor, jobsDeps } from '../../../../../lib/server/context'
-import { SHARED_DRAFT_ALIAS } from '../../../../../lib/review/draft-id'
+import { SHARED_DRAFT_ALIAS } from '../../../../../lib/review/draft/draft-id'
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import {
   queueResponse,

@@ -1,5 +1,5 @@
 import { connection } from 'next/server'
-import { sharedDraftId } from '../../../lib/review/draft-id'
+import { sharedDraftId } from '../../../lib/review/draft/draft-id'
 import { currentActor, reviewEnv } from '../../../lib/server/context'
 import { json } from '../../../lib/server/respond'
 

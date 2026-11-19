@@ -2,7 +2,7 @@
 
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
-import { useStateSelected } from './plate-selection'
+import { useStateSelected } from './selection/plate-selection'
 import Link, { useLinkStatus } from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'

@@ -1,7 +1,7 @@
 'use client'
 
-import { useSelectedPlates } from './plate-selection'
-import { selectionActions } from './selection-actions'
+import { useSelectedPlates } from './selection/plate-selection'
+import { selectionActions } from './selection/selection-actions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IoChevronDown, IoPlay } from 'react-icons/io5'
 import { Button } from '@/components/ui/button'
@@ -14,21 +14,21 @@ import { cn } from '@/components/utils'
 import {
   TaggingModelPicker,
   useTaggingModelChoice,
-} from './tagging-model-picker'
+} from './tagging/tagging-model-picker'
 import type { ModelOptions } from '@/lib/models/selection'
-import type { RunPlate } from './use-tag-run'
+import type { RunPlate } from './tagging/use-tag-run'
 import { localStageReasons, planTagRun } from './local-pipeline'
 import type { PipelineStage } from '@/lib/jobs/types'
 import { LOCAL_STAGE_DEFINITIONS } from '@/lib/jobs/stages'
-import { PipelineRunControls } from './pipeline-run-controls'
-import { onlyUnderTaggedLabel } from './pipeline-stages'
+import { PipelineRunControls } from './pipeline-runs/pipeline-run-controls'
+import { onlyUnderTaggedLabel } from './pipeline-runs/pipeline-stages'
 import type { usePipelineQueue } from './use-pipeline-queue'
 import type { ComponentProps } from 'react'
 import {
   estimateStageMs,
   formatEstimate,
   useRunTimings,
-} from './pipeline-estimates'
+} from './pipeline-runs/pipeline-estimates'
 
 const stages = [
   [

@@ -1,6 +1,6 @@
 import { FieldValue, type Firestore } from '@google-cloud/firestore'
 import { waitUntil } from '@vercel/functions'
-import { liveEnvKey, signalPath } from '../review/live-signal'
+import { liveEnvKey, signalPath } from '../review/signals/live-signal'
 import { topicSignalId, type ChangeTopic } from './topics'
 
 type Slot = { running: Promise<void> | null; queued: Promise<void> | null }

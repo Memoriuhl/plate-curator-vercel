@@ -4,7 +4,7 @@ import {
   buildJurisdiction,
   buildPlate,
 } from '../../lib/catalog/dashboard-build'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { Plate } from '../../lib/catalog/types'
 import { fixtureSource } from '../../lib/catalog/fixture-source'
 import { groupFamilies } from '../../lib/catalog/families'

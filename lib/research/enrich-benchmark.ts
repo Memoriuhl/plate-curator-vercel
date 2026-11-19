@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Plate } from '../catalog/types'
 import type { TaggingJob } from '../jobs/types'
-import { plateRevision } from '../review/revision'
+import { plateRevision } from '../review/draft/revision'
 import { researchContentFields, researchNeeds } from './outcome'
 import type { ResearchContentField } from './types'
 

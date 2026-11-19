@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 
 const plate: Plate = {
   id: 'one',

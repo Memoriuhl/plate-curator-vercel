@@ -2,8 +2,8 @@ import {
   DashboardPipelineDrawer,
   DashboardPipelineProvider,
   DashboardPipelineToggle,
-} from '@/components/dashboard/pipeline-runs'
-import { SelectedBatchBar } from '@/components/dashboard/selected-batch-bar'
+} from '@/components/dashboard/pipeline-runs/pipeline-runs'
+import { SelectedBatchBar } from '@/components/dashboard/selection/selected-batch-bar'
 import { Suspense } from 'react'
 import { JurisdictionStrip } from '@/components/dashboard/dashboard-data'
 import { DashboardSearch } from '@/components/dashboard/search'

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { hoverPosition } from '@/components/dashboard/grid-feel'
+import { hoverPosition } from '@/components/dashboard/family-grid/grid-feel'
 import { usePlateDetail, useDraftOverlay } from '@/lib/client/hooks'
 import Image from 'next/image'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'

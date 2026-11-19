@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { MockLanguageModelV4 } from 'ai/test'
-import { guardedResearchModel } from '../../lib/research/model'
+import { guardedResearchModel } from '../../lib/research/models/model'
 
 const prompt = [
   {

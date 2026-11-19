@@ -21,7 +21,7 @@ import { batchApiPath, dashboardDraftPath, isDashboardDraftKey } from './api'
 import { clientApp, emulatorConnected, emulatorHost } from './firebase'
 import { countClientUsage } from './usage'
 import { useSession } from './session'
-import { signalPath } from '../review/live-signal'
+import { signalPath } from '../review/signals/live-signal'
 
 export type { LiveSignalSource, LiveStatus } from './live-hub'
 /** Resolve the browser Firestore instance, using the local emulator for demo projects. */

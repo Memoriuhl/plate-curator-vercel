@@ -15,7 +15,7 @@ import {
   draftCanBeConfirmed,
   hasDraftChanges,
 } from '@/lib/publish/command'
-import type { ReviewChanges } from '@/lib/review/checkpoint'
+import type { ReviewChanges } from '@/lib/review/draft/checkpoint'
 import { useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -23,10 +23,13 @@ import { useBatchRevisionSignal } from '@/lib/client/live-signal'
 import { batchHref } from '@/lib/review/href'
 import { BatchLastChanged } from '@/components/review/batch-last-changed'
 import { IoArrowUpOutline, IoLayersOutline } from 'react-icons/io5'
-import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
+import {
+  BASELINE_ERRORS,
+  isBaselineError,
+} from '@/lib/publish/baseline/baseline'
 import { PublishControlView } from './control'
-import { DraftPublish } from './draft-publish'
-import { isRelease, isSharedDraftId } from '@/lib/review/draft-id'
+import { DraftPublish } from './draft/draft-publish'
+import { isRelease, isSharedDraftId } from '@/lib/review/draft/draft-id'
 import {
   useBatch,
   useBatches,

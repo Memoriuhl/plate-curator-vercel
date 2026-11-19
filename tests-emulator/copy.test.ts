@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, expect, test } from 'vitest'
 import { copyBatch, copyBatchId, type CopyDeps } from '../lib/review/copy'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
-import { signalPath, liveEnvKey } from '../lib/review/live-signal'
+import { signalPath, liveEnvKey } from '../lib/review/signals/live-signal'
 import { batch, owner, snapshot } from '../tests/publish/fixture'
 import { db } from './setup'
 

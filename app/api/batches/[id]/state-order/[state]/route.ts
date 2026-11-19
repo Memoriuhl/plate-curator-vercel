@@ -1,5 +1,5 @@
 import { draftWriteTarget } from '../../../../../../lib/server/draft-target'
-import { parseStandardChange } from '../../../../../../lib/review/standard-change'
+import { parseStandardChange } from '../../../../../../lib/review/standards/standard-change'
 import { moveState } from '../../../../../../lib/review/move-state'
 import {
   isStateMoveId,

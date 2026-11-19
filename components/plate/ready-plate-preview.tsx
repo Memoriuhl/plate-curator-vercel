@@ -14,7 +14,7 @@ import {
 import { CHECK_META } from './status-icon'
 import { PlateHoverContent } from './plate-hover-card'
 import { useLatestEnhancement } from './plate-image-preview'
-import { EnhancementComparison } from '@/components/dashboard/enhanced-image-result'
+import { EnhancementComparison } from '@/components/dashboard/pipeline-runs/enhanced-image-result'
 import { cn } from '@/components/utils'
 
 export type ReadyPreviewProps = {

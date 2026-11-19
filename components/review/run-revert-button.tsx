@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { pipelineFieldLabel } from '@/components/dashboard/pipeline-field-value'
+import { pipelineFieldLabel } from '@/components/dashboard/pipeline-runs/pipeline-field-value'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { ApiError, apiErrorReasons } from '@/lib/client/api'
 import { useReviewActions, useRunRevertTarget } from '@/lib/client/hooks'
 import type { RunRevertTarget } from '@/lib/jobs/revert-target'
-import type { RunRevertResult } from '@/lib/review/revert-run'
+import type { RunRevertResult } from '@/lib/review/draft/revert-run'
 
 /** Load the attempt for the active curator's run-filtered Review. */
 export function ReviewRunRevertButton({ runId }: { runId: string }) {

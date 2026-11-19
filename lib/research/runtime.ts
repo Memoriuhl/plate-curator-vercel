@@ -9,9 +9,12 @@ import type {
 } from './types'
 import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
-import { createResearchModelAttempt } from './model-attempt'
+import { createResearchModelAttempt } from './models/model-attempt'
 import { researchCallReservation, reserveResearchSpend } from './budget'
-import { DEFAULT_HOSTED_RESEARCH_MODEL, LEGACY_RESEARCH_PRICES } from './models'
+import {
+  DEFAULT_HOSTED_RESEARCH_MODEL,
+  LEGACY_RESEARCH_PRICES,
+} from './models/models'
 import { researchContentFields, researchOutcome } from './outcome'
 import { enrichmentTargets } from './enrichment'
 import type { HostedModelBinding } from '../models/selection'
@@ -105,7 +108,7 @@ export async function researchTurn(
   }
   if (binding?.jobId && !providedStore) {
     const { researchDatabase, researchEnvironment } = await import('./storage')
-    const { firestoreResearchStore } = await import('./firestore-store')
+    const { firestoreResearchStore } = await import('./stores/firestore-store')
     const job = await firestoreResearchStore(
       await researchDatabase(),
       researchEnvironment()

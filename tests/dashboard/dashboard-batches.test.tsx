@@ -1,0 +1,304 @@
+vi.mock('../../components/ui/tooltip', () => ({
+  /**
+   * Pass through the tooltip provider so dashboard actions render in the test
+   * environment.
+   */
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  /** Keep the fixture tooltip children without opening a Radix portal. */
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  /** Expose the action control directly so the test can click it. */
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  /** Expose tooltip text through its accessible role in the fixture DOM. */
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <span role="tooltip">{children}</span>
+  ),
+}))
+import { filterCounts } from '../../components/dashboard/family-grid/family-data'
+import type { ComponentProps } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { beforeEach, expect, test, vi } from 'vitest'
+import { BatchActions } from '../../components/dashboard/selection/batch-actions'
+import { DashboardPipelineProvider } from '../../components/dashboard/pipeline-runs/pipeline-runs'
+import { ReviewStrip } from '../../components/dashboard/review-strip'
+import { FilterBar } from '../../components/dashboard/filter-bar'
+import { alaskaFixture } from '../../fixtures/dashboard-frame'
+import type { BatchDetail } from '../../lib/client/hooks'
+import type { ReviewBatch } from '../../lib/review/types'
+
+const state = vi.hoisted(() => ({
+  selected: false,
+  role: 'owner',
+  open: [] as ReviewBatch[],
+  review: [] as ReviewBatch[],
+  detail: undefined as BatchDetail | undefined,
+  buttons: new Map<
+    string,
+    {
+      disabled?: boolean
+      'aria-disabled'?: boolean | 'true' | 'false'
+      onClick?: () => Promise<void>
+    }
+  >(),
+}))
+
+vi.mock('../../lib/client/hooks', () => ({
+  /**
+   * Leave tagging models unloaded so batch actions render with the intended fixture
+   * state.
+   */
+  useTaggingModels: () => ({ data: undefined }),
+  /** Supply the selected batch and its editability for this workspace scenario. */
+  useWorkspaceBatch: () =>
+    state.selected
+      ? {
+          mode: 'selected',
+          id: 'shared',
+          detail: state.detail,
+          status: state.detail ? 'ready' : 'loading',
+        }
+      : { mode: 'personal' },
+  /** Resolve the fixture batch without creating one through the API. */
+  useEnsureBatch: () => vi.fn(),
+  /** Expose the fixture edit callback so tests can inspect submitted plate changes. */
+  useEditPlate: () => ({ edit: vi.fn(), pending: false }),
+  /** Supply the current fixture actor for role and account-dependent behavior. */
+  useMe: () => ({ data: { uid: 'Jonathan', role: state.role } }),
+  /** Provide the batch list for the current workspace scenario. */
+  useBatches: (states: string[]) => ({
+    data: states.includes('open') ? state.open : state.review,
+  }),
+  /** Provide batch detail from the fixture in place of an SWR request. */
+  useBatch: (id: string | null) => ({ data: id ? state.detail : undefined }),
+  /** Name the shared draft the Dashboard edits without a linked Batch. */
+  useSharedDraftId: () => 'shared-draft-test',
+  useDraftOverview: () => undefined,
+}))
+vi.mock('../../lib/client/session', () => ({
+  /** Supply the fixture session and API client to the component under test. */
+  useSession: () => ({ api: { get: vi.fn(), send: vi.fn() } }),
+}))
+vi.mock('next/navigation', () => ({
+  /** Capture or stub navigation so the test can drive routing without Next.js. */
+  useRouter: () => ({ replace: vi.fn() }),
+  /** Supply the current pathname for the navigation state under test. */
+  usePathname: () => '/states/AK',
+  /** Supply the query parameters that define the fixture workspace state. */
+  useSearchParams: () => new URLSearchParams(),
+}))
+vi.mock('../../components/ui/button', () => ({
+  /**
+   * Render an inspectable action button with its disabled reason and supplied children.
+   */
+  Button: (props: ComponentProps<'button'>) => {
+    const label = Array.isArray(props.children)
+      ? props.children.filter((child) => typeof child === 'string').join('')
+      : String(props.children)
+    state.buttons.set(
+      label,
+      props as { disabled?: boolean; onClick?: () => Promise<void> }
+    )
+    return (
+      <button
+        disabled={props.disabled}
+        aria-label={props['aria-label']}
+        aria-disabled={props['aria-disabled']}
+        title={props.title}
+      >
+        {props.children}
+      </button>
+    )
+  },
+}))
+
+const batch: ReviewBatch = {
+  stateOrders: {},
+  id: 'shared-draft-test',
+  kind: 'shared-draft',
+  name: 'Shared draft',
+  createdBy: 'Jonathan',
+  createdByName: null,
+  state: 'open',
+  revision: 7,
+  createdAt: '2026-11-16',
+  lastChangedAt: '2026-11-17T16:15:00Z',
+  baselineVersion: 11,
+  approval: null,
+  plateIds: ['AK.standard_gold', 'AK.amateur_radio_call_sign', 'AZ.standard'],
+}
+
+beforeEach(() => {
+  state.selected = false
+  state.role = 'owner'
+  state.open = [batch]
+  state.review = []
+  state.detail = {
+    batch,
+    plates: [
+      {
+        baseline: {
+          id: 'AK.standard_gold',
+          state: 'AK',
+          tags: [],
+          slug: 'standard_gold',
+          displayName: 'Standard',
+          image: '',
+        },
+        proposed: {
+          id: 'AK.standard_gold',
+          state: 'AK',
+          tags: ['gold'],
+          slug: 'standard_gold',
+          displayName: 'Standard',
+          image: '',
+        },
+        revision: 'r1',
+        edit: {
+          plateId: 'AK.standard_gold',
+          baseRevision: 'r0',
+          fields: { tags: ['gold'] },
+          authorId: 'Jonathan',
+          updatedAt: '2026-11-16',
+          resultRevision: 'r1',
+        },
+      },
+    ],
+  } as BatchDetail
+  state.buttons.clear()
+})
+
+test('Owner sees the shared draft, its persisted change time and Publish', () => {
+  const html = renderToStaticMarkup(
+    <DashboardPipelineProvider>
+      <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+    </DashboardPipelineProvider>
+  )
+  expect(html).toContain('Shared draft')
+  expect(html).toContain('dateTime="2026-11-17T16:15:00Z"')
+  expect(html).toContain('Last changed')
+  expect(html).not.toContain('href="/review?batch=')
+  expect(html).not.toContain('Open / Share')
+  expect(html).toContain('href="/publish?batch=shared-draft-test"')
+  expect(html).not.toContain('Submit for review')
+})
+
+test('Editor sees the Batch identity and can open the pipeline menu', () => {
+  state.role = 'editor'
+  const html = renderToStaticMarkup(
+    <DashboardPipelineProvider>
+      <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+    </DashboardPipelineProvider>
+  )
+  expect(html).toContain('Last changed')
+  expect(html).not.toContain('href="/review?batch=')
+  expect(html).not.toContain('href="/publish')
+  expect(state.buttons.get('Run pipeline')?.disabled).not.toBe(true)
+})
+
+test('while the shared draft loads, the Dashboard says so and never offers to create a Batch', () => {
+  state.open = []
+  state.detail = undefined
+  const html = renderToStaticMarkup(
+    <DashboardPipelineProvider>
+      <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+    </DashboardPipelineProvider>
+  )
+  expect(html).toContain('Loading the shared draft')
+  expect(html).not.toContain('No open Batch yet')
+})
+
+test('review strip hides an empty draft and links unpublished changes to Review and Publish', () => {
+  state.detail = { batch: { ...batch, plateIds: [] }, plates: [] }
+  expect(renderToStaticMarkup(<ReviewStrip />)).toBe('')
+  state.detail = { batch, plates: [] }
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  expect(html).toContain('Unpublished changes')
+  expect(html).toContain('href="/review"')
+  expect(html).toContain('Shared draft · rev 7')
+  expect(html).toContain('Last changed')
+  expect(html).not.toContain('Approved')
+  expect(html).not.toContain('Submitted')
+  expect(html).toContain('href="/publish?batch=shared-draft-test"')
+  state.role = 'editor'
+  expect(renderToStaticMarkup(<ReviewStrip />)).not.toContain('href="/publish')
+})
+
+test.each([0, 1, 3])(
+  'review strip pluralizes %i plates and uses body typography',
+  (count) => {
+    state.detail = {
+      batch: {
+        ...batch,
+        plateIds: batch.plateIds.slice(0, count),
+        stateOrders: count ? {} : { AK: ['AK.standard_gold'] },
+      },
+      plates: [],
+    }
+    const html = renderToStaticMarkup(<ReviewStrip />)
+    expect(html).toContain(`>${count} ${count === 1 ? 'plate' : 'plates'}<`)
+    const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap(
+      ([, value]) => value.split(/\s+/)
+    )
+    expect(classes).not.toContain('count')
+    expect(classes).not.toContain('font-mono')
+    expect(html.indexOf('review-plate-count')).toBeLessThan(
+      html.indexOf('review-status')
+    )
+    expect(html.indexOf('review-status')).toBeLessThan(
+      html.indexOf('review-actions')
+    )
+  }
+)
+
+test('review strip preserves the full state list in its title', () => {
+  const states = ['AK', 'AL', 'AZ', 'CA', 'CO', 'VT']
+  state.detail = {
+    batch: { ...batch, plateIds: states.map((code) => `${code}.standard`) },
+    plates: [],
+  }
+  const html = renderToStaticMarkup(<ReviewStrip />)
+  const list = states.join(', ')
+  expect(html).toContain(
+    `<strong class="review-states" title="${list}">${list}</strong>`
+  )
+})
+
+test('changed filter counts current-jurisdiction batch membership including unedited plates', () => {
+  const html = renderToStaticMarkup(
+    <FilterBar counts={filterCounts(alaskaFixture.plates)} code="AK" />
+  )
+  expect(html).toMatch(/Unpublished changes<span class="count">2<\/span>/)
+})
+
+test('selected Publish keeps the shared Batch ID while its details load', () => {
+  state.selected = true
+  state.detail = undefined
+  const html = renderToStaticMarkup(
+    <DashboardPipelineProvider>
+      <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+    </DashboardPipelineProvider>
+  )
+  expect(html).toContain('href="/publish?batch=shared"')
+  expect(html).not.toContain('href="/publish?batch=shared-draft-test"')
+})
+
+test('legacy Batch timestamps distinguish creation from an unknown edit time', () => {
+  for (const [revision, label] of [
+    [0, 'Created'],
+    [7, 'Last change unavailable'],
+  ] as const) {
+    const legacy = { ...batch, revision, lastChangedAt: undefined }
+    state.open = [legacy]
+    state.detail = { batch: legacy, plates: [] }
+    const html = renderToStaticMarkup(
+      <DashboardPipelineProvider>
+        <BatchActions underTagged={[]} stateCode="AK" stateName="Alaska" />
+      </DashboardPipelineProvider>
+    )
+    expect(html).toContain(label)
+    expect(html).not.toContain('Last changed')
+  }
+})

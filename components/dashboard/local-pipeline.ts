@@ -1,5 +1,5 @@
 import { minimumPlateTagCount } from '@/lib/catalog/plate-checks'
-import type { RunPlate } from './use-tag-run'
+import type { RunPlate } from './tagging/use-tag-run'
 
 export const localStageReasons: Record<string, string> = {
   'Find image': 'Run selection needs the connected run coordinator',

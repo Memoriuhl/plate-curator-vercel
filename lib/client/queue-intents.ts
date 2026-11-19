@@ -1,5 +1,5 @@
-import type { EnqueueInput } from '../jobs/queue-types'
-import { snapshotPipelineOptions } from '../jobs/pipeline-options'
+import type { EnqueueInput } from '../jobs/queue/queue-types'
+import { snapshotPipelineOptions } from '../jobs/pipeline/pipeline-options'
 
 type IntentStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 type Intent = { fingerprint: string; requestId: string }

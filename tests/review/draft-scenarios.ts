@@ -4,19 +4,19 @@ import type { Plate } from '../../lib/catalog/types'
 import { orderedStatePlates } from '../../lib/catalog/order'
 import { applyReleaseEdits } from '../../lib/publish/apply-edits'
 import { validateSnapshot } from '../../lib/publish/validation'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { discardPlateChanges } from '../../lib/review/discard-changes'
-import { revertPipelineRun } from '../../lib/review/revert-run'
+import { revertPipelineRun } from '../../lib/review/draft/revert-run'
 import {
   afterPublish,
   draftAtRevision,
   ensureDraft,
   freezeRelease,
   keepDraftValues,
-} from '../../lib/review/draft'
-import { sharedDraftId } from '../../lib/review/draft-id'
+} from '../../lib/review/draft/draft'
+import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import { draftCommitAttempts } from '../../lib/review/retry'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type {
   Actor,
   EditableFields,

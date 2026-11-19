@@ -16,17 +16,17 @@ import {
   freezeRelease,
   keepDraftValues,
   newSharedDraft,
-} from '../lib/review/draft'
-import { proposeEdit } from '../lib/review/batch'
-import { plateRevision } from '../lib/review/revision'
+} from '../lib/review/draft/draft'
+import { proposeEdit } from '../lib/review/batches/batch'
+import { plateRevision } from '../lib/review/draft/revision'
 import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
-import { sharedDraftId } from '../lib/review/draft-id'
+import { sharedDraftId } from '../lib/review/draft/draft-id'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'
 import type { PublishCommand } from '../lib/publish/types'
 import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
 import { releaseActivityFor } from '../lib/publish/release-activity'
-import { verifyPreparedObject } from '../lib/publish/object'
+import { verifyPreparedObject } from '../lib/publish/snapshots/object'
 import {
   batch,
   command,

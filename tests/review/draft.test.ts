@@ -1,9 +1,13 @@
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { ensureDraft, freezeRelease, releaseId } from '../../lib/review/draft'
-import { sharedDraftId } from '../../lib/review/draft-id'
+import {
+  ensureDraft,
+  freezeRelease,
+  releaseId,
+} from '../../lib/review/draft/draft'
+import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { ReviewDeps } from '../../lib/review/types'
 import { sharedDraftScenarios } from './draft-scenarios'
 

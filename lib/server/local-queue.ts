@@ -8,8 +8,8 @@ import {
 import {
   bindQueueWorkflow,
   recordQueueWorkflowFailure,
-} from '../jobs/queue-engine'
-import type { PipelineRun, QueueOutcome } from '../jobs/queue-types'
+} from '../jobs/queue/queue-engine'
+import type { PipelineRun, QueueOutcome } from '../jobs/queue/queue-types'
 import type { TaggingJob } from '../jobs/types'
 import { jobsDeps } from './context'
 import { json } from './respond'

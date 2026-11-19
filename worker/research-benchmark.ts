@@ -1,16 +1,19 @@
-import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models'
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models/models'
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { plateRevision } from '../lib/review/revision'
+import { plateRevision } from '../lib/review/draft/revision'
 import type { Snapshot } from '../lib/catalog/types'
 import { createHash } from 'node:crypto'
 import { Client } from 'eve/client'
-import { fileResearchState } from '../lib/research/file-state'
+import { fileResearchState } from '../lib/research/stores/file-state'
 import { hostedResearchResult } from '../lib/research/runtime'
 import { researchRequestMessage } from '../lib/research/request'
-import { runLegacyResearchArtifact } from './research-legacy'
-import { loadResearchArtifacts, capturedSources } from './research-artifact'
+import { runLegacyResearchArtifact } from './research/research-legacy'
+import {
+  loadResearchArtifacts,
+  capturedSources,
+} from './research/research-artifact'
 import type {
   ResearchInput,
   ResearchResult,
@@ -82,7 +85,7 @@ export function freezeResearchInputs(
 type BenchmarkExecutors = {
   desktop?: (input: ResearchInput) => Promise<{
     result: ResearchResult
-    raw?: import('./research-legacy').LegacyOutcome
+    raw?: import('./research/research-legacy').LegacyOutcome
   }>
   control?: (
     input: ResearchInput,

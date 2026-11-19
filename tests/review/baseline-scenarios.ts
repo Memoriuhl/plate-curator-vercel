@@ -3,9 +3,9 @@ import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
 import { claimJob, createJob, reportResult } from '../../lib/jobs/jobs'
 import type { JobsDeps, JobsStore } from '../../lib/jobs/types'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { batchDetail, createBatch } from '../../lib/review/queries'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { ReviewDeps, ReviewStore } from '../../lib/review/types'
 
 const editor = { uid: 'editor', name: 'Editor', role: 'editor' } as const

@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import type { CatalogSource, Plate, Snapshot } from '../../lib/catalog/types'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { snapshotReviewDeps } from '../../lib/review/migration-deps'
+import { snapshotReviewDeps } from '../../lib/review/migration/migration-deps'
 
 const plate = (id: string, tags: string[] = []): Plate => ({
   id,

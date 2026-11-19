@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { acceptImage } from '../../lib/review/image'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 import type { ReviewDeps } from '../../lib/review/types'
 

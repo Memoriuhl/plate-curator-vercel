@@ -1,4 +1,4 @@
-import { canEdit, reviewApprovalProblems } from '../../lib/review/batch'
+import { canEdit, reviewApprovalProblems } from '../../lib/review/batches/batch'
 import type {
   Actor,
   Outcome,

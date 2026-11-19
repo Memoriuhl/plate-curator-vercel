@@ -6,7 +6,7 @@ import type {
   PublishRecords,
   RequesterAuthority,
 } from './types'
-import { isRelease } from '../review/draft-id'
+import { isRelease } from '../review/draft/draft-id'
 import type { ReleaseActivity, ReviewBatch } from '../review/types'
 
 /**

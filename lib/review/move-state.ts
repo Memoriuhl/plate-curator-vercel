@@ -6,10 +6,13 @@ import {
   preservesStandardPosition,
 } from '../catalog/standard-position'
 import { canEdit, editableStates } from './access'
-import { validRegroup } from './batch'
-import { orderOnto, resolveConflicts, sameList } from './draft'
-import { planFamilyMerge, type FamilyMergeResult } from './family-merge-plan'
-import { standardEdits } from './standard'
+import { validRegroup } from './batches/batch'
+import { orderOnto, resolveConflicts, sameList } from './draft/draft'
+import {
+  planFamilyMerge,
+  type FamilyMergeResult,
+} from './families/family-merge-plan'
+import { standardEdits } from './standards/standard'
 import type { StateMove } from './state-move'
 import type {
   Actor,

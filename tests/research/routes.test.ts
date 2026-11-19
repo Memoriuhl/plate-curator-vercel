@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { createMemoryResearchStore } from '../../lib/research/memory-store'
+import { createMemoryResearchStore } from '../../lib/research/stores/memory-store'
 import {
   issueResearchWorkerToken,
   researchWorkerIdentity,

@@ -8,7 +8,8 @@ export default defineTool({
   /** Fetch and save public page evidence under the current research turn's limits. */
   async execute({ url }, ctx) {
     const { researchTurn } = await import('../../lib/research/runtime')
-    const { fetchResearchPage } = await import('../../lib/research/fetch-page')
+    const { fetchResearchPage } =
+      await import('../../lib/research/sources/fetch-page')
     const run = await researchTurn(ctx)
     const source = await fetchResearchPage(url, {
       /** Charge the evidence read against the current turn's web page allowance. */ reserve:

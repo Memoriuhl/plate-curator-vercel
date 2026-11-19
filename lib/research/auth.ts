@@ -5,7 +5,7 @@ import { firestoreMembersStore } from '../members/firestore-store'
 import { isActiveOwner, isLiveMember } from '../members/member'
 import { authorizeResearchAgent } from './access'
 import { researchDatabase, researchEnvironment, researchState } from './storage'
-import { firestoreResearchStore } from './firestore-store'
+import { firestoreResearchStore } from './stores/firestore-store'
 import { verifyResearchServiceToken } from './tokens'
 import type { ResearchSessionBinding } from './runtime'
 

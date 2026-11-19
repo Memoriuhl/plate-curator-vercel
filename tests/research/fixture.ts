@@ -1,5 +1,5 @@
 import type { Plate } from '../../lib/catalog/types'
-import { createMemoryResearchStore } from '../../lib/research/memory-store'
+import { createMemoryResearchStore } from '../../lib/research/stores/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { startResearch, type ResearchDeps } from '../../lib/research/jobs'
 import {

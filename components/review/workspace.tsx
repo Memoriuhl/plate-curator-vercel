@@ -30,7 +30,7 @@ import {
   isRelease,
   isSharedDraft,
   isSharedDraftId,
-} from '@/lib/review/draft-id'
+} from '@/lib/review/draft/draft-id'
 import type { DraftChangeTarget, ReviewBatch } from '@/lib/review/types'
 import {
   useRecentReviewPlates,

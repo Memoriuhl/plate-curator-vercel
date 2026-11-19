@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import type { ResearchResult } from '../../lib/research/types'
 import { researchFixture } from './fixture'
-import { runResearchWorkerOnce } from '../../worker/research-run'
+import { runResearchWorkerOnce } from '../../worker/research/research-run'
 
 test('a rejected claim stops the desktop bridge before invoking Ollama', async () => {
   let ran = false

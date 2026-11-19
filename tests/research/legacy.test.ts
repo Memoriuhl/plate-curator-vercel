@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { runLegacyResearch } from '../../worker/research-legacy'
+import { runLegacyResearch } from '../../worker/research/research-legacy'
 
 const input = {
   plateId: 'AZ.highways',

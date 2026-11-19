@@ -4,12 +4,12 @@ import {
   proposeEdit,
   reorderState,
   reviewApprovalProblems,
-} from '../../lib/review/batch'
+} from '../../lib/review/batches/batch'
 import { submitBatch } from '../helpers/legacy-approval'
 import { editableKeys } from '../../lib/review/fields'
 import { copyBatch } from '../../lib/review/copy'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { plateRevision } from '../../lib/review/revision'
+import { plateRevision } from '../../lib/review/draft/revision'
 import type { Plate } from '../../lib/catalog/types'
 import type { ReviewBatch, ReviewDeps } from '../../lib/review/types'
 

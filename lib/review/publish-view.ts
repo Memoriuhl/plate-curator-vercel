@@ -1,6 +1,6 @@
 import { orderDifferences } from './order-diff'
-import type { DraftChange } from './checkpoint'
-import type { DraftSnapshot } from './draft'
+import type { DraftChange } from './draft/checkpoint'
+import type { DraftSnapshot } from './draft/draft'
 
 export type StatePublishSummary = {
   state: string

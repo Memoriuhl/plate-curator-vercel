@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { SignJWT, jwtVerify } from 'jose'
-import type { ResearchStore } from './store'
+import type { ResearchStore } from './stores/store'
 import type { ResearchJob } from './types'
 
 /**

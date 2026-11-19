@@ -3,13 +3,13 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
+import type { usePlateDrag } from '@/components/dashboard/drag/use-plate-drag'
 import {
   revealVariantRow,
   variantListCap,
   VARIANT_ROW_HEIGHT,
   VARIANT_ROW_GAP,
-} from '@/components/dashboard/variant-list-layout'
+} from '@/components/dashboard/family-grid/variant-list-layout'
 
 /**
  * Render a capped, scrollable set of variant rows while retaining focused and measured

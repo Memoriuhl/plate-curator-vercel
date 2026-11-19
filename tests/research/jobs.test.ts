@@ -5,8 +5,8 @@ import {
   reportResearch,
   startResearch,
 } from '../../lib/research/jobs'
-import { proposeEdit } from '../../lib/review/batch'
-import { plateRevision } from '../../lib/review/revision'
+import { proposeEdit } from '../../lib/review/batches/batch'
+import { plateRevision } from '../../lib/review/draft/revision'
 import { researchFixture } from './fixture'
 
 test('duplicate starts retain executor and identity rather than launching duplicate jobs', async () => {
