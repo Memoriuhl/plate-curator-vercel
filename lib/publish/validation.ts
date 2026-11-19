@@ -179,7 +179,8 @@ export function validateSnapshot(
     const flagsPreserved = preservesStandardFlags(before, after)
     if (
       !flagsPreserved &&
-      after.filter((plate) => plate.isStandard === true && !plate.deleted).length > 1
+      after.filter((plate) => plate.isStandard === true && !plate.deleted)
+        .length > 1
     ) {
       reasons.push(`Multiple standard plates in state: ${state}`)
       if (!stateOrders[state]) continue

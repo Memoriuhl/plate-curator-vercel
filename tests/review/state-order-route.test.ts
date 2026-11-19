@@ -135,48 +135,86 @@ test('a move below a legacy first plate saves without a Standard edit and remain
   ).toEqual([])
 })
 
-test('the join endpoint refuses to demote a flagged Standard without confirmation and saves the whole selection after confirmation', async () => {
-  const deps: ReviewDeps = context.reviewDeps()
-  const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c', 'AK.d']).map(
-    (plate, index) => ({
-      ...plate,
-      templateFamily: plate.id,
-      isStandard: index === 1,
+test.each(['AK.a', 'AK.b'])(
+  'the join endpoint requires confirmation to demote Standard %s and then saves the whole selection',
+  async (flag) => {
+    const deps: ReviewDeps = context.reviewDeps()
+    const plates = statePlates('AK', ['AK.a', 'AK.b', 'AK.c', 'AK.d']).map(
+      (plate) => ({
+        ...plate,
+        templateFamily: plate.id,
+        isStandard: plate.id === flag,
+      })
+    )
+    deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
+    const join = (standard?: { from: string; to: string }) =>
+      joinFamily(
+        new Request('https://example.com/api/batches/batch/family-merge', {
+          method: 'POST',
+          body: JSON.stringify({
+            operationId: randomUUID(),
+            destinationId: 'AK.c',
+            plateIds: [flag, 'AK.d'],
+            standard,
+          }),
+        }),
+        { params: Promise.resolve({ id: batch.id }) }
+      )
+    const unconfirmed = await join()
+    expect(unconfirmed.status).toBe(409)
+    expect(await unconfirmed.json()).toMatchObject({
+      error: 'standard_change_unconfirmed',
     })
+    expect(await deps.store.listEdits(batch.id)).toEqual([])
+    const confirmed = await join({
+      from: flag,
+      to: flag === 'AK.a' ? 'AK.b' : 'AK.a',
+    })
+    expect(confirmed.status).toBe(200)
+    expect(await confirmed.json()).toMatchObject({
+      moved: [flag, 'AK.d'],
+      standard: 0,
+    })
+    expect(await deps.store.getEdit(batch.id, flag)).toMatchObject({
+      fields: {
+        isStandard: false,
+        templateRole: 'variant',
+        variantOfPlateId: 'AK.c',
+      },
+    })
+  }
+)
+
+test('mixed placement promotes an explicit Variant and moves unselected siblings with their Template', async () => {
+  const deps: ReviewDeps = context.reviewDeps()
+  const plates = statePlates('AK', ['a', 'b', 'v', 'w', 'c']).map((plate) =>
+    ['v', 'w'].includes(plate.id)
+      ? {
+          ...plate,
+          templateFamily: 'b',
+          templateRole: 'variant' as const,
+          variantOfPlateId: 'b',
+        }
+      : { ...plate, templateFamily: plate.id }
   )
   deps.stateBaseline = async (_, state) => (state === 'AK' ? plates : [])
-  const join = (standard?: { from: string; to: string }) =>
-    joinFamily(
-      new Request('https://example.com/api/batches/batch/family-merge', {
-        method: 'POST',
-        body: JSON.stringify({
-          operationId: randomUUID(),
-          destinationId: 'AK.c',
-          plateIds: ['AK.b', 'AK.d'],
-          standard,
-        }),
-      }),
-      { params: Promise.resolve({ id: batch.id }) }
-    )
-  const unconfirmed = await join()
-  expect(unconfirmed.status).toBe(409)
-  expect(await unconfirmed.json()).toMatchObject({
-    error: 'standard_change_unconfirmed',
+  const response = await put({
+    moves: [
+      {
+        plateIds: ['b', 'v'],
+        promote: true,
+        placement: { kind: 'after', anchorId: 'c' },
+      },
+    ],
   })
-  expect(await deps.store.listEdits(batch.id)).toEqual([])
-  const confirmed = await join({ from: 'AK.b', to: 'AK.a' })
-  expect(confirmed.status).toBe(200)
-  expect(await confirmed.json()).toMatchObject({
-    moved: ['AK.b', 'AK.d'],
-    standard: 0,
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({
+    order: ['a', 'c', 'b', 'w', 'v'],
   })
-  expect(await deps.store.getEdit(batch.id, 'AK.b')).toMatchObject({
-    fields: {
-      isStandard: false,
-      templateRole: 'variant',
-      variantOfPlateId: 'AK.c',
-    },
+  expect(await deps.store.getEdit(batch.id, 'v')).toMatchObject({
+    fields: { templateRole: 'template', variantOfPlateId: null },
   })
+  expect(await deps.store.getEdit(batch.id, 'w')).toBeNull()
 })
 
 test('replays the original move receipt without overtaking an intervening placement', async () => {

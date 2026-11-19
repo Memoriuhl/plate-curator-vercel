@@ -11,7 +11,9 @@ export function preservesStandardFlags(
       .filter((plate) => plate.isStandard === true && !plate.deleted)
       .map((plate) => [plate.id, familyRole(plate)])
   )
-  const next = after.filter((plate) => plate.isStandard === true && !plate.deleted)
+  const next = after.filter(
+    (plate) => plate.isStandard === true && !plate.deleted
+  )
   return (
     next.length === flags.size &&
     next.every(
@@ -46,7 +48,9 @@ export function hasValidStandard(
   plates: readonly Plate[],
   firstId: string | undefined
 ) {
-  const standards = plates.filter((plate) => plate.isStandard === true && !plate.deleted)
+  const standards = plates.filter(
+    (plate) => plate.isStandard === true && !plate.deleted
+  )
   return (
     standards.length === 1 &&
     standards[0].id === firstId &&

@@ -70,7 +70,11 @@ vi.mock('@tanstack/react-virtual', () => ({
     ({ count }: { count: number }) => ({
       /** Expose the deterministic virtual rows used by the test layout. */
       getVirtualItems: () =>
-        Array.from({ length: count }, (_, index) => ({ key: index, index, start: index * 250 })),
+        Array.from({ length: count }, (_, index) => ({
+          key: index,
+          index,
+          start: index * 250,
+        })),
       /** Report the virtual list size expected by the layout fixture. */ getTotalSize:
         () => 0,
       measureElement: vi.fn(),

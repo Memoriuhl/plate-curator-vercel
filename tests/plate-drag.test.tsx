@@ -18,7 +18,6 @@ import {
   nearestFamilyTarget,
   promotionOrder,
   newFamilySlug,
-  orderForDrop,
   pastDragThreshold,
   targetAt,
   scrollVelocity,
@@ -128,18 +127,18 @@ afterEach(() => {
 test('moves family blocks and variants while retaining the full permutation', () => {
   const order = familyOrder(families)
   expect(
-    orderForDrop(
+    reflowForDrop(
       families,
       { kind: 'family', plate: a },
       { kind: 'family-slot', index: 2 }
-    )
+    )?.order
   ).toEqual(['AK.b', 'AK.a', 'AK.v', 'AK.w'])
   expect(
-    orderForDrop(
+    reflowForDrop(
       families,
       { kind: 'variant', plate: w },
       { kind: 'variant-slot', familyId: a.id, index: 0 }
-    )
+    )?.order
   ).toEqual(['AK.a', 'AK.w', 'AK.v', 'AK.b'])
   for (let index = 0; index <= order.length; index++)
     expect(moveBlock(order, [a.id, v.id, w.id], index).sort()).toEqual(
@@ -2010,18 +2009,7 @@ test('background placement uses the nearest family slot or the end past the grid
   expect(nearestFamilyTarget(290, 100, targets, 2).index).toBe(1)
   expect(nearestFamilyTarget(900, 100, targets, 2).index).toBe(2)
   expect(nearestFamilyTarget(10, 400, targets, 2).index).toBe(2)
-  expect(promotionOrder(families, [v.id, w.id], 1)).toEqual([
-    a.id,
-    v.id,
-    w.id,
-    b.id,
-  ])
-  expect(promotionOrder(families, [v.id], undefined)).toEqual([
-    a.id,
-    w.id,
-    v.id,
-    b.id,
-  ])
+  expect(promotionOrder(families, [v.id])).toEqual([a.id, w.id, v.id, b.id])
 })
 
 test('move buttons exclude deleted, foreign, blocked and fully selected families', () => {

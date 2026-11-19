@@ -63,43 +63,6 @@ export function moveBlock(order: string[], block: string[], index: number) {
   ]
 }
 
-/**
- * Translate a drop slot into the prospective state order for the lifted family or
- * variant.
- */
-export function orderForDrop(
-  families: DragFamily[],
-  item: DragItem,
-  target: DropTarget
-) {
-  const order = familyOrder(families)
-  const source = families.find(
-    (family) =>
-      family.template.id === item.plate.id ||
-      family.variants.some((plate) => plate.id === item.plate.id)
-  )
-  if (!source || target.kind === 'merge') return null
-  if (target.kind === 'variant-slot') {
-    if (item.kind !== 'variant' || target.familyId !== source.template.id)
-      return null
-    const index =
-      order.indexOf(source.template.id) +
-      1 +
-      Math.min(source.variants.length, Math.max(0, target.index))
-    return moveBlock(order, [item.plate.id], index)
-  }
-  const index = families
-    .slice(0, Math.max(0, target.index))
-    .reduce((sum, family) => sum + 1 + family.variants.length, 0)
-  return moveBlock(
-    order,
-    item.kind === 'family'
-      ? [source.template.id, ...source.variants.map((plate) => plate.id)]
-      : [item.plate.id],
-    index
-  )
-}
-
 /** Pick the most specific drop target under the pointer when hit areas overlap. */
 export function targetAt(
   x: number,
@@ -156,18 +119,8 @@ export function nearestFamilyTarget(
 }
 
 /** Compute the state order after promoting selected plates into their own families. */
-export function promotionOrder(
-  families: DragFamily[],
-  ids: readonly string[],
-  index?: number
-) {
+export function promotionOrder(families: DragFamily[], ids: readonly string[]) {
   const promoted = new Set(ids)
-  if (index !== undefined) {
-    const insertion = families
-      .slice(0, index)
-      .reduce((sum, family) => sum + family.variants.length + 1, 0)
-    return moveBlock(familyOrder(families), [...ids], insertion)
-  }
   return families.flatMap((family) => [
     family.template.id,
     ...family.variants
