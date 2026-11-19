@@ -15,6 +15,7 @@ import type {
   PipelineRun,
   QueueRunSummary,
   QueueRunView,
+  RunStatus,
 } from '@/lib/jobs/queue-types'
 import {
   snapshotPipelineOptions,
@@ -28,6 +29,23 @@ import type { readLocalWorkerCapabilities } from '@/lib/jobs/capabilities'
 export const pipelineQueueKey = '/api/local-pipeline/runs'
 const queueSummaryKey = `${pipelineQueueKey}?detail=none`
 export const gatewayRunsKey = '/api/jobs/runs'
+
+/**
+ * The safety refresh a run list needs while its listener is healthy. While a run is
+ * queued or running, a worker going quiet changes what the drawer shows without any
+ * write, so the list re-reads every minute. With nothing active, every change it shows
+ * is signalled, so it re-reads only every ten minutes to recover a lost signal. A failed
+ * listener polls every 30 seconds either way.
+ */
+export function runListSafetyMs(
+  runs: readonly { status: RunStatus }[] | undefined
+) {
+  return runs?.some(
+    (run) => run.status === 'queued' || run.status === 'running'
+  )
+    ? 60_000
+    : 600_000
+}
 
 export function pipelineRunDetailKey(id: string) {
   return `${pipelineQueueKey}?detail=${encodeURIComponent(id)}&detailOnly=1`
@@ -214,8 +232,7 @@ export function usePipelineQueue(
     { keepPreviousData: !detailId }
   )
   // Refetch when the server signals a queue change, sharing the round's request with the
-  // tab's other queue views. The slow safety refresh catches a worker going quiet, which
-  // changes what the drawer shows without any write.
+  // tab's other queue views.
   const live = useLiveRefresh(
     ['pipeline'],
     () =>
@@ -225,7 +242,11 @@ export function usePipelineQueue(
         write: (target, data) => mutate(target, data, { revalidate: false }),
         revalidate: () => list.mutate(),
       }),
-    { enabled: enabled && local && uid !== null, key, safetyMs: 60_000 }
+    {
+      enabled: enabled && local && uid !== null,
+      key,
+      safetyMs: runListSafetyMs(list.data?.runs),
+    }
   )
   const snapshot = list.data
   const loaded = !list.isLoading

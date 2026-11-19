@@ -210,3 +210,32 @@ test('an open image preview picks up a finished enhancement whose signal was los
     vi.unstubAllEnvs()
   }
 })
+
+test('a view with a ten-minute safety refresh stays quiet while live, and polls every 30 seconds once its listener fails', async () => {
+  const refresh = vi.fn()
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <LiveSignalProvider value={source}>{children}</LiveSignalProvider>
+  )
+  renderHook(
+    () =>
+      useLiveRefresh(['pipeline'], refresh, {
+        key: 'idle-list',
+        safetyMs: 600_000,
+      }),
+    { wrapper }
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+    active()[0].next(1)
+    await vi.advanceTimersByTimeAsync(2001)
+  })
+  // The first snapshot's catch-up read, then nothing for minutes while healthy.
+  expect(refresh).toHaveBeenCalledTimes(1)
+  await act(() => vi.advanceTimersByTimeAsync(5 * 60_000))
+  expect(refresh).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    active()[0].error({ code: 'unavailable' })
+    await vi.advanceTimersByTimeAsync(60_001)
+  })
+  expect(refresh).toHaveBeenCalledTimes(3)
+})

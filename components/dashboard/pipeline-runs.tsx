@@ -37,7 +37,11 @@ import { useLiveRefresh } from '@/lib/client/live-signal'
 import { useSearchParams } from 'next/navigation'
 import type { GatewayRun } from '@/lib/jobs/gateway-runs'
 import type { LocalRunStage } from '@/lib/jobs/queue-types'
-import { gatewayRunsKey, usePipelineQueue } from './use-pipeline-queue'
+import {
+  gatewayRunsKey,
+  runListSafetyMs,
+  usePipelineQueue,
+} from './use-pipeline-queue'
 import { disabledRunStages } from './pipeline-stages'
 import {
   PipelineQueuePanel,
@@ -345,7 +349,7 @@ export function PipelineRuns({
   const gatewayLive = useLiveRefresh(['gateway'], () => gateway.mutate(), {
     enabled: Boolean(user),
     key: gatewayRunsKey,
-    safetyMs: 60_000,
+    safetyMs: runListSafetyMs(gateway.data?.runs),
   })
   const liveUnavailable =
     queue.live === 'unavailable' || gatewayLive === 'unavailable'

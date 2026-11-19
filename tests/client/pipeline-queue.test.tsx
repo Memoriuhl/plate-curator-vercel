@@ -59,6 +59,8 @@ const mocks = vi.hoisted(() => ({
   revertRun: vi.fn(),
   /** The live refresh each mounted view registered, by its request key. */
   refreshers: new Map<string, () => unknown>(),
+  /** The safety refresh each view last asked for, by its request key. */
+  safety: new Map<string, number | undefined>(),
   ensure: vi.fn(),
   pathname: '/states/AK',
   modelId: 'desktop-gemma4-12b',
@@ -99,7 +101,11 @@ vi.mock('../../lib/client/live-signal', async (importOriginal) => {
     ) => {
       const latest = useRef(refresh)
       latest.current = refresh
-      const { key, enabled = true } = options
+      const { key, enabled = true } = options as typeof options & {
+        safetyMs?: number
+      }
+      if (key && enabled)
+        mocks.safety.set(key, (options as { safetyMs?: number }).safetyMs)
       useEffect(() => {
         if (!key || !enabled) return
         const run = () => latest.current()
@@ -218,6 +224,7 @@ beforeEach(() => {
     .mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
   mocks.refreshers.clear()
+  mocks.safety.clear()
 })
 afterEach(() => {
   cleanup()
@@ -2249,6 +2256,79 @@ test.each([
     expect((await screen.findByRole('tooltip')).textContent).toBe(label)
   }
 )
+
+/** A hosted run as `GET /api/jobs/runs` lists it. */
+function gatewayRun(status: QueueRunView['status']) {
+  return {
+    id: 'gateway-run',
+    batchId: 'batch',
+    requestedBy: 'editor',
+    plateIds: ['AK.one'],
+    modelId: 'gateway-gemma4-26b',
+    createdAt: 100,
+    status,
+    progress: { workerIds: [], steps: [], workflowUrl: null },
+    results: [],
+  }
+}
+
+test.each([
+  {
+    queue: 'completed',
+    gateway: 'completed',
+    queueMs: 600_000,
+    gatewayMs: 600_000,
+  },
+  { queue: 'queued', gateway: 'failed', queueMs: 60_000, gatewayMs: 600_000 },
+  {
+    queue: 'cancelled',
+    gateway: 'running',
+    queueMs: 600_000,
+    gatewayMs: 60_000,
+  },
+] as const)(
+  'while live, a drawer list with no active run stretches its safety refresh to ten minutes (queue $queue, Gateway $gateway)',
+  async ({ queue, gateway, queueMs, gatewayMs }) => {
+    mocks.api.get.mockImplementation(async (path: string) =>
+      path.startsWith('/api/local-pipeline')
+        ? { runs: [saved({ status: queue })], observedAt: 1 }
+        : { runs: [gatewayRun(gateway)], observedAt: 1 }
+    )
+    function Runs() {
+      return <PipelineRuns queue={usePipelineQueue()} />
+    }
+    render(<Runs />, { wrapper })
+    await screen.findByRole('article', { name: 'Pipeline run saved-run' })
+    await waitFor(() => {
+      expect(mocks.safety.get('/api/local-pipeline/runs?detail=none')).toBe(
+        queueMs
+      )
+      expect(mocks.safety.get('/api/jobs/runs')).toBe(gatewayMs)
+    })
+  }
+)
+
+test('an open run keeps a one-minute safety refresh while it is active, and ten minutes once it ends', async () => {
+  let status: QueueRunView['status'] = 'running'
+  mocks.api.get.mockImplementation(async () => ({
+    runs: [saved({ status })],
+    selected: saved({ status }),
+    observedAt: status === 'running' ? 1 : 2,
+  }))
+  const { result } = renderHook(
+    () => usePipelineQueue(undefined, undefined, 'saved-run'),
+    { wrapper }
+  )
+  await waitFor(() => expect(result.current.selected?.status).toBe('running'))
+  expect(mocks.safety.get(pipelineRunDetailKey('saved-run'))).toBe(60_000)
+  status = 'completed'
+  await act(async () => {
+    await result.current.refresh()
+  })
+  await waitFor(() =>
+    expect(mocks.safety.get(pipelineRunDetailKey('saved-run'))).toBe(600_000)
+  )
+})
 
 test('History stays with the title and All Machines remains selected when only one machine has runs', async () => {
   mocks.api.get.mockImplementation(async (path: string) =>
