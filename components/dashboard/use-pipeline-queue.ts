@@ -71,6 +71,10 @@ type QueueRefresh = {
 }
 
 let queueRound: { views: QueueRefresh[]; done: Promise<void> } | null = null
+/** The number of the newest round, counting up for the life of the tab. */
+let lastRound = 0
+/** The newest round each queue request has taken a response from. */
+const appliedRound = new Map<string, number>()
 
 /**
  * Refresh a queue view as part of the tab's live round. The hub starts every due view's
@@ -81,11 +85,12 @@ let queueRound: { views: QueueRefresh[]; done: Promise<void> } | null = null
 function refreshQueue(view: QueueRefresh): Promise<void> {
   if (!queueRound) {
     const views: QueueRefresh[] = []
+    const round = ++lastRound
     queueRound = {
       views,
       done: Promise.resolve().then(() => {
         queueRound = null
-        return refreshTogether(views)
+        return refreshTogether(views, round)
       }),
     }
   }
@@ -102,7 +107,23 @@ function detailOnlyRun(key: string) {
 const listSelecting = (runId: string) =>
   `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}`
 
-async function refreshTogether(views: QueueRefresh[]) {
+async function refreshTogether(views: QueueRefresh[], round: number) {
+  // The hub can start a round while an earlier round's request is still out, and the
+  // responses can come back in either order. A request takes a response only from a
+  // round newer than the last one it took, so a slow response never rolls a view back.
+  const take = (key: string) => {
+    if ((appliedRound.get(key) ?? 0) >= round) return false
+    appliedRound.set(key, round)
+    return true
+  }
+  const write = (view: QueueRefresh, data: QueueSnapshot) =>
+    take(view.key) ? view.write(view.key, data) : undefined
+  // A view's own request counts from when it starts: SWR drops that request's answer if
+  // an older round's response is written meanwhile, so the older one must not be.
+  const revalidate = (view: QueueRefresh) => {
+    appliedRound.set(view.key, Math.max(appliedRound.get(view.key) ?? 0, round))
+    return view.revalidate()
+  }
   type ListRequest = {
     view: QueueRefresh
     request: string
@@ -128,32 +149,30 @@ async function refreshTogether(views: QueueRefresh[]) {
     list.riders.push({ view, runId })
   }
   await Promise.all([
-    ...alone.map((view) => view.revalidate()),
+    ...alone.map(revalidate),
     ...[...lists.values()].map(async ({ view, request, riders }) => {
-      if (!riders.length) return view.revalidate()
+      if (!riders.length) return revalidate(view)
       let data: QueueSnapshot
       try {
         data = await view.get<QueueSnapshot>(request)
       } catch {
         // Let each view request its own key, so the error lands where it shows.
         return Promise.all(
-          [view, ...riders.map((rider) => rider.view)].map((each) =>
-            each.revalidate()
-          )
+          [view, ...riders.map((rider) => rider.view)].map(revalidate)
         )
       }
       const { selected, ...list } = data
       return Promise.all([
-        view.write(view.key, view.key === request ? data : list),
+        write(view, view.key === request ? data : list),
         ...riders.map(({ view: rider, runId }) =>
           selected?.id === runId
-            ? rider.write(rider.key, {
+            ? write(rider, {
                 runs: data.runs.filter((run) => run.id === runId),
                 selected,
                 observedAt: data.observedAt,
               })
             : // The list could not select the run (it is not listed), so ask directly.
-              rider.revalidate()
+              revalidate(rider)
         ),
       ])
     }),

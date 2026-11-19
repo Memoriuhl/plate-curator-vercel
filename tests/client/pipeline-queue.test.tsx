@@ -518,6 +518,75 @@ test('a round with a different selected run still refreshes each view', async ()
   ])
 })
 
+test.each([
+  ['nothing', undefined],
+  ['the same run', 'saved-run'],
+])(
+  'a late response from an earlier round never replaces a newer one, with %s selected and an open run detail',
+  async (_name, selection) => {
+    let status: QueueRunView['status'] = 'running'
+    let holdNext = false
+    const held: (() => void)[] = []
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      // The response reflects the state when the request was read.
+      const body = {
+        runs: [saved({ status })],
+        observedAt: status === 'running' ? 100 : 200,
+        ...(detail === 'saved-run' ? { selected: saved({ status }) } : {}),
+      }
+      if (!holdNext) return body
+      holdNext = false
+      return new Promise((resolve) => held.push(() => resolve(body)))
+    })
+    function Views() {
+      const list = usePipelineQueue()
+      const detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      const { select } = list
+      useEffect(() => {
+        if (selection) select(selection)
+      }, [select])
+      return (
+        <>
+          <span>list {list.runs[0]?.status}</span>
+          <span>detail {detail.selected?.status}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running')
+    await screen.findByText('detail running')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+    // A round calls every due view's refresh together.
+    const round = () =>
+      act(async () => {
+        for (const refresh of mocks.refreshers.values())
+          void Promise.resolve().then(refresh)
+      })
+    mocks.api.get.mockClear()
+
+    // The first round reads the running state, and its response is slow.
+    holdNext = true
+    await round()
+    await waitFor(() => expect(held).toHaveLength(1))
+    // The run completes; its signal starts the next round, which answers first.
+    status = 'completed'
+    await round()
+    await screen.findByText('list completed')
+    await screen.findByText('detail completed')
+    // The first round's response arrives last and must not roll either view back.
+    await act(async () => {
+      held[0]()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByText('list completed')).toBeTruthy()
+    expect(screen.getByText('detail completed')).toBeTruthy()
+    expect(mocks.api.get).toHaveBeenCalledTimes(2)
+  }
+)
+
 test('uncertain A then B then remount preserves A request ID', async () => {
   mocks.api.send.mockRejectedValue(new Error('Response lost'))
   const first = renderHook(usePipelineQueue, { wrapper })
