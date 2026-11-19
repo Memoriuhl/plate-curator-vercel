@@ -97,3 +97,18 @@ export function chooseTaggingModel(
     ? { ok: true, model }
     : { ok: false, error: 'unavailable' }
 }
+
+export const DEFAULT_GATEWAY_TAG_MODEL = TAGGING_MODELS[2].model
+
+export const CURATED_TAG_MODELS = [
+  DEFAULT_GATEWAY_TAG_MODEL,
+  'google/gemma-4-31b-it',
+  'google/gemini-3.5-flash-lite',
+  'google/gemini-3.8-flash',
+  'anthropic/claude-haiku-5.5',
+  'openai/gpt-5.4-mini',
+  'openai/gpt-5.4-nano',
+  'alibaba/qwen3.8-flash',
+  'amazon/nova-2-lite',
+  'mistral/mistral-medium-3.5',
+] as const
