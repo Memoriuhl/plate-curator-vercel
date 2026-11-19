@@ -587,6 +587,100 @@ test.each([
   }
 )
 
+type QueueViews = Record<'list' | 'detail', ReturnType<typeof usePipelineQueue>>
+test.each([
+  [
+    'an image choice from the run detail',
+    'detail' as const,
+    (queue: QueueViews['detail']) =>
+      queue.chooseImage('saved-run', 'job', 'candidate'),
+    (run: QueueRunView): QueueRunView => ({
+      ...run,
+      waitReason: undefined,
+      attempts: [{ ...run.attempts[0], choices: { job: 'candidate' } }],
+    }),
+  ],
+  [
+    'a cancel from the list',
+    'list' as const,
+    (queue: QueueViews['list']) => queue.cancel('saved-run'),
+    (run: QueueRunView): QueueRunView => ({
+      ...run,
+      status: 'cancelled',
+      waitReason: undefined,
+    }),
+  ],
+])(
+  'a live response read before %s never replaces the action result in the list or the open run detail',
+  async (_name, actor, perform, commit) => {
+    const before = saved({ status: 'running', waitReason: 'image_choice' })
+    let run = before
+    let observedAt = 100
+    let holdNext = false
+    const held: (() => void)[] = []
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      // The response reflects the state when the request was read.
+      const body = {
+        runs: [run],
+        observedAt,
+        ...(detail === 'saved-run' ? { selected: run } : {}),
+      }
+      if (!holdNext) return body
+      holdNext = false
+      return new Promise((resolve) => held.push(() => resolve(body)))
+    })
+    mocks.api.send.mockImplementation(async () => {
+      run = commit(run)
+      observedAt += 100
+      return { run }
+    })
+    const views = {} as QueueViews
+    // Run summaries carry the status and wait, which both actions change.
+    const describe = (view?: Pick<QueueRunView, 'status' | 'waitReason'>) =>
+      `${view?.status} ${view?.waitReason ?? 'not waiting'}`
+    function Views() {
+      views.list = usePipelineQueue()
+      views.detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      return (
+        <>
+          <span>list {describe(views.list.runs[0])}</span>
+          <span>detail {describe(views.detail.selected)}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running image_choice')
+    await screen.findByText('detail running image_choice')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+    mocks.api.get.mockClear()
+
+    // A live round reads the run before the action, and its response is slow.
+    holdNext = true
+    await act(async () => {
+      for (const refresh of mocks.refreshers.values())
+        void Promise.resolve().then(refresh)
+    })
+    await waitFor(() => expect(held).toHaveLength(1))
+    // The action commits, and its refresh shows the result in both views.
+    await act(() => perform(views[actor]))
+    const result = describe(commit(before))
+    await screen.findByText(`list ${result}`)
+    await screen.findByText(`detail ${result}`)
+    // The older live response arrives last and must not roll either view back.
+    await act(async () => {
+      held[0]()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByText(`list ${result}`)).toBeTruthy()
+    expect(screen.getByText(`detail ${result}`)).toBeTruthy()
+    // The action's refresh shares one request between the two views.
+    expect(mocks.api.get).toHaveBeenCalledTimes(2)
+  }
+)
+
 test('uncertain A then B then remount preserves A request ID', async () => {
   mocks.api.send.mockRejectedValue(new Error('Response lost'))
   const first = renderHook(usePipelineQueue, { wrapper })
