@@ -1,4 +1,10 @@
 export const DEFAULT_HOSTED_RESEARCH_MODEL = 'google/gemini-2.5-flash-lite'
+
+// Pinned rates for existing sessions and runs created before price snapshots.
+export const LEGACY_RESEARCH_PRICES = {
+  [DEFAULT_HOSTED_RESEARCH_MODEL]: { input: 0.0000001, output: 0.0000004 },
+  'google/gemma-4-26b-a4b-it': { input: 0.00000015, output: 0.0000006 },
+}
 export const RESEARCH_MODELS = [
   {
     id: 'desktop-gemma4-12b',

@@ -1,4 +1,16 @@
 import type { ResearchStateStore } from './state'
+import type { ModelPrice } from '../models/catalog'
+
+export const RESEARCH_INPUT_BYTES_LIMIT = 60_000
+export const RESEARCH_OUTPUT_TOKENS_LIMIT = 1_000
+
+/** Use one token per input byte as a conservative bound for text and tool payloads. */
+export function researchCallReservation(price: ModelPrice, fallback = price) {
+  const worstCase = (rates: ModelPrice) =>
+    RESEARCH_INPUT_BYTES_LIMIT * rates.input +
+    RESEARCH_OUTPUT_TOKENS_LIMIT * rates.output
+  return Math.max(0.000001, worstCase(price), worstCase(fallback))
+}
 
 type Entry = {
   modelReservedMicros: number

@@ -10,8 +10,8 @@ import type {
 import { validateResearchResult } from './validate'
 import type { ResearchStateStore } from './state'
 import { createResearchModelAttempt } from './model-attempt'
-import { reserveResearchSpend } from './budget'
-import { DEFAULT_HOSTED_RESEARCH_MODEL } from './models'
+import { researchCallReservation, reserveResearchSpend } from './budget'
+import { DEFAULT_HOSTED_RESEARCH_MODEL, LEGACY_RESEARCH_PRICES } from './models'
 import { researchContentFields, researchOutcome } from './outcome'
 import { enrichmentTargets } from './enrichment'
 import type { HostedModelBinding } from '../models/selection'
@@ -128,6 +128,9 @@ export async function researchTurn(
       return { value, result: value }
     }
   )
+  const price =
+    hostedModel?.price ??
+    LEGACY_RESEARCH_PRICES[model as keyof typeof LEGACY_RESEARCH_PRICES]
   return {
     store,
     runId,
@@ -145,12 +148,9 @@ export async function researchTurn(
         campaign: process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117',
         limitUsd: Number(process.env.RESEARCH_BUDGET_USD ?? '2'),
         deadline,
-        // Captured synthesis is text-only, with one call, a 60 kB input bound
-        // and at most 1,000 output tokens. Two cents covers both allowed models
-        // at current Gateway rates with margin over the request bounds.
-        ...(binding?.pipelineJobId
-          ? { maxCalls: 1, reservationUsd: 0.02 }
-          : {}),
+        price,
+        fallbackPrice: hostedModel?.fallback?.price,
+        ...(binding?.pipelineJobId ? { maxCalls: 1 } : {}),
       }),
     /**
      * Reserve a tool call against the session or pipeline job budget before requesting
@@ -172,7 +172,9 @@ export async function researchTurn(
         process.env.RESEARCH_BUDGET_ID ?? 'eve-research-1117',
         runId,
         kind === 'model' ? 'model' : 'search',
-        kind === 'model' ? 0.2 : 0.01,
+        kind === 'model'
+          ? researchCallReservation(price, hostedModel?.fallback?.price)
+          : 0.01,
         Number(process.env.RESEARCH_BUDGET_USD ?? '2')
       )
     },

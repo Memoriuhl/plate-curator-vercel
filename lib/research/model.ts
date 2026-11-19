@@ -1,5 +1,9 @@
 import { wrapLanguageModel } from 'ai'
 import { reportedGatewayCost } from './cost'
+import {
+  RESEARCH_INPUT_BYTES_LIMIT,
+  RESEARCH_OUTPUT_TOKENS_LIMIT,
+} from './budget'
 type Attempt = {
   settle(
     costUsd: number | undefined,
@@ -44,7 +48,9 @@ export function guardedResearchModel(
        * limits.
        */
       async transformParams({ params }) {
-        if (Buffer.byteLength(JSON.stringify(params)) > 60000)
+        if (
+          Buffer.byteLength(JSON.stringify(params)) > RESEARCH_INPUT_BYTES_LIMIT
+        )
           throw new Error('Research context exceeds the pilot input bound')
         const submit = capturedOnly
           ? params.tools?.find(
@@ -55,7 +61,10 @@ export function guardedResearchModel(
           throw Error('Research requires the structured submit_draft tool')
         return {
           ...params,
-          maxOutputTokens: Math.min(params.maxOutputTokens ?? 1000, 1000),
+          maxOutputTokens: Math.min(
+            params.maxOutputTokens ?? RESEARCH_OUTPUT_TOKENS_LIMIT,
+            RESEARCH_OUTPUT_TOKENS_LIMIT
+          ),
           ...(submit
             ? {
                 reasoning: 'none' as const,
