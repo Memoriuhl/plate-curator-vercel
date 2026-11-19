@@ -22,6 +22,7 @@ import { PlateImageHover } from './plate-image-preview'
 import { VirtualizedVariants } from './virtualized-variants'
 import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
 import { DragPlaceholder } from '@/components/dashboard/drag-preview'
+import { TemplateSelectionMenu } from '@/components/dashboard/template-selection-menu'
 
 export type FamilyCardProps = {
   template: PlateCardData
@@ -210,6 +211,7 @@ export function FamilyCard({
         }}
         data-drag-variant={small ? plate.id : undefined}
         data-reflow-key={small ? 'variant:' + plate.id : undefined}
+        onContextMenu={small ? (event) => event.stopPropagation() : undefined}
         onPointerEnter={() => onPreload?.(plate.id)}
         onPointerOver={(event) => {
           if (event.buttons > 0) return
@@ -427,7 +429,7 @@ export function FamilyCard({
         <DragPlaceholder height={gapHeight} />
       </div>
     )
-  return (
+  const card = (
     <Card
       id={browseOnly ? `result-${template.id}` : template.id}
       data-drag-family={template.id}
@@ -507,5 +509,16 @@ export function FamilyCard({
         </p>
       ) : null}
     </Card>
+  )
+  return canEdit &&
+    !browseOnly &&
+    !template.deleted &&
+    template.templateRole === 'template' &&
+    drag ? (
+    <TemplateSelectionMenu family={{ template, variants }} drag={drag}>
+      {card}
+    </TemplateSelectionMenu>
+  ) : (
+    card
   )
 }

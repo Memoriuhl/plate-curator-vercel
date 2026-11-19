@@ -341,7 +341,8 @@ export function usePlateDrag(options: Options) {
    */
   async function editSelection(
     plates: readonly PlateCardData[],
-    placement?: { index: number; origin?: MoveOrigin }
+    placement?: { index: number; origin?: MoveOrigin },
+    notify: (message: string) => void = announce
   ) {
     const { reload, ordering } = latest.current
     const edits = latest.current.bulkEdits ?? latest.current.edits
@@ -353,7 +354,7 @@ export function usePlateDrag(options: Options) {
     )
     if (!moving.length) {
       latest.current.holdOverlay?.(false)
-      announce('No Variants selected')
+      notify('No Variants selected')
       return
     }
     latest.current.closePreview()
@@ -410,7 +411,7 @@ export function usePlateDrag(options: Options) {
       const standard = confirmation ? await confirmation : undefined
       if (standard === false) {
         latest.current.holdOverlay?.(false)
-        announce('Cancelled')
+        notify('Cancelled')
         return
       }
       acknowledgements.set(state, standard)
@@ -541,10 +542,10 @@ export function usePlateDrag(options: Options) {
               moving.length +
               ' saved' +
               (orderRestored ? '' : '; order could not be restored')
-        announce(succeeded.length ? message : failure)
+        notify(succeeded.length ? message : failure)
       } else {
         plateSelection.replace([])
-        announce(
+        notify(
           moving.length === 1
             ? '1 plate is now a Template'
             : moving.length + ' plates are now Templates'
@@ -552,7 +553,7 @@ export function usePlateDrag(options: Options) {
       }
       await reload()
     } catch {
-      announce(
+      notify(
         'Could not check the saved Batch. Refresh before trying this move again.'
       )
     } finally {
@@ -601,7 +602,11 @@ export function usePlateDrag(options: Options) {
    * Plan and save a family merge while keeping the optimistic grid and selection in
    * sync.
    */
-  async function dropIntoFamily(drag: Active, family: DragFamily | undefined) {
+  async function dropIntoFamily(
+    selection: readonly PlateCardData[],
+    origin: MoveOrigin | undefined,
+    family: DragFamily | undefined
+  ) {
     const { families, ordering, reload, holdOverlay, catalogVersion } =
       latest.current
     try {
@@ -610,10 +615,10 @@ export function usePlateDrag(options: Options) {
         return
       }
       const destination = family.template
-      const local = drag.selection.filter(
+      const local = selection.filter(
         (plate) => plate.state === destination.state
       )
-      const elsewhere = drag.selection.length - local.length
+      const elsewhere = selection.length - local.length
       const skipped =
         elsewhere === 1
           ? 'Skipped 1 plate from another state'
@@ -642,7 +647,7 @@ export function usePlateDrag(options: Options) {
         )
         return
       }
-      if (!ordering.merge || !drag.origin) {
+      if (!ordering.merge || !origin) {
         announce('Reload before moving plates into a family.')
         return
       }
@@ -655,7 +660,7 @@ export function usePlateDrag(options: Options) {
           members: local.map(({ id, revision }) => ({ id, revision })),
           catalogVersion,
         },
-        drag.origin
+        origin
       )
       if (result.ok) {
         const movedIds = new Set(result.value.moved)
@@ -718,7 +723,8 @@ export function usePlateDrag(options: Options) {
     )
     if (target.kind === 'merge') {
       await dropIntoFamily(
-        drag,
+        drag.selection,
+        drag.origin,
         families.find((family) => family.template.id === target.familyId)
       )
       return
@@ -1092,14 +1098,17 @@ export function usePlateDrag(options: Options) {
    * Check that the current same-state selection contains a plate eligible to join the
    * target family.
    */
-  function canMergeInto(family: DragFamily) {
+  function canMergeInto(
+    family: DragFamily,
+    selection = active?.selection ?? []
+  ) {
     const inFamily = new Set([
       family.template.id,
       ...family.variants.map((plate) => plate.id),
     ])
     return (
       validMerge(family) &&
-      !!active?.selection.some(
+      selection.some(
         (plate) =>
           !plate.deleted &&
           !plate.isStandard &&
@@ -1107,6 +1116,30 @@ export function usePlateDrag(options: Options) {
           !inFamily.has(plate.id)
       )
     )
+  }
+  /** Offer the context action when a selected plate can join the destination. */
+  function canMoveSelectionInto(
+    family: DragFamily,
+    selection: readonly PlateCardData[]
+  ) {
+    return (
+      enabled &&
+      !active &&
+      !!options.ordering.capture &&
+      !!options.ordering.merge &&
+      canMergeInto(family, selection)
+    )
+  }
+  /** Capture the selection and revision at invocation and use the drag merge path. */
+  function moveSelectionInto(familyId: string) {
+    const { families, ordering, closePreview, holdOverlay } = latest.current
+    const family = families.find(({ template }) => template.id === familyId)
+    const selection = plateSelection.snapshot()
+    if (current.current || !family || !canMoveSelectionInto(family, selection))
+      return
+    closePreview()
+    holdOverlay?.(true)
+    void dropIntoFamily(selection, ordering.capture?.(), family)
   }
   const item = active?.item
   const target = active?.target
@@ -1145,14 +1178,19 @@ export function usePlateDrag(options: Options) {
       (item && !target ? { id: item.plate.id, kind: item.kind } : undefined),
     announcement,
     optimisticEdits,
-    /** Promote the current multi-selection using the shared family edit flow. */ promote:
-      () => editSelection(plateSelection.snapshot()),
+    /** Promote the current selection and optionally report the outcome in a toast. */
+    promote(notify?: (message: string) => void) {
+      if (notify) announce('')
+      return editSelection(plateSelection.snapshot(), undefined, notify)
+    },
     selectionCount: active?.selection.length ?? 0,
     optimisticOrder,
     optimisticEdit,
     saving,
     enabled,
     canMergeInto,
+    canMoveSelectionInto,
+    moveSelectionInto,
     onPointerDown,
     onKeyDown,
     cancel,
