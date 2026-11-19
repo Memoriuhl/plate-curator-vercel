@@ -498,12 +498,18 @@ test.each([false, true])(
     ))!
     const binding = (await getJob(s.jobs, id))!.hostedModel!
     const fallback = 'google/gemma-4-26b-a4b-it'
-    const fetch = vi.fn(async () =>
-      Response.json({
-        model: fallback,
-        choices: [{ message: { content: '{"tags":["blue"]}' } }],
-      })
-    )
+    // Behaves like AI Gateway for the forced, unservable primary id: it
+    // answers from the fallback list, or returns model_not_found without one.
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body.model).toBe('openai/test-vision-forced-failure')
+      return body.providerOptions?.gateway?.models?.[0] === fallback
+        ? Response.json({
+            model: fallback,
+            choices: [{ message: { content: '{"tags":["blue"]}' } }],
+          })
+        : Response.json({ error: { type: 'model_not_found' } }, { status: 404 })
+    })
     const adapter = gatewayAdapter({
       apiKey: 'fixture',
       model: binding.model,
@@ -518,7 +524,7 @@ test.each([false, true])(
     ).toBe('settled')
     const job = await getJob(s.jobs, id)
     if (strict) {
-      expect(fetch).not.toHaveBeenCalled()
+      expect(fetch).toHaveBeenCalledOnce()
       expect(job).toMatchObject({
         state: 'failed',
         failure: 'strict_model_failed',
