@@ -306,7 +306,7 @@ test('a removed plate shows its pending values and the keep button says they wil
   )
 })
 
-test('an untraceable span lists the put-backs the keep button will publish', async () => {
+test('an untraceable span lists the put-backs the keep button keeps for the next Publish', async () => {
   mocks.view = view({
     canPublish: false,
     conflicts: [
@@ -332,7 +332,7 @@ test('an untraceable span lists the put-backs the keep button will publish', asy
   ).toBeTruthy()
   const resets = within(
     alert.getByText(
-      "The draft put these back after a revision that may have published. Keeping the draft's values publishes them:"
+      "The draft put these back after a revision that may have published. Keeping the draft's values keeps them, and the next Publish ships them:"
     ).parentElement!
   )
   expect(resets.getByText('AK.one')).toBeTruthy()
@@ -342,7 +342,7 @@ test('an untraceable span lists the put-backs the keep button will publish', asy
   expect(resets.getByText('AL.one, AL.two, AL.three')).toBeTruthy()
   fireEvent.click(
     alert.getByRole('button', {
-      name: "Keep the draft's values and publish the put-backs",
+      name: "Keep the draft's values and keep the put-backs for the next Publish",
     })
   )
   await waitFor(() =>

@@ -8,6 +8,7 @@ import {
   PUBLISH_ERRORS,
   PUBLISH_STOPS,
   PUBLISH_STOP_MESSAGES,
+  RELEASE_SUPERSEDED_MESSAGE,
 } from '@/lib/publish/stop'
 import {
   batchApprovedFor,
@@ -270,6 +271,11 @@ function BatchSelection({
       preflight?.retryReason === 'locked'
     )
       blocker = 'A Publish attempt is in progress.'
+    else if (preflight?.retryReason === 'release_superseded')
+      blocker = RELEASE_SUPERSEDED_MESSAGE
+    else if (preflight?.retryReason === 'release_in_progress')
+      blocker =
+        'Another release of the shared draft is publishing or waits for Retry or Abandon. Follow it from the Publish view.'
     else if (empty)
       blocker =
         'This Batch has no changes to publish. Choose another Batch or edit it on the Dashboard.'

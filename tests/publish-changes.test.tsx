@@ -21,6 +21,8 @@ const status = vi.hoisted(() => ({
   value: 'published',
   version: 16 as number | undefined,
   retry: false,
+  approved: false,
+  retryReason: null as string | null,
 }))
 afterEach(() => {
   cleanup()
@@ -28,6 +30,8 @@ afterEach(() => {
   status.value = 'published'
   status.version = 16
   status.retry = false
+  status.approved = false
+  status.retryReason = null
 })
 const baseline = {
   id: 'AK.one',
@@ -118,7 +122,7 @@ vi.mock('../lib/client/hooks', () => ({
         state: status.value,
         revision: 2,
         stateOrders: {},
-        approval: status.retry ? { revision: 1 } : null,
+        approval: status.retry || status.approved ? { revision: 1 } : null,
       },
       plates: [{ ...entry, edit: { fields: { description: 'New' } } }],
     },
@@ -130,6 +134,7 @@ vi.mock('../lib/client/hooks', () => ({
     data: {
       error: null,
       canRetry: status.retry,
+      retryReason: status.retryReason,
       enabledHere: true,
       batchRevision: 2,
       approvalProblems: [],
@@ -219,3 +224,28 @@ test('deleted plate thumbnails are dimmed and their names struck through', () =>
   )
   expect(row.textContent).toContain('Deleted')
 })
+
+test.each([
+  [
+    'release_superseded',
+    "A newer revision of the shared draft was accepted for Publish, and it carries this release's changes. Follow it from the Publish view.",
+  ],
+  [
+    'release_in_progress',
+    'Another release of the shared draft is publishing or waits for Retry or Abandon. Follow it from the Publish view.',
+  ],
+])(
+  'an accepted release held by %s says why and offers no Publish again',
+  (reason, message) => {
+    status.value = 'approved'
+    status.approved = true
+    status.retryReason = reason
+    render(<PublishWorkspace />)
+    expect(screen.getByText(message)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Publish again' })).toBeNull()
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Publish to Game' })
+        .disabled
+    ).toBe(true)
+  }
+)

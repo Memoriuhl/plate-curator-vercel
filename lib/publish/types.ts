@@ -44,6 +44,7 @@ export type PublishError =
   | PublishStop
   | typeof PIPELINE_BUSY
   | 'release_in_progress'
+  | 'release_superseded'
   | 'empty_batch'
   | 'not_waiting'
   | 'forbidden'
