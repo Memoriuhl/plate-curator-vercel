@@ -12,7 +12,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SWRConfig } from 'swr'
 import { IoAddCircleOutline, IoPencilOutline } from 'react-icons/io5'
 import { TooltipProvider } from '../../components/ui/tooltip'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import {
   pipelineRunDetailKey,
   PipelineQueueWarmup,
@@ -57,6 +57,8 @@ import { RESEARCH_MODELS } from '../../lib/research/models'
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), send: vi.fn() },
   revertRun: vi.fn(),
+  /** The live refresh each mounted view registered, by its request key. */
+  refreshers: new Map<string, () => unknown>(),
   ensure: vi.fn(),
   pathname: '/states/AK',
   modelId: 'desktop-gemma4-12b',
@@ -84,11 +86,32 @@ vi.mock('../../lib/client/hooks', () => ({
   useReviewActions: () => ({ revertPipelineRun: mocks.revertRun }),
 }))
 
-// Change-signal refresh has its own tests; here it stays connected and quiet.
-vi.mock('../../lib/client/live-signal', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../lib/client/live-signal')>()),
-  useLiveRefresh: () => 'live',
-}))
+// Change-signal refresh has its own tests; here it stays connected and quiet, and a
+// test can run a round by calling the views' refreshes.
+vi.mock('../../lib/client/live-signal', async (importOriginal) => {
+  const { useEffect, useRef } = await import('react')
+  return {
+    ...(await importOriginal<typeof import('../../lib/client/live-signal')>()),
+    useLiveRefresh: (
+      _topics: unknown,
+      refresh: () => unknown,
+      options: { key?: string; enabled?: boolean } = {}
+    ) => {
+      const latest = useRef(refresh)
+      latest.current = refresh
+      const { key, enabled = true } = options
+      useEffect(() => {
+        if (!key || !enabled) return
+        const run = () => latest.current()
+        mocks.refreshers.set(key, run)
+        return () => {
+          if (mocks.refreshers.get(key) === run) mocks.refreshers.delete(key)
+        }
+      }, [key, enabled])
+      return 'live'
+    },
+  }
+})
 
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
@@ -194,6 +217,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ runs: [saved()], selected: saved() })
   mocks.api.send.mockReset().mockResolvedValue({ run: saved() })
+  mocks.refreshers.clear()
 })
 afterEach(() => {
   cleanup()
@@ -399,6 +423,92 @@ test('returning from a run uses the newer queue snapshot loaded on the results p
   )
   expect(screen.getByText('completed')).toBeTruthy()
   expect(screen.getByText('running')).toBeTruthy()
+})
+
+test.each([
+  ['nothing', undefined],
+  ['the same run', 'saved-run'],
+])(
+  'a live round refreshes the queue list with %s selected and an open run detail with one request',
+  async (_name, selection) => {
+    let status: QueueRunView['status'] = 'running'
+    const run = () => saved({ status })
+    mocks.api.get.mockImplementation(async (path: string) => {
+      const detail = new URL(path, 'https://example.org').searchParams.get(
+        'detail'
+      )
+      return {
+        runs: [run()],
+        observedAt: status === 'running' ? 100 : 200,
+        ...(detail === 'saved-run' ? { selected: run() } : {}),
+      }
+    })
+    function Views() {
+      const list = usePipelineQueue()
+      const detail = usePipelineQueue(undefined, undefined, 'saved-run')
+      const { select } = list
+      useEffect(() => {
+        if (selection) select(selection)
+      }, [select])
+      return (
+        <>
+          <span>list {list.runs[0]?.status}</span>
+          <span>detail {detail.selected?.status}</span>
+        </>
+      )
+    }
+    render(<Views />, { wrapper })
+    await screen.findByText('list running')
+    await screen.findByText('detail running')
+    await waitFor(() => expect(mocks.refreshers.size).toBe(2))
+
+    status = 'completed'
+    mocks.api.get.mockClear()
+    // A round calls every due view's refresh together.
+    await act(async () => {
+      for (const refresh of mocks.refreshers.values())
+        void Promise.resolve().then(refresh)
+    })
+    await screen.findByText('list completed')
+    await screen.findByText('detail completed')
+    expect(mocks.api.get).toHaveBeenCalledExactlyOnceWith(
+      '/api/local-pipeline/runs?detail=saved-run'
+    )
+  }
+)
+
+test('a round with a different selected run still refreshes each view', async () => {
+  mocks.api.get.mockImplementation(async (path: string) => {
+    const detail = new URL(path, 'https://example.org').searchParams.get(
+      'detail'
+    )
+    const run = saved({ id: detail ?? 'saved-run' })
+    return { runs: [run], selected: run }
+  })
+  function Views() {
+    const list = usePipelineQueue()
+    usePipelineQueue(undefined, undefined, 'saved-run')
+    const { select } = list
+    useEffect(() => select('other-run'), [select])
+    return null
+  }
+  render(<Views />, { wrapper })
+  await waitFor(() =>
+    expect([...mocks.refreshers.keys()].sort()).toEqual([
+      '/api/local-pipeline/runs?detail=other-run',
+      pipelineRunDetailKey('saved-run'),
+    ])
+  )
+  mocks.api.get.mockClear()
+  await act(async () => {
+    for (const refresh of mocks.refreshers.values())
+      void Promise.resolve().then(refresh)
+  })
+  await waitFor(() => expect(mocks.api.get).toHaveBeenCalledTimes(2))
+  expect(mocks.api.get.mock.calls.map(([path]) => path).sort()).toEqual([
+    '/api/local-pipeline/runs?detail=other-run',
+    pipelineRunDetailKey('saved-run'),
+  ])
 })
 
 test('uncertain A then B then remount preserves A request ID', async () => {

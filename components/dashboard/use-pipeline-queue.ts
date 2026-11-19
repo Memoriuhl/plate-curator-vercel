@@ -41,6 +41,107 @@ type QueueSnapshot = {
   capabilities?: Awaited<ReturnType<typeof readLocalWorkerCapabilities>>
 }
 
+/** One queue view's part in a live refresh round. */
+type QueueRefresh = {
+  /** The request the view reads. */
+  key: string
+  get: <T>(path: string) => Promise<T>
+  /** Store a response under a view's key without requesting it again. */
+  write: (key: string, data: QueueSnapshot) => Promise<unknown>
+  /** Request the view's own key. */
+  revalidate: () => Promise<unknown>
+}
+
+let queueRound: { views: QueueRefresh[]; done: Promise<void> } | null = null
+
+/**
+ * Refresh a queue view as part of the tab's live round. The hub starts every due view's
+ * refresh at once, and views that join before the next microtask share requests: an open
+ * run's results ride on a list request that selects the run, or turn the list's unselected
+ * request into one. The list and an open run's results then cost one request per round.
+ */
+function refreshQueue(view: QueueRefresh): Promise<void> {
+  if (!queueRound) {
+    const views: QueueRefresh[] = []
+    queueRound = {
+      views,
+      done: Promise.resolve().then(() => {
+        queueRound = null
+        return refreshTogether(views)
+      }),
+    }
+  }
+  queueRound.views.push(view)
+  return queueRound.done
+}
+
+/** The run a results-only request reads, or null for a list request. */
+function detailOnlyRun(key: string) {
+  const params = new URL(key, 'https://queue.invalid').searchParams
+  return params.get('detailOnly') === '1' ? params.get('detail') : null
+}
+
+const listSelecting = (runId: string) =>
+  `${pipelineQueueKey}?detail=${encodeURIComponent(runId)}`
+
+async function refreshTogether(views: QueueRefresh[]) {
+  type ListRequest = {
+    view: QueueRefresh
+    request: string
+    riders: { view: QueueRefresh; runId: string }[]
+  }
+  const lists = new Map<string, ListRequest>()
+  const alone: QueueRefresh[] = []
+  for (const view of views)
+    if (detailOnlyRun(view.key) === null)
+      lists.set(view.key, { view, request: view.key, riders: [] })
+  for (const view of views) {
+    const runId = detailOnlyRun(view.key)
+    if (runId === null) continue
+    const unselected = lists.get(queueSummaryKey)
+    const list =
+      lists.get(listSelecting(runId)) ??
+      (unselected?.riders.length === 0 ? unselected : undefined)
+    if (!list) {
+      alone.push(view)
+      continue
+    }
+    list.request = listSelecting(runId)
+    list.riders.push({ view, runId })
+  }
+  await Promise.all([
+    ...alone.map((view) => view.revalidate()),
+    ...[...lists.values()].map(async ({ view, request, riders }) => {
+      if (!riders.length) return view.revalidate()
+      let data: QueueSnapshot
+      try {
+        data = await view.get<QueueSnapshot>(request)
+      } catch {
+        // Let each view request its own key, so the error lands where it shows.
+        return Promise.all(
+          [view, ...riders.map((rider) => rider.view)].map((each) =>
+            each.revalidate()
+          )
+        )
+      }
+      const { selected, ...list } = data
+      return Promise.all([
+        view.write(view.key, view.key === request ? data : list),
+        ...riders.map(({ view: rider, runId }) =>
+          selected?.id === runId
+            ? rider.write(rider.key, {
+                runs: data.runs.filter((run) => run.id === runId),
+                selected,
+                observedAt: data.observedAt,
+              })
+            : // The list could not select the run (it is not listed), so ask directly.
+              rider.revalidate()
+        ),
+      ])
+    }),
+  ])
+}
+
 export function PipelineQueueWarmup() {
   const { user, api } = useSession()
   const pathname = usePathname()
@@ -112,13 +213,20 @@ export function usePipelineQueue(
     api.get,
     { keepPreviousData: !detailId }
   )
-  // Refetch when the server signals a queue change. The slow safety refresh catches a
-  // worker going quiet, which changes what the drawer shows without any write.
-  const live = useLiveRefresh(['pipeline'], () => list.mutate(), {
-    enabled: enabled && local && uid !== null,
-    key,
-    safetyMs: 60_000,
-  })
+  // Refetch when the server signals a queue change, sharing the round's request with the
+  // tab's other queue views. The slow safety refresh catches a worker going quiet, which
+  // changes what the drawer shows without any write.
+  const live = useLiveRefresh(
+    ['pipeline'],
+    () =>
+      refreshQueue({
+        key,
+        get: api.get,
+        write: (target, data) => mutate(target, data, { revalidate: false }),
+        revalidate: () => list.mutate(),
+      }),
+    { enabled: enabled && local && uid !== null, key, safetyMs: 60_000 }
+  )
   const snapshot = list.data
   const loaded = !list.isLoading
   useEffect(() => {
