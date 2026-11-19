@@ -375,6 +375,18 @@ function pointer(element: Element, type: string, x: number, y = 100) {
     ;(type === 'pointerdown' ? element : window).dispatchEvent(event)
   })
 }
+
+/** Move across the grid and let the new drop preview become visible. */
+function hoverDrop(element: Element, x: number, y = 100) {
+  vi.useFakeTimers()
+  try {
+    pointer(element, 'pointermove', x, y)
+    act(() => vi.advanceTimersByTime(450))
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 /**
  * Assign explicit family rectangles so drag hit testing is deterministic in the test
  * DOM.
@@ -394,6 +406,10 @@ function targetRects(container: HTMLElement) {
         x: left,
         y: 0,
         /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {},
+      })
+      element.querySelectorAll('[data-drag-variant]').forEach((row, index) => {
+        row.getBoundingClientRect = () =>
+          new DOMRect(left + 16, 140 + index * 54, 218, 48)
       })
     })
 }
@@ -495,7 +511,7 @@ test('Editor regroup is optimistic, commits only to the selected Batch, and reac
     '[data-plate-row="AK.v"]'
   )!
   pointer(handle, 'pointerdown', 100)
-  pointer(handle, 'pointermove', 400)
+  hoverDrop(handle, 400)
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(
@@ -665,11 +681,11 @@ test('remote revision waits for drag settlement and preserves the lifted Plate p
     ).toBe('1')
   )
   expect(
-    within(
-      within(view.container).getByRole('article', { name: 'Army family' })
-    ).getByText('Variant')
+    within(view.container)
+      .getByRole('article', { name: 'Army family' })
+      .querySelector('[data-drag-variant="AK.v"]')
   ).toBeTruthy()
-  pointer(handle, 'pointermove', 400)
+  hoverDrop(handle, 400)
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(view.container.textContent).toContain(

@@ -10,7 +10,7 @@ export function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {
   if (!a || !b) return a === b
   if (a.kind !== b.kind) return false
   if (a.kind === 'family-slot' && b.kind === 'family-slot')
-    return a.index === b.index
+    return a.index === b.index && a.background === b.background
   if (a.kind === 'variant-slot' && b.kind === 'variant-slot')
     return a.index === b.index && a.familyId === b.familyId
   return a.kind === 'merge' && b.kind === 'merge' && a.familyId === b.familyId

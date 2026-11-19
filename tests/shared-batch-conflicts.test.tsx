@@ -375,6 +375,18 @@ function pointer(element: Element, type: string, x: number, y = 100) {
     ;(type === 'pointerdown' ? element : window).dispatchEvent(event)
   })
 }
+
+/** Move across the grid and let the new drop preview become visible. */
+function hoverDrop(element: Element, x: number, y = 100) {
+  vi.useFakeTimers()
+  try {
+    pointer(element, 'pointermove', x, y)
+    act(() => vi.advanceTimersByTime(450))
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 /**
  * Assign explicit family rectangles so drag hit testing is deterministic in the test
  * DOM.
@@ -394,6 +406,10 @@ function targetRects(container: HTMLElement) {
         x: left,
         y: 0,
         /** Complete the DOM rectangle interface for the fixed geometry used by the drag test. */ toJSON() {},
+      })
+      element.querySelectorAll('[data-drag-variant]').forEach((row, index) => {
+        row.getBoundingClientRect = () =>
+          new DOMRect(left + 16, 140 + index * 54, 218, 48)
       })
     })
 }
@@ -490,7 +506,7 @@ test.each(['pointer', 'keyboard'] as const)(
       )!
       if (mode === 'pointer') {
         pointer(handle, 'pointerdown', 100)
-        pointer(handle, 'pointermove', 540, 100)
+        hoverDrop(handle, 540, 100)
       } else {
         fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
         fireEvent.keyDown(window, { key: 'ArrowRight' })
@@ -569,7 +585,7 @@ test.each(['pointer', 'keyboard'] as const)(
     )!
     if (mode === 'pointer') {
       pointer(handle, 'pointerdown', 100)
-      pointer(handle, 'pointermove', 540)
+      hoverDrop(handle, 540)
     } else {
       fireEvent.keyDown(handle, { key: ' ', shiftKey: true })
       fireEvent.keyDown(window, { key: 'ArrowRight' })
@@ -706,11 +722,11 @@ test('a family drop rejects a remote edit during the gesture and refreshes the s
     ).toBe('1')
   )
   expect(
-    within(
-      within(first.container).getByRole('article', { name: 'Army family' })
-    ).getByText('Variant')
+    within(first.container)
+      .getByRole('article', { name: 'Army family' })
+      .querySelector('[data-drag-variant="AK.v"]')
   ).toBeTruthy()
-  pointer(handle, 'pointermove', 400)
+  hoverDrop(handle, 400)
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(first.container.textContent).toContain(
@@ -745,7 +761,7 @@ test('a saved family drop survives a fresh workspace load as a draft', async () 
     '[data-plate-row="AK.v"]'
   )!
   pointer(handle, 'pointerdown', 100)
-  pointer(handle, 'pointermove', 400)
+  hoverDrop(handle, 400)
   pointer(handle, 'pointerup', 400)
   await waitFor(() =>
     expect(first.container.textContent).toContain('1 plate moved')
@@ -955,7 +971,7 @@ test.each(['background', 'background gap', 'Backspace'] as const)(
       if (mode.startsWith('background')) {
         const x = mode === 'background' ? 700 : 275
         pointer(row.querySelector('[data-plate-image]')!, 'pointerdown', 100)
-        pointer(row, 'pointermove', x)
+        hoverDrop(row, x)
         pointer(row, 'pointerup', x)
       } else {
         fireEvent.click(row)

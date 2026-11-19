@@ -83,7 +83,7 @@ export function collectDragTargets(
       })
       continue
     }
-    const edge = Math.min(28, rect.width / 5)
+    const edge = (rect.right - rect.left) / 4
     targets.push(
       {
         target: { kind: 'family-slot', index },
@@ -137,7 +137,7 @@ export function collectDragTargets(
             left: bounds.left,
             right: bounds.right,
             top: bounds.top - 6,
-            bottom: scrollElement ? midpoint : bounds.top + 10,
+            bottom: midpoint,
           },
         },
         {
@@ -150,7 +150,7 @@ export function collectDragTargets(
           rect: {
             left: bounds.left,
             right: bounds.right,
-            top: scrollElement ? midpoint : bounds.bottom - 10,
+            top: midpoint,
             bottom: bounds.bottom + 6,
           },
         }

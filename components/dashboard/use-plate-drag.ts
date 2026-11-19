@@ -4,7 +4,14 @@ import { useStandardConfirmation } from '@/components/plate/standard-confirmatio
 import { groupFamilies } from './family-data'
 import { plateSelection } from './plate-selection'
 import type { PlateCardData } from '@/lib/catalog/dashboard-types'
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from 'react'
 import type {
   EditResult,
   MoveOrigin,
@@ -110,6 +117,15 @@ export function usePlateDrag(options: Options) {
   const [saving, setSaving] = useState(false)
   const latest = useRef(options)
   const current = useRef(active)
+  // A pointer release can only apply a target the grid has already rendered.
+  const displayedTarget = useRef<DropTarget | null>(null)
+  const dwell = useRef<{
+    target: DropTarget
+    timer: ReturnType<typeof setTimeout>
+  } | null>(null)
+  useLayoutEffect(() => {
+    displayedTarget.current = active?.target ?? null
+  }, [active?.target])
   const pressed = useRef<{
     selection: readonly PlateCardData[]
     origin?: MoveOrigin
@@ -161,6 +177,11 @@ export function usePlateDrag(options: Options) {
     if (pressed.current?.timer) clearTimeout(pressed.current.timer)
     pressed.current = null
   }
+  /** Clear the pending pointer destination when the drag leaves it or ends. */
+  function clearDwell() {
+    if (dwell.current) clearTimeout(dwell.current.timer)
+    dwell.current = null
+  }
   /**
    * Lift the selected item, freeze its source layout and announce its keyboard position.
    */
@@ -204,8 +225,9 @@ export function usePlateDrag(options: Options) {
       origin: pressed.current
         ? pressed.current.origin
         : latest.current.ordering.capture?.(),
-      target:
-        item.kind === 'variant' && source
+      target: !keyboard
+        ? null
+        : item.kind === 'variant' && source
           ? {
               kind: 'variant-slot',
               familyId: source.template.id,
@@ -221,6 +243,8 @@ export function usePlateDrag(options: Options) {
   /** End the active drag and clear temporary pointer and document state. */
   function finish() {
     clearPress()
+    clearDwell()
+    displayedTarget.current = null
     update(null)
     document.body.classList.remove('plate-dragging')
   }
@@ -234,7 +258,7 @@ export function usePlateDrag(options: Options) {
    * Hit-test the current pointer against valid targets while excluding the original
    * placement.
    */
-  function pointerTarget(item: DragItem, x: number, y: number) {
+  function pointerTarget(item: DragItem, x: number, y: number): DropTarget {
     const { families, targets } = latest.current
     const source = families.find((family) =>
       family.variants.some((plate) => plate.id === item.plate.id)
@@ -244,7 +268,7 @@ export function usePlateDrag(options: Options) {
       window.scrollX,
       window.scrollY
     )
-    return targetAt(
+    const hit = targetAt(
       x,
       y,
       stable.filter(
@@ -256,6 +280,33 @@ export function usePlateDrag(options: Options) {
               target.familyId === source?.template.id))
       )
     )
+    return (
+      hit ?? {
+        kind: 'family-slot',
+        index: nearestFamilySlot(x, y, stable, families.length),
+        background: true,
+      }
+    )
+  }
+  /** Move the lifted card immediately and accept a new destination after its dwell. */
+  function trackPointer(x: number, y: number) {
+    const drag = current.current
+    if (!drag || drag.keyboard) return
+    if (drag.x !== x || drag.y !== y) update({ ...drag, x, y })
+    const target = pointerTarget(drag.item, x, y)
+    if (sameDropTarget(target, dwell.current?.target ?? null)) return
+    clearDwell()
+    if (sameDropTarget(target, drag.target)) return
+    dwell.current = {
+      target,
+      timer: setTimeout(
+        () => {
+          const active = current.current
+          if (active) update({ ...active, target })
+        },
+        target.kind === 'merge' ? 450 : 250
+      ),
+    }
   }
   /**
    * Resolve affected families across the selected plates' loaded states for a bulk edit.
@@ -644,6 +695,7 @@ export function usePlateDrag(options: Options) {
   /** Resolve the drop operation and move focus to the affected plate after it settles. */
   async function drop() {
     const drag = current.current
+    const target = drag?.keyboard ? drag.target : displayedTarget.current
     finish()
     if (!drag) return
     if (drag.item.plate.deleted) {
@@ -652,25 +704,12 @@ export function usePlateDrag(options: Options) {
       return
     }
     const selected = drag.selection
-    if (!drag.target) {
-      if (!drag.keyboard)
-        await editSelection(selected, {
-          index: nearestFamilySlot(
-            drag.x,
-            drag.y,
-            stableTargets.current(
-              latest.current.targets(),
-              window.scrollX,
-              window.scrollY
-            ),
-            latest.current.families.length
-          ),
-          origin: drag.origin,
-        })
+    if (!target) {
       latest.current.holdOverlay?.(false)
+      announce('Cancelled')
       return
     }
-    const { item, target } = drag
+    const { item } = drag
     const { families, ordering, reload } = latest.current
     const source = families.find(
       (family) =>
@@ -691,8 +730,7 @@ export function usePlateDrag(options: Options) {
     }
     if (
       target.kind === 'family-slot' &&
-      item.kind === 'variant' &&
-      selected.length > 1
+      (target.background || (item.kind === 'variant' && selected.length > 1))
     ) {
       await editSelection(selected, {
         index: target.index,
@@ -812,20 +850,20 @@ export function usePlateDrag(options: Options) {
     lift,
     drop,
     cancel,
-    update,
     clearPress,
+    clearDwell,
     onKeyDown,
-    pointerTarget,
+    trackPointer,
   })
   useEffect(() => {
     actions.current = {
       lift,
       drop,
       cancel,
-      update,
       clearPress,
+      clearDwell,
       onKeyDown,
-      pointerTarget,
+      trackPointer,
     }
   })
   useEffect(() => {
@@ -850,16 +888,7 @@ export function usePlateDrag(options: Options) {
       const drag = current.current
       if (!drag || drag.keyboard) return
       event.preventDefault()
-      actions.current.update({
-        ...drag,
-        x: event.clientX,
-        y: event.clientY,
-        target: actions.current.pointerTarget(
-          drag.item,
-          event.clientX,
-          event.clientY
-        ),
-      })
+      actions.current.trackPointer(event.clientX, event.clientY)
     }
     /** Finish the pointer drop and absorb the trailing click so it cannot navigate. */
     function up(event: globalThis.PointerEvent) {
@@ -867,19 +896,7 @@ export function usePlateDrag(options: Options) {
         return
       actions.current.clearPress()
       const drag = current.current
-      if (drag && !drag.keyboard) {
-        actions.current.update({
-          ...drag,
-          x: event.clientX,
-          y: event.clientY,
-          target: actions.current.pointerTarget(
-            drag.item,
-            event.clientX,
-            event.clientY
-          ),
-        })
-        void actions.current.drop()
-      }
+      if (drag && !drag.keyboard) void actions.current.drop()
       if (suppress.current) {
         /** Suppress the click generated by releasing the completed drag. */
         const swallow = (click: MouseEvent) => {
@@ -922,9 +939,7 @@ export function usePlateDrag(options: Options) {
     function scrolled() {
       const drag = current.current
       if (!drag || drag.keyboard) return
-      const target = actions.current.pointerTarget(drag.item, drag.x, drag.y)
-      if (!sameDropTarget(target, drag.target))
-        actions.current.update({ ...drag, target })
+      actions.current.trackPointer(drag.x, drag.y)
     }
     /** Prevent the browser's native drag while the app is handling a pointer lift. */
     function preventNative(event: Event) {
@@ -940,6 +955,7 @@ export function usePlateDrag(options: Options) {
     window.addEventListener('contextmenu', preventNative)
     return () => {
       actions.current.clearPress()
+      actions.current.clearDwell()
       document.body.classList.remove('plate-dragging')
       window.removeEventListener('scroll', scrolled, true)
       window.removeEventListener('pointermove', move)
@@ -969,13 +985,7 @@ export function usePlateDrag(options: Options) {
         const speed = nested ? 0 : scrollVelocity(drag.y, window.innerHeight)
         if (speed || nested) {
           if (speed) window.scrollBy(0, speed)
-          const target = actions.current.pointerTarget(
-            drag.item,
-            drag.x,
-            drag.y
-          )
-          if (!sameDropTarget(target, drag.target))
-            actions.current.update({ ...drag, target })
+          actions.current.trackPointer(drag.x, drag.y)
         }
       }
       frame = requestAnimationFrame(scroll)
@@ -1100,15 +1110,39 @@ export function usePlateDrag(options: Options) {
   }
   const item = active?.item
   const target = active?.target
+  // Background placement still promotes Variants only.
+  const previewPlate =
+    active &&
+    target?.kind === 'family-slot' &&
+    target.background &&
+    item?.kind === 'family'
+      ? active.selection.find(
+          (plate) =>
+            !plate.deleted &&
+            plate.state === item.plate.state &&
+            plate.templateRole === 'variant'
+        )
+      : item?.plate
+  const previewKind = previewPlate === item?.plate ? item?.kind : 'variant'
   // Pointer motion within a drop slot can reuse the same reflowed family layout.
   const reflow = useMemo(
-    () => (item ? reflowForDrop(options.families, item, target ?? null) : null),
-    [options.families, item, target]
+    () =>
+      previewPlate && previewKind
+        ? reflowForDrop(
+            options.families,
+            { kind: previewKind, plate: previewPlate },
+            target ?? null
+          )
+        : null,
+    [options.families, previewPlate, previewKind, target]
   )
   return {
     standardDialog: standardConfirmation.dialog,
     active,
     reflow,
+    placeholder:
+      reflow?.placeholder ??
+      (item && !target ? { id: item.plate.id, kind: item.kind } : undefined),
     announcement,
     optimisticEdits,
     /** Promote the current multi-selection using the shared family edit flow. */ promote:

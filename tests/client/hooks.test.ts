@@ -578,9 +578,17 @@ test.each(['merge', 'promote'] as const)(
           pointerId: { value: 1 },
           pointerType: { value: 'mouse' },
         })
-        act(() => {
-          window.dispatchEvent(event)
-        })
+        if (type === 'pointermove') {
+          vi.useFakeTimers()
+          try {
+            act(() => {
+              window.dispatchEvent(event)
+              vi.advanceTimersByTime(450)
+            })
+          } finally {
+            vi.useRealTimers()
+          }
+        } else act(() => window.dispatchEvent(event))
       }
       await waitFor(() =>
         expect(result.current.announcement).toBe(
