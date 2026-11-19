@@ -8,6 +8,7 @@ import { PATCH } from '../../app/api/batches/[id]/plates/[plateId]/route'
 import { POST as keepDraftValues } from '../../app/api/batches/[id]/conflicts/route'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { sharedDraftId } from '../../lib/review/draft-id'
+import { newSharedDraft } from '../../lib/review/draft'
 import { reviewEnv } from '../../lib/server/context'
 import { plateRevision } from '../../lib/review/revision'
 import { HookConflictError, HookNotFoundError } from 'workflow/errors'
@@ -64,6 +65,15 @@ const batch: ReviewBatch = {
   stateOrders: {},
   approval: null,
 }
+/** Where a release fixture was frozen: revision 1 of the shared draft. */
+const frozenFrom = () => ({
+  source: { batchId: sharedDraftId(reviewEnv()), revision: 1 },
+})
+/** The shared draft a release fixture came from, still on v7 at revision 1. */
+const sourceDraft = (): ReviewBatch => ({
+  ...newSharedDraft(reviewEnv(), 7, { uid: 'owner', name: null }, ''),
+  revision: 1,
+})
 /** Build the POST request the route fixture passes to its handler. */
 function request(body: unknown) {
   return new Request('http://localhost/api/batches/batch', {
@@ -451,6 +461,7 @@ test('preflight and explicit confirmation target the exact release revision', as
   vi.stubEnv('GCP_PROJECT_ID', 'license-plate-game-staging')
   const requested = {
     ...batch,
+    ...frozenFrom(),
     id: 'chosen-batch',
     kind: 'release' as const,
     revision: 2,
@@ -461,7 +472,11 @@ test('preflight and explicit confirmation target the exact release revision', as
     state: 'approved' as const,
     revision: 3,
   }
-  mocks.reviewDeps().store = createMemoryStore([requested, unrelated])
+  mocks.reviewDeps().store = createMemoryStore([
+    requested,
+    unrelated,
+    sourceDraft(),
+  ])
   const records = mocks.publishDeps().records
   records.eligibility = vi.fn(async () => ({ canRetry: true, reason: null }))
   const chosen = { params: Promise.resolve({ id: requested.id }) }
@@ -570,9 +585,11 @@ test('Publish preflight exposes the same Standard repair that blocks draft confi
   const store = createMemoryStore([
     {
       ...batch,
+      ...frozenFrom(),
       kind: 'release',
       stateOrders: { AK: [other.id, baseline.id] },
     },
+    sourceDraft(),
   ])
   mocks.reviewDeps().store = store
   mocks.reviewDeps().stateBaseline = async () => [baseline, other]

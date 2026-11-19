@@ -10,7 +10,12 @@ import {
   firestorePublishRecords,
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
-import { ensureDraft, newSharedDraft } from '../lib/review/draft'
+import {
+  ensureDraft,
+  freezeRelease,
+  keepDraftValues,
+  newSharedDraft,
+} from '../lib/review/draft'
 import { proposeEdit } from '../lib/review/batch'
 import { plateRevision } from '../lib/review/revision'
 import { firestoreVersionOrigin } from '../lib/review/firestore-version-origin'
@@ -20,7 +25,13 @@ import type { Plate } from '../lib/catalog/types'
 import { publishBatch } from '../lib/publish/publish'
 import { releaseActivityFor } from '../lib/publish/release-activity'
 import { verifyPreparedObject } from '../lib/publish/object'
-import { batch, command, fixture, owner } from '../tests/publish/fixture'
+import {
+  batch,
+  command,
+  fixture,
+  owner,
+  snapshot,
+} from '../tests/publish/fixture'
 import { db } from './setup'
 
 const mocks = vi.hoisted(() => ({
@@ -87,6 +98,14 @@ const release = (): ReviewBatch => ({
   approval: null,
   source: { batchId: draftId, revision: batch.revision },
 })
+/** The shared draft `release()` was frozen from, still at that revision on v1. */
+const seedReleaseDraft = async () =>
+  expect(
+    await mocks.deps().store.create({
+      ...newSharedDraft(env, 1, owner, time),
+      revision: batch.revision,
+    })
+  ).toBe('ok')
 /** An editor's tag change, as the shared draft stores it. */
 const tagEdit = (plateId: string, tags: string[]): ProposedEdit => ({
   plateId,
@@ -492,6 +511,7 @@ test('confirmation blocks a run queued from another workstation on another Batch
 
 test('Owner can confirm a release frozen from the shared draft without a separate approval', async () => {
   await db.doc('reviewBatches/batch').set({ ...release(), env })
+  await seedReleaseDraft()
   const deps = mocks.deps()
   await db
     .doc('reviewBatches/batch/edits/one')
@@ -767,6 +787,92 @@ test('a stale Publish of a newer revision is refused while a release waits for R
   })
 })
 
+/** POST a Publish command straight to one release, as its recovery page does. */
+const releasePost = (id: string, revision: number, commandId: string) =>
+  POST(
+    new Request(`http://localhost/api/batches/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ revision, commandId }),
+    }),
+    { params: Promise.resolve({ id }) }
+  )
+
+/**
+ * Review deps whose catalog has v1 (the fixture) and a v2 where an outside change
+ * retagged plate one.
+ */
+function versionedDeps() {
+  const base = mocks.deps()
+  const versions = new Map<number, Plate[]>([
+    [1, snapshot.plates],
+    [
+      2,
+      snapshot.plates.map((plate) =>
+        plate.id === 'one' ? { ...plate, tags: ['live'] } : plate
+      ),
+    ],
+  ])
+  const deps = {
+    ...base,
+    /** Read a plate from the requested catalog version. */
+    async baselineAtVersion(version: number, id: string) {
+      return versions.get(version)?.find((plate) => plate.id === id) ?? null
+    },
+    /** Read a state's plates from the requested catalog version. */
+    async stateBaseline(version: number, state: string) {
+      return (versions.get(version) ?? []).filter(
+        (plate) => plate.state === state
+      )
+    },
+  }
+  mocks.deps.mockReturnValue(deps)
+  return deps
+}
+
+test('a stale freeze brought back by a rollback waits for the Owner at both entry points, then is superseded', async () => {
+  const deps = versionedDeps()
+  const draft = newSharedDraft(env, 1, owner, time)
+  expect(await deps.store.create(draft)).toBe('ok')
+  await deps.store.commit(draftId, 0, {
+    batch: { ...draft, plateIds: ['one'], revision: 1 },
+    edit: tagEdit('one', ['reviewed']),
+    by: { uid: 'editor', name: 'Dana Curator' },
+  })
+  // A Publish froze revision 1 on v1, but its command was never accepted.
+  const frozen = await freezeRelease(deps, env, owner, 1)
+  if (!frozen.ok) throw new Error(frozen.error)
+  // An outside change retags the same plate, then a repair points live back at v1.
+  await db.doc('config/catalog').set({ version: 2 })
+  await ensureDraft(deps, env, owner)
+  await db.doc('config/catalog').set({ version: 1 })
+  expect((await ensureDraft(deps, env, owner)).conflicts?.length).toBeTruthy()
+  const starts = mocks.start.mock.calls.length
+
+  const refused = async (error: string, suffix: string) => {
+    for (const response of [
+      await POST(draftRequest(1, `stale-draft-${suffix}`), draftCtx),
+      await releasePost(frozen.value.id, 0, `stale-release-${suffix}`),
+    ]) {
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({ error })
+    }
+    expect(mocks.start.mock.calls.length).toBe(starts)
+    expect(await deps.records.command(`stale-draft-${suffix}`)).toBeNull()
+    expect(await deps.records.command(`stale-release-${suffix}`)).toBeNull()
+    expect((await deps.store.getBatch(frozen.value.id))?.state).toBe('open')
+  }
+  await refused('draft_conflicts', 'conflicts')
+  // Once the Owner keeps the draft's values, the old freeze is still behind the draft.
+  const reviewed = (await deps.store.getBatch(draftId))!
+  expect(
+    await keepDraftValues(deps, owner, {
+      batchId: draftId,
+      revision: reviewed.revision,
+    })
+  ).toMatchObject({ ok: true })
+  await refused('superseded_revision', 'kept')
+})
+
 test('undoing a deletion waits while its release runs, and is accepted once that release fails before preparing a Snapshot', async () => {
   const deps = mocks.deps()
   const draft = newSharedDraft(env, 1, owner, time)
@@ -875,6 +981,7 @@ test('one Owner confirmation freezes and publishes a 1,000-Plate shared draft in
 
 test('a release holding only pipeline audit metadata is insufficient to publish a new Snapshot', async () => {
   await db.doc('reviewBatches/batch').set({ ...release(), env })
+  await seedReleaseDraft()
   await db
     .doc('reviewBatches/batch/edits/one')
     .set({ plateId: 'one', fields: {}, pipelineRunIds: ['completed-run'] })

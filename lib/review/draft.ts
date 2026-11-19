@@ -230,10 +230,10 @@ export async function freezeRelease(
   if (!head || !isSharedDraft(head.batch))
     return { ok: false, error: 'not_found' }
   const id = releaseId(env, draftId, head.batch.baselineVersion, revision)
+  const held = draftHolds(head.batch, revision, head.batch.baselineVersion)
+  if (!held.ok) return held
   const existing = await d.store.getBatch(id)
   if (existing) return { ok: true, value: existing }
-  if (head.batch.conflicts?.length)
-    return { ok: false, error: 'draft_conflicts' }
   const changes =
     revision < head.batch.revision && d.store.listChanges
       ? await d.store.listChanges(draftId, revision)
@@ -274,6 +274,61 @@ export async function freezeRelease(
     return { ok: true, value: release }
   const raced = await d.store.getBatch(id)
   return raced ? { ok: true, value: raced } : { ok: false, error: 'not_found' }
+}
+
+/**
+ * Whether the draft's head still lets a release of `revision` on `baselineVersion` be
+ * accepted: the draft has no conflicts waiting for the Owner, and the revision is one it
+ * can still publish on that baseline. An existing freeze is checked too, because a
+ * rollback can bring an old freeze's baseline back while the round trip left conflicts.
+ */
+function draftHolds(
+  head: ReviewBatch,
+  revision: number,
+  baselineVersion: number
+):
+  | { ok: true }
+  | { ok: false; error: 'draft_conflicts' | 'superseded_revision' } {
+  if (head.conflicts?.length) return { ok: false, error: 'draft_conflicts' }
+  if (
+    revision > head.revision ||
+    revision < (head.rebaseFloor ?? 0) ||
+    baselineVersion !== head.baselineVersion
+  )
+    return { ok: false, error: 'superseded_revision' }
+  return { ok: true }
+}
+
+/**
+ * Check an unaccepted release against its draft before a new Publish command accepts
+ * it, at whichever entry point the command came through. The draft is settled onto live
+ * first, so a release frozen before an outside change waits for the Owner's review and
+ * one frozen before a rebase is superseded. A command already accepted replays without
+ * this check.
+ */
+export async function releaseAcceptable(
+  d: ReviewDeps,
+  release: ReviewBatch
+): Promise<
+  | { ok: true }
+  | {
+      ok: false
+      error: 'not_found' | 'draft_conflicts' | 'superseded_revision'
+    }
+> {
+  if (!release.source) return { ok: false, error: 'not_found' }
+  const settled = await settleDraft(d, release.source.batchId)
+  if (!settled.ok)
+    return {
+      ok: false,
+      error:
+        settled.error === 'not_found' ? 'not_found' : 'superseded_revision',
+    }
+  return draftHolds(
+    settled.value,
+    release.source.revision,
+    release.baselineVersion
+  )
 }
 
 /** How many publishes a rebase traces back before treating the rest as one outside move. */

@@ -34,7 +34,11 @@ import {
   isSharedDraftId,
   sharedDraftId,
 } from '../../../../../lib/review/draft-id'
-import { ensureDraft, freezeRelease } from '../../../../../lib/review/draft'
+import {
+  ensureDraft,
+  freezeRelease,
+  releaseAcceptable,
+} from '../../../../../lib/review/draft'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../../../../../lib/review/write-budget'
 import { draftPublishSummary } from '../../../../../lib/review/publish-view'
 import {
@@ -297,6 +301,16 @@ async function confirmBatch(
       batch.revision
     )
     return json({ error: 'superseded_revision', confirmation }, 409)
+  }
+  if (confirmDraft) {
+    // A new command for an unaccepted release follows the draft's latest conflicts and
+    // floor, whether it came through the draft or the release's own page.
+    const acceptable = await releaseAcceptable(deps, batch)
+    if (!acceptable.ok)
+      return json(
+        { error: acceptable.error },
+        acceptable.error === 'not_found' ? 404 : 409
+      )
   }
   const control = await publishing.control.read()
   const stop = publishControlStop(control)
