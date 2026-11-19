@@ -7,7 +7,7 @@ import {
   firestorePublishRecords,
 } from '../lib/publish/firestore'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
-import { verifyPreparedObject } from '../lib/publish/object'
+import { verifyPreparedObject } from '../lib/publish/snapshots/object'
 import { batch, command, fixture } from '../tests/publish/fixture'
 import type { PublishRunLookup } from '../lib/publish/eligibility'
 import { db } from './setup'

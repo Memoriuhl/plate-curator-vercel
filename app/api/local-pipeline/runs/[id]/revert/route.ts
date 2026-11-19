@@ -1,5 +1,5 @@
 import { readRunRevertTarget, revertQueueRun } from '@/lib/jobs/revert-run'
-import { sharedDraftId } from '@/lib/review/draft-id'
+import { sharedDraftId } from '@/lib/review/draft/draft-id'
 import { batchTarget } from '@/lib/server/draft-target'
 import { catalogChanged } from '@/lib/server/catalog-head'
 import {

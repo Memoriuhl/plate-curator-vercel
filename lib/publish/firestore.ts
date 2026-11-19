@@ -24,16 +24,16 @@ import {
   type EligibilityInput,
   type PublishRunLookup,
 } from './eligibility'
-import { sharedDraftId } from '../review/draft-id'
-import { liveEnvKey, signalPath } from '../review/live-signal'
+import { sharedDraftId } from '../review/draft/draft-id'
+import { liveEnvKey, signalPath } from '../review/signals/live-signal'
 import { signalChange } from '../live/change-signals'
 import {
   deletionPublishFenceRef,
   firestoreReviewStore,
   writePublishMetadata,
 } from '../review/firestore-store'
-import { uploadError } from './upload'
-import { sameObject } from './object'
+import { uploadError } from './snapshots/upload'
+import { sameObject } from './snapshots/object'
 import type { EditableFields, ReviewBatch } from '../review/types'
 import { isActiveOwner, normalizeEmail } from '../members/member'
 import { countActivePipeline, hasActivePipeline } from './pipeline-gate'

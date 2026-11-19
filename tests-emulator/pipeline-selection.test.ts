@@ -2,7 +2,7 @@ import { Firestore } from '@google-cloud/firestore'
 import { afterAll, expect, test, vi } from 'vitest'
 import { firestoreJobsStore } from '../lib/jobs/firestore-store'
 import { localJobsEnvironment } from '../lib/jobs/local-scope'
-import { enqueueSelection, listRuns } from '../lib/jobs/queue'
+import { enqueueSelection, listRuns } from '../lib/jobs/queue/queue'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { Plate } from '../lib/catalog/types'
 

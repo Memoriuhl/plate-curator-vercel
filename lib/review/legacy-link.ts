@@ -1,4 +1,4 @@
-import { isRelease, isSharedDraft, isSharedDraftId } from './draft-id'
+import { isRelease, isSharedDraft, isSharedDraftId } from './draft/draft-id'
 import { reviewHref } from './href'
 import type { ReviewBatch } from './types'
 

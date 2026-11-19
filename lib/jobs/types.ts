@@ -14,7 +14,7 @@ import type {
 } from './specialized-suggestions'
 
 import type { WorkerCapabilityRecord } from './capabilities'
-import type { PipelineRun, ResourceClass } from './queue-types'
+import type { PipelineRun, ResourceClass } from './queue/queue-types'
 import type {
   EnhancedImageSuggestion,
   ImageEnhancementOptions,

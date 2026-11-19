@@ -1,5 +1,5 @@
-import { runResearchWorkerOnce } from './research-run'
-import { runLegacyResearch } from './research-legacy'
+import { runResearchWorkerOnce } from './research/research-run'
+import { runLegacyResearch } from './research/research-legacy'
 
 /**
  * Start the desktop research worker and poll for eligible jobs using its configured

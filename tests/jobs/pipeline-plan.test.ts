@@ -2,8 +2,8 @@ import { expect, test } from 'vitest'
 import {
   orderedPipelineStages,
   planPipeline,
-} from '../../lib/jobs/pipeline-plan'
-import { snapshotPipelineOptions } from '../../lib/jobs/pipeline-options'
+} from '../../lib/jobs/pipeline/pipeline-plan'
+import { snapshotPipelineOptions } from '../../lib/jobs/pipeline/pipeline-options'
 
 const plates = ['one', 'two'].map((slug) => ({
   id: `AK.${slug}`,

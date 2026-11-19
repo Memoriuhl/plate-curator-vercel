@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { plateRevision } from '../../lib/review/revision'
 import { publishBatch } from '../../lib/publish/publish'

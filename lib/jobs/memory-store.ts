@@ -4,7 +4,7 @@ import {
   shouldWriteCapabilities,
   type WorkerCapabilityRecord,
 } from './capabilities'
-import type { PipelineRun } from './queue-types'
+import type { PipelineRun } from './queue/queue-types'
 import {
   claimable,
   compareJobAge,

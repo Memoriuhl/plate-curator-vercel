@@ -4,7 +4,7 @@ import {
   DEFAULT_HOSTED_RESEARCH_MODEL,
   LEGACY_RESEARCH_PRICES,
   RESEARCH_MODELS,
-} from '../research/models'
+} from '../research/models/models'
 import {
   CURATED_TAG_MODELS,
   DEFAULT_GATEWAY_TAG_PRICE,

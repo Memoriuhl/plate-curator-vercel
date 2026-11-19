@@ -2,7 +2,7 @@
 
 import { familyRole } from '@/lib/catalog/families'
 
-import type { ReviewChanges } from '../review/checkpoint'
+import type { ReviewChanges } from '../review/draft/checkpoint'
 import type { RunStatus } from '../review/run-status'
 
 import {
@@ -33,14 +33,17 @@ import type {
 } from '../review/types'
 import type { StateMove } from '../review/state-move'
 import type { PlateFieldConflicts } from '../review/types'
-import type { FamilyMerge } from '../review/family-merge'
-import type { FamilyMergeResult } from '../review/family-merge-plan'
+import type { FamilyMerge } from '../review/families/family-merge'
+import type { FamilyMergeResult } from '../review/families/family-merge-plan'
 import { sameEditableValue } from '../review/story'
 import { plateEditVersion } from '../review/edit-history'
 import { canEdit, editableStates } from '../review/access'
 import type { RunRevertTarget } from '../jobs/revert-target'
-import { isSharedDraft, SHARED_DRAFT_ALIAS } from '../review/draft-id'
-import { BASELINE_ERRORS, type BaselineError } from '../publish/baseline'
+import { isSharedDraft, SHARED_DRAFT_ALIAS } from '../review/draft/draft-id'
+import {
+  BASELINE_ERRORS,
+  type BaselineError,
+} from '../publish/baseline/baseline'
 import type {
   Abandonment,
   PublishControlState,
@@ -736,7 +739,7 @@ export function useReviewActions() {
       const path = runRevertPath(runId)
       try {
         const result = await api.send<
-          import('../review/revert-run').RunRevertResult
+          import('../review/draft/revert-run').RunRevertResult
         >('POST', path, confirmed)
         await refresh(result.batchId).catch(() => undefined)
         return result

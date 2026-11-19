@@ -1,6 +1,6 @@
 import type { Actor } from '../review/types'
 import { taggingModel } from '../tagging/models'
-import type { LocalRunStage } from './queue-types'
+import type { LocalRunStage } from './queue/queue-types'
 import type { JobsDeps, TaggingJob } from './types'
 
 type TimingDevice = 'desktop' | 'gateway' | 'eve'

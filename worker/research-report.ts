@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import {
   loadResearchArtifacts,
   type ResearchArtifact as Saved,
-} from './research-artifact'
+} from './research/research-artifact'
 
 type Row = {
   durationMs: number | null

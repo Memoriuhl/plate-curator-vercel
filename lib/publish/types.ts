@@ -1,4 +1,4 @@
-import type { BaselineError } from './baseline'
+import type { BaselineError } from './baseline/baseline'
 import type { PIPELINE_BUSY, PublishStop } from './stop'
 import type { Snapshot } from '../catalog/types'
 import type { ReviewDeps } from '../review/types'

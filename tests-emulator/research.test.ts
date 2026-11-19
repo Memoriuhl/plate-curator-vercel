@@ -1,6 +1,6 @@
 import { Firestore } from '@google-cloud/firestore'
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
-import { firestoreResearchStore } from '../lib/research/firestore-store'
+import { firestoreResearchStore } from '../lib/research/stores/firestore-store'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import { claimResearch, reportResearch } from '../lib/research/jobs'
 import { acceptResearch } from '../lib/research/accept'

@@ -1,5 +1,5 @@
 import { parse } from 'node-html-parser'
-import { fetchResearchPage } from '../../lib/research/fetch-page'
+import { fetchResearchPage } from '../../lib/research/sources/fetch-page'
 import type { EvidenceSource } from '../../lib/research/types'
 import type { WorkerPlate } from '../run'
 

@@ -5,7 +5,7 @@ import { plateRevision } from '../../lib/review/revision'
 import type { Plate } from '../../lib/catalog/types'
 import type { ReviewDeps } from '../../lib/review/types'
 import type { GroupSuggestion } from '../../lib/jobs/specialized-suggestions'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { createMemoryJobsStore } from '../../lib/jobs/memory-store'
 import type { JobsDeps, TaggingJob } from '../../lib/jobs/types'
 

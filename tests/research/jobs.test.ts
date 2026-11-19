@@ -5,7 +5,7 @@ import {
   reportResearch,
   startResearch,
 } from '../../lib/research/jobs'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { plateRevision } from '../../lib/review/revision'
 import { researchFixture } from './fixture'
 

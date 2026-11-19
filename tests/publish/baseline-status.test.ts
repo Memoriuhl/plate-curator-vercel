@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { publishBaselineStatus } from '../../lib/publish/baseline-status'
+import { publishBaselineStatus } from '../../lib/publish/baseline/baseline-status'
 import { publishBatch } from '../../lib/publish/publish'
 import { batch, command, fixture, owner } from './fixture'
 

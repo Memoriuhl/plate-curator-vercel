@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ApiError } from '../../lib/client/api'
 import { useBatch } from '../../lib/client/hooks'
-import { isSharedDraftId } from '../../lib/review/draft-id'
+import { isSharedDraftId } from '../../lib/review/draft/draft-id'
 import {
   batchLink,
   batchLinkRedirect,

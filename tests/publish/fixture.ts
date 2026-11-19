@@ -13,8 +13,11 @@ import {
   publishRequesterStop,
   sameRequester,
 } from '../../lib/publish/authority'
-import { uploadError } from '../../lib/publish/upload'
-import { sameObject, verifyPreparedObject } from '../../lib/publish/object'
+import { uploadError } from '../../lib/publish/snapshots/upload'
+import {
+  sameObject,
+  verifyPreparedObject,
+} from '../../lib/publish/snapshots/object'
 import {
   batchApprovedFor,
   claimSupersedes,

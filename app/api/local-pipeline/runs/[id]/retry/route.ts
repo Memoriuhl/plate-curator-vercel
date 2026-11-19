@@ -1,4 +1,4 @@
-import { retryRun } from '../../../../../../lib/jobs/queue'
+import { retryRun } from '../../../../../../lib/jobs/queue/queue'
 import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import {
   badRequest,

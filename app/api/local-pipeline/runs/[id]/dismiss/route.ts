@@ -1,4 +1,4 @@
-import { dismissRun } from '@/lib/jobs/queue'
+import { dismissRun } from '@/lib/jobs/queue/queue'
 import { currentActor, jobsDeps } from '@/lib/server/context'
 import { queueResponse } from '@/lib/server/local-queue'
 

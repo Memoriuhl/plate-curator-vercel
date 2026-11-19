@@ -3,7 +3,7 @@
 import useSWR from 'swr'
 import { useEffect } from 'react'
 import { useSession } from './session'
-import { isSharedDraftId } from '../review/draft-id'
+import { isSharedDraftId } from '../review/draft/draft-id'
 
 /**
  * Record the draft revision an owner has reviewed after the active view renders it. An

@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { draftPublishSummary } from '../../lib/review/publish-view'
 import type { ProposedEdit, ReviewBatch } from '../../lib/review/types'
-import type { DraftChange } from '../../lib/review/checkpoint'
+import type { DraftChange } from '../../lib/review/draft/checkpoint'
 
 const draft: ReviewBatch = {
   id: 'shared-draft-test',

@@ -6,7 +6,7 @@ import {
   SelectionPlate,
   SelectionFamily,
   plateSelection,
-} from '@/components/dashboard/plate-selection'
+} from '@/components/dashboard/selection/plate-selection'
 import { useSelectedBatchId } from '@/lib/client/hooks'
 
 import Image from 'next/image'
@@ -20,9 +20,9 @@ import type { PlateCardData } from '@/lib/catalog/dashboard-types'
 import { CheckStrip } from './check-strip'
 import { PlateImageHover } from './plate-image-preview'
 import { VirtualizedVariants } from './virtualized-variants'
-import type { usePlateDrag } from '@/components/dashboard/use-plate-drag'
-import { DragPlaceholder } from '@/components/dashboard/drag-preview'
-import { TemplateSelectionMenu } from '@/components/dashboard/template-selection-menu'
+import type { usePlateDrag } from '@/components/dashboard/drag/use-plate-drag'
+import { DragPlaceholder } from '@/components/dashboard/drag/drag-preview'
+import { TemplateSelectionMenu } from '@/components/dashboard/selection/template-selection-menu'
 
 export type FamilyCardProps = {
   template: PlateCardData

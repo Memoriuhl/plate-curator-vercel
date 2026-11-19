@@ -18,17 +18,17 @@ import { isPipelineStage, parseFieldSuggestion } from './suggestions'
 import type { ImageGroupOptions } from './image-options'
 import type { GroupInput } from './specialized-suggestions'
 import { completeGroupScope, validGroupContext } from '../review/group-context'
-import { inQueueWindow } from './queue-parallel'
+import { inQueueWindow } from './queue/queue-parallel'
 import {
   localClaimCandidate,
   localClaimsEnabled,
   type LocalClaimFeatures,
-} from './queue-claim'
+} from './queue/queue-claim'
 import {
   currentProjectionMatches,
   queueStageTimeoutMs,
   queueGroupContext,
-} from './queue'
+} from './queue/queue'
 import { filterEnrichmentFields } from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 import { claimable } from './claim-eligibility'

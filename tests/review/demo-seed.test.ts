@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../helpers/legacy-approval'
 import { seedDemo } from '../../lib/review/demo-seed'
 import { createMemoryStore } from '../../lib/review/memory-store'

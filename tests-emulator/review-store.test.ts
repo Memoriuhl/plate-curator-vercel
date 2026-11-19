@@ -5,12 +5,12 @@ import {
   proposeEdit,
   reorderState,
   revertPipelineField,
-} from '../lib/review/batch'
+} from '../lib/review/batches/batch'
 import { approveBatch, submitBatch } from '../tests/helpers/legacy-approval'
 import { batchDetail } from '../lib/review/queries'
 import { plateRevision } from '../lib/review/revision'
 import { seedDemo } from '../lib/review/demo-seed'
-import { liveEnvKey, signalPath } from '../lib/review/live-signal'
+import { liveEnvKey, signalPath } from '../lib/review/signals/live-signal'
 import { fixture, owner, snapshot } from '../tests/publish/fixture'
 import { firestoreReviewStore } from '../lib/review/firestore-store'
 import type { ProposedEdit, ReviewBatch } from '../lib/review/types'

@@ -12,14 +12,14 @@ import {
   firestoreReviewStore,
   reviewTransaction,
 } from '../review/firestore-store'
-import type { PipelineRun } from './queue-types'
+import type { PipelineRun } from './queue/queue-types'
 import type { Environment, JobsStore, TaggingJob, WorkerToken } from './types'
 import {
   capabilitiesVisiblyChanged,
   shouldWriteCapabilities,
   type WorkerCapabilityRecord,
 } from './capabilities'
-import { liveEnvKey, signalPath } from '../review/live-signal'
+import { liveEnvKey, signalPath } from '../review/signals/live-signal'
 import { signalChange } from '../live/change-signals'
 import { compareJobAge, isStandaloneDesktopJob } from './claim-eligibility'
 

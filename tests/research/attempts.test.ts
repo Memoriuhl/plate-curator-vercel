@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest'
 import { MockLanguageModelV4 } from 'ai/test'
 import { createResearchMemoryState } from '../../lib/research/state'
-import { guardedResearchModel } from '../../lib/research/model'
+import { guardedResearchModel } from '../../lib/research/models/model'
 import {
   createResearchModelAttempt,
   researchModelCosts,
-} from '../../lib/research/model-attempt'
+} from '../../lib/research/models/model-attempt'
 
 const prompt = [
   {

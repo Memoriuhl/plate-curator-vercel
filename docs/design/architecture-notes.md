@@ -66,12 +66,12 @@ that selected Batch. An unavailable or read-only selection blocks writes instead
 of falling back to a personal Batch. Tag additionally requires an open Batch.
 Without a selection, `useEnsureBatch` still reuses the most recent personal open
 Batch; whether an older open Batch should be reused is an unresolved product choice
-(`lib/client/hooks.ts`, `components/dashboard/use-tag-run.ts`).
+(`lib/client/hooks.ts`, `components/dashboard/tagging/use-tag-run.ts`).
 
 Detail, authoritative edits (including combined promotion) and Tag job input/hash
 use the immutable Catalog snapshot named by the Batch's required `baselineVersion`.
 Saved fields overlay that snapshot; a live Catalog advance does not change its
-before-values or revision basis (`lib/review/queries.ts`, `lib/review/batch.ts`,
+before-values or revision basis (`lib/review/queries.ts`, `lib/review/batches/batch.ts`,
 `lib/jobs/jobs.ts`, `lib/server/context.ts`). Publishing still rejects a stale
 baseline; Copy to new Batch rebases proposals onto the live Catalog for fresh review.
 
@@ -80,10 +80,10 @@ A real conflict returns `stale_plate` with the saved Plate and `currentRevision`
 Reapply sends only the attempted fields to the same Batch using that returned
 revision; another intervening save can conflict again. State order writes instead
 require the displayed Batch revision (`lib/server/respond.ts`,
-`lib/client/hooks.ts`, `components/plate-page/plate-page.tsx`).
+`lib/client/hooks.ts`, `app/(curator)/plates/[id]/_components/plate-page.tsx`).
 
 When live signals are unavailable, the selected-Batch bar offers Refresh to fetch
-the authenticated Batch detail explicitly (`components/dashboard/selected-batch-bar.tsx`).
+the authenticated Batch detail explicitly (`components/dashboard/selection/selected-batch-bar.tsx`).
 Tag job visibility is separate: the job-by-id API permits the requesting user or
 an Owner; selecting the same Batch does not grant another Editor access to that
 job (`lib/jobs/jobs.ts`, `app/api/jobs/[id]/route.ts`).

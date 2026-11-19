@@ -1,4 +1,4 @@
-import { cancelRun } from '../../../../../../lib/jobs/queue'
+import { cancelRun } from '../../../../../../lib/jobs/queue/queue'
 import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import {
   queueResponse,

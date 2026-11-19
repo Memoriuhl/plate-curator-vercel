@@ -8,7 +8,7 @@ import {
 } from '@google-cloud/firestore'
 import { signalChange } from '../live/change-signals'
 import { draftTopic } from '../live/topics'
-import { liveEnvKey, signalPath } from './live-signal'
+import { liveEnvKey, signalPath } from './signals/live-signal'
 import type {
   ProposedEdit,
   PublishMetadata,
@@ -23,7 +23,7 @@ import {
   reviewChanges,
   type DraftChange,
   type ReviewCheckpoint,
-} from './checkpoint'
+} from './draft/checkpoint'
 import { receiptId } from '../publish/command'
 import { nextPlateEditVersions, recordEditAuthors } from './edit-history'
 

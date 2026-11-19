@@ -4,7 +4,7 @@ import {
   searchableCatalog,
   type HostedStep,
 } from '../models/catalog'
-import type { PipelineRun } from './queue-types'
+import type { PipelineRun } from './queue/queue-types'
 import {
   DEFAULT_MODEL_CAP,
   fitsModelCap,
@@ -19,7 +19,7 @@ import {
   DEFAULT_HOSTED_RESEARCH_MODEL,
   RESEARCH_MODELS,
   researchModel,
-} from '../research/models'
+} from '../research/models/models'
 import {
   chooseTaggingModel,
   DEFAULT_GATEWAY_TAG_MODEL,

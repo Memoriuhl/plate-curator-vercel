@@ -27,13 +27,13 @@ vi.mock('../../workflows/local-pipeline', () => ({
   localPipelineRun: vi.fn(),
   parallelGatewayTagRun: vi.fn(),
 }))
-vi.mock('../../lib/jobs/queue-engine', () => ({
+vi.mock('../../lib/jobs/queue/queue-engine', () => ({
   chooseQueueImage: mocks.choose,
   confirmStoppedWorker: mocks.recover,
   bindQueueWorkflow: vi.fn(),
   recordQueueWorkflowFailure: vi.fn(),
 }))
-vi.mock('../../lib/jobs/queue', () => ({ cancelRun: mocks.cancel }))
+vi.mock('../../lib/jobs/queue/queue', () => ({ cancelRun: mocks.cancel }))
 
 const job = {
   id: 'run-1-0',

@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
-import { PipelineRunResultsPage } from '@/components/dashboard/pipeline-run-results'
-import { PipelineResultsSkeleton } from '@/components/dashboard/pipeline-results-skeleton'
-import styles from '@/components/dashboard/pipeline-results.module.css'
+import { PipelineRunResultsPage } from '@/components/dashboard/pipeline-runs/pipeline-run-results'
+import { PipelineResultsSkeleton } from '@/components/dashboard/pipeline-runs/pipeline-results-skeleton'
+import styles from '@/components/dashboard/pipeline-runs/pipeline-results.module.css'
 
 type PageProps = {
   params: Promise<{ id: string }>

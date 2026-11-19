@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { expect, test, vi } from 'vitest'
-import { gcsSnapshots } from '../../lib/publish/gcs-snapshots'
+import { gcsSnapshots } from '../../lib/publish/snapshots/gcs-snapshots'
 import { snapshot } from './fixture'
 
 test('uploads create-only, with a Firebase download token, and the exact bytes', async () => {

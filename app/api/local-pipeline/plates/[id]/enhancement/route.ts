@@ -1,4 +1,4 @@
-import { localQueueEnabled } from '@/lib/jobs/queue'
+import { localQueueEnabled } from '@/lib/jobs/queue/queue'
 import { canEdit } from '@/lib/review/access'
 import { currentActor, jobsDeps } from '@/lib/server/context'
 import { json } from '@/lib/server/respond'

@@ -10,7 +10,10 @@ import { useEffect, useState } from 'react'
 import { IoCheckmark, IoCopyOutline, IoPulseOutline } from 'react-icons/io5'
 import { useBatchRun, useMe } from '@/lib/client/hooks'
 import type { BatchRun } from '@/lib/client/hooks'
-import { BASELINE_ERRORS, isBaselineError } from '@/lib/publish/baseline'
+import {
+  BASELINE_ERRORS,
+  isBaselineError,
+} from '@/lib/publish/baseline/baseline'
 import { cn } from '@/components/utils'
 
 // Releases enter at "Waiting for Publish"; the first two steps are kept so runs from

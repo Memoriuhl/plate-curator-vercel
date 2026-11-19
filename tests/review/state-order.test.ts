@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import { orderedStatePlates } from '../../lib/catalog/order'
-import { proposeEdit, reorderState } from '../../lib/review/batch'
+import { proposeEdit, reorderState } from '../../lib/review/batches/batch'
 import { plateRevision } from '../../lib/review/revision'
 import { batchDetail } from '../../lib/review/queries'
 import { createMemoryStore } from '../../lib/review/memory-store'

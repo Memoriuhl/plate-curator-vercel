@@ -1,4 +1,4 @@
-import type { RunAttempt } from './queue-types'
+import type { RunAttempt } from './queue/queue-types'
 
 /** Identify the exact attempt and jobs shown when a curator opened Revert. */
 export type RunRevertTarget = { attempt: number; jobIds: string[] }

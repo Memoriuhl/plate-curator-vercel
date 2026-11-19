@@ -1,6 +1,6 @@
 import type { Abandonment, RequesterAuthority } from '../publish/types'
-import type { DraftChange, ReviewChanges } from './checkpoint'
-import type { FamilyMergeResult } from './family-merge-plan'
+import type { DraftChange, ReviewChanges } from './draft/checkpoint'
+import type { FamilyMergeResult } from './families/family-merge-plan'
 import type { Plate, Snapshot, StoryFields } from '../catalog/types'
 
 export type Role = 'editor' | 'owner'

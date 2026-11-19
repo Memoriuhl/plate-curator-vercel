@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import { fixtureSource } from '../../lib/catalog/fixture-source'
 import { validateSnapshot } from '../../lib/publish/validation'
-import { mergeFamily } from '../../lib/review/family-merge'
+import { mergeFamily } from '../../lib/review/families/family-merge'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { batchDetail } from '../../lib/review/queries'
 import { plateRevision } from '../../lib/review/revision'

@@ -1,8 +1,8 @@
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { sharedDraftId } from '../../lib/review/draft-id'
+import { sharedDraftId } from '../../lib/review/draft/draft-id'
 import { createMemoryStore } from '../../lib/review/memory-store'
-import { migrateToSharedDraft } from '../../lib/review/migrate'
+import { migrateToSharedDraft } from '../../lib/review/migration/migrate'
 import type { ReviewDeps } from '../../lib/review/types'
 import { migrationScenarios } from './migrate-scenarios'
 

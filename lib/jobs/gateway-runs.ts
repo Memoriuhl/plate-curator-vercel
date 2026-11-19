@@ -1,7 +1,7 @@
 import type { Actor } from '../review/types'
 import type { JobsDeps } from './types'
 import type { PipelineProgress, StepProgress } from './run-progress'
-import type { LocalRunStage, RunStatus } from './queue-types'
+import type { LocalRunStage, RunStatus } from './queue/queue-types'
 import { recordedWorkflowUrl } from './workflow-visibility'
 import { runPlateDetail, type RunPlateDetail } from './run-plates'
 

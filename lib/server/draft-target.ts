@@ -1,5 +1,5 @@
-import { ensureDraft } from '../review/draft'
-import { isSharedDraft, isSharedDraftId } from '../review/draft-id'
+import { ensureDraft } from '../review/draft/draft'
+import { isSharedDraft, isSharedDraftId } from '../review/draft/draft-id'
 import type { Actor } from '../review/types'
 import { reviewDeps, reviewEnv } from './context'
 import { json } from './respond'

@@ -1,4 +1,4 @@
-import { applyQueueBundle } from '../../../../../../lib/jobs/queue-bundle'
+import { applyQueueBundle } from '../../../../../../lib/jobs/queue/queue-bundle'
 import {
   currentActor,
   jobsDeps,

@@ -1,6 +1,6 @@
 import { connection } from 'next/server'
 import { currentActor } from '../../../../lib/server/context'
-import { allowedResearchModels } from '../../../../lib/research/models'
+import { allowedResearchModels } from '../../../../lib/research/models/models'
 import { hostedModelCatalog } from '../../../../lib/jobs/model-binding'
 import { json } from '../../../../lib/server/respond'
 

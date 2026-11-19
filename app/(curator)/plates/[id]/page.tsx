@@ -3,9 +3,9 @@ import { connection } from 'next/server'
 import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
 import { loadJurisdiction, loadPlate } from '@/lib/catalog/dashboard'
-import { PlatePage } from '@/components/plate-page/plate-page'
-import { PlatePageSkeleton } from '@/components/plate-page/skeleton'
-import { slimPlate } from '@/components/plate-page/types'
+import { PlatePage } from './_components/plate-page'
+import { PlatePageSkeleton } from './_components/skeleton'
+import { slimPlate } from './_lib/types'
 
 /**
  * Load the plate and its jurisdiction and preserve the referring workspace in

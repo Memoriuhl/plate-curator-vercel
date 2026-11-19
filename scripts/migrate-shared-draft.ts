@@ -1,6 +1,6 @@
 import { loadEnvConfig } from '@next/env'
 import { assertStagingProject } from '../lib/review/demo-seed'
-import { parseMigrationArgs } from '../lib/review/migration-args'
+import { parseMigrationArgs } from '../lib/review/migration/migration-args'
 
 /**
  * Fold the open, submitted and approved Batches of one review environment into its
@@ -36,10 +36,12 @@ async function main() {
   const { firestoreCatalogSource } =
     await import('../lib/catalog/firestore-source')
   const { firestoreReviewStore } = await import('../lib/review/firestore-store')
-  const { migrateToSharedDraft } = await import('../lib/review/migrate')
-  const { snapshotReviewDeps } = await import('../lib/review/migration-deps')
+  const { migrateToSharedDraft } =
+    await import('../lib/review/migration/migrate')
+  const { snapshotReviewDeps } =
+    await import('../lib/review/migration/migration-deps')
   const { firestoreMigrationFence } =
-    await import('../lib/review/migration-gate')
+    await import('../lib/review/migration/migration-gate')
   const db = emulator
     ? new Firestore({ projectId: 'demo-plate-curator' })
     : stagingFirestore()

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { grantLiveAccess } from '../../lib/live/access'
-import { liveEnvKey, signalPath } from '../../lib/review/live-signal'
+import { liveEnvKey, signalPath } from '../../lib/review/signals/live-signal'
 
 test('grants one hour of access to the encoded review environment', async () => {
   const grants: unknown[] = []

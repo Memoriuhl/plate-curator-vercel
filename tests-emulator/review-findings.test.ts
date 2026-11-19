@@ -4,7 +4,7 @@ import {
   firestorePublishPointer,
   firestorePublishRecords,
 } from '../lib/publish/firestore'
-import { verifyPreparedObject } from '../lib/publish/object'
+import { verifyPreparedObject } from '../lib/publish/snapshots/object'
 import { publishBatch } from '../lib/publish/publish'
 import { abandonPreparedSnapshot } from '../lib/publish/abandon'
 import {

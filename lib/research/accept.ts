@@ -5,7 +5,7 @@ import type {
   ReviewBatch,
 } from '../review/types'
 import type { Plate } from '../catalog/types'
-import { proposeEdit } from '../review/batch'
+import { proposeEdit } from '../review/batches/batch'
 import { plateRevision } from '../review/revision'
 import { parseEditableFields, parseStoryFields } from '../review/fields'
 import type { ResearchDeps, ResearchError } from './jobs'

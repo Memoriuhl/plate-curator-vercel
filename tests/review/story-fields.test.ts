@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { parseEditableFields, parseStoryFields } from '../../lib/review/fields'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { plateRevision } from '../../lib/review/revision'
 import { changeSummary, groupChanges } from '../../components/review/diff'

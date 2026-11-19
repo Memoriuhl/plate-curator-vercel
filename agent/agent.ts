@@ -1,7 +1,7 @@
 import { defineAgent, defineDynamic } from 'eve'
 import { gateway } from 'ai'
-import { guardedResearchModel } from '../lib/research/model'
-import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models'
+import { guardedResearchModel } from '../lib/research/models/model'
+import { DEFAULT_HOSTED_RESEARCH_MODEL } from '../lib/research/models/models'
 import { hostedModelRoute } from '../lib/models/routing'
 
 export default defineAgent({

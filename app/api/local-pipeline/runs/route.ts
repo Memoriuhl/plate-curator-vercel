@@ -6,8 +6,8 @@ import {
   listRuns,
   parseEnqueue,
   readPipelineRun,
-} from '../../../../lib/jobs/queue'
-import type { QueueRunView } from '../../../../lib/jobs/queue-types'
+} from '../../../../lib/jobs/queue/queue'
+import type { QueueRunView } from '../../../../lib/jobs/queue/queue-types'
 import { currentActor, jobsDeps } from '../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../lib/server/respond'
 import { draftWriteTarget } from '../../../../lib/server/draft-target'
@@ -16,7 +16,7 @@ import {
   reconcileQueueWorkflow,
   startQueueWorkflow,
 } from '../../../../lib/server/local-queue'
-import { listLocalOrphanJobs } from '../../../../lib/jobs/queue-failure'
+import { listLocalOrphanJobs } from '../../../../lib/jobs/queue/queue-failure'
 import { readLocalWorkerCapabilities } from '../../../../lib/jobs/capabilities'
 import { queueProgress } from '../../../../lib/jobs/run-progress'
 import { recordedWorkflowUrl } from '../../../../lib/jobs/workflow-visibility'

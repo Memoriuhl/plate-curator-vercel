@@ -1,7 +1,7 @@
 import { chooseRunTaggingModel } from '../../../../../lib/jobs/model-binding'
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { start } from 'workflow/api'
-import { canEdit } from '../../../../../lib/review/batch'
+import { canEdit } from '../../../../../lib/review/batches/batch'
 import { currentActor, reviewDeps } from '../../../../../lib/server/context'
 import {
   badRequest,

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { fileResearchState } from '../../lib/research/file-state'
+import { fileResearchState } from '../../lib/research/stores/file-state'
 import { reserveResearchSpend } from '../../lib/research/budget'
 
 test('independent local state instances cannot race past the shared paid-call cap', async () => {

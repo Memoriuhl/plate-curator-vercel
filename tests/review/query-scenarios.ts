@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import type { Plate } from '../../lib/catalog/types'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { batchDetail, createBatch, listBatches } from '../../lib/review/queries'
 import { plateRevision } from '../../lib/review/revision'
 import type {

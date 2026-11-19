@@ -13,10 +13,10 @@ import {
   wikiOnlyDraft,
 } from '../../lib/research/enrichment-result'
 import { researchDraftSchema } from '../../lib/research/validate'
-import { fetchResearchPage } from '../../lib/research/fetch-page'
+import { fetchResearchPage } from '../../lib/research/sources/fetch-page'
 import { evidenceSource } from '../../lib/research/evidence'
 import type { EvidenceSource } from '../../lib/research/types'
-import { researchModel } from '../../lib/research/models'
+import { researchModel } from '../../lib/research/models/models'
 import { storyUrl } from '../../lib/review/fields'
 import type { StageResult, WorkerPlate } from '../run'
 import { gatherWikipedia } from './sources'

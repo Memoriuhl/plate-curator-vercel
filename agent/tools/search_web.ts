@@ -8,11 +8,11 @@ export default defineTool({
   /** Search for web evidence through the provider configured for the current turn. */
   async execute({ query }, ctx) {
     const { researchTurn } = await import('../../lib/research/runtime')
-    const { searchWeb } = await import('../../lib/research/search')
+    const { searchWeb } = await import('../../lib/research/sources/search')
     const run = await researchTurn(ctx)
     if (process.env.RESEARCH_SEARCH_PROVIDER === 'gateway-parallel') {
       const { runGatewayParallelSearch } =
-        await import('../../lib/research/gateway-search')
+        await import('../../lib/research/sources/gateway-search')
       return runGatewayParallelSearch(query, run)
     }
     return searchWeb(query, {

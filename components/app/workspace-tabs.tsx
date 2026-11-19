@@ -4,7 +4,7 @@ import { useMe } from '@/lib/client/hooks'
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { isSharedDraftId } from '@/lib/review/draft-id'
+import { isSharedDraftId } from '@/lib/review/draft/draft-id'
 import { batchHref } from '@/lib/review/href'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 

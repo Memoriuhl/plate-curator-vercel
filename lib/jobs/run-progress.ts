@@ -1,6 +1,10 @@
-import type { QueueRunSummary, QueueRunView, RunStatus } from './queue-types'
-import type { LocalRunStage } from './queue-types'
-import { isPlateFailure } from './pipeline-plan'
+import type {
+  QueueRunSummary,
+  QueueRunView,
+  RunStatus,
+} from './queue/queue-types'
+import type { LocalRunStage } from './queue/queue-types'
+import { isPlateFailure } from './pipeline/pipeline-plan'
 
 export type StepProgress = {
   index: number

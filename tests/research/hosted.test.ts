@@ -3,11 +3,11 @@ import {
   dispatchEveResearch,
   finishEveResearch,
 } from '../../lib/research/hosted'
-import { createMemoryResearchStore } from '../../lib/research/memory-store'
+import { createMemoryResearchStore } from '../../lib/research/stores/memory-store'
 import { createResearchMemoryState } from '../../lib/research/state'
 import type { ResearchDeps } from '../../lib/research/jobs'
 import { emptyResearchDraft, type ResearchJob } from '../../lib/research/types'
-import type { ResearchStore } from '../../lib/research/store'
+import type { ResearchStore } from '../../lib/research/stores/store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 
 /** Build scoped research and review dependencies around the supplied job store. */

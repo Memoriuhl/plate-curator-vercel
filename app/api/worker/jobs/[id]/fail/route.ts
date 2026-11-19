@@ -1,4 +1,4 @@
-import { failLocalJob } from '../../../../../../lib/jobs/queue-failure'
+import { failLocalJob } from '../../../../../../lib/jobs/queue/queue-failure'
 import { currentWorker, jobsDeps } from '../../../../../../lib/server/context'
 import {
   badRequest,

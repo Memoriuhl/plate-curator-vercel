@@ -1,4 +1,4 @@
-import { chooseQueueImage } from '../../../../../../lib/jobs/queue-engine'
+import { chooseQueueImage } from '../../../../../../lib/jobs/queue/queue-engine'
 import { currentActor, jobsDeps } from '../../../../../../lib/server/context'
 import { badRequest, readJson } from '../../../../../../lib/server/respond'
 import {

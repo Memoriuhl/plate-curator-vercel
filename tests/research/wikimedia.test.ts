@@ -6,8 +6,8 @@ import {
   researchUserAgent,
   retryAfterMs,
   withRateLimitRetry,
-} from '../../lib/research/wikimedia'
-import { searchWikipedia } from '../../lib/research/wikipedia'
+} from '../../lib/research/sources/wikimedia'
+import { searchWikipedia } from '../../lib/research/sources/wikipedia'
 import { createResearchMemoryState } from '../../lib/research/state'
 import { wikipediaQuery } from '../../worker/pipeline/sources'
 

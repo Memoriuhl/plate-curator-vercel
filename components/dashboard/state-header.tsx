@@ -1,5 +1,5 @@
 import type { JurisdictionData } from '@/lib/catalog/dashboard-types'
-import { BatchActions } from './batch-actions'
+import { BatchActions } from './selection/batch-actions'
 
 /** Show state completeness counts alongside the batch actions for its plates. */
 export function StateHeader({

@@ -1,7 +1,7 @@
 import { batchApprovedFor } from './command'
 import { publishRequesterStop } from './authority'
 import { publishControlStop } from './control'
-import { publishBaselineError } from './baseline'
+import { publishBaselineError } from './baseline/baseline'
 import { PUBLISH_ERRORS } from './stop'
 import type { ReviewBatch } from '../review/types'
 import type {

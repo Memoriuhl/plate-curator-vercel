@@ -73,6 +73,13 @@ For local Workflow debugging, run `npm run workflow:inspect` in the same checkou
 
 Run `npm run verify` before submitting changes. The repository’s self-hosted GitHub Actions jobs run only in private mode. Maintainers can enable the local hygiene hooks with `git config core.hooksPath .githooks`.
 
+### Where files belong
+
+- Put route-only views and types beside their page in `_components/` and `_lib/`. Group reusable dashboard interactions by feature, such as `components/dashboard/drag/`, `components/dashboard/selection/` and `components/dashboard/pipeline-runs/`. A piece several features share, such as `hosted-model-picker.tsx`, stays at the root of `components/dashboard/`.
+- `components/publish/draft/` owns the shared-draft Publish view. The release view and controls shared by both views stay in `components/publish/`. Review and Publish use the same change definitions in `lib/review/plate-changes.ts`.
+- Keep shared-draft lifecycle code in `lib/review/draft/`, migration tooling in `lib/review/migration/`, and job queue orchestration in `lib/jobs/queue/`. Worker and workflow entry points keep their documented paths.
+- Group tests by subject under `tests/`. Name jsdom tests `*.dom.test.ts` or `*.dom.test.tsx`; other unit tests run in Node. `tests/dev/test-layout.test.ts` rejects per-file environment comments and `.dom.test` files outside `tests/`. Firestore integration tests stay in `tests-emulator/`.
+
 ## Go deeper
 
 - [Product and design spec](docs/spec.md) explains the catalog, roles and review model.

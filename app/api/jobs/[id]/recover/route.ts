@@ -1,5 +1,5 @@
 import { resumeHook } from 'workflow/api'
-import { recoverLocalOrphanJob } from '../../../../../lib/jobs/queue-failure'
+import { recoverLocalOrphanJob } from '../../../../../lib/jobs/queue/queue-failure'
 import { currentActor, jobsDeps } from '../../../../../lib/server/context'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 

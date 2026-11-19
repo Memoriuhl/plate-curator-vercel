@@ -4,7 +4,7 @@ import {
   retryEligibility,
   type EligibilityInput,
 } from '../../lib/publish/eligibility'
-import { uploadError } from '../../lib/publish/upload'
+import { uploadError } from '../../lib/publish/snapshots/upload'
 import { batch, command } from './fixture'
 import type { PublishRecord } from '../../lib/publish/types'
 

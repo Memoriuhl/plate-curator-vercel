@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import useSWR from 'swr'
-import { EnhancedImageResult } from '@/components/dashboard/enhanced-image-result'
+import { EnhancedImageResult } from '@/components/dashboard/pipeline-runs/enhanced-image-result'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useSession } from '@/lib/client/session'
 import { useLiveRefresh } from '@/lib/client/live-signal'

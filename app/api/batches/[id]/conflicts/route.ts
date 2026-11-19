@@ -1,4 +1,4 @@
-import { keepDraftValues } from '../../../../../lib/review/draft'
+import { keepDraftValues } from '../../../../../lib/review/draft/draft'
 import { draftWriteTarget } from '../../../../../lib/server/draft-target'
 import { currentActiveOwner, reviewDeps } from '@/lib/server/context'
 import { badRequest, json, readJson } from '@/lib/server/respond'

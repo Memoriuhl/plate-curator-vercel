@@ -26,20 +26,20 @@ import {
   reviewDeps,
   reviewEnv,
 } from '../../../../../lib/server/context'
-import { reviewApprovalProblems } from '../../../../../lib/review/batch'
-import { publishBaselineStatus } from '../../../../../lib/publish/baseline-status'
+import { reviewApprovalProblems } from '../../../../../lib/review/batches/batch'
+import { publishBaselineStatus } from '../../../../../lib/publish/baseline/baseline-status'
 import { badRequest, json, readJson } from '../../../../../lib/server/respond'
 import { batchStepRetired } from '../../../../../lib/server/retired'
 import {
   isRelease,
   isSharedDraftId,
   sharedDraftId,
-} from '../../../../../lib/review/draft-id'
+} from '../../../../../lib/review/draft/draft-id'
 import {
   ensureDraft,
   freezeRelease,
   releaseAcceptable,
-} from '../../../../../lib/review/draft'
+} from '../../../../../lib/review/draft/draft'
 import { DRAFT_TOO_LARGE_MESSAGE } from '../../../../../lib/review/write-budget'
 import { draftPublishSummary } from '../../../../../lib/review/publish-view'
 import {

@@ -11,7 +11,7 @@ import {
   resetRelease,
 } from './release-fixture'
 import { db } from './setup'
-import { sha256, snapshotBytes } from '../lib/publish/bytes'
+import { sha256, snapshotBytes } from '../lib/publish/snapshots/bytes'
 
 beforeEach(resetRelease)
 afterAll(cleanupRelease)

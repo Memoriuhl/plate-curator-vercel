@@ -14,7 +14,7 @@ import {
 } from '../../lib/jobs/local-scope'
 import type { JobsDeps, PipelineStage } from '../../lib/jobs/types'
 import { assertLocalWorker } from '../../worker/local'
-import { proposeEdit } from '../../lib/review/batch'
+import { proposeEdit } from '../../lib/review/batches/batch'
 import { plateRevision } from '../../lib/review/revision'
 
 afterEach(() => vi.unstubAllEnvs())

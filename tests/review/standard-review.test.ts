@@ -4,7 +4,7 @@ import {
   proposeEdit,
   reorderState,
   reviewApprovalProblems,
-} from '../../lib/review/batch'
+} from '../../lib/review/batches/batch'
 import { submitBatch } from '../helpers/legacy-approval'
 import { editableKeys } from '../../lib/review/fields'
 import { copyBatch } from '../../lib/review/copy'

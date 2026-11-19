@@ -3,7 +3,7 @@ import { isActiveOwner, normalizeEmail } from '../members/member'
 import type { Actor } from '../review/types'
 import 'server-only'
 import { workflowPublishRunLookup } from './publish-runs'
-import { verifyPreparedObject } from '../publish/object'
+import { verifyPreparedObject } from '../publish/snapshots/object'
 import { authenticate, parseOwnerUids } from '../auth/actor'
 import { googleSecureTokenJwks } from '../auth/google-jwks'
 import { authEmulatorEnabled, verifyIdToken } from '../auth/verify-id-token'
@@ -34,7 +34,7 @@ import {
   firestorePublishPointer,
   firestorePublishRecords,
 } from '../publish/firestore'
-import { gcsSnapshots } from '../publish/gcs-snapshots'
+import { gcsSnapshots } from '../publish/snapshots/gcs-snapshots'
 import { releaseActivityFor } from '../publish/release-activity'
 import type { PublishDeps, RequesterAuthority } from '../publish/types'
 import {
