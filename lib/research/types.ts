@@ -1,10 +1,14 @@
 export type ResearchExecutor = 'desktop' | 'eve'
+/** Content a research run can supply; success is judged against the requested subset. */
+export type ResearchContentField = 'description' | 'funFacts'
 export type ResearchInput = {
   plateId: string
   displayName: string
   state: string
   inputRevision: string
   baselineVersion: number
+  /** Fields the plate lacked when the job started. Older jobs omit it and need both. */
+  requested?: ResearchContentField[]
 }
 export type EvidenceSource = {
   id: string
@@ -41,6 +45,8 @@ export type ResearchResult = {
   attempts: unknown[]
   durationMs: number
   status: 'ok' | 'partial' | 'no_sources' | 'failed' | 'exhausted'
+  /** Requested fields the result did not supply. */
+  missing?: ResearchContentField[]
   cost: { usd: number | null; missing: number }
   counters: Record<string, number>
   cache: 'fresh' | 'cached' | 'mixed' | 'unknown'

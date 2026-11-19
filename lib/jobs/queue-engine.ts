@@ -157,9 +157,10 @@ function nextStage(attempt: RunAttempt, index: number): StageObservation {
 
 /**
  * Check that description and story stages can use valid results from earlier stages of
- * the same attempt.
+ * the same attempt. Story needs a description, not a fresh one: a saved description
+ * satisfies it even when this attempt's Describe step added nothing.
  */
-function missingResearchInput(
+export function missingResearchInput(
   attempt: RunAttempt,
   step: RunStep,
   plate: ProjectedPlate
@@ -186,14 +187,7 @@ function missingResearchInput(
   )
     return 'missing_wiki_link'
   if (step.stage === 'story') {
-    const describe = preceding('describe')
-    if (
-      describe &&
-      (!plate.executionPlate.description?.trim() ||
-        !plate.sourceJobIds.includes(
-          describe.completedJobId ?? attempt.completedJobIds[describe.index]
-        ))
-    )
+    if (preceding('describe') && !plate.executionPlate.description?.trim())
       return 'missing_description'
   }
 }

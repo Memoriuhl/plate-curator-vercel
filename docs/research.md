@@ -110,6 +110,16 @@ invalidates approval. `sourceUrl` remains image provenance.
 
 Only Owners can edit proposed text. Editors may accept stored wording or deselect
 content. Owner edits still require captured evidence and the shared field validation.
+When one selected item fails that validation, acceptance saves the remaining valid
+items and reports what it left out. It fails only when nothing selected is valid.
+
+Each research job records the content the plate lacked when it started (`requested`:
+`description`, `funFacts`, both, or neither). A result is `ok` when every requested
+field came back, or when nothing was needed; it is `partial` when a requested field is
+still missing, and the result lists those fields under `missing`. A plate that already
+has a description therefore succeeds with facts alone. Jobs created before this field
+existed keep the original rule and need both. The Dashboard Story stage likewise
+accepts a description the plate already has.
 
 The desktop bridge uses the neighboring private legacy checkout, pinned with
 `RESEARCH_LEGACY_REVISION`, and only calls its story stage. It does not apply a catalog

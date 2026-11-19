@@ -1,3 +1,4 @@
+import type { Plate } from '../../lib/catalog/types'
 import { createMemoryResearchStore } from '../../lib/research/memory-store'
 import { createMemoryStore } from '../../lib/review/memory-store'
 import { startResearch, type ResearchDeps } from '../../lib/research/jobs'
@@ -11,11 +12,13 @@ import {
  * Build isolated research and review stores with controllable time, IDs and owner
  * access.
  */
-export function researchFixture() {
+export function researchFixture(
+  overrides: { description?: string; funFacts?: Plate['funFacts'] } = {}
+) {
   let now = 1000
   let sequence = 0
   let active = true
-  const plate = {
+  const plate: Plate = {
     id: 'AZ.one',
     state: 'AZ',
     slug: 'one',
@@ -26,6 +29,7 @@ export function researchFixture() {
     funFacts: [
       { text: 'Existing curator fact', sourceUrl: 'https://example.com/old' },
     ],
+    ...overrides,
   }
   const owner = { uid: 'owner', role: 'owner' as const, name: 'Owner' }
   const review = {
