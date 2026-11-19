@@ -2,41 +2,102 @@
 
 # Plate Curator
 
-**Review and release catalog changes for State Spotter.**
+**Fix the State Spotter catalog together, and ship exactly what the Owner approves.**
 
-Plate Curator is a web workspace for the license-plate spotting game's catalog. Editors propose changes to tags, images, descriptions, plate families and order in one **shared draft**, and pipeline results land there too. Owners inspect the before-and-after diff at a revision and publish exactly that revision, which creates a versioned catalog snapshot. Changes saved after it stay in the draft.
+Plate Curator is the web workspace behind State Spotter, a mobile license-plate spotting game. Editors correct plates in one shared draft: tags, images, descriptions, plate families and state order. AI pipeline results land in the same draft. The Owner reviews every change with the name of the person who made it, then publishes an exact revision as a new catalog version that the game picks up.
 
-[Open the app](https://plate-curator-vercel.vercel.app) · [Download the walkthrough](./Plate%20Curator%20-%20Vercel%20Take%20Home%20Walkthrough%20Artifact.html?raw=1) · [Review demo](docs/try-it.md) · [Local setup](#local-setup)
+The workspace runs on Vercel. The game, its Firebase catalog and the local GPU server stay where they are.
 
-## See it in action
+[Open the app](https://plate-curator-vercel.vercel.app) · [Read the write-up](./docs/take-home/part-1.html?raw=1) · [Try the review demo](docs/try-it.md) · [Find your way around](#where-to-go)
 
-**Start with the walkthrough.** Download the HTML and open it in a browser for the Vercel take-home, including the product tour, architecture and demo. The walkthrough is self-contained.
+## Why it exists
 
-**Try the app.** Sign-in is invite-only. Demo reviewers receive Editor and Owner credentials privately. Follow the [reviewer guide](docs/try-it.md) to make Alaska changes as an Editor, see them in Review, and inspect Publish as an Owner. The walkthrough stops at inspection.
+State Spotter's catalog holds 8,325 plates and keeps growing, with plates from Europe and Mexico planned. Two things held the team back:
+
+- **Pipeline runs took days.** One desktop GPU ran every AI stage, one plate at a time. A Tag pass over the whole catalog takes about 19 hours, and the next batch waited in line.
+- **Review ran on one shared login.** Changes had no author, so the founder rechecked everything before it shipped.
+
+Plate Curator gives each person their own account and role, keeps every change named in one review, and lets pipeline stages run on hosted models through AI Gateway, so a batch no longer waits on one machine.
+
+**Read more:**
+
+- [Write-up, part 1](./docs/take-home/part-1.html?raw=1): the problem, where Vercel fits and the migration plan. Download the HTML and open it in a browser; it is self-contained.
+- [Full walkthrough](./Plate%20Curator%20-%20Vercel%20Take%20Home%20Walkthrough%20Artifact.html?raw=1): the demo, results, risks and development tooling.
 
 ## What you can do
 
-| In Plate Curator | What it gives you |
-| --- | --- |
-| **Dashboard** | Browse plates by jurisdiction, group variants into families, edit catalog fields and arrange the state order. Editors can do this without a writable game checkout. |
-| **Plate Pipeline** | Run tagging, research, image and grouping tasks. Results enter the review flow as suggestions or draft changes. Configured stages can use a desktop worker or hosted execution. |
-| **Review** | See every unpublished change in the shared draft against its catalog baseline, with who made each change. |
-| **Publish** | Inspect the draft at its current revision, broken down by state, and its publication status. An Owner's publish ships that revision: it writes an immutable snapshot and advances the catalog pointer that the game reads. |
+| Page | What it's for | Who |
+| --- | --- | --- |
+| **Dashboard** | Browse plates by state, group variants into families, fix tags and fields, and set the state order. | Editors and the Owner |
+| **Plate Pipeline** | Run Tag, Research, image and grouping stages on a selection, on the local GPU server or on hosted models. Results land in the draft or as suggestions to accept. | Editors and the Owner |
+| **Review** | See every unpublished change in the shared draft against its catalog baseline, with who made it. | Editors and the Owner |
+| **Publish** | Inspect the draft at its current revision, broken down by state, then publish that revision. Publishing writes an immutable snapshot and advances the catalog version the game reads. Changes saved afterwards stay in the draft. | Owner |
+| **Members** | Invite people and set their role. Sign-in is invite-only. | Owner |
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Editor -->|Saves change| Draft[Shared draft]
-    Pipeline -->|Applies results| Draft
-    Owner -->|Publishes revision N| Draft
-    Draft -->|Release of revision N| Snapshot
-    Snapshot -->|Versioned catalog| Game[State Spotter]
+    People[Editors and Owner] --> App
+
+    subgraph Vercel
+        App[Next.js app and Functions]
+        Flow[Workflow: Publish and pipeline runs]
+        Hosted[AI Gateway, AI SDK and Eve]
+    end
+
+    subgraph Outside["Outside Vercel"]
+        Firebase[(Staging Firebase)]
+        GPU[Local GPU server]
+        Game[State Spotter game]
+    end
+
+    App -->|OIDC, no stored key| Firebase
+    App --> Flow
+    Flow -->|hosted stages| Hosted
+    GPU -->|claims jobs, outbound only| App
+    Flow -->|new catalog version| Firebase
+    Firebase -->|catalog| Game
 ```
 
-**Next.js on Vercel** serves the workspace and API routes. **Vercel Workflows** keep Publish and pipeline coordination durable across requests. **Firebase Auth and Firestore** handle membership, drafts and job state, and **Cloud Storage** holds the versioned snapshots. **Ollama** can use a desktop GPU for configured stages, while **Vercel AI Gateway and Eve** support hosted tagging and research.
+- **Next.js and Vercel Functions** serve the workspace. Each API route under `app/api/` runs as a Function.
+- **Vercel OIDC** gives each Function a short-lived token that Google trades for Firebase access, so the project stores no service-account key. See [Access](docs/access.md).
+- **Workflow** runs Publish and pipeline runs as durable, retried steps, so a run isn't tied to a single request.
+- **AI Gateway and the AI SDK** run hosted Tag and Research stages. **Eve** hosts the research agent.
+- **Firebase** keeps members, the shared draft, jobs and the published catalog. Cloud Storage holds the catalog snapshots.
+- **The local GPU server** runs Ollama models for the stages that stay local. It connects out to the dashboard to claim jobs, so the dashboard never needs a way in.
 
-## Local setup
+## Where to go
+
+| I want to… | Start here |
+| --- | --- |
+| Try the app as a reviewer | [Reviewer guide](docs/try-it.md) |
+| Understand the catalog, roles and review model | [Product and design spec](docs/spec.md) |
+| See why it's built this way on Vercel | [Write-up, part 1](./docs/take-home/part-1.html?raw=1) and [Access](docs/access.md) |
+| Run it on my machine | [Run it locally](#run-it-locally) |
+| Change a screen | `app/(curator)/` and `components/`, following the [design system](design-system/README.md) |
+| Work on Publish | `workflows/approval.ts`, `lib/publish/` and [Publish controls and recovery](docs/publish-recovery.md) |
+| Work on the AI pipeline | `lib/jobs/` (queue), `workflows/`, `worker/` (local GPU), [Research](docs/research.md) and the [hosted research demo](docs/eve-pipeline-demo.md) |
+| Work on live updates | `lib/live/` and [Live updates](docs/live-updates.md) |
+| Find past decisions | [Decisions](notes/decisions.md), [UI decisions](notes/ui-decisions.md) and [Architecture notes per screen](docs/design/architecture-notes.md) |
+
+### Repository layout
+
+| Folder | What's in it |
+| --- | --- |
+| `app/` | Next.js App Router. Curator pages are under `(curator)/`, alongside sign-in, invites and the API routes under `api/`. |
+| `components/` | UI grouped by feature (dashboard, plate page, review, publish, research, members), with shared primitives in `ui/`. |
+| `lib/` | Logic by domain: `auth`, `catalog`, `jobs` (the pipeline queue), `publish`, `review`, `research`, `tagging`, `live`, `members`, `models`, and `gcp` for OIDC credentials. |
+| `workflows/` | Durable Workflows: Publish, pipeline runs, tagging, research and catalog push. |
+| `worker/` | The local GPU worker, which claims jobs and runs Ollama models, plus evaluation and benchmark tools. |
+| `agent/` | The Eve research agent: instructions, tools and channels. |
+| `design-system/` | Interstate, the shared design language with the game: tokens, principles, components and screens. |
+| `docs/` | Guides for access, the reviewer demo, Publish recovery, research and live updates, plus benchmarks and the take-home write-up. |
+| `tests/`, `tests-emulator/` | Unit and component tests, and Firestore integration tests that run in the emulator. |
+| `scripts/` | Seed, migration and measurement scripts, plus repository hygiene checks. |
+| `fixtures/`, `eval-results/` | Catalog fixtures for offline builds and tests, and tagging evaluation reports. |
+
+## Run it locally
 
 ### Run the checks
 
@@ -69,19 +130,8 @@ Open [localhost:3000](http://localhost:3000). The [Firebase access guide](docs/a
 
 For local Workflow debugging, run `npm run workflow:inspect` in the same checkout as the dev server. It opens the inspector at [localhost:3456](http://localhost:3456). Set `WORKFLOW_WEB_PORT` in `.env.local` if you run multiple inspectors.
 
-## Development notes
+To run pipeline jobs on your own GPU, start the worker with `npm run worker`. Its settings (the dashboard origin, a worker token, the Ollama URL and the model) are read in `worker/main.ts` and `worker/local.ts`.
 
-Run `npm run verify` before submitting changes. The repository’s self-hosted GitHub Actions jobs run only in private mode. Maintainers can enable the local hygiene hooks with `git config core.hooksPath .githooks`.
+## Contributing
 
-### Where files belong
-
-- Put route-only views and types beside their page in `_components/` and `_lib/`. Group reusable dashboard interactions by feature, such as `components/dashboard/drag/`, `components/dashboard/selection/` and `components/dashboard/pipeline-runs/`. A piece several features share, such as `hosted-model-picker.tsx`, stays at the root of `components/dashboard/`.
-- `components/publish/draft/` owns the shared-draft Publish view. The release view and controls shared by both views stay in `components/publish/`. Review and Publish use the same change definitions in `lib/review/plate-changes.ts`.
-- Keep shared-draft lifecycle code in `lib/review/draft/`, migration tooling in `lib/review/migration/`, and job queue orchestration in `lib/jobs/queue/`. Worker and workflow entry points keep their documented paths.
-- Group tests by subject under `tests/`. Name jsdom tests `*.dom.test.ts` or `*.dom.test.tsx`; other unit tests run in Node. `tests/dev/test-layout.test.ts` rejects per-file environment comments and `.dom.test` files outside `tests/`. Firestore integration tests stay in `tests-emulator/`.
-
-## Go deeper
-
-- [Product and design spec](docs/spec.md) explains the catalog, roles and review model.
-- [Hosted research demo](docs/eve-pipeline-demo.md) explains the Eve path and how to read its evidence.
-- [Publish controls and recovery](docs/publish-recovery.md) covers publish receipts, retries and recovery.
+Run `npm run verify` before opening a pull request; CI runs the same checks. The repository's self-hosted GitHub Actions jobs run only in private mode. Maintainers can enable the local hygiene hooks with `git config core.hooksPath .githooks`.
