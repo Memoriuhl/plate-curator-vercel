@@ -3,9 +3,15 @@ import type { JobsDeps, TaggingJob } from '../jobs/types'
 import { expireJob, getJob, reportResult } from '../jobs/jobs'
 import { failLocalJob } from '../jobs/queue/queue-failure'
 import type { ResearchStateStore } from './state'
-import type { EvidenceSource, ResearchDraft, ResearchInput } from './types'
+import type {
+  EvidenceSource,
+  ResearchDraft,
+  ResearchInput,
+  ResearchRejection,
+} from './types'
 import { enrichmentTargets } from './enrichment'
 import {
+  enrichmentNotes,
   enrichmentPrompt,
   enrichmentPromptVersion,
   enrichmentSuggestion,
@@ -19,6 +25,8 @@ import {
   type PreparedEnrichment,
 } from '../../worker/pipeline/research'
 import { researchModelCosts } from './models/model-attempt'
+import { LEGACY_RESEARCH_PRICES } from './models/models'
+import type { StoryRetry, StoryRetryInput } from './story-retry'
 import { STRICT_MODEL_FAILURE } from '../models/routing'
 
 export type QueueResearchDeps = {
@@ -31,6 +39,8 @@ export type QueueResearchDeps = {
     input: ResearchInput,
     message: string
   ): Promise<{ sessionId: string; deliveryId: string }>
+  /** One retry when the first draft lacks the requested description or story. */
+  retry?: StoryRetry
 }
 
 // One queue job owns this Eve session. There is no parallel research-job ledger
@@ -71,7 +81,9 @@ export async function executeQueueResearch(
     sources: EvidenceSource[],
     usage: Record<string, number>,
     skippedPhases: number[] = [],
-    servedModel?: string
+    servedModel?: string,
+    rejected: ResearchRejection[] = [],
+    synthesized = false
   ) {
     if (draft && sources.length)
       await reportJobPhase(
@@ -83,12 +95,16 @@ export async function executeQueueResearch(
         skippedPhases
       )
     const fieldSuggestion = enrichmentSuggestion(draft, sources, plate, policy)
+    const researchNotes = synthesized
+      ? enrichmentNotes(draft, sources, plate, policy, rejected)
+      : []
     const result = await reportResult(jobs, 'hosted', job.id, job.claimId!, {
       ...meta,
       model: servedModel ?? meta.model,
       usage,
       durationMs: Math.max(0, jobs.now() - (job.startedAt ?? job.createdAt)),
       ...(skippedPhases.length ? { skippedPhases } : {}),
+      ...(researchNotes.length ? { researchNotes } : {}),
       ...(fieldSuggestion
         ? { fieldSuggestion }
         : {
@@ -163,9 +179,10 @@ export async function executeQueueResearch(
     return 'settled'
   }
   if (settled) {
-    const output = await deps.state.read<{ draft: ResearchDraft }>(
-      `draft/${job.id}`
-    )
+    const output = await deps.state.read<{
+      draft: ResearchDraft
+      rejected?: ResearchRejection[]
+    }>(`draft/${job.id}`)
     if (!output) {
       const result = await failLocalJob(
         jobs,
@@ -186,11 +203,31 @@ export async function executeQueueResearch(
     const usage =
       (await deps.state.read<Record<string, number>>(`usage/${job.id}`)) ?? {}
     const servedModel = await deps.state.read<string>(`served-model/${job.id}`)
+    let { draft: firstDraft } = output
+    let rejected = output.rejected ?? []
+    if (missingContent(firstDraft, fields) && deps.retry) {
+      const retried = await retryDraft(jobs, job, deps.retry, {
+        deadline:
+          (await deps.state.read<number>(`deadline/${job.id}`)) ??
+          job.leaseExpiresAt!,
+        prompt: `${enrichmentPrompt(plate, prepared.sources, policy, fields)}\nCall submit_draft directly with the structured result.`,
+        sources: prepared.sources,
+      })
+      if (
+        retried &&
+        missingContent(retried.draft, fields) <
+          missingContent(firstDraft, fields)
+      ) {
+        firstDraft = retried.draft
+        rejected = retried.rejected
+      }
+    }
     const costs = await researchModelCosts(deps.state, job.id)
     // Use the captured matched Wiki even when the model only found text/facts.
     const draft = {
-      ...output.draft,
+      ...firstDraft,
       wikiSource:
+        firstDraft.wikiSource ??
         output.draft.wikiSource ??
         wikiOnlyDraft(prepared.sources, prepared.wikiUrl).wikiSource,
     }
@@ -204,9 +241,41 @@ export async function executeQueueResearch(
         missingModelCosts: costs.missingModelCosts,
       },
       skippedPhases,
-      servedModel ?? undefined
+      servedModel ?? undefined,
+      rejected,
+      true
     )
   }
   if ((await getJob(jobs, job.id))?.state !== 'claimed') return 'settled'
   return 'waiting'
+}
+
+/** Count the requested description and story fields the draft left empty. */
+function missingContent(draft: ResearchDraft, fields: string[]) {
+  return (
+    Number(fields.includes('description') && !draft.description) +
+    Number(fields.includes('funFacts') && !draft.funFacts.length)
+  )
+}
+
+/** Retry the draft once with the run's research model and price binding. */
+async function retryDraft(
+  jobs: JobsDeps,
+  job: TaggingJob,
+  retry: StoryRetry,
+  input: Pick<StoryRetryInput, 'deadline' | 'prompt' | 'sources'>
+) {
+  const run = await jobs.store.transaction((tx) => tx.getRun(job.queueRunId!))
+  const binding = run?.modelBindings?.research
+  const model = binding?.model ?? job.researchModel!.model
+  const price =
+    binding?.price ??
+    LEGACY_RESEARCH_PRICES[model as keyof typeof LEGACY_RESEARCH_PRICES]
+  if (!price) return null
+  return retry({
+    ...input,
+    jobId: job.id,
+    model,
+    price: { price, outputTokensBound: binding?.outputTokensBound },
+  })
 }

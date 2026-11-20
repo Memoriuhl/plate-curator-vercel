@@ -1,3 +1,4 @@
+import type { ResearchNote } from '../../../lib/research/enrichment'
 import type { IconType } from 'react-icons'
 import {
   IoAddCircleOutline,
@@ -379,6 +380,27 @@ const stepReasons: Record<string, string> = {
   run_cancelled: 'The remaining work was cancelled.',
   unavailable: 'The worker cannot run this stage.',
   strict_model_failed: 'The selected model failed in Strict mode.',
+}
+
+const researchNoteFields: Record<ResearchNote['field'], string> = {
+  description: 'Description',
+  funFacts: 'Story',
+  readMore: 'Read more',
+  wikiUrl: 'Wiki link',
+  firstIssuedYear: 'First issued year',
+}
+const researchNoteReasons: Record<ResearchNote['reason'], string> = {
+  already_filled: 'kept the saved value (Fill missing)',
+  not_found: 'nothing citable in the sources',
+  unsupported_claim: 'rejected, not supported by the source',
+  length: 'rejected, wrong length',
+  source_not_fetched: 'rejected, cited a page that was not fetched',
+  invalid_draft: 'rejected, the model returned an invalid draft',
+}
+
+/** Explain why research left a field unchanged, e.g. "Story: nothing citable in the sources". */
+export function researchNoteText(note: ResearchNote): string {
+  return `${researchNoteFields[note.field]}: ${researchNoteReasons[note.reason]}`
 }
 
 export function pipelineStepReason(reason: string): string {

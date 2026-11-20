@@ -17,7 +17,11 @@ import { useSession } from '@/lib/client/session'
 import type { QueueRunView } from '@/lib/jobs/queue/queue-types'
 import type { RunPlateDetail } from '@/lib/jobs/run-plates'
 import { plateOutcomes, type StepProgress } from '@/lib/jobs/run-progress'
-import { pipelineStepReason, pipelineStages } from './pipeline-stages'
+import {
+  pipelineStepReason,
+  pipelineStages,
+  researchNoteText,
+} from './pipeline-stages'
 import { pipelineRunDetailKey, queueFetcher } from './use-pipeline-queue'
 import styles from './pipeline-runs.module.css'
 
@@ -50,6 +54,9 @@ export function PipelinePlateList({ plateIds, steps, plates }: Plates) {
                 step &&
                 (pipelineStages.find((item) => item.id === step.stage)?.label ??
                   step.stage)
+              const notes = steps.find(
+                (item) => item.plateId === id && item.stage === 'research'
+              )?.researchNotes
               return (
                 <li key={id} className={styles.plateRow}>
                   {plate?.imageUrl ? (
@@ -76,6 +83,11 @@ export function PipelinePlateList({ plateIds, steps, plates }: Plates) {
                           ` · ${stage}: ${pipelineStepReason(step.reason)}`}
                       </p>
                     )}
+                    {notes?.length ? (
+                      <p className="caption">
+                        {notes.map(researchNoteText).join(' · ')}
+                      </p>
+                    ) : null}
                     {plate ? <CheckStrip checks={plate.checks} /> : null}
                   </div>
                 </li>

@@ -5,8 +5,9 @@ import {
   enrichmentTargets,
   filterEnrichmentFields,
   type EnrichmentPolicy,
+  type ResearchNote,
 } from './enrichment'
-import type { EvidenceSource, ResearchDraft } from './types'
+import type { EvidenceSource, ResearchDraft, ResearchRejection } from './types'
 import { validateResearchResult } from './validate'
 
 export const enrichmentPromptVersion = 'enrichment-v3'
@@ -53,6 +54,62 @@ export function enrichmentSuggestion(
         'research'
       )
     : null
+}
+
+const rejectionNotes: Record<string, ResearchNote['reason']> = {
+  unsupported_claim: 'unsupported_claim',
+  length: 'length',
+  duplicate_or_length: 'length',
+  source_not_fetched: 'source_not_fetched',
+  invalid_research_draft: 'invalid_draft',
+  issue_year_not_supported: 'unsupported_claim',
+}
+
+/**
+ * Explain why the description and story did not reach the plate: the model found
+ * nothing, validation rejected it, or Fill missing kept the saved value. `prior` holds
+ * rejections from an earlier validation pass, since the hosted path stores a draft that
+ * was already validated.
+ */
+export function enrichmentNotes(
+  raw: unknown,
+  sources: EvidenceSource[],
+  plate: Partial<Plate>,
+  policy: EnrichmentPolicy,
+  prior: ResearchRejection[] = []
+): ResearchNote[] {
+  const { draft, rejected } = validateResearchResult(raw, sources)
+  const targets = enrichmentTargets(plate, policy)
+  const notes = new Map<string, ResearchNote>()
+  const add = (note: ResearchNote) =>
+    notes.set(`${note.field}:${note.reason}`, note)
+  for (const rejection of [...prior, ...rejected]) {
+    const reason = rejectionNotes[rejection.reason]
+    if (!reason) continue
+    if (rejection.field === 'shape') {
+      if (rejection.reason === 'issue_year_not_supported')
+        add({ field: 'firstIssuedYear', reason })
+      else
+        for (const field of ['description', 'funFacts'] as const)
+          if (targets.includes(field)) add({ field, reason })
+    } else if (targets.includes(rejection.field)) {
+      add({ field: rejection.field, reason })
+    }
+  }
+  const drafted = {
+    description: !!draft.description,
+    funFacts: draft.funFacts.length > 0,
+  }
+  for (const field of ['description', 'funFacts'] as const) {
+    if (!targets.includes(field)) {
+      if (drafted[field]) add({ field, reason: 'already_filled' })
+    } else if (
+      !drafted[field] &&
+      ![...notes.values()].some((note) => note.field === field)
+    )
+      add({ field, reason: 'not_found' })
+  }
+  return [...notes.values()].slice(0, 12)
 }
 
 /** Build the synthesis prompt for the exact plate and supply its vetted evidence. */

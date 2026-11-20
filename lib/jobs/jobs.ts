@@ -29,7 +29,10 @@ import {
   queueStageTimeoutMs,
   queueGroupContext,
 } from './queue/queue'
-import { filterEnrichmentFields } from '../research/enrichment'
+import {
+  filterEnrichmentFields,
+  parseResearchNotes,
+} from '../research/enrichment'
 import { workflowVisibilityUrl } from './workflow-visibility'
 import { claimable } from './claim-eligibility'
 import { normalizeSkippedPhases } from './job-phase'
@@ -318,6 +321,11 @@ function normalize(
 ): JobResult | null {
   const skippedPhases = normalizeSkippedPhases(input?.skippedPhases, stage)
   if (skippedPhases === null) return null
+  const researchNotes =
+    stage === 'research' || input?.researchNotes === undefined
+      ? parseResearchNotes(input?.researchNotes)
+      : null
+  if (researchNotes === null) return null
   const stageError =
     stage &&
     process.env.NEXT_PUBLIC_LOCAL_PIPELINE === '1' &&
@@ -385,6 +393,7 @@ function normalize(
     promptVersion: input.promptVersion,
     durationMs: input.durationMs,
     ...(skippedPhases?.length ? { skippedPhases } : {}),
+    ...(researchNotes.length ? { researchNotes } : {}),
     ...(input.usage === undefined
       ? {}
       : {

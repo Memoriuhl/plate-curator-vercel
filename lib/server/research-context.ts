@@ -13,10 +13,13 @@ export async function hostedQueueResearch(job: TaggingJob) {
   const { activeResearchOwner } = await import('../research/auth')
   const { executeQueueResearch } = await import('../research/queue-hosted')
   const { createEveResearchDelivery } = await import('../research/delivery')
+  const { gatewayStoryRetry } = await import('../research/story-retry')
   if (process.env.RESEARCH_ENABLE_MODEL_CALLS !== 'true')
     throw Error('Hosted research model calls are disabled')
+  const state = await researchState()
   return executeQueueResearch(jobsDeps(), job, {
-    state: await researchState(),
+    state,
+    retry: gatewayStoryRetry(state),
     activeOwner: activeResearchOwner,
     /**
      * Deliver a research request using configured Eve credentials and deployment access.

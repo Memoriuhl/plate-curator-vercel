@@ -27,7 +27,7 @@ export function standardPlateReference(
 }
 
 /** Extract a Wikipedia article title from a supported article URL. */
-function wikiTitle(value?: string | null) {
+export function wikiTitle(value?: string | null) {
   try {
     const url = new URL(value ?? '')
     return url.protocol === 'https:' &&

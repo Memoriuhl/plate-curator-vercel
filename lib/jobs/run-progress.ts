@@ -1,3 +1,4 @@
+import type { ResearchNote } from '../research/enrichment'
 import type {
   QueueRunSummary,
   QueueRunView,
@@ -15,6 +16,7 @@ export type StepProgress = {
   status: RunStatus | 'waiting' | 'skipped'
   phaseIndex?: number
   skippedPhases?: number[]
+  researchNotes?: ResearchNote[]
   durationMs?: number
   reason?: string
   servedByFallback?: string
@@ -105,6 +107,9 @@ export function queueProgress(
         ? { servedByFallback: job.result.model }
         : {}),
       ...(skippedPhases?.length ? { skippedPhases } : {}),
+      ...(job?.result?.researchNotes?.length
+        ? { researchNotes: job.result.researchNotes }
+        : {}),
       ...((step.reason ?? job?.result?.stageError ?? job?.failure)
         ? { reason: step.reason ?? job?.result?.stageError ?? job?.failure }
         : {}),

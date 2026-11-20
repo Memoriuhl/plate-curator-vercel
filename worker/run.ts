@@ -17,6 +17,7 @@ import {
   type EnrichmentOptions,
 } from '../lib/research/enrichment'
 import type { StoryFields } from '../lib/catalog/types'
+import type { ResearchNote } from '../lib/research/enrichment'
 
 export type WorkerPlate = StoryFields & {
   image: string
@@ -38,6 +39,7 @@ export type StageResult = {
   promptVersion: string
   usage?: Record<string, number>
   skippedPhases?: number[]
+  researchNotes?: ResearchNote[]
 }
 
 export interface WorkerDeps {
@@ -164,6 +166,7 @@ async function executeClaim(
   let suggestions: string[] = []
   let usage: Record<string, number> | undefined
   let skippedPhases: number[] | undefined
+  let researchNotes: ResearchNote[] | undefined
   if (claim.stage) {
     if (!deps.suggestFields) {
       deps.log('No handler is configured for this pipeline stage')
@@ -209,6 +212,7 @@ async function executeClaim(
     promptVersion = result.promptVersion
     usage = result.usage
     skippedPhases = result.skippedPhases
+    researchNotes = result.researchNotes
   } else {
     let imageB64: string
     try {
@@ -241,6 +245,7 @@ async function executeClaim(
     durationMs: Math.max(0, deps.now() - start),
     ...(usage ? { usage } : {}),
     ...(skippedPhases?.length ? { skippedPhases } : {}),
+    ...(researchNotes?.length ? { researchNotes } : {}),
   })
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (!Number.isFinite(deadline) || deps.now() >= deadline) break

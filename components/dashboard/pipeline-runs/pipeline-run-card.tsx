@@ -28,7 +28,11 @@ import {
   type PipelineProgress,
   type StepProgress,
 } from '@/lib/jobs/run-progress'
-import { pipelineStepReason, pipelineStages } from './pipeline-stages'
+import {
+  pipelineStepReason,
+  pipelineStages,
+  researchNoteText,
+} from './pipeline-stages'
 import { PlatePipelineTimeline } from './plate-pipeline-timeline'
 import { machineLabels, type RunExecution } from './pipeline-run-execution'
 import type { RunDisclosure } from './pipeline-run-rail'
@@ -376,6 +380,15 @@ export function PipelineRunCard({
               })
             ),
           ]
+          // Why research left fields unchanged, counted across plates.
+          const noteCounts = Map.groupBy(
+            steps.flatMap((step) => step.researchNotes ?? []),
+            researchNoteText
+          )
+          for (const [text, notes] of noteCounts)
+            explanations.push(
+              notes.length > 1 ? `${text} (${notes.length} plates)` : text
+            )
           const done = steps.filter(
             (step) => step.status === 'completed'
           ).length
