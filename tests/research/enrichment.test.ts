@@ -4,7 +4,11 @@ import {
   enrichmentTargets,
   filterEnrichmentFields,
 } from '../../lib/research/enrichment'
-import { enrichmentSuggestion } from '../../lib/research/enrichment-result'
+import {
+  enrichmentPrompt,
+  enrichmentPromptVersion,
+  enrichmentSuggestion,
+} from '../../lib/research/enrichment-result'
 import { evidenceSource } from '../../lib/research/evidence'
 import { vi } from 'vitest'
 
@@ -90,4 +94,28 @@ test('Fill missing can add a cited issue year without overwriting existing facts
   } finally {
     vi.unstubAllEnvs()
   }
+})
+
+test('The enrichment prompt asks for the subject, not the plate, and ignores look-alike pages', () => {
+  const prompt = enrichmentPrompt(
+    { displayName: 'Taxi', state: 'AL' },
+    [],
+    'replace',
+    ['description', 'funFacts']
+  )
+  expect(enrichmentPromptVersion).toBe('enrichment-v4')
+  // Plate-framed descriptions fail claim matching, so the description describes the subject.
+  expect(prompt).toContain('write about the subject, not the plate')
+  expect(prompt).not.toContain('about the plate’s purpose or origin')
+  // A page that only shares a word with the plate name (a band named Moon Taxi) is not evidence.
+  expect(prompt).toContain(
+    'Ignore evidence about anything else that merely shares a word with the plate name'
+  )
+  // Restating that the plate exists is not a fact, and citations stay out of the text.
+  expect(prompt).toContain(
+    'Saying that the plate exists, is listed, or is available'
+  )
+  expect(prompt).toContain(
+    'Never put evidence IDs, brackets, or citations inside'
+  )
 })
