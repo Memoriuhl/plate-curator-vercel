@@ -31,6 +31,11 @@ import { enrichmentSuggestion } from '../../../lib/research/enrichment-result'
 import { executeQueueResearch } from '../../../lib/research/queue-hosted'
 import { createResearchMemoryState } from '../../../lib/research/state'
 import { evidenceSource } from '../../../lib/research/evidence'
+import { validateResearchResult } from '../../../lib/research/validate'
+import type {
+  StoryRetry,
+  StoryRetryInput,
+} from '../../../lib/research/story-retry'
 import { plateChecks } from '../../../lib/catalog/plate-checks'
 import { queueProgress } from '../../../lib/jobs/run-progress'
 import type { Plate } from '../../../lib/catalog/types'
@@ -1136,4 +1141,106 @@ test('saved-source research reports an incompatible worker using the same condit
   expect(
     await claimNext(s.jobs, 'worker', { supportsSavedSources: true })
   ).toMatchObject({ job: { queueRunId: run.id } })
+})
+
+test('hosted Fill missing saves research notes on the job and shows them in run progress', async () => {
+  const s = setup()
+  const plateId = s.plates[0].id
+  const created = await enqueueSelection(s.jobs, actor, {
+    requestId: 'notes',
+    batchId: 'batch',
+    plateIds: [plateId],
+    stages: ['research'],
+    researchModelId: 'eve-gemini-2-5-flash-lite',
+    options: { research: { policy: 'fill-missing' } },
+  })
+  if (!created.ok) throw Error(created.error)
+  const [run] = created.value
+  const id = (await dispatchQueueStage(s.jobs, run.id, 1, 0, 'notes-hook'))!
+  const noTag = async () => {
+    throw Error('No Tag jobs expected')
+  }
+  expect(await executeHostedQueueStage(s.jobs, id, noTag, s.hosted)).toBe(
+    'settled'
+  )
+  await observeQueueStage(s.jobs, run.id, 1, 0)
+  const job = await getJob(s.jobs, id)
+  // The plate already has a description, so Fill missing keeps it and says so.
+  expect(job?.result?.researchNotes).toEqual([
+    { field: 'description', reason: 'already_filled' },
+  ])
+  const listed = await listRuns(s.jobs, actor)
+  if (!listed.ok) throw Error(listed.error)
+  expect(queueProgress(listed.value[0]).steps[0].researchNotes).toEqual([
+    { field: 'description', reason: 'already_filled' },
+  ])
+})
+
+test('hosted research retries once when the first draft has no story, and keeps a complete draft without retrying', async () => {
+  type FirstDraft = Omit<typeof draft, 'description' | 'funFacts'> & {
+    description: string | null
+    funFacts: { text: string; sourceId: string }[]
+  }
+  const run = async (first: FirstDraft) => {
+    const s = setup()
+    const plateId = s.plates[0].id
+    const created = await enqueueSelection(s.jobs, actor, {
+      requestId: `retry-${first.funFacts.length}`,
+      batchId: 'batch',
+      plateIds: [plateId],
+      stages: ['research'],
+      researchModelId: 'eve-gemini-2-5-flash-lite',
+      options: { research: { policy: 'fill-missing' } },
+    })
+    if (!created.ok) throw Error(created.error)
+    const [queued] = created.value
+    s.deliver.mockImplementationOnce(async (job: TaggingJob) => {
+      await s.state.update(`draft/${job.id}`, () => ({
+        value: { draft: first, rejected: [] },
+        result: null,
+      }))
+      await s.state.update(`eve-outcome/${job.id}`, () => ({
+        value: { outcome: 'completed' },
+        result: null,
+      }))
+      return { sessionId: `session-${job.id}`, deliveryId: 'delivery' }
+    })
+    const retry = vi.fn<(input: StoryRetryInput) => ReturnType<StoryRetry>>(
+      async () => validateResearchResult(draft, [source])
+    )
+    const id = (await dispatchQueueStage(s.jobs, queued.id, 1, 0, 'retry'))!
+    await executeHostedQueueStage(
+      s.jobs,
+      id,
+      async () => {
+        throw Error('No Tag jobs expected')
+      },
+      (job) =>
+        executeQueueResearch(s.jobs, job, {
+          state: s.state,
+          capture: s.capture,
+          captureSaved: s.captureSaved,
+          activeOwner: async () => true,
+          deliver: s.deliver,
+          retry,
+        })
+    )
+    return { retry, job: await getJob(s.jobs, id) }
+  }
+
+  const empty = await run({ ...draft, description: null, funFacts: [] })
+  expect(empty.retry).toHaveBeenCalledOnce()
+  expect(empty.retry.mock.calls[0][0]).toMatchObject({
+    jobId: empty.job!.id,
+    prompt: expect.stringContaining('submit_draft'),
+  })
+  expect(empty.job?.result?.fieldSuggestion).toMatchObject({
+    fields: { funFacts: [{ text: draft.funFacts[0].text }] },
+  })
+
+  const complete = await run(draft)
+  expect(complete.retry).not.toHaveBeenCalled()
+  expect(complete.job?.result?.fieldSuggestion).toMatchObject({
+    fields: { funFacts: [{ text: draft.funFacts[0].text }] },
+  })
 })

@@ -1,5 +1,6 @@
 import type { HostedModelBinding } from '../models/selection'
 import type { Plate } from '../catalog/types'
+import type { ResearchNote } from '../research/enrichment'
 import type {
   EditableFields,
   ProposedEdit,
@@ -53,6 +54,7 @@ export type JobResult = {
   durationMs: number
   usage?: Record<string, number>
   skippedPhases?: number[]
+  researchNotes?: ResearchNote[]
 }
 export type ReportInput = Omit<
   JobResult,
@@ -61,6 +63,7 @@ export type ReportInput = Omit<
   | 'stageError'
   | 'skippedPhases'
   | 'servedByFallback'
+  | 'researchNotes'
 > & {
   suggestions?: unknown
   fieldSuggestion?: unknown
@@ -68,6 +71,7 @@ export type ReportInput = Omit<
   enhancedImage?: unknown
   enhancedImageFrames?: unknown
   skippedPhases?: unknown
+  researchNotes?: unknown
 }
 export type TaggingJob = {
   id: string

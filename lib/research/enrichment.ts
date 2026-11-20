@@ -16,6 +16,42 @@ export type EnrichmentOptions = {
 }
 export const savedResearchSourcesHeader = 'x-plate-curator-reuse-saved-sources'
 
+/**
+ * Why research did not write a field. Saved on the job result so the run panel can
+ * explain a step that finished without changing the plate.
+ */
+export const researchNoteReasons = [
+  'already_filled',
+  'not_found',
+  'unsupported_claim',
+  'length',
+  'source_not_fetched',
+  'invalid_draft',
+] as const
+export type ResearchNote = {
+  field: EnrichmentField
+  reason: (typeof researchNoteReasons)[number]
+}
+
+/** Accept only well-formed research notes from a worker report. */
+export function parseResearchNotes(value: unknown): ResearchNote[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 12) return null
+  const notes: ResearchNote[] = []
+  for (const note of value) {
+    if (
+      !note ||
+      typeof note !== 'object' ||
+      Object.keys(note).some((key) => key !== 'field' && key !== 'reason') ||
+      !(enrichmentFields as readonly unknown[]).includes(note.field) ||
+      !(researchNoteReasons as readonly unknown[]).includes(note.reason)
+    )
+      return null
+    notes.push({ field: note.field, reason: note.reason })
+  }
+  return notes
+}
+
 export function shouldReuseSavedSources(options?: EnrichmentOptions) {
   return options?.reuseSavedSources === true && options.policy !== 'replace'
 }

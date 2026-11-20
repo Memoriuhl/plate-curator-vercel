@@ -6,6 +6,7 @@ import {
   type EnrichmentOptions,
 } from '../../lib/research/enrichment'
 import {
+  enrichmentNotes,
   enrichmentPrompt,
   enrichmentPromptVersion,
   enrichmentSuggestion,
@@ -19,7 +20,7 @@ import type { EvidenceSource } from '../../lib/research/types'
 import { researchModel } from '../../lib/research/models/models'
 import { storyUrl } from '../../lib/review/fields'
 import type { StageResult, WorkerPlate } from '../run'
-import { gatherWikipedia } from './sources'
+import { gatherWikipedia, standardPlateReference, wikiTitle } from './sources'
 import { findWikipediaLink } from './wiki'
 import { extractJson } from '../model'
 import { captureAlaskaPlateSources } from './alaska-sources'
@@ -178,7 +179,14 @@ export async function prepareEnrichment(
       ],
     }
   }
-  if (options.policy !== 'replace' && storyUrl(plate.wikiUrl)) {
+  // A standard plate's saved link is often a generic article (e.g. wiki/Standard).
+  // Reuse it only when it is the state's registration plates article.
+  const reference = standardPlateReference(plate)
+  if (
+    options.policy !== 'replace' &&
+    storyUrl(plate.wikiUrl) &&
+    (!reference || wikiTitle(plate.wikiUrl) === reference)
+  ) {
     const saved = await captureSaved(plate, fetchPage, true)
     if (saved.sources.length)
       return { ...(await withOfficial(saved)), sourceLookupSkipped: true }
@@ -308,8 +316,12 @@ export function createEnrichmentHandler(options: {
           wikiOnlyDraft(sources, wikiUrl).wikiSource,
       }
     const fieldSuggestion = enrichmentSuggestion(raw, sources, plate, policy)
+    const researchNotes = skippedPhases.includes(1)
+      ? []
+      : enrichmentNotes(raw, sources, plate, policy)
     return {
       ...meta,
+      ...(researchNotes.length ? { researchNotes } : {}),
       ...(fieldSuggestion
         ? { fieldSuggestion }
         : { stageError: 'no_supported_fields' as const }),
