@@ -46,7 +46,6 @@ import {
   parallelGatewayTagPlan,
 } from '@/lib/jobs/queue/queue-parallel'
 import type { LocalRunStage } from '@/lib/jobs/queue/queue-types'
-import { shouldReuseSavedSources } from '@/lib/research/enrichment'
 import { groupSelectionLimit } from '@/lib/review/group-context'
 import { enhancementOperations } from '@/lib/jobs/image-enhancement'
 import { useSelectedPlates } from '../selection/plate-selection'
@@ -221,7 +220,6 @@ export function PipelineRunControls({
   const needsResearchModel = steps.some((step) => step.stage === 'research')
   const tagModel = needsTagModel ? tagChoice.modelId : undefined
   const researchModel = needsResearchModel ? researchChoice.model : undefined
-  const useSavedSources = shouldReuseSavedSources(options.research)
   const stageIssues = new Map<LocalRunStage, string>(
     newRunStages.flatMap((stage) => {
       const { id } = stage
@@ -482,11 +480,7 @@ export function PipelineRunControls({
                                     className="size-3.5 shrink-0"
                                   />
                                   <span className="whitespace-nowrap">
-                                    {id === 'research' &&
-                                    index === 0 &&
-                                    useSavedSources
-                                      ? 'Use saved sources'
-                                      : label}
+                                    {label}
                                   </span>
                                 </span>
                               )
@@ -608,14 +602,6 @@ export function PipelineRunControls({
                             </label>
                           )
                         })}
-                        {id === 'research' &&
-                        values.reuseSavedSources === true ? (
-                          <p className="caption">
-                            {values.policy === 'replace'
-                              ? 'Replace existing searches for sources again.'
-                              : 'Skips plates without a usable saved source.'}
-                          </p>
-                        ) : null}
                         {id === 'research' ? (
                           <ResearchModelPicker choice={researchChoice} />
                         ) : null}
